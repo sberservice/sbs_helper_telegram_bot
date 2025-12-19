@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyvenv.cfg
+*.py[cod]
+*$py.class
+*.so
+.env
+.venv
+venv/
+ENV/
+env/
+
+# IDEs
+.idea/
+.vscode/
+*.sublime-*
+
+# Other
+.DS_Store
+*.log
+dist/
+build/
+*.egg-info/

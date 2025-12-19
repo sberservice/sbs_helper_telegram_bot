@@ -1,0 +1,20 @@
+#TODO work in progress add mysql deployment and other tests 
+name: SBS Helper Telegram Bot
+on: 
+    pull_request:
+      branches:
+        - main
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps: 
+      - name: checkout repo content
+        uses: actions/checkout@v4
+      - name: setup python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "" 
+      - name: install python packages
+        run: |
+          pytohn -m pip install --upgrade pip
+          pip install -r requirements.txt
