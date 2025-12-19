@@ -128,7 +128,7 @@ async def invite_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) ->
             if len(result)>0:
                 await update.message.reply_text("Доступные инвайты:")
                 for row in result:
-                    await update.message.reply_text(f"{row["invite"]}")
+                    await update.message.reply_text(f'{row["invite"]}')
             else:
                 await update.message.reply_text("У вас нет доступных инвайтов.")
 
