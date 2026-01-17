@@ -1,5 +1,5 @@
 """
-imagebot.py
+telegram_bot.py
 
 Telegram bot for an invite-only image processing service.
 
@@ -35,7 +35,7 @@ from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE,MESSAGE_WELCOME
 from src.common.telegram_user import check_if_user_legit,update_user_info_from_telegram
 from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import handle_incoming_document
 
-from config.settings import DEBUG
+from config.settings import DEBUG, INVITES_PER_NEW_USER
 
 
 logging.basicConfig(
@@ -146,7 +146,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         if check_if_invite_entered(update.effective_user.id,update.message.text) == InviteStatus.SUCCESS:
             update_user_info_from_telegram(update.effective_user)
             await update.message.reply_text("Добро пожаловать!")
-            for _ in range(2):                            
+            for _ in range(INVITES_PER_NEW_USER):                            
                 invite=invites.generate_invite_for_user(update.effective_user.id)
                 await update.message.reply_text("Вам выдан инвайт. Вы можете им поделиться: "+invite)
         elif check_if_invite_entered(update.effective_user.id,update.message.text) == InviteStatus.NOT_EXISTS:

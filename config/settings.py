@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DEBUG: Final[bool] = os.getenv("DEBUG", "0") == "1"
+INVITES_PER_NEW_USER: Final[int] = int(os.getenv("INVITES_PER_NEW_USER", "2"))
 
 MIN_UPLOADED_IMAGE_HEIGHT = 100
 MIN_UPLOADED_IMAGE_WIDTH = 100
