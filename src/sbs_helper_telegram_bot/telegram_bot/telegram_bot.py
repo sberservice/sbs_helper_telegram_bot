@@ -49,7 +49,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 #FIXME: bad code The following function contains a racing condition which should be fixed by FOR UDPATE logic
-def check_if_invite_entered(telegram_id,invite) -> bool:
+def check_if_invite_entered(telegram_id,invite) -> InviteStatus:
     """
         Validates and consumes an invite code for a user.
 
@@ -57,34 +57,39 @@ def check_if_invite_entered(telegram_id,invite) -> bool:
         (consumed_userid is NULL). If valid, marks it as consumed by the user
         with the current timestamp.
 
+        Uses SELECT ... FOR UPDATE to prevent race conditions by locking the row
+        during the entire transaction.
+
         Args:
             telegram_id: Telegram user ID attempting to use the invite.
             invite: Invite code string to validate.
 
         Returns:
-            True if the invite was valid and successfully consumed,
-            False if already used or doesn't exist.
+            InviteStatus.SUCCESS if the invite was valid and successfully consumed,
+            InviteStatus.ALREADY_CONSUMED if already used,
+            InviteStatus.NOT_EXISTS if doesn't exist.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            #check if invite is already consumed
-            sql_query = "SELECT count(invite) as invites_count from invites where consumed_userid is not null and invite=%s"
+            # Lock the row to prevent race conditions
+            sql_query = "SELECT consumed_userid FROM invites WHERE invite=%s FOR UPDATE"
             val=(invite,)
             cursor.execute(sql_query,val)
             result = cursor.fetchone()
-            if result["invites_count"]>0:
+            
+            # Invite doesn't exist
+            if result is None:
+                return InviteStatus.NOT_EXISTS
+            
+            # Invite is already consumed
+            if result["consumed_userid"] is not None:
                 return InviteStatus.ALREADY_CONSUMED
-            #check if invite exists and is unused
-            sql_query = "SELECT count(invite) as invites_count from invites where consumed_userid is NULL and invite=%s"
-            val=(invite,)
+            
+            # Invite is valid and unused - consume it
+            sql_query = "UPDATE invites SET consumed_userid=%s, consumed_timestamp=UNIX_TIMESTAMP() WHERE invite=%s"
+            val=(telegram_id,invite)
             cursor.execute(sql_query,val)
-            result = cursor.fetchone()
-            if result["invites_count"]>0:
-                sql_query = "update invites set consumed_userid=%s, consumed_timestamp=UNIX_TIMESTAMP() where invite=%s"
-                val=(telegram_id,invite)
-                cursor.execute(sql_query,val)
-                return InviteStatus.SUCCESS          
-            return InviteStatus.NOT_EXISTS
+            return InviteStatus.SUCCESS
 
 
 
