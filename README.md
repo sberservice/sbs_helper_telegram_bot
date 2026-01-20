@@ -1,7 +1,6 @@
 # SPRINT Fake Location Overlay Bot 🚀
 
-![Bot Demo](https://t.me/vyezdbyl_bot)  
-*(Replace with an actual demo screenshot or GIF for visual appeal)*
+The demo version of the bot is located at this link: [https://t.me/vyezdbyl_bot](https://t.me/vyezdbyl_bot)  
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/) [![License: Non-Commercial](https://img.shields.io/badge/license-Non--Commercial-red.svg)](LICENSE) [![For Testing Only](https://img.shields.io/badge/status-testing%20only-yellow.svg)](README.md#disclaimer)
 
