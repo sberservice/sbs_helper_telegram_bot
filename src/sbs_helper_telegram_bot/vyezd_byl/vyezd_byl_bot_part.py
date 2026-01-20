@@ -7,7 +7,7 @@ from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
 from src.common.constants.os import IMAGES_DIR
 import logging
 from pathlib import Path  
-from config.settings import DEBUG
+from config.settings import DEBUG, MAX_SCREENSHOT_SIZE_BYTES
 
 logging.basicConfig(
     level=logging.DEBUG if DEBUG else logging.INFO,
@@ -103,7 +103,7 @@ async def handle_incoming_document(update: Update, context: ContextTypes.DEFAULT
         file_size = update.message.document.file_size
         file_name = update.message.document.file_name
 
-        if file_size > 4000000:
+        if file_size > MAX_SCREENSHOT_SIZE_BYTES:
             await update.message.reply_text("Файл слишком большой.")
             return
 
