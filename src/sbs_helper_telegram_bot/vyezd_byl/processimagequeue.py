@@ -360,7 +360,11 @@ def mark_job_as_finished(job_id) -> None:
 
 def get_next_pending_job_id() -> dict | None:
     """
-        Retrieves the oldest pending job (status=0) from the image processing queue.
+        Retrieves the oldest pending job (status=0) from the image processing queue
+        and atomically marks it as in-progress (status=1).
+
+        Uses SELECT ... FOR UPDATE with SKIP LOCKED to prevent race conditions
+        when multiple workers are running concurrently.
 
         Returns:
             dict with keys 'user_id', 'file_name', and 'job_id' if a pending job exists,
@@ -368,13 +372,28 @@ def get_next_pending_job_id() -> dict | None:
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            sql_query = "SELECT userid, file_name,id FROM imagequeue WHERE status=0 order by timestamp asc limit 1"
+            # Atomically select and update the next pending job
+            # FOR UPDATE locks the row, SKIP LOCKED prevents waiting on locked rows
+            sql_query = """
+                SELECT userid, file_name, id 
+                FROM imagequeue 
+                WHERE status=0 
+                ORDER BY timestamp ASC 
+                LIMIT 1 
+                FOR UPDATE SKIP LOCKED
+            """
             cursor.execute(sql_query)
             result = cursor.fetchone()
+            
             if result:
+                job_id = result["id"]
                 user_id = result["userid"]
                 file_name = result["file_name"]
-                job_id = result["id"]
+                
+                # Atomically mark as in-progress within the same transaction
+                update_query = "UPDATE imagequeue SET status=1 WHERE id=%s"
+                cursor.execute(update_query, (job_id,))
+                
                 job = {"user_id": user_id, "file_name": file_name, "job_id": job_id}
                 return job
             else:
@@ -387,7 +406,7 @@ def main() -> None:
 
     On start: marks all unfinished jobs as completed (clears stale entries).
     Then continuously:
-      - Fetches the oldest pending job (status=0)
+      - Fetches the oldest pending job (status=0) and atomically marks it as in-progress
       - Processes the image with generate_image()
       - Sends error message to user if processing fails
       - Marks job as finished (status=2)
@@ -400,7 +419,7 @@ def main() -> None:
     while True:
         job = get_next_pending_job_id()
         if job:
-            mark_job_as_in_progress(job["job_id"])
+            # Job is already marked as in-progress by get_next_pending_job_id
             success, error_code = generate_image(job["user_id"], job["file_name"])
             if not success:
                 send_msg(job["user_id"], ERROR_MESSAGES[error_code])

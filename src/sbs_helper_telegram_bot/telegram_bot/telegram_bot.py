@@ -48,7 +48,6 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
-#FIXME: bad code The following function contains a racing condition which should be fixed by FOR UDPATE logic
 def check_if_invite_entered(telegram_id,invite) -> InviteStatus:
     """
         Validates and consumes an invite code for a user.
