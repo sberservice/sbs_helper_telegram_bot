@@ -11,7 +11,7 @@ import logging
 
 from src.common.telegram_user import check_if_user_legit, update_user_info_from_telegram
 import src.common.messages as messages
-from src.common.messages import get_main_menu_keyboard
+from src.common.messages import get_validator_submenu_keyboard
 from .validation_rules import (
     load_rules_from_db,
     store_validation_result,
@@ -116,7 +116,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(
                 response,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_main_menu_keyboard()
+                reply_markup=get_validator_submenu_keyboard()
             )
         else:
             # Format error messages
@@ -133,7 +133,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(
                 response,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_main_menu_keyboard()
+                reply_markup=get_validator_submenu_keyboard()
             )
         
     except Exception as e:

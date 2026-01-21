@@ -35,8 +35,10 @@ from src.common.messages import (
     MESSAGE_PLEASE_ENTER_INVITE,
     MESSAGE_WELCOME,
     MESSAGE_MAIN_MENU,
+    MESSAGE_VALIDATOR_SUBMENU,
     MESSAGE_IMAGE_INSTRUCTIONS,
     get_main_menu_keyboard,
+    get_validator_submenu_keyboard,
     get_image_menu_keyboard
 )
 from src.common.telegram_user import check_if_user_legit,update_user_info_from_telegram
@@ -216,14 +218,21 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_main_menu_keyboard()
         )
+    elif text == "✅ Валидация заявок":
+        # Show validation submenu
+        await update.message.reply_text(
+            MESSAGE_VALIDATOR_SUBMENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_validator_submenu_keyboard()
+        )
     elif text == "📋 Проверить заявку":
         # Trigger validate command
         await validate_ticket_command(update, _context)
-    elif text == "📜 История проверок" or text == "📜 История":
+    elif text == "📜 История проверок":
         await history_command(update, _context)
-    elif text == "📄 Шаблоны заявок" or text == "📄 Шаблоны":
+    elif text == "📄 Шаблоны заявок":
         await template_command(update, _context)
-    elif text == "ℹ️ Помощь":
+    elif text == "ℹ️ Помощь по валидации":
         await help_command(update, _context)
     elif text == "🎫 Мои инвайты":
         await invite_command(update, _context)

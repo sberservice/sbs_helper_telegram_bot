@@ -38,6 +38,7 @@ MESSAGE_VALIDATION_HELP = """*Проверка заявок*
 Если заявка не прошла проверку, бот укажет какие поля нужно исправить\\."""
 
 MESSAGE_MAIN_MENU = "🏠 *Главное меню*\n\nВыберите действие:"
+MESSAGE_VALIDATOR_SUBMENU = "✅ *Валидация заявок*\n\nВыберите действие:"
 MESSAGE_IMAGE_INSTRUCTIONS = "📸 *Обработка скриншота*\n\nОтправьте изображение _как файл_ \\(не фото\\)\\:\n\n1\\. Выберите изображение из галереи\n2\\. Нажмите 3 точки\n3\\. Выберите _Отправить как файл_"
 
 
@@ -56,16 +57,16 @@ def get_main_menu_keyboard():
     )
 
 
-def get_validator_menu_keyboard():
+def get_validator_submenu_keyboard():
     """
-    Build ticket validator module menu keyboard.
-    Returns ReplyKeyboardMarkup for validator menu.
+    Build ticket validator submenu keyboard.
+    Returns ReplyKeyboardMarkup for validator submenu.
     """
     from telegram import ReplyKeyboardMarkup
-    from config.settings import VALIDATOR_MENU_BUTTONS
+    from config.settings import VALIDATOR_SUBMENU_BUTTONS
     
     return ReplyKeyboardMarkup(
-        VALIDATOR_MENU_BUTTONS,
+        VALIDATOR_SUBMENU_BUTTONS,
         resize_keyboard=True,
         one_time_keyboard=False
     )
