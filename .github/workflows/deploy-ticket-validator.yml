@@ -60,9 +60,7 @@ jobs:
             python -m pip install --upgrade pip
             pip install -r requirements.txt
             echo "Restarting Telegram Bot..."
-            pkill -f "python.*telegram_bot" || true            
-            pkill -f "python.*processimagequeue" || true
-            pkill -f "python.*run_bot" || true
-            sleep 2
-            python run_bot.py > ${{ secrets.DEPLOY_LOGS_PATH }}/telegram_bot.log 2>&1 &
+            taskkill /F /FI "WINDOWTITLE eq run_bot*" 2>nul || echo "No existing bot process"
+            timeout /t 2 /nobreak >nul
+            start /B python run_bot.py > ${{ secrets.DEPLOY_LOGS_PATH }}/telegram_bot.log 2>&1
             echo "Bot restarted successfully"
