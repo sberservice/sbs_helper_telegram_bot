@@ -226,10 +226,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_validator_submenu_keyboard()
         )
-    elif text == "📋 Проверить заявку":
-        # Trigger validate command
-        await validate_ticket_command(update, _context)
-    elif text == "📜 История проверок":
+    elif text == " История проверок":
         await history_command(update, _context)
     elif text == "📄 Шаблоны заявок":
         await template_command(update, _context)
@@ -304,8 +301,12 @@ def main() -> None:
     application = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
 
     # Create ConversationHandler for ticket validation
+    # Entry points include both /validate command and the menu button
     ticket_validator_handler = ConversationHandler(
-        entry_points=[CommandHandler("validate", validate_ticket_command)],
+        entry_points=[
+            CommandHandler("validate", validate_ticket_command),
+            MessageHandler(filters.Regex("^📋 Проверить заявку$"), validate_ticket_command)
+        ],
         states={
             WAITING_FOR_TICKET: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_ticket_text)]
         },
