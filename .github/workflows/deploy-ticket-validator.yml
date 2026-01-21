@@ -1,0 +1,67 @@
+name: Test & Deploy Ticket Validator
+
+on:
+  push:
+    branches:
+      - ticket_validator
+  pull_request:
+    branches:
+      - ticket_validator
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test Ticket Validator
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run tests for ticket validator
+        run: PYTHONPATH=. pytest tests/test_ticket_validator.py -v
+
+  deploy:
+    name: Deploy to Production
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/ticket_validator'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: |
+            cd ${{ secrets.DEPLOY_PATH }}
+            git fetch origin ticket_validator
+            git checkout ticket_validator
+            git pull origin ticket_validator
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+            echo "Restarting Telegram Bot..."
+            pkill -f "python.*telegram_bot" || true            
+            pkill -f "python.*processimagequeue" || true
+            pkill -f "python.*run_bot" || true
+            sleep 2
+            python run_bot.py > /var/log/telegram_bot.log 2>&1 &
+            echo "Bot restarted successfully"
