@@ -11,7 +11,13 @@ Run this to start the entire application:
 import subprocess
 import sys
 import signal
-import os
+import threading
+
+def output_reader(process, prefix):
+    """Read and print output from subprocess with a prefix."""
+    for line in iter(process.stdout.readline, ''):
+        if line:
+            print(f"[{prefix}] {line.rstrip()}")
 
 def run_bot():
     """Start both the telegram bot and image queue processor."""
@@ -38,10 +44,17 @@ def run_bot():
         bufsize=1
     )
     
+    # Start threads to read output from both processes
+    telegram_thread = threading.Thread(target=output_reader, args=(telegram_process, "BOT"), daemon=True)
+    queue_thread = threading.Thread(target=output_reader, args=(queue_process, "QUEUE"), daemon=True)
+    
+    telegram_thread.start()
+    queue_thread.start()
+    
     print("✅ Both services started!\n")
     print("Press Ctrl+C to stop all services.\n")
     
-    # Display output from both processes
+    # Handle Ctrl+C gracefully
     def signal_handler(sig, frame):
         print("\n\n🛑 Stopping services...")
         telegram_process.terminate()
@@ -67,8 +80,10 @@ def run_bot():
             sys.exit(1)
         elif telegram_poll is not None:
             print("❌ Telegram bot stopped unexpectedly.")
+            sys.exit(1)
         elif queue_poll is not None:
             print("❌ Image queue processor stopped unexpectedly.")
+            sys.exit(1)
 
 
 if __name__ == "__main__":
