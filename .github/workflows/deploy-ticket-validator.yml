@@ -53,14 +53,31 @@ jobs:
           port: ${{ secrets.DEPLOY_PORT }}
           passphrase: ${{ secrets.DEPLOY_PASSPHRASE }}
           script: |
+            bash -c "
             cd ${{ secrets.DEPLOY_PATH }}
+            echo '========================================='
+            echo 'Starting Deployment Process'
+            echo '========================================='
+            echo 'Current directory:' \$(pwd)
+            echo ''
+            echo 'Fetching latest changes...'
             git fetch origin ticket_validator
+            echo 'Checking out ticket_validator branch...'
             git checkout ticket_validator
+            echo 'Pulling latest changes...'
             git pull origin ticket_validator
+            echo ''
+            echo 'Upgrading pip...'
             python -m pip install --upgrade pip
+            echo 'Installing requirements...'
             pip install -r requirements.txt
-            echo "Restarting Telegram Bot..."
-            taskkill /F /FI "WINDOWTITLE eq run_bot*" 2>nul || echo "No existing bot process"
+            echo ''
+            echo 'Restarting Telegram Bot...'
+            taskkill /F /FI 'WINDOWTITLE eq run_bot*' 2>nul || echo 'No existing bot process'
             timeout /t 2 /nobreak >nul
-            start python run_bot.py > ${{ secrets.DEPLOY_LOGS_PATH }}/telegram_bot.log 2>&1
-            echo "Bot restarted successfully"
+            start 'run_bot' python run_bot.py > ${{ secrets.DEPLOY_LOGS_PATH }}/telegram_bot.log 2>&1
+            echo ''
+            echo '========================================='
+            echo 'Bot restarted successfully'
+            echo '========================================='
+            "
