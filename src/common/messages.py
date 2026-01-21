@@ -37,3 +37,51 @@ MESSAGE_VALIDATION_HELP = """*Проверка заявок*
 
 Если заявка не прошла проверку, бот укажет какие поля нужно исправить\\."""
 
+MESSAGE_MAIN_MENU = "🏠 *Главное меню*\n\nВыберите действие:"
+MESSAGE_IMAGE_INSTRUCTIONS = "📸 *Обработка скриншота*\n\nОтправьте изображение _как файл_ \\(не фото\\)\\:\n\n1\\. Выберите изображение из галереи\n2\\. Нажмите 3 точки\n3\\. Выберите _Отправить как файл_"
+
+
+def get_main_menu_keyboard():
+    """
+    Build main menu keyboard with all bot functions.
+    Returns ReplyKeyboardMarkup for main menu.
+    """
+    from telegram import ReplyKeyboardMarkup
+    from config.settings import MAIN_MENU_BUTTONS
+    
+    return ReplyKeyboardMarkup(
+        MAIN_MENU_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False
+    )
+
+
+def get_validator_menu_keyboard():
+    """
+    Build ticket validator module menu keyboard.
+    Returns ReplyKeyboardMarkup for validator menu.
+    """
+    from telegram import ReplyKeyboardMarkup
+    from config.settings import VALIDATOR_MENU_BUTTONS
+    
+    return ReplyKeyboardMarkup(
+        VALIDATOR_MENU_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False
+    )
+
+
+def get_image_menu_keyboard():
+    """
+    Build image processing module menu keyboard.
+    Returns ReplyKeyboardMarkup for image processing menu.
+    """
+    from telegram import ReplyKeyboardMarkup
+    from config.settings import IMAGE_MENU_BUTTONS
+    
+    return ReplyKeyboardMarkup(
+        IMAGE_MENU_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False
+    )
+

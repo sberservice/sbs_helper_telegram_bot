@@ -38,3 +38,27 @@ MIN_HEIGHT_TO_START_LOOKING_FOR_GOOD_PIXEL=150
 MAX_HEIGHT_TO_END_LOOK_FOR_GOOD_PIXEL=400
 COLUMN_TO_SCAN_FOR_FRAME_BORDER_COLOR = 1
 COLUMN_TO_SCAN_FOR_TASKS_BORDER_COLOR = 1
+
+#########
+# TELEGRAM MENU BUTTONS CONFIGURATION
+#########
+
+# Main menu buttons shown to all authorized users
+MAIN_MENU_BUTTONS = [
+    ["📋 Проверить заявку", "📜 История проверок"],
+    ["📄 Шаблоны заявок", "📸 Обработать скриншот"],
+    ["🎫 Мои инвайты", "ℹ️ Помощь"]
+]
+
+# Ticket validator module menu
+VALIDATOR_MENU_BUTTONS = [
+    ["📋 Проверить заявку", "📜 История"],
+    ["📄 Шаблоны", "ℹ️ Помощь"],
+    ["🏠 Главное меню"]
+]
+
+# Image processing module menu
+IMAGE_MENU_BUTTONS = [
+    ["📸 Отправить скриншот"],
+    ["🏠 Главное меню"]
+]
