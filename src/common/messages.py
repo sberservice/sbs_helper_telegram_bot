@@ -4,7 +4,7 @@
 """
 # pylint: disable=line-too-long
 
-MESSAGE_WELCOME =  "Привет\!\n*Бот принимает скриншоты только в виде файлов*\.\n\nВыберите изображение из галереи, нажмите 3 точки и выберите _Отправить как файл_, либо _Отправить без сжатия_\n\nПроект на GitHub: https://github\.com/sberservice/sbs_helper_telegram_bot"
+MESSAGE_WELCOME =  "Привет\!\n*Бот принимает скриншоты только в виде файлов*\.\n\nВыберите изображение из галереи, нажмите 3 точки и выберите _Отправить как файл_, либо _Отправить без сжатия_\n\nПроект на GitHub: https://github\\.com/sberservice/sbs\\_helper\\_telegram\\_bot"
 MESSAGE_PLEASE_ENTER_INVITE = "Пожалуйста, введите ваш инвайт.\nЕго можно попросить у другого пользователя этого бота, если он введет команду /invite или выберет её из меню."
 
 # Ticket Validation Messages
