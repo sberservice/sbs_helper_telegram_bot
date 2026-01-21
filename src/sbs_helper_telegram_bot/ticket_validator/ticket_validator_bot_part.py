@@ -111,8 +111,9 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Send response to user
         if result.is_valid:
             response = messages.MESSAGE_VALIDATION_SUCCESS
-            if type_info:
-                response = response.replace("\\.", type_info + "\\.")
+            if detected_type:
+                # Add detected ticket type to success message
+                response = f"✅ *Заявка прошла валидацию\\!*\n\n🎫 Тип заявки: _{detected_type.type_name}_\n\nВсе обязательные поля заполнены корректно\\."
             await update.message.reply_text(
                 response,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -126,10 +127,10 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             ])
             
             response = messages.MESSAGE_VALIDATION_FAILED.format(errors=errors_formatted)
-            if type_info:
-                # Add detected type info to error message
+            if detected_type:
+                # Add detected ticket type to error message
                 response = response.replace("*Заявка не прошла валидацию*", 
-                                          f"*Заявка не прошла валидацию*{type_info}")
+                                          f"*Заявка не прошла валидацию*\n\n🎫 Тип заявки: _{detected_type.type_name}_")
             await update.message.reply_text(
                 response,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
