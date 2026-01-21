@@ -102,4 +102,109 @@ CREATE TABLE `users` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
+--
+-- Table structure for table `validation_rules`
+--
+
+DROP TABLE IF EXISTS `validation_rules`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `validation_rules` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `rule_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `pattern` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `rule_type` enum('regex','required_field','format','length','custom') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `error_message` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT '1',
+  `priority` int(11) NOT NULL DEFAULT '0',
+  `created_timestamp` bigint(20) NOT NULL,
+  `updated_timestamp` bigint(20) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `active` (`active`),
+  KEY `priority` (`priority`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `validation_history`
+--
+
+DROP TABLE IF EXISTS `validation_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `validation_history` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `userid` bigint(20) NOT NULL,
+  `ticket_type_id` bigint(20) DEFAULT NULL,
+  `ticket_text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `validation_result` enum('valid','invalid') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `failed_rules` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `timestamp` bigint(20) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `userid` (`userid`),
+  KEY `validation_result` (`validation_result`),
+  KEY `timestamp` (`timestamp`),
+  KEY `ticket_type_id` (`ticket_type_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `ticket_templates`
+--
+
+DROP TABLE IF EXISTS `ticket_templates`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ticket_templates` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `template_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `template_text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_timestamp` bigint(20) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `active` (`active`),
+  KEY `template_name` (`template_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `ticket_types`
+--
+
+DROP TABLE IF EXISTS `ticket_types`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ticket_types` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `type_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `detection_keywords` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_timestamp` bigint(20) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `type_name` (`type_name`),
+  KEY `active` (`active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `ticket_type_rules`
+--
+
+DROP TABLE IF EXISTS `ticket_type_rules`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ticket_type_rules` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `ticket_type_id` bigint(20) NOT NULL,
+  `validation_rule_id` bigint(20) NOT NULL,
+  `created_timestamp` bigint(20) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `type_rule_unique` (`ticket_type_id`,`validation_rule_id`),
+  KEY `ticket_type_id` (`ticket_type_id`),
+  KEY `validation_rule_id` (`validation_rule_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
 -- Dump completed on 2025-12-04 18:58:13
