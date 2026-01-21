@@ -22,7 +22,7 @@ Non-legitimate users are prompted to enter an invite code via text message.
 import logging
 
 from telegram import Update, constants
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, ConversationHandler
 
 import src.common.database as database
 import src.common.invites as invites
@@ -34,6 +34,17 @@ from src.common.constants.telegram import TELEGRAM_TOKEN
 from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE,MESSAGE_WELCOME
 from src.common.telegram_user import check_if_user_legit,update_user_info_from_telegram
 from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import handle_incoming_document
+
+# Import ticket validator handlers
+from src.sbs_helper_telegram_bot.ticket_validator.ticket_validator_bot_part import (
+    validate_ticket_command,
+    process_ticket_text,
+    cancel_validation,
+    history_command,
+    template_command,
+    help_command,
+    WAITING_FOR_TICKET
+)
 
 from config.settings import DEBUG, INVITES_PER_NEW_USER
 
@@ -176,6 +187,10 @@ def main() -> None:
         Registered handlers:
             /start          → start
             /invite         → invite_command
+            /validate       → validate_ticket_command (ConversationHandler)
+            /history        → history_command
+            /template       → template_command
+            /help_validate  → help_command
             Image documents → handle_incoming_document
             Plain text      → text_entered
 
@@ -184,10 +199,25 @@ def main() -> None:
 
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+    # Create ConversationHandler for ticket validation
+    ticket_validator_handler = ConversationHandler(
+        entry_points=[CommandHandler("validate", validate_ticket_command)],
+        states={
+            WAITING_FOR_TICKET: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_ticket_text)]
+        },
+        fallbacks=[CommandHandler("cancel", cancel_validation)]
+    )
+
+    # Register all handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("invite", invite_command))
+    application.add_handler(CommandHandler("history", history_command))
+    application.add_handler(CommandHandler("template", template_command))
+    application.add_handler(CommandHandler("help_validate", help_command))
+    application.add_handler(ticket_validator_handler)
     application.add_handler(MessageHandler(filters.Document.IMAGE,handle_incoming_document))
     application.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, text_entered))
+    
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

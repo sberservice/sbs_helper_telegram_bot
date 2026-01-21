@@ -35,7 +35,7 @@ jobs:
         run: PYTHONPATH=. pytest tests/test_ticket_validator.py -v
 
   deploy:
-    name: Deploy to Production
+    name: Deploy to Test Server
     needs: test
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/ticket_validator'
