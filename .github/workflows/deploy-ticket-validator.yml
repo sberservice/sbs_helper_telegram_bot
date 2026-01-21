@@ -55,7 +55,6 @@ jobs:
           script: |
             export LC_ALL=C.UTF-8
             set -x
-
             if [ ! -d "${{ secrets.DEPLOY_PATH }}/.git" ]; then
               echo "Repository not found, cloning..."
               git clone https://github.com/sberservice/sbs_helper_telegram_bot.git ${{ secrets.DEPLOY_PATH }}
@@ -71,5 +70,5 @@ jobs:
             pkill -f "python.*processimagequeue" || true
             pkill -f "python.*run_bot" || true
             sleep 2
-            python run_bot.py > ${{ secrets.DEPLOY_PATH }}/logs/telegram_bot.log 2>&1 &
+            python run_bot.py > ${{ secrets.DEPLOY_LOGS_PATH }}/telegram_bot.log 2>&1 &
             echo "Bot restarted successfully"
