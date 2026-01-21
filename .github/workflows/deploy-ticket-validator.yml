@@ -62,5 +62,5 @@ jobs:
             echo "Restarting Telegram Bot..."
             taskkill /F /FI "WINDOWTITLE eq run_bot*" 2>nul || echo "No existing bot process"
             timeout /t 2 /nobreak >nul
-            start /B python run_bot.py > ${{ secrets.DEPLOY_LOGS_PATH }}/telegram_bot.log 2>&1
+            start python run_bot.py > ${{ secrets.DEPLOY_LOGS_PATH }}/telegram_bot.log 2>&1
             echo "Bot restarted successfully"
