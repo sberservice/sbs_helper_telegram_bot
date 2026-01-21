@@ -35,6 +35,7 @@ from src.common.messages import (
     MESSAGE_PLEASE_ENTER_INVITE,
     MESSAGE_WELCOME,
     MESSAGE_MAIN_MENU,
+    MESSAGE_MAIN_HELP,
     MESSAGE_VALIDATOR_SUBMENU,
     MESSAGE_IMAGE_INSTRUCTIONS,
     get_main_menu_keyboard,
@@ -236,6 +237,12 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         await help_command(update, _context)
     elif text == "🎫 Мои инвайты":
         await invite_command(update, _context)
+    elif text == "❓ Помощь":
+        await update.message.reply_text(
+            MESSAGE_MAIN_HELP,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_main_menu_keyboard()
+        )
     elif text == "📸 Обработать скриншот" or text == "📸 Отправить скриншот":
         await update.message.reply_text(
             MESSAGE_IMAGE_INSTRUCTIONS,

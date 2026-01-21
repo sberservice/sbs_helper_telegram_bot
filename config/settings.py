@@ -46,7 +46,7 @@ COLUMN_TO_SCAN_FOR_TASKS_BORDER_COLOR = 1
 # Main menu buttons shown to all authorized users
 MAIN_MENU_BUTTONS = [
     ["✅ Валидация заявок", "📸 Обработать скриншот"],
-    ["🎫 Мои инвайты"]
+    ["🎫 Мои инвайты", "❓ Помощь"]
 ]
 
 # Ticket validator submenu - shown when user clicks validation button
