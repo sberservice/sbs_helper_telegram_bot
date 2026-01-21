@@ -121,7 +121,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             # Format error messages
             errors_formatted = "\\n".join([
-                f"• {msg.replace('.', '\\.').replace('-', '\\-').replace('!', '\\!')}"
+                f"• {msg.replace('.', '\\.').replace('-', '\\-').replace('!', '\\!').replace('(', '\\(').replace(')', '\\)')}"
                 for msg in result.error_messages
             ])
             
