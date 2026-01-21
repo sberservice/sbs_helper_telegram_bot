@@ -81,13 +81,18 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         ticket_types = load_all_ticket_types()
         detected_type = detect_ticket_type(ticket_text, ticket_types) if ticket_types else None
         
-        # Load validation rules - either for detected type or all rules
-        if detected_type:
-            rules = load_rules_from_db(ticket_type_id=detected_type.id)
-            type_info = f" (тип: _{detected_type.type_name}_)"
-        else:
-            rules = load_rules_from_db()
-            type_info = ""
+        # Check if ticket type was detected
+        if not detected_type:
+            await update.message.reply_text(
+                "⚠️ *Не удалось определить тип заявки*\n\n"
+                "Пожалуйста, убедитесь что заявка соответствует одному из известных форматов\\.\n"
+                "Используйте /template для просмотра доступных шаблонов\\.",
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+            return ConversationHandler.END
+        
+        # Load validation rules for detected type
+        rules = load_rules_from_db(ticket_type_id=detected_type.id)
         
         if not rules:
             await update.message.reply_text(
@@ -110,10 +115,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         # Send response to user
         if result.is_valid:
-            response = messages.MESSAGE_VALIDATION_SUCCESS
-            if detected_type:
-                # Add detected ticket type to success message
-                response = f"✅ *Заявка прошла валидацию\\!*\n\n🎫 Тип заявки: _{detected_type.type_name}_\n\nВсе обязательные поля заполнены корректно\\."
+            response = f"✅ *Заявка прошла валидацию\\!*\n\n🎫 Тип заявки: _{detected_type.type_name}_\n\nВсе обязательные поля заполнены корректно\\."
             await update.message.reply_text(
                 response,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -127,10 +129,9 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             ])
             
             response = messages.MESSAGE_VALIDATION_FAILED.format(errors=errors_formatted)
-            if detected_type:
-                # Add detected ticket type to error message
-                response = response.replace("*Заявка не прошла валидацию*", 
-                                          f"*Заявка не прошла валидацию*\n\n🎫 Тип заявки: _{detected_type.type_name}_")
+            # Add detected ticket type to error message
+            response = response.replace("*Заявка не прошла валидацию*", 
+                                      f"*Заявка не прошла валидацию*\n\n🎫 Тип заявки: _{detected_type.type_name}_")
             await update.message.reply_text(
                 response,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
