@@ -41,11 +41,15 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/ticket_validator'
 
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v3
-
+        
       - name: Deploy via SSH
         uses: appleboy/ssh-action@master
+#FIXME: For some reason the script commands are not executing on the remote Windows server. Investigate and enable.
+
+        if: false #Disable for now, until the issue is resolved
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
