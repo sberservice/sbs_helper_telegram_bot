@@ -21,7 +21,7 @@ Non-legitimate users are prompted to enter an invite code via text message.
 
 import logging
 
-from telegram import Update, constants
+from telegram import Update, constants, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, ConversationHandler
 
 import src.common.database as database
@@ -31,7 +31,14 @@ import src.common.invites as invites
 from src.common.constants.os import ASSETS_DIR
 from src.common.constants.errorcodes import InviteStatus
 from src.common.constants.telegram import TELEGRAM_TOKEN
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE,MESSAGE_WELCOME
+from src.common.messages import (
+    MESSAGE_PLEASE_ENTER_INVITE,
+    MESSAGE_WELCOME,
+    MESSAGE_MAIN_MENU,
+    MESSAGE_IMAGE_INSTRUCTIONS,
+    get_main_menu_keyboard,
+    get_image_menu_keyboard
+)
 from src.common.telegram_user import check_if_user_legit,update_user_info_from_telegram
 from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import handle_incoming_document
 
@@ -113,7 +120,7 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
 
         - Verifies the user has a valid invite (via check_if_user_legit() )
         - If not, replies with the invite-required message and exits
-        - Otherwise, updates the user's info from Telegram data and sends the welcome message
+        - Otherwise, updates the user's info from Telegram data and sends the welcome message with main menu
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
@@ -121,7 +128,11 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
 
     user = update.effective_user
     update_user_info_from_telegram(user)
-    await update.message.reply_text(MESSAGE_WELCOME,parse_mode=constants.ParseMode.MARKDOWN_V2)
+    await update.message.reply_text(
+        MESSAGE_WELCOME,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_main_menu_keyboard()
+    )
 
 async def invite_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -148,6 +159,24 @@ async def invite_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) ->
                 await update.message.reply_text("У вас нет доступных инвайтов.")
 
 
+async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+        Handles the /menu command.
+
+        Shows the main menu keyboard to authorized users.
+    """
+    if not check_if_user_legit(update.effective_user.id):
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        return
+    
+    update_user_info_from_telegram(update.effective_user)
+    await update.message.reply_text(
+        MESSAGE_MAIN_MENU,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_main_menu_keyboard()
+    )
+
+
 async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """
         Handles incoming text messages.
@@ -155,25 +184,82 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         - If the user is not yet authorized, checks whether the message contains a valid invite code.
         On success: registers the user, issues a number of invite codes
         and sends a welcome message.
-        - If the user is already authorized, sends the standard welcome message with a promotional image.
+        - If the user is already authorized, handles menu button presses or sends the standard welcome message.
     """
+    text = update.message.text
+    
     if not check_if_user_legit(update.effective_user.id):
-        if check_if_invite_entered(update.effective_user.id,update.message.text) == InviteStatus.SUCCESS:
+        if check_if_invite_entered(update.effective_user.id,text) == InviteStatus.SUCCESS:
             update_user_info_from_telegram(update.effective_user)
             await update.message.reply_text("Добро пожаловать!")
             for _ in range(INVITES_PER_NEW_USER):                            
                 invite=invites.generate_invite_for_user(update.effective_user.id)
                 await update.message.reply_text("Вам выдан инвайт. Вы можете им поделиться: "+invite)
-        elif check_if_invite_entered(update.effective_user.id,update.message.text) == InviteStatus.NOT_EXISTS:
+            # Show main menu after successful registration
+            await update.message.reply_text(
+                MESSAGE_MAIN_MENU,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=get_main_menu_keyboard()
+            )
+        elif check_if_invite_entered(update.effective_user.id,text) == InviteStatus.NOT_EXISTS:
             await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
             return
         else:
             await update.message.reply_text("Данный инвайт уже был использован. Пожалуйста, введите другой инвайт.")
             return
+        return
+    
+    # Handle menu button presses for authorized users
+    if text == "🏠 Главное меню":
+        await update.message.reply_text(
+            MESSAGE_MAIN_MENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_main_menu_keyboard()
+        )
+    elif text == "📋 Проверить заявку":
+        # Trigger validate command
+        await validate_ticket_command(update, _context)
+    elif text == "📜 История проверок" or text == "📜 История":
+        await history_command(update, _context)
+    elif text == "📄 Шаблоны заявок" or text == "📄 Шаблоны":
+        await template_command(update, _context)
+    elif text == "ℹ️ Помощь":
+        await help_command(update, _context)
+    elif text == "🎫 Мои инвайты":
+        await invite_command(update, _context)
+    elif text == "📸 Обработать скриншот" or text == "📸 Отправить скриншот":
+        await update.message.reply_text(
+            MESSAGE_IMAGE_INSTRUCTIONS,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_image_menu_keyboard()
+        )
+    else:
+        # Default response for unrecognized text
+        await update.message.reply_text(
+            MESSAGE_WELCOME,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_main_menu_keyboard()
+        )
+        await update.message.reply_photo(ASSETS_DIR / "promo3.jpg")
 
-    await update.message.reply_text(MESSAGE_WELCOME,parse_mode=constants.ParseMode.MARKDOWN_V2)
-    await update.message.reply_photo(ASSETS_DIR / "promo3.jpg")
 
+
+async def post_init(application: Application) -> None:
+    """
+        Post-initialization setup after bot starts.
+        
+        Sets up bot command menu that appears in Telegram UI.
+    """
+    # Set bot commands for the menu button in Telegram
+    await application.bot.set_my_commands([
+        BotCommand("start", "Начать работу с ботом"),
+        BotCommand("menu", "Показать главное меню"),
+        BotCommand("validate", "Проверить заявку"),
+        BotCommand("history", "История проверок"),
+        BotCommand("template", "Шаблоны заявок"),
+        BotCommand("invite", "Мои инвайт-коды"),
+        BotCommand("help_validate", "Помощь по проверке заявок"),
+    ])
 
 
 def main() -> None:
@@ -182,22 +268,24 @@ def main() -> None:
         Entry point for the Telegram bot.
 
         Builds and configures the Application instance using python-telegram-bot,
-        registers all command and message handlers, then starts the bot in polling mode.
+        registers all command and message handlers, sets up bot menu commands,
+        then starts the bot in polling mode.
 
         Registered handlers:
             /start          → start
+            /menu           → menu_command
             /invite         → invite_command
             /validate       → validate_ticket_command (ConversationHandler)
             /history        → history_command
             /template       → template_command
             /help_validate  → help_command
             Image documents → handle_incoming_document
-            Plain text      → text_entered
+            Plain text      → text_entered (also handles menu button presses)
 
         Runs indefinitely, processing all update types.
     """
 
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    application = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
 
     # Create ConversationHandler for ticket validation
     ticket_validator_handler = ConversationHandler(
@@ -210,6 +298,7 @@ def main() -> None:
 
     # Register all handlers
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("invite", invite_command))
     application.add_handler(CommandHandler("history", history_command))
     application.add_handler(CommandHandler("template", template_command))

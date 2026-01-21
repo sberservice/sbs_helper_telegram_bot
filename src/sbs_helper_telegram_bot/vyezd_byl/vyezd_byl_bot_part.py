@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes
 from src.common.telegram_user import check_if_user_legit, update_user_info_from_telegram
 
 import src.common.database as database
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_image_menu_keyboard
 from src.common.constants.os import IMAGES_DIR
 import logging
 from pathlib import Path  
@@ -108,11 +108,17 @@ async def handle_incoming_document(update: Update, context: ContextTypes.DEFAULT
             return
 
         if check_if_user_has_unprocessed_job(user_id):
-            await update.message.reply_text("У вас уже есть активный запрос, ожидайте пока появится картинка. Если её долго нет - бот сломался и не известно когда починится.")
+            await update.message.reply_text(
+                "У вас уже есть активный запрос, ожидайте пока появится картинка. Если её долго нет - бот сломался и не известно когда починится.",
+                reply_markup=get_image_menu_keyboard()
+            )
             return
         else:
             position=get_number_of_jobs_in_the_queue()+1
-            await update.message.reply_text("Получен файл. Ожидайте окончания обработки. Ваша позиция в очереди: "+str(position))
+            await update.message.reply_text(
+                "Получен файл. Ожидайте окончания обработки. Ваша позиция в очереди: "+str(position),
+                reply_markup=get_image_menu_keyboard()
+            )
             file_name_to_save=IMAGES_DIR / f"{user_id}.jpg"
             new_file = await context.bot.get_file(file_id)
             await new_file.download_to_drive(custom_path=file_name_to_save)
