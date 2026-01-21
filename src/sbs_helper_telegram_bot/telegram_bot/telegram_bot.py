@@ -38,6 +38,7 @@ from src.common.messages import (
     MESSAGE_MAIN_HELP,
     MESSAGE_VALIDATOR_SUBMENU,
     MESSAGE_IMAGE_INSTRUCTIONS,
+    MESSAGE_UNRECOGNIZED_INPUT,
     get_main_menu_keyboard,
     get_validator_submenu_keyboard,
     get_image_menu_keyboard
@@ -246,14 +247,20 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_image_menu_keyboard()
         )
+    elif text == "❓ Помощь по скриншотам":
+        await update.message.reply_photo(
+            ASSETS_DIR / "promo3.jpg",
+            caption=MESSAGE_IMAGE_INSTRUCTIONS,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_image_menu_keyboard()
+        )
     else:
         # Default response for unrecognized text
         await update.message.reply_text(
-            MESSAGE_WELCOME,
+            MESSAGE_UNRECOGNIZED_INPUT,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_main_menu_keyboard()
         )
-        await update.message.reply_photo(ASSETS_DIR / "promo3.jpg")
 
 
 

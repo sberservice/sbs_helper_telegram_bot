@@ -59,5 +59,6 @@ VALIDATOR_SUBMENU_BUTTONS = [
 # Image processing module menu
 IMAGE_MENU_BUTTONS = [
     ["📸 Отправить скриншот"],
+    ["❓ Помощь по скриншотам"],
     ["🏠 Главное меню"]
 ]
