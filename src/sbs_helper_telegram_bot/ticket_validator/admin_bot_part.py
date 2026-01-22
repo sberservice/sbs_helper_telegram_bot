@@ -446,16 +446,11 @@ async def assign_toggle_rule(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif action == "unassign":
         success = unassign_rule_from_ticket_type(rule_id, type_id)
     
-    # Only refresh display if the operation succeeded
-    if success or action == "assign":  # assign might return False if already exists
-        # Store the type_id in context for refresh
-        context.user_data['assign_type_id'] = type_id
-        # Create a new query data for refresh
-        query.data = f"assign_type_{type_id}"
-        return await assign_select_type(update, context)
+    # Store the type_id in context for refresh (assign_select_type will use it)
+    context.user_data['assign_type_id'] = type_id
     
-    # If failed, just stay in current state
-    return ASSIGN_SELECT_RULES
+    # Refresh the display - assign_select_type will get type_id from context
+    return await assign_select_type(update, context)
 
 
 # ===== LIST RULES =====
