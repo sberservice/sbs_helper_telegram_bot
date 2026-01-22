@@ -22,7 +22,7 @@ Non-legitimate users are prompted to enter an invite code via text message.
 import logging
 
 from telegram import Update, constants, BotCommand
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, ConversationHandler
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, ConversationHandler, CallbackQueryHandler
 
 import src.common.database as database
 import src.common.invites as invites
@@ -39,11 +39,13 @@ from src.common.messages import (
     MESSAGE_VALIDATOR_SUBMENU,
     MESSAGE_IMAGE_INSTRUCTIONS,
     MESSAGE_UNRECOGNIZED_INPUT,
+    MESSAGE_ADMIN_MENU,
     get_main_menu_keyboard,
     get_validator_submenu_keyboard,
-    get_image_menu_keyboard
+    get_image_menu_keyboard,
+    get_admin_menu_keyboard
 )
-from src.common.telegram_user import check_if_user_legit,update_user_info_from_telegram
+from src.common.telegram_user import check_if_user_legit, update_user_info_from_telegram, check_if_user_admin
 from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import handle_incoming_document
 
 # Import ticket validator handlers
@@ -55,6 +57,37 @@ from src.sbs_helper_telegram_bot.ticket_validator.ticket_validator_bot_part impo
     template_command,
     help_command,
     WAITING_FOR_TICKET
+)
+
+# Import admin handlers
+from src.sbs_helper_telegram_bot.ticket_validator.admin_bot_part import (
+    admin_menu_command,
+    add_rule_start,
+    add_rule_name,
+    add_rule_type,
+    add_rule_pattern,
+    add_rule_error_msg,
+    add_rule_priority,
+    edit_rule_start,
+    edit_rule_select,
+    edit_field_select,
+    edit_new_value,
+    assign_rules_start,
+    assign_select_type,
+    assign_toggle_rule,
+    list_rules_command,
+    manage_types_command,
+    cancel_admin,
+    ADD_RULE_NAME,
+    ADD_RULE_TYPE,
+    ADD_RULE_PATTERN,
+    ADD_RULE_ERROR_MSG,
+    ADD_RULE_PRIORITY,
+    EDIT_SELECT_RULE,
+    EDIT_SELECT_FIELD,
+    EDIT_NEW_VALUE,
+    ASSIGN_SELECT_TYPE,
+    ASSIGN_SELECT_RULES
 )
 
 from config.settings import DEBUG, INVITES_PER_NEW_USER
@@ -254,6 +287,16 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_image_menu_keyboard()
         )
+    elif text == "➕ Добавить правило":
+        await add_rule_start(update, _context)
+    elif text == "📝 Править правило":
+        await edit_rule_start(update, _context)
+    elif text == "🔗 Назначить правила":
+        await assign_rules_start(update, _context)
+    elif text == "📋 Список правил":
+        await list_rules_command(update, _context)
+    elif text == "🎫 Управление типами заявок":
+        await manage_types_command(update, _context)
     else:
         # Default response for unrecognized text
         await update.message.reply_text(
@@ -279,6 +322,7 @@ async def post_init(application: Application) -> None:
         BotCommand("template", "Шаблоны заявок"),
         BotCommand("invite", "Мои инвайт-коды"),
         BotCommand("help_validate", "Помощь по проверке заявок"),
+        BotCommand("admin", "Админ-панель (только для администраторов)"),
     ])
 
 
@@ -320,6 +364,49 @@ def main() -> None:
         fallbacks=[CommandHandler("cancel", cancel_validation)]
     )
 
+    # Create ConversationHandler for adding validation rules
+    add_rule_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler("add_rule", add_rule_start),
+            MessageHandler(filters.Regex("^➕ Добавить правило$"), add_rule_start)
+        ],
+        states={
+            ADD_RULE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_rule_name)],
+            ADD_RULE_TYPE: [CallbackQueryHandler(add_rule_type)],
+            ADD_RULE_PATTERN: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_rule_pattern)],
+            ADD_RULE_ERROR_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_rule_error_msg)],
+            ADD_RULE_PRIORITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_rule_priority)]
+        },
+        fallbacks=[CommandHandler("cancel", cancel_admin)]
+    )
+
+    # Create ConversationHandler for editing validation rules
+    edit_rule_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler("edit_rule", edit_rule_start),
+            MessageHandler(filters.Regex("^📝 Править правило$"), edit_rule_start)
+        ],
+        states={
+            EDIT_SELECT_RULE: [CallbackQueryHandler(edit_rule_select)],
+            EDIT_SELECT_FIELD: [CallbackQueryHandler(edit_field_select)],
+            EDIT_NEW_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_new_value)]
+        },
+        fallbacks=[CommandHandler("cancel", cancel_admin)]
+    )
+
+    # Create ConversationHandler for assigning rules to ticket types
+    assign_rules_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler("assign_rules", assign_rules_start),
+            MessageHandler(filters.Regex("^🔗 Назначить правила$"), assign_rules_start)
+        ],
+        states={
+            ASSIGN_SELECT_TYPE: [CallbackQueryHandler(assign_select_type)],
+            ASSIGN_SELECT_RULES: [CallbackQueryHandler(assign_toggle_rule)]
+        },
+        fallbacks=[CommandHandler("cancel", cancel_admin)]
+    )
+
     # Register all handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
@@ -327,7 +414,13 @@ def main() -> None:
     application.add_handler(CommandHandler("history", history_command))
     application.add_handler(CommandHandler("template", template_command))
     application.add_handler(CommandHandler("help_validate", help_command))
+    application.add_handler(CommandHandler("admin", admin_menu_command))
+    application.add_handler(CommandHandler("list_rules", list_rules_command))
+    application.add_handler(CommandHandler("manage_types", manage_types_command))
     application.add_handler(ticket_validator_handler)
+    application.add_handler(add_rule_handler)
+    application.add_handler(edit_rule_handler)
+    application.add_handler(assign_rules_handler)
     application.add_handler(MessageHandler(filters.Document.IMAGE,handle_incoming_document))
     application.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, text_entered))
     
