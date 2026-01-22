@@ -377,8 +377,7 @@ def main() -> None:
             ADD_RULE_ERROR_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_rule_error_msg)],
             ADD_RULE_PRIORITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_rule_priority)]
         },
-        fallbacks=[CommandHandler("cancel", cancel_admin)],
-        per_message=True
+        fallbacks=[CommandHandler("cancel", cancel_admin)]
     )
 
     # Create ConversationHandler for editing validation rules
@@ -392,8 +391,7 @@ def main() -> None:
             EDIT_SELECT_FIELD: [CallbackQueryHandler(edit_field_select)],
             EDIT_NEW_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_new_value)]
         },
-        fallbacks=[CommandHandler("cancel", cancel_admin)],
-        per_message=True
+        fallbacks=[CommandHandler("cancel", cancel_admin)]
     )
 
     # Create ConversationHandler for assigning rules to ticket types
@@ -406,8 +404,7 @@ def main() -> None:
             ASSIGN_SELECT_TYPE: [CallbackQueryHandler(assign_select_type)],
             ASSIGN_SELECT_RULES: [CallbackQueryHandler(assign_toggle_rule)]
         },
-        fallbacks=[CommandHandler("cancel", cancel_admin)],
-        per_message=True
+        fallbacks=[CommandHandler("cancel", cancel_admin)]
     )
 
     # Register all handlers
