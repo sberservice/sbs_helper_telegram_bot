@@ -25,26 +25,6 @@ def check_if_user_legit(telegram_id) -> bool: #did the user use an invite
             else:
                 return False
 
-def check_if_user_admin(telegram_id) -> bool:
-    """
-        Checks whether the user has admin privileges.
-
-        Args:
-            telegram_id: Telegram user ID to verify.
-
-        Returns:
-            True if the user is an admin, False otherwise.
-    """
-    with database.get_db_connection() as conn:
-        with database.get_cursor(conn) as cursor:
-            sql_query = "SELECT is_admin FROM users WHERE userid=%s"
-            val=(telegram_id,)
-            cursor.execute(sql_query,val)
-            result = cursor.fetchone()
-            if result and result.get("is_admin"):
-                return True
-            return False
-
 def update_user_info_from_telegram(user) -> None:
     """
         Updates or inserts user information from a Telegram Update into the `users` table.
