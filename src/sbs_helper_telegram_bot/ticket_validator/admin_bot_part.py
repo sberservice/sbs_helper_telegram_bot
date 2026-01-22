@@ -370,8 +370,15 @@ async def assign_select_type(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     
-    type_id = int(query.data.replace("assign_type_", ""))
-    context.user_data['assign_type_id'] = type_id
+    # Get type_id from callback data or from stored context (when refreshing)
+    if query.data.startswith("assign_type_"):
+        type_id = int(query.data.replace("assign_type_", ""))
+        context.user_data['assign_type_id'] = type_id
+    else:
+        # Refreshing after toggle - use stored type_id
+        type_id = context.user_data.get('assign_type_id')
+        if not type_id:
+            return ConversationHandler.END
     
     ticket_type = load_ticket_type_by_id(type_id)
     assigned_rules = get_rules_for_ticket_type(type_id)
