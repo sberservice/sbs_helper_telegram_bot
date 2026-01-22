@@ -425,18 +425,37 @@ async def assign_toggle_rule(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data.clear()
         return ConversationHandler.END
     
+    # Parse callback data - should be "assign_X_Y" or "unassign_X_Y"
     parts = query.data.split("_")
+    if len(parts) != 3:
+        # Invalid callback data, stay in current state
+        return ASSIGN_SELECT_RULES
+    
     action = parts[0]
-    type_id = int(parts[1])
-    rule_id = int(parts[2])
+    try:
+        type_id = int(parts[1])
+        rule_id = int(parts[2])
+    except ValueError:
+        # Invalid format, stay in current state
+        return ASSIGN_SELECT_RULES
     
+    # Perform the assignment/unassignment
+    success = False
     if action == "assign":
-        assign_rule_to_ticket_type(rule_id, type_id)
-    else:
-        unassign_rule_from_ticket_type(rule_id, type_id)
+        success = assign_rule_to_ticket_type(rule_id, type_id)
+    elif action == "unassign":
+        success = unassign_rule_from_ticket_type(rule_id, type_id)
     
-    # Refresh the display
-    return await assign_select_type(update, context)
+    # Only refresh display if the operation succeeded
+    if success or action == "assign":  # assign might return False if already exists
+        # Store the type_id in context for refresh
+        context.user_data['assign_type_id'] = type_id
+        # Create a new query data for refresh
+        query.data = f"assign_type_{type_id}"
+        return await assign_select_type(update, context)
+    
+    # If failed, just stay in current state
+    return ASSIGN_SELECT_RULES
 
 
 # ===== LIST RULES =====
