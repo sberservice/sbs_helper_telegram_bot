@@ -85,13 +85,11 @@ CREATE TABLE `users` (
   `first_name` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `last_name` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `username` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `timestamp` bigint(20) NOT NULL,
-  `is_admin` tinyint(1) NOT NULL DEFAULT 0,
+  `timestamp` bigint(20) NOT NULL,`
   PRIMARY KEY (`userid`),
   KEY `first_name` (`first_name`),
   KEY `last_name` (`last_name`),
-  KEY `username` (`username`),
-  KEY `is_admin` (`is_admin`)
+  KEY `username` (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

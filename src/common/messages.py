@@ -41,8 +41,6 @@ MESSAGE_MAIN_MENU = "🏠 *Главное меню*\n\nВыберите дейс
 MESSAGE_VALIDATOR_SUBMENU = "✅ *Валидация заявок*\n\nВыберите действие:"
 MESSAGE_IMAGE_INSTRUCTIONS = "📸 *Обработка скриншота*\n\nОтправьте изображение _как файл_ \\(не фото\\)\\:\n\n1\\. Выберите изображение из галереи\n2\\. Нажмите 3 точки\n3\\. Выберите _Отправить как файл_"
 MESSAGE_UNRECOGNIZED_INPUT = "🤔 Не понял вашу команду\\.\n\n*Используйте:*\n• Кнопки меню ниже\n• Команды бота \\(/menu, /validate\\)\n• Или /help для справки"
-MESSAGE_ADMIN_MENU = "🔧 *Админ\\-панель*\n\nУправление правилами валидации и типами заявок:"
-MESSAGE_NO_ADMIN_ACCESS = "❌ У вас нет прав администратора\\."
 
 MESSAGE_MAIN_HELP = """❓ *Помощь*
 
@@ -111,17 +109,3 @@ def get_image_menu_keyboard():
         one_time_keyboard=False
     )
 
-
-def get_admin_menu_keyboard():
-    """
-    Build admin panel menu keyboard.
-    Returns ReplyKeyboardMarkup for admin menu.
-    """
-    from telegram import ReplyKeyboardMarkup
-    from config.settings import ADMIN_MENU_BUTTONS
-    
-    return ReplyKeyboardMarkup(
-        ADMIN_MENU_BUTTONS,
-        resize_keyboard=True,
-        one_time_keyboard=False
-    )
