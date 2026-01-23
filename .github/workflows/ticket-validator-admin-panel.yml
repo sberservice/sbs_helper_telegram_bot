@@ -56,16 +56,21 @@ jobs:
           passphrase: ${{ secrets.DEPLOY_PASSPHRASE }}
           debug: true
           script: |
-            $ErrorActionPreference = "Stop"
+            $ErrorActionPreference = "Continue"
             Set-Location "${{ secrets.DEPLOY_PATH }}"
             Write-Host "Starting Deployment..."
-            git fetch origin ticket_validator
-            git checkout ticket_validator
-            git pull origin ticket_validator
+            git fetch origin ticket_validator_with_admin_panel
+            if ($LASTEXITCODE -ne 0) { Write-Error "Git fetch failed"; exit 1 }
+            git checkout ticket_validator_with_admin_panel
+            if ($LASTEXITCODE -ne 0) { Write-Error "Git checkout failed"; exit 1 }
+            git pull origin ticket_validator_with_admin_panel
+            Write-Host "Git pull completed with exit code: $LASTEXITCODE"
+            Write-Host "Installing Python dependencies..."
             python -m pip install --upgrade pip
             pip install -r requirements.txt
             Write-Host "Restarting Telegram Bot..."
             Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like "*run_bot*" } | Stop-Process -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 2
             Start-Process -FilePath "cmd" -ArgumentList "/c", "title run_bot && python run_bot.py" -WorkingDirectory "${{ secrets.DEPLOY_PATH }}"
+            Write-Host "Bot started successfully!"
             Write-Host "Deployment completed!"
