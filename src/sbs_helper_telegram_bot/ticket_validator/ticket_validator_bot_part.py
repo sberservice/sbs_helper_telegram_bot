@@ -414,16 +414,21 @@ def format_debug_info_for_telegram(debug_info) -> str:
     
     for score_info in sorted_scores:
         type_name = _escape_md(score_info.ticket_type.type_name)
+        # Escape decimal points in numeric values
+        total_score_str = str(score_info.total_score).replace('.', '\\.')
+        match_pct_str = f"{score_info.match_percentage:.1f}".replace('.', '\\.')
+        
         lines.append("")
         lines.append(f"📋 *{type_name}*")
-        lines.append(f"   Счёт: {score_info.total_score}")
-        lines.append(f"   Совпало: {score_info.matched_keywords_count}/{score_info.total_keywords_count} \\({score_info.match_percentage:.1f}%\\)")
+        lines.append(f"   Счёт: {total_score_str}")
+        lines.append(f"   Совпало: {score_info.matched_keywords_count}/{score_info.total_keywords_count} \\({match_pct_str}%\\)")
         
         if score_info.keyword_matches:
             lines.append("   Ключевые слова:")
             for match in score_info.keyword_matches[:5]:  # Limit to 5 keywords to avoid too long messages
                 keyword = _escape_md(match.keyword)
-                lines.append(f"     • '{keyword}': {match.count}x \\(вес: {match.weight}\\)")
+                weight_str = str(match.weight).replace('.', '\\.')
+                lines.append(f"     • '{keyword}': {match.count}x \\(вес: {weight_str}\\)")
             if len(score_info.keyword_matches) > 5:
                 lines.append(f"     _\\.\\.\\.и ещё {len(score_info.keyword_matches) - 5}_")
     
