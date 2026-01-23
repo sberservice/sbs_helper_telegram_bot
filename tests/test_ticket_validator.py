@@ -15,6 +15,9 @@ from src.sbs_helper_telegram_bot.ticket_validator.validators import (
     ValidationResult,
     RuleType,
     TicketType,
+    KeywordMatch,
+    TicketTypeScore,
+    DetectionDebugInfo,
     validate_regex,
     validate_required_field,
     validate_format,
@@ -540,7 +543,7 @@ class TestTicketTypeDetection(unittest.TestCase):
         ]
         
         ticket_text = "Заявка на установку нового оборудования и подключение"
-        detected = detect_ticket_type(ticket_text, ticket_types)
+        detected, _ = detect_ticket_type(ticket_text, ticket_types)
         
         self.assertIsNotNone(detected)
         self.assertEqual(detected.id, 1)
@@ -554,7 +557,7 @@ class TestTicketTypeDetection(unittest.TestCase):
         ]
         
         ticket_text = "Касса сломалась, нужен ремонт, не работает принтер"
-        detected = detect_ticket_type(ticket_text, ticket_types)
+        detected, _ = detect_ticket_type(ticket_text, ticket_types)
         
         self.assertIsNotNone(detected)
         self.assertEqual(detected.id, 2)
@@ -568,14 +571,14 @@ class TestTicketTypeDetection(unittest.TestCase):
         ]
         
         ticket_text = "Какой-то текст без ключевых слов"
-        detected = detect_ticket_type(ticket_text, ticket_types)
+        detected, _ = detect_ticket_type(ticket_text, ticket_types)
         
         self.assertIsNone(detected)
     
     def test_empty_ticket_types_list(self):
         """Test detection with empty ticket types list."""
         ticket_text = "Заявка на установку"
-        detected = detect_ticket_type(ticket_text, [])
+        detected, _ = detect_ticket_type(ticket_text, [])
         
         self.assertIsNone(detected)
     
@@ -587,7 +590,7 @@ class TestTicketTypeDetection(unittest.TestCase):
         ]
         
         ticket_text = "Заявка на установку оборудования"
-        detected = detect_ticket_type(ticket_text, ticket_types)
+        detected, _ = detect_ticket_type(ticket_text, ticket_types)
         
         # Should not detect type 1 (inactive)
         self.assertIsNone(detected)
@@ -599,7 +602,7 @@ class TestTicketTypeDetection(unittest.TestCase):
         ]
         
         ticket_text = "заявка на установку и монтаж"
-        detected = detect_ticket_type(ticket_text, ticket_types)
+        detected, _ = detect_ticket_type(ticket_text, ticket_types)
         
         self.assertIsNotNone(detected)
         self.assertEqual(detected.id, 1)
@@ -613,7 +616,7 @@ class TestTicketTypeDetection(unittest.TestCase):
         
         # This text has more repair keywords
         ticket_text = "Касса сломалась, нужен ремонт поломки"
-        detected = detect_ticket_type(ticket_text, ticket_types)
+        detected, _ = detect_ticket_type(ticket_text, ticket_types)
         
         self.assertEqual(detected.id, 2)
     
@@ -633,7 +636,194 @@ class TestTicketTypeDetection(unittest.TestCase):
         self.assertEqual(result.detected_ticket_type.id, 1)
 
 
-if __name__ == '__main__':
-    unittest.main()
+class TestDetectionDebugMode(unittest.TestCase):
+    """Tests for ticket type detection debug mode functionality."""
+    
+    def test_debug_mode_returns_debug_info(self):
+        """Test that debug mode returns DetectionDebugInfo object."""
+        ticket_types = [
+            TicketType(1, "Установка", "Installation", ["установку", "монтаж"]),
+            TicketType(2, "Ремонт", "Repair", ["ремонт", "поломка"]),
+        ]
+        
+        ticket_text = "Заявка на установку нового оборудования"
+        detected, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=True)
+        
+        self.assertIsNotNone(debug_info)
+        self.assertIsInstance(debug_info, DetectionDebugInfo)
+        self.assertIsNotNone(detected)
+        self.assertEqual(detected.id, 1)
+        self.assertEqual(debug_info.detected_type.id, 1)
+    
+    def test_debug_info_contains_all_scores(self):
+        """Test that debug info contains scores for all ticket types."""
+        ticket_types = [
+            TicketType(1, "Установка", "Installation", ["установку", "монтаж"]),
+            TicketType(2, "Ремонт", "Repair", ["ремонт", "поломка"]),
+            TicketType(3, "ТО", "Maintenance", ["обслуживание"]),
+        ]
+        
+        ticket_text = "Заявка на установку"
+        _, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=True)
+        
+        self.assertEqual(len(debug_info.all_scores), 3)
+        self.assertEqual(debug_info.total_types_evaluated, 3)
+    
+    def test_debug_info_keyword_matches(self):
+        """Test that debug info shows which keywords matched."""
+        ticket_types = [
+            TicketType(1, "Установка", "Installation", ["установку", "монтаж", "подключение"]),
+        ]
+        
+        ticket_text = "Заявка на установку и подключение оборудования"
+        _, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=True)
+        
+        score_info = debug_info.all_scores[0]
+        self.assertEqual(score_info.matched_keywords_count, 2)  # установку and подключение
+        self.assertEqual(score_info.total_keywords_count, 3)
+        self.assertEqual(len(score_info.keyword_matches), 2)
+        
+        # Check that the matched keywords are correct
+        matched_keywords = [m.keyword.lower() for m in score_info.keyword_matches]
+        self.assertIn("установку", matched_keywords)
+        self.assertIn("подключение", matched_keywords)
+    
+    def test_debug_info_keyword_count(self):
+        """Test that debug info counts keyword occurrences."""
+        ticket_types = [
+            TicketType(1, "Ремонт", "Repair", ["ремонт"]),
+        ]
+        
+        ticket_text = "Нужен ремонт кассы, ремонт принтера и ремонт монитора"
+        _, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=True)
+        
+        score_info = debug_info.all_scores[0]
+        # "ремонт" appears 3 times
+        self.assertEqual(score_info.keyword_matches[0].count, 3)
+        self.assertEqual(score_info.total_score, 3.0)
+    
+    def test_debug_info_with_custom_weights(self):
+        """Test detection with custom keyword weights."""
+        ticket_types = [
+            TicketType(1, "Установка", "Installation", ["установка", "монтаж"]),
+            TicketType(2, "Ремонт", "Repair", ["ремонт"]),
+        ]
+        
+        # Without weights, "установка" (1 occurrence) vs "ремонт" (1 occurrence) ties, first wins
+        # With higher weight on "ремонт", it should win
+        ticket_text = "Установка и ремонт"
+        
+        detected_weighted, debug_info = detect_ticket_type(
+            ticket_text, ticket_types, 
+            debug=True, 
+            keyword_weights={"ремонт": 5.0}
+        )
+        
+        # With weight 5.0 on "ремонт", type 2 should win
+        self.assertEqual(detected_weighted.id, 2)
+        
+        # Check the scores
+        repair_score = next(s for s in debug_info.all_scores if s.ticket_type.id == 2)
+        self.assertEqual(repair_score.total_score, 5.0)  # 1 * 5.0
+        
+        install_score = next(s for s in debug_info.all_scores if s.ticket_type.id == 1)
+        self.assertEqual(install_score.total_score, 1.0)  # 1 * 1.0 (default weight)
+    
+    def test_debug_info_match_percentage(self):
+        """Test match percentage calculation."""
+        ticket_types = [
+            TicketType(1, "Установка", "Installation", ["установка", "монтаж", "подключение", "настройка"]),
+        ]
+        
+        ticket_text = "Установка и подключение"
+        _, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=True)
+        
+        score_info = debug_info.all_scores[0]
+        # 2 out of 4 keywords matched = 50%
+        self.assertEqual(score_info.match_percentage, 50.0)
+    
+    def test_debug_info_text_preview(self):
+        """Test that debug info includes text preview."""
+        ticket_types = [
+            TicketType(1, "Установка", "Installation", ["установка"]),
+        ]
+        
+        ticket_text = "Заявка на установку оборудования"
+        _, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=True)
+        
+        self.assertTrue(debug_info.ticket_text_preview.startswith("Заявка"))
+    
+    def test_debug_info_get_summary(self):
+        """Test that get_summary returns a formatted string."""
+        ticket_types = [
+            TicketType(1, "Установка", "Installation", ["установку", "монтаж"]),
+            TicketType(2, "Ремонт", "Repair", ["ремонт"]),
+        ]
+        
+        ticket_text = "Заявка на установку"
+        _, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=True)
+        
+        summary = debug_info.get_summary()
+        
+        self.assertIn("TICKET TYPE DETECTION DEBUG INFO", summary)
+        self.assertIn("DETECTED TYPE: Установка", summary)
+        self.assertIn("установку", summary)
+        self.assertIn("SCORES BY TICKET TYPE", summary)
+    
+    def test_debug_mode_no_match(self):
+        """Test debug mode when no ticket type matches."""
+        ticket_types = [
+            TicketType(1, "Установка", "Installation", ["установка"]),
+        ]
+        
+        ticket_text = "Какой-то текст без ключевых слов"
+        detected, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=True)
+        
+        self.assertIsNone(detected)
+        self.assertIsNone(debug_info.detected_type)
+        self.assertEqual(debug_info.all_scores[0].total_score, 0.0)
+        self.assertEqual(debug_info.all_scores[0].matched_keywords_count, 0)
+    
+    def test_debug_mode_inactive_types_excluded(self):
+        """Test that inactive types are not counted in total_types_evaluated."""
+        ticket_types = [
+            TicketType(1, "Установка", "Installation", ["установка"], active=True),
+            TicketType(2, "Ремонт", "Repair", ["ремонт"], active=False),
+        ]
+        
+        ticket_text = "Установка"
+        _, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=True)
+        
+        self.assertEqual(debug_info.total_types_evaluated, 1)
+        self.assertEqual(len(debug_info.all_scores), 1)
+    
+    def test_debug_mode_empty_types(self):
+        """Test debug mode with empty ticket types list."""
+        ticket_text = "Заявка"
+        detected, debug_info = detect_ticket_type(ticket_text, [], debug=True)
+        
+        self.assertIsNone(detected)
+        self.assertIsNone(debug_info.detected_type)
+        self.assertEqual(len(debug_info.all_scores), 0)
+        self.assertEqual(debug_info.total_types_evaluated, 0)
+    
+    def test_keyword_match_weighted_score(self):
+        """Test KeywordMatch weighted_score property."""
+        match = KeywordMatch(keyword="test", count=3, weight=2.0)
+        self.assertEqual(match.weighted_score, 6.0)
+    
+    def test_without_debug_returns_none(self):
+        """Test that without debug mode, second return value is None."""
+        ticket_types = [
+            TicketType(1, "Установка", "Installation", ["установка"]),
+        ]
+        
+        ticket_text = "Установка"
+        detected, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=False)
+        
+        self.assertIsNotNone(detected)
+        self.assertIsNone(debug_info)
+
+
 if __name__ == '__main__':
     unittest.main()

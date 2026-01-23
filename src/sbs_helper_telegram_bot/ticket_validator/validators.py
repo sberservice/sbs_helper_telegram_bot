@@ -51,6 +51,85 @@ class ValidationRule:
 
 
 @dataclass
+class KeywordMatch:
+    """Represents a keyword match with its details"""
+    keyword: str
+    count: int
+    weight: float = 1.0
+    
+    @property
+    def weighted_score(self) -> float:
+        return self.count * self.weight
+
+
+@dataclass
+class TicketTypeScore:
+    """Score details for a ticket type during detection"""
+    ticket_type: TicketType
+    total_score: float
+    keyword_matches: List[KeywordMatch] = field(default_factory=list)
+    matched_keywords_count: int = 0
+    total_keywords_count: int = 0
+    
+    @property
+    def match_percentage(self) -> float:
+        """Percentage of keywords that matched"""
+        if self.total_keywords_count == 0:
+            return 0.0
+        return (self.matched_keywords_count / self.total_keywords_count) * 100
+
+
+@dataclass
+class DetectionDebugInfo:
+    """Debug information for ticket type detection"""
+    detected_type: Optional[TicketType]
+    all_scores: List[TicketTypeScore] = field(default_factory=list)
+    ticket_text_preview: str = ""
+    total_types_evaluated: int = 0
+    
+    def get_summary(self) -> str:
+        """Generate a human-readable summary of the detection process"""
+        lines = []
+        lines.append("=" * 60)
+        lines.append("TICKET TYPE DETECTION DEBUG INFO")
+        lines.append("=" * 60)
+        lines.append(f"Text preview: {self.ticket_text_preview[:100]}...")
+        lines.append(f"Total ticket types evaluated: {self.total_types_evaluated}")
+        lines.append("")
+        
+        if self.detected_type:
+            lines.append(f"✅ DETECTED TYPE: {self.detected_type.type_name}")
+            lines.append(f"   Description: {self.detected_type.description}")
+        else:
+            lines.append("❌ NO TYPE DETECTED")
+        
+        lines.append("")
+        lines.append("-" * 60)
+        lines.append("SCORES BY TICKET TYPE (sorted by score):")
+        lines.append("-" * 60)
+        
+        # Sort by total score descending
+        sorted_scores = sorted(self.all_scores, key=lambda x: x.total_score, reverse=True)
+        
+        for score_info in sorted_scores:
+            lines.append("")
+            lines.append(f"📋 {score_info.ticket_type.type_name}")
+            lines.append(f"   Total Score: {score_info.total_score}")
+            lines.append(f"   Keywords matched: {score_info.matched_keywords_count}/{score_info.total_keywords_count} ({score_info.match_percentage:.1f}%)")
+            
+            if score_info.keyword_matches:
+                lines.append("   Matched keywords:")
+                for match in score_info.keyword_matches:
+                    lines.append(f"     • '{match.keyword}': found {match.count}x (weight: {match.weight}, score: {match.weighted_score})")
+            else:
+                lines.append("   No keywords matched")
+        
+        lines.append("")
+        lines.append("=" * 60)
+        return "\n".join(lines)
+
+
+@dataclass
 class ValidationResult:
     """Result of ticket validation"""
     is_valid: bool
@@ -156,44 +235,98 @@ def validate_length(ticket_text: str, length_spec: str) -> bool:
     return True
 
 
-def detect_ticket_type(ticket_text: str, ticket_types: List[TicketType]) -> Optional[TicketType]:
+def detect_ticket_type(
+    ticket_text: str, 
+    ticket_types: List[TicketType],
+    debug: bool = False,
+    keyword_weights: Optional[Dict[str, float]] = None
+) -> tuple[Optional[TicketType], Optional[DetectionDebugInfo]]:
     """
     Detect ticket type from text based on keywords.
     
     Args:
         ticket_text: The ticket text to analyze
         ticket_types: List of available ticket types
+        debug: If True, return detailed debug information
+        keyword_weights: Optional dict mapping keywords to custom weights (default weight is 1.0)
         
     Returns:
-        TicketType that best matches the text, or None if no match
+        Tuple of (TicketType that best matches the text or None, DetectionDebugInfo if debug=True else None)
     """
     if not ticket_types:
-        return None
+        if debug:
+            return None, DetectionDebugInfo(
+                detected_type=None,
+                ticket_text_preview=ticket_text[:200] if ticket_text else "",
+                total_types_evaluated=0
+            )
+        return None, None
+    
+    keyword_weights = keyword_weights or {}
     
     # Score each ticket type based on keyword matches
     scores = {}
+    all_scores_debug: List[TicketTypeScore] = []
     ticket_text_lower = ticket_text.lower()
+    active_types_count = 0
     
     for ticket_type in ticket_types:
         if not ticket_type.active:
             continue
-            
-        score = 0
+        
+        active_types_count += 1
+        score = 0.0
+        keyword_matches: List[KeywordMatch] = []
+        matched_count = 0
+        total_keywords = len(ticket_type.detection_keywords)
+        
         for keyword in ticket_type.detection_keywords:
             keyword_lower = keyword.lower()
             # Count occurrences of each keyword
             count = ticket_text_lower.count(keyword_lower)
-            score += count
+            
+            # Get weight for this keyword (default 1.0)
+            weight = keyword_weights.get(keyword_lower, 1.0)
+            weighted_score = count * weight
+            score += weighted_score
+            
+            if count > 0:
+                matched_count += 1
+                if debug:
+                    keyword_matches.append(KeywordMatch(
+                        keyword=keyword,
+                        count=count,
+                        weight=weight
+                    ))
         
         if score > 0:
             scores[ticket_type.id] = (score, ticket_type)
+        
+        if debug:
+            all_scores_debug.append(TicketTypeScore(
+                ticket_type=ticket_type,
+                total_score=score,
+                keyword_matches=keyword_matches,
+                matched_keywords_count=matched_count,
+                total_keywords_count=total_keywords
+            ))
     
     # Return ticket type with highest score
+    detected_type = None
     if scores:
         best_match = max(scores.values(), key=lambda x: x[0])
-        return best_match[1]
+        detected_type = best_match[1]
     
-    return None
+    if debug:
+        debug_info = DetectionDebugInfo(
+            detected_type=detected_type,
+            all_scores=all_scores_debug,
+            ticket_text_preview=ticket_text[:200] if ticket_text else "",
+            total_types_evaluated=active_types_count
+        )
+        return detected_type, debug_info
+    
+    return detected_type, None
 
 
 def validate_ticket(ticket_text: str, rules: List[ValidationRule], 

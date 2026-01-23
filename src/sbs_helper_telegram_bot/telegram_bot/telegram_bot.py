@@ -57,6 +57,7 @@ from src.sbs_helper_telegram_bot.ticket_validator.ticket_validator_bot_part impo
     history_command,
     template_command,
     help_command,
+    toggle_debug_mode,
     WAITING_FOR_TICKET
 )
 
@@ -306,6 +307,7 @@ async def post_init(application: Application) -> None:
         BotCommand("template", "Шаблоны заявок"),
         BotCommand("invite", "Мои инвайт-коды"),
         BotCommand("help_validate", "Помощь по проверке заявок"),
+        BotCommand("debug", "Режим отладки (для админов)"),
         BotCommand("admin", "Панель администратора"),
     ])
 
@@ -358,6 +360,7 @@ def main() -> None:
     application.add_handler(CommandHandler("history", history_command))
     application.add_handler(CommandHandler("template", template_command))
     application.add_handler(CommandHandler("help_validate", help_command))
+    application.add_handler(CommandHandler("debug", toggle_debug_mode))
     application.add_handler(admin_handler)
     application.add_handler(ticket_validator_handler)
     application.add_handler(MessageHandler(filters.Document.IMAGE,handle_incoming_document))
