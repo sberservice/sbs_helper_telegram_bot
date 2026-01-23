@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from telegram import constants
 import logging
 
-from src.common.telegram_user import check_if_user_legit, update_user_info_from_telegram
+from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
 import src.common.messages as messages
 from src.common.messages import get_validator_submenu_keyboard
 from .validation_rules import (
@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 # Conversation states
 WAITING_FOR_TICKET = 1
+
+# Debug mode key for user_data
+DEBUG_MODE_KEY = 'validator_debug_mode'
 
 
 async def validate_ticket_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -76,10 +79,26 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     ticket_text = update.message.text
     user_id = update.effective_user.id
     
+    # Check if debug mode is enabled for this admin user
+    is_admin = check_if_user_admin(user_id)
+    debug_enabled = is_admin and context.user_data.get(DEBUG_MODE_KEY, False)
+    
     # Load ticket types and detect which type this ticket is
     try:
         ticket_types = load_all_ticket_types()
-        detected_type = detect_ticket_type(ticket_text, ticket_types) if ticket_types else None
+        detected_type, debug_info = detect_ticket_type(
+            ticket_text, 
+            ticket_types, 
+            debug=debug_enabled
+        ) if ticket_types else (None, None)
+        
+        # Send debug info first if enabled
+        if debug_enabled and debug_info:
+            debug_message = format_debug_info_for_telegram(debug_info)
+            await update.message.reply_text(
+                debug_message,
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
         
         # Check if ticket type was detected
         if not detected_type:
@@ -115,7 +134,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         # Send response to user
         if result.is_valid:
-            response = f"✅ *Заявка прошла валидацию\\!*\n\n🎫 Тип заявки: _{detected_type.type_name}_\n\nВсе обязательные поля заполнены корректно\\."
+            response = f"✅ *Заявка прошла валидацию\\!*\n\n🎫 Тип заявки: _{_escape_md(detected_type.type_name)}_\n\nВсе обязательные поля заполнены корректно\\."
             await update.message.reply_text(
                 response,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -131,7 +150,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             response = messages.MESSAGE_VALIDATION_FAILED.format(errors=errors_formatted)
             # Add detected ticket type to error message
             response = response.replace("*Заявка не прошла валидацию*", 
-                                      f"*Заявка не прошла валидацию*\n\n🎫 Тип заявки: _{detected_type.type_name}_")
+                                      f"*Заявка не прошла валидацию*\n\n🎫 Тип заявки: _{_escape_md(detected_type.type_name)}_")
             await update.message.reply_text(
                 response,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -321,3 +340,101 @@ async def cancel_validation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     return ConversationHandler.END
+
+
+async def toggle_debug_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Toggle debug mode for ticket type detection.
+    Only available for admin users.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context
+    """
+    user_id = update.effective_user.id
+    
+    # Check if user is authorized
+    if not check_if_user_legit(user_id):
+        await update.message.reply_text(
+            messages.MESSAGE_PLEASE_ENTER_INVITE,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return
+    
+    # Check if user is admin
+    if not check_if_user_admin(user_id):
+        await update.message.reply_text(
+            messages.MESSAGE_DEBUG_MODE_NOT_ADMIN,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return
+    
+    # Toggle debug mode
+    current_state = context.user_data.get(DEBUG_MODE_KEY, False)
+    new_state = not current_state
+    context.user_data[DEBUG_MODE_KEY] = new_state
+    
+    if new_state:
+        await update.message.reply_text(
+            messages.MESSAGE_DEBUG_MODE_ENABLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+    else:
+        await update.message.reply_text(
+            messages.MESSAGE_DEBUG_MODE_DISABLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+
+
+def format_debug_info_for_telegram(debug_info) -> str:
+    """
+    Format DetectionDebugInfo for Telegram message.
+    
+    Args:
+        debug_info: DetectionDebugInfo object
+        
+    Returns:
+        Formatted string safe for MarkdownV2
+    """
+    lines = []
+    lines.append("🔍 *DEBUG: Определение типа заявки*")
+    lines.append("")
+    
+    if debug_info.detected_type:
+        lines.append(f"✅ *Определён тип:* {_escape_md(debug_info.detected_type.type_name)}")
+    else:
+        lines.append("❌ *Тип не определён*")
+    
+    lines.append(f"📊 Оценено типов: {debug_info.total_types_evaluated}")
+    lines.append("")
+    lines.append("*Результаты по типам:*")
+    
+    # Sort by score descending
+    sorted_scores = sorted(debug_info.all_scores, key=lambda x: x.total_score, reverse=True)
+    
+    for score_info in sorted_scores:
+        type_name = _escape_md(score_info.ticket_type.type_name)
+        lines.append("")
+        lines.append(f"📋 *{type_name}*")
+        lines.append(f"   Счёт: {score_info.total_score}")
+        lines.append(f"   Совпало: {score_info.matched_keywords_count}/{score_info.total_keywords_count} \\({score_info.match_percentage:.1f}%\\)")
+        
+        if score_info.keyword_matches:
+            lines.append("   Ключевые слова:")
+            for match in score_info.keyword_matches[:5]:  # Limit to 5 keywords to avoid too long messages
+                keyword = _escape_md(match.keyword)
+                lines.append(f"     • '{keyword}': {match.count}x \\(вес: {match.weight}\\)")
+            if len(score_info.keyword_matches) > 5:
+                lines.append(f"     _\\.\\.\\.и ещё {len(score_info.keyword_matches) - 5}_")
+    
+    return "\n".join(lines)
+
+
+def _escape_md(text: str) -> str:
+    """Escape special characters for MarkdownV2."""
+    if text is None:
+        return ""
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = str(text).replace(char, f'\\{char}')
+    return text
