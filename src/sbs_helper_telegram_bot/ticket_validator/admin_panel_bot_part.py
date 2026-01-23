@@ -950,6 +950,10 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 # Build the conversation handler
 def get_admin_conversation_handler() -> ConversationHandler:
     """Build and return the admin panel ConversationHandler."""
+    
+    # Common handler for menu buttons that can be pressed in any state
+    menu_buttons_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler)
+    
     return ConversationHandler(
         entry_points=[
             CommandHandler("admin", admin_command),
@@ -964,7 +968,8 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_rule_name)
             ],
             CREATE_RULE_TYPE: [
-                CallbackQueryHandler(handle_rule_type_callback)
+                CallbackQueryHandler(handle_rule_type_callback),
+                menu_buttons_handler  # Allow menu navigation
             ],
             CREATE_RULE_PATTERN: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_rule_pattern)
@@ -976,19 +981,24 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_rule_priority)
             ],
             SELECT_RULE_FOR_ACTION: [
-                CallbackQueryHandler(handle_rule_callback)
+                CallbackQueryHandler(handle_rule_callback),
+                menu_buttons_handler  # Allow menu navigation
             ],
             CONFIRM_DELETE: [
-                CallbackQueryHandler(handle_rule_callback)
+                CallbackQueryHandler(handle_rule_callback),
+                menu_buttons_handler  # Allow menu navigation
             ],
             SELECT_TICKET_TYPE: [
-                CallbackQueryHandler(handle_rule_callback)
+                CallbackQueryHandler(handle_rule_callback),
+                menu_buttons_handler  # Allow menu navigation
             ],
             MANAGE_TYPE_RULES: [
-                CallbackQueryHandler(handle_rule_callback)
+                CallbackQueryHandler(handle_rule_callback),
+                menu_buttons_handler  # Allow menu navigation
             ],
             SELECT_RULE_FOR_TYPE: [
-                CallbackQueryHandler(handle_rule_callback)
+                CallbackQueryHandler(handle_rule_callback),
+                menu_buttons_handler  # Allow menu navigation
             ],
             TEST_REGEX_PATTERN: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_test_pattern)
