@@ -38,7 +38,7 @@ jobs:
     name: Deploy to Test Server
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/ticket_validator'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/ticket_validator_with_admin_panel'
 
     steps:
 
