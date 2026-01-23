@@ -80,8 +80,8 @@ def update_user_info_from_telegram(user) -> None:
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            sql = "INSERT INTO users (userid, timestamp,first_name,last_name,username) VALUES (%s,UNIX_TIMESTAMP(), %s, %s, %s) on duplicate key update first_name=%s, last_name=%s, username=%s"
-            val = (user.id,user.first_name,user.last_name,user.username,user.first_name,user.last_name,user.username)
+            sql = "INSERT INTO users (userid, timestamp, first_name, last_name, username, is_admin) VALUES (%s, UNIX_TIMESTAMP(), %s, %s, %s, 0) ON DUPLICATE KEY UPDATE first_name=%s, last_name=%s, username=%s"
+            val = (user.id, user.first_name, user.last_name, user.username, user.first_name, user.last_name, user.username)
             cursor.execute(sql, val)
 
 class TelegramUser:
