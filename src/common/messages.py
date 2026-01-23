@@ -80,21 +80,6 @@ def get_main_menu_keyboard():
     )
 
 
-def get_admin_main_menu_keyboard():
-    """
-    Build main menu keyboard with admin panel button.
-    Returns ReplyKeyboardMarkup for admin main menu.
-    """
-    from telegram import ReplyKeyboardMarkup
-    from config.settings import ADMIN_MAIN_MENU_BUTTONS
-    
-    return ReplyKeyboardMarkup(
-        ADMIN_MAIN_MENU_BUTTONS,
-        resize_keyboard=True,
-        one_time_keyboard=False
-    )
-
-
 def get_validator_submenu_keyboard():
     """
     Build ticket validator submenu keyboard.
@@ -105,6 +90,21 @@ def get_validator_submenu_keyboard():
     
     return ReplyKeyboardMarkup(
         VALIDATOR_SUBMENU_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False
+    )
+
+
+def get_admin_validator_submenu_keyboard():
+    """
+    Build ticket validator submenu keyboard with admin panel button.
+    Returns ReplyKeyboardMarkup for admin validator submenu.
+    """
+    from telegram import ReplyKeyboardMarkup
+    from config.settings import ADMIN_VALIDATOR_SUBMENU_BUTTONS
+    
+    return ReplyKeyboardMarkup(
+        ADMIN_VALIDATOR_SUBMENU_BUTTONS,
         resize_keyboard=True,
         one_time_keyboard=False
     )

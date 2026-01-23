@@ -49,18 +49,18 @@ MAIN_MENU_BUTTONS = [
     ["🎫 Мои инвайты", "❓ Помощь"]
 ]
 
-# Main menu buttons for admin users (includes admin panel button)
-ADMIN_MAIN_MENU_BUTTONS = [
-    ["✅ Валидация заявок", "📸 Обработать скриншот"],
-    ["🎫 Мои инвайты", "❓ Помощь"],
-    ["🔐 Админ панель"]
-]
-
 # Ticket validator submenu - shown when user clicks validation button
 VALIDATOR_SUBMENU_BUTTONS = [
     ["📋 Проверить заявку", "📜 История проверок"],
     ["📄 Шаблоны заявок", "ℹ️ Помощь по валидации"],
     ["🏠 Главное меню"]
+]
+
+# Ticket validator submenu for admins (includes admin panel button)
+ADMIN_VALIDATOR_SUBMENU_BUTTONS = [
+    ["📋 Проверить заявку", "📜 История проверок"],
+    ["📄 Шаблоны заявок", "ℹ️ Помощь по валидации"],
+    ["🔐 Админ панель", "🏠 Главное меню"]
 ]
 
 # Image processing module menu

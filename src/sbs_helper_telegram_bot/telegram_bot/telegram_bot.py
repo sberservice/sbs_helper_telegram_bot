@@ -41,8 +41,8 @@ from src.common.messages import (
     MESSAGE_UNRECOGNIZED_INPUT,
     MESSAGE_ADMIN_MENU,
     get_main_menu_keyboard,
-    get_admin_main_menu_keyboard,
     get_validator_submenu_keyboard,
+    get_admin_validator_submenu_keyboard,
     get_image_menu_keyboard,
     get_admin_menu_keyboard
 )
@@ -78,17 +78,6 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
-
-
-def get_user_main_menu_keyboard(user_id: int):
-    """
-    Get the appropriate main menu keyboard based on user's admin status.
-    Returns admin menu for admins, regular menu for others.
-    """
-    if check_if_user_admin(user_id):
-        return get_admin_main_menu_keyboard()
-    return get_main_menu_keyboard()
-
 
 def check_if_invite_entered(telegram_id,invite) -> InviteStatus:
     """
@@ -155,7 +144,7 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         MESSAGE_WELCOME,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=get_user_main_menu_keyboard(user.id)
+        reply_markup=get_main_menu_keyboard()
     )
 
 async def invite_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -197,7 +186,7 @@ async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text(
         MESSAGE_MAIN_MENU,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=get_user_main_menu_keyboard(update.effective_user.id)
+        reply_markup=get_main_menu_keyboard()
     )
 
 
@@ -223,7 +212,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             await update.message.reply_text(
                 MESSAGE_MAIN_MENU,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_user_main_menu_keyboard(update.effective_user.id)
+                reply_markup=get_main_menu_keyboard()
             )
         elif check_if_invite_entered(update.effective_user.id,text) == InviteStatus.NOT_EXISTS:
             await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
@@ -238,14 +227,18 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(
             MESSAGE_MAIN_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_user_main_menu_keyboard(update.effective_user.id)
+            reply_markup=get_main_menu_keyboard()
         )
     elif text == "✅ Валидация заявок":
-        # Show validation submenu
+        # Show validation submenu (with admin panel if user is admin)
+        if check_if_user_admin(update.effective_user.id):
+            keyboard = get_admin_validator_submenu_keyboard()
+        else:
+            keyboard = get_validator_submenu_keyboard()
         await update.message.reply_text(
             MESSAGE_VALIDATOR_SUBMENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_validator_submenu_keyboard()
+            reply_markup=keyboard
         )
     elif text == " История проверок":
         await history_command(update, _context)
@@ -259,7 +252,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(
             MESSAGE_MAIN_HELP,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_user_main_menu_keyboard(update.effective_user.id)
+            reply_markup=get_main_menu_keyboard()
         )
     elif text == "📸 Обработать скриншот" or text == "📸 Отправить скриншот":
         await update.message.reply_text(
@@ -286,14 +279,14 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             await update.message.reply_text(
                 "⛔ У вас нет прав администратора\\.",
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_user_main_menu_keyboard(update.effective_user.id)
+                reply_markup=get_main_menu_keyboard()
             )
     else:
         # Default response for unrecognized text
         await update.message.reply_text(
             MESSAGE_UNRECOGNIZED_INPUT,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_user_main_menu_keyboard(update.effective_user.id)
+            reply_markup=get_main_menu_keyboard()
         )
 
 
