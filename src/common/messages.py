@@ -80,6 +80,21 @@ def get_main_menu_keyboard():
     )
 
 
+def get_admin_main_menu_keyboard():
+    """
+    Build main menu keyboard with admin panel button.
+    Returns ReplyKeyboardMarkup for admin main menu.
+    """
+    from telegram import ReplyKeyboardMarkup
+    from config.settings import ADMIN_MAIN_MENU_BUTTONS
+    
+    return ReplyKeyboardMarkup(
+        ADMIN_MAIN_MENU_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False
+    )
+
+
 def get_validator_submenu_keyboard():
     """
     Build ticket validator submenu keyboard.
@@ -105,6 +120,112 @@ def get_image_menu_keyboard():
     
     return ReplyKeyboardMarkup(
         IMAGE_MENU_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False
+    )
+
+
+# ===== ADMIN PANEL MESSAGES =====
+
+MESSAGE_ADMIN_NOT_AUTHORIZED = "⛔ У вас нет прав администратора\\."
+
+MESSAGE_ADMIN_MENU = """🔐 *Панель администратора*
+
+Управление правилами валидации заявок\\.
+
+Выберите действие:"""
+
+MESSAGE_ADMIN_RULES_LIST = "📋 *Список правил валидации*\n\nВсего правил: {count}\n\n{rules}"
+
+MESSAGE_ADMIN_RULE_DETAILS = """📝 *Правило: {name}*
+
+*ID:* {id}
+*Тип:* {rule_type}
+*Паттерн:* `{pattern}`
+*Сообщение об ошибке:* {error_message}
+*Приоритет:* {priority}
+*Статус:* {status}
+
+*Применяется к типам заявок:*
+{ticket_types}"""
+
+MESSAGE_ADMIN_CREATE_RULE_NAME = "📝 Создание нового правила\\.\n\nВведите *название* правила \\(например: \"Проверка ИНН\"\\)\\.\n\nДля отмены используйте /cancel"
+
+MESSAGE_ADMIN_CREATE_RULE_TYPE = """Выберите *тип* правила:
+
+• *regex* \\- регулярное выражение
+• *required\\_field* \\- обязательное поле
+• *format* \\- формат \\(phone, email, date, inn\\)
+• *length* \\- проверка длины \\(min:X,max:Y\\)
+• *custom* \\- пользовательское"""
+
+MESSAGE_ADMIN_CREATE_RULE_PATTERN = "Введите *паттерн* \\(регулярное выражение или спецификацию\\)\\.\n\n*Примеры:*\n• regex: `ИНН[:\\s]*\\\\d{{10,12}}`\n• format: `phone` или `date`\n• length: `min:10,max:1000`"
+
+MESSAGE_ADMIN_CREATE_RULE_ERROR_MSG = "Введите *сообщение об ошибке*, которое увидит пользователь при невалидной заявке\\."
+
+MESSAGE_ADMIN_CREATE_RULE_PRIORITY = "Введите *приоритет* правила \\(число от 0 до 100\\)\\.\n\nЧем выше число, тем раньше проверяется правило\\."
+
+MESSAGE_ADMIN_RULE_CREATED = "✅ Правило *{name}* успешно создано\\!"
+
+MESSAGE_ADMIN_RULE_DELETED = "🗑️ Правило *{name}* удалено\\.\n\nУдалено связей с типами заявок: {associations}"
+
+MESSAGE_ADMIN_RULE_UPDATED = "✅ Правило *{name}* обновлено\\."
+
+MESSAGE_ADMIN_RULE_TOGGLED = "✅ Правило *{name}* {status}\\."
+
+MESSAGE_ADMIN_SELECT_TICKET_TYPE = "Выберите *тип заявки* для управления правилами:"
+
+MESSAGE_ADMIN_TICKET_TYPE_RULES = """📋 *Тип заявки: {type_name}*
+
+*Назначенные правила:*
+{rules}
+
+Выберите действие:"""
+
+MESSAGE_ADMIN_RULE_ADDED_TO_TYPE = "✅ Правило *{rule_name}* добавлено к типу *{type_name}*\\."
+
+MESSAGE_ADMIN_RULE_REMOVED_FROM_TYPE = "✅ Правило *{rule_name}* удалено из типа *{type_name}*\\."
+
+MESSAGE_ADMIN_TEST_REGEX = "🔬 *Тестирование регулярного выражения*\n\nВведите паттерн для проверки\\.\n\nДля отмены используйте /cancel"
+
+MESSAGE_ADMIN_TEST_REGEX_SAMPLE = "Введите *тестовый текст* для проверки паттерна:\n`{pattern}`"
+
+MESSAGE_ADMIN_TEST_REGEX_RESULT = "🔬 *Результат тестирования*\n\n*Паттерн:* `{pattern}`\n\n{result}"
+
+MESSAGE_ADMIN_INVALID_REGEX = "❌ Некорректное регулярное выражение: {error}"
+
+MESSAGE_ADMIN_CONFIRM_DELETE = "⚠️ Вы уверены, что хотите удалить правило *{name}*?\n\nЭто также удалит все связи с типами заявок \\({count} связей\\)\\."
+
+MESSAGE_ADMIN_OPERATION_CANCELLED = "❌ Операция отменена\\."
+
+MESSAGE_ADMIN_INVALID_INPUT = "❌ Некорректный ввод\\. Попробуйте снова\\."
+
+
+def get_admin_menu_keyboard():
+    """
+    Build admin panel main menu keyboard.
+    Returns ReplyKeyboardMarkup for admin menu.
+    """
+    from telegram import ReplyKeyboardMarkup
+    from config.settings import ADMIN_MENU_BUTTONS
+    
+    return ReplyKeyboardMarkup(
+        ADMIN_MENU_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False
+    )
+
+
+def get_admin_rules_keyboard():
+    """
+    Build admin rules management keyboard.
+    Returns ReplyKeyboardMarkup for rules management.
+    """
+    from telegram import ReplyKeyboardMarkup
+    from config.settings import ADMIN_RULES_BUTTONS
+    
+    return ReplyKeyboardMarkup(
+        ADMIN_RULES_BUTTONS,
         resize_keyboard=True,
         one_time_keyboard=False
     )

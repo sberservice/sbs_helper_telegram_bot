@@ -39,9 +39,12 @@ from src.common.messages import (
     MESSAGE_VALIDATOR_SUBMENU,
     MESSAGE_IMAGE_INSTRUCTIONS,
     MESSAGE_UNRECOGNIZED_INPUT,
+    MESSAGE_ADMIN_MENU,
     get_main_menu_keyboard,
+    get_admin_main_menu_keyboard,
     get_validator_submenu_keyboard,
-    get_image_menu_keyboard
+    get_image_menu_keyboard,
+    get_admin_menu_keyboard
 )
 from src.common.telegram_user import check_if_user_legit,update_user_info_from_telegram
 from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import handle_incoming_document
@@ -57,6 +60,12 @@ from src.sbs_helper_telegram_bot.ticket_validator.ticket_validator_bot_part impo
     WAITING_FOR_TICKET
 )
 
+# Import admin panel handlers
+from src.sbs_helper_telegram_bot.ticket_validator.admin_panel_bot_part import (
+    get_admin_conversation_handler
+)
+from src.common.telegram_user import check_if_user_admin
+
 from config.settings import DEBUG, INVITES_PER_NEW_USER
 
 
@@ -69,6 +78,17 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
+
+
+def get_user_main_menu_keyboard(user_id: int):
+    """
+    Get the appropriate main menu keyboard based on user's admin status.
+    Returns admin menu for admins, regular menu for others.
+    """
+    if check_if_user_admin(user_id):
+        return get_admin_main_menu_keyboard()
+    return get_main_menu_keyboard()
+
 
 def check_if_invite_entered(telegram_id,invite) -> InviteStatus:
     """
@@ -135,7 +155,7 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         MESSAGE_WELCOME,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=get_main_menu_keyboard()
+        reply_markup=get_user_main_menu_keyboard(user.id)
     )
 
 async def invite_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -177,7 +197,7 @@ async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text(
         MESSAGE_MAIN_MENU,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=get_main_menu_keyboard()
+        reply_markup=get_user_main_menu_keyboard(update.effective_user.id)
     )
 
 
@@ -203,7 +223,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             await update.message.reply_text(
                 MESSAGE_MAIN_MENU,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_main_menu_keyboard()
+                reply_markup=get_user_main_menu_keyboard(update.effective_user.id)
             )
         elif check_if_invite_entered(update.effective_user.id,text) == InviteStatus.NOT_EXISTS:
             await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
@@ -218,7 +238,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(
             MESSAGE_MAIN_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=get_user_main_menu_keyboard(update.effective_user.id)
         )
     elif text == "✅ Валидация заявок":
         # Show validation submenu
@@ -239,7 +259,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(
             MESSAGE_MAIN_HELP,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=get_user_main_menu_keyboard(update.effective_user.id)
         )
     elif text == "📸 Обработать скриншот" or text == "📸 Отправить скриншот":
         await update.message.reply_text(
@@ -254,12 +274,26 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_image_menu_keyboard()
         )
+    elif text == "🔐 Админ панель":
+        # Show admin panel if user is admin
+        if check_if_user_admin(update.effective_user.id):
+            await update.message.reply_text(
+                MESSAGE_ADMIN_MENU,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=get_admin_menu_keyboard()
+            )
+        else:
+            await update.message.reply_text(
+                "⛔ У вас нет прав администратора\\.",
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=get_user_main_menu_keyboard(update.effective_user.id)
+            )
     else:
         # Default response for unrecognized text
         await update.message.reply_text(
             MESSAGE_UNRECOGNIZED_INPUT,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=get_user_main_menu_keyboard(update.effective_user.id)
         )
 
 
@@ -279,6 +313,7 @@ async def post_init(application: Application) -> None:
         BotCommand("template", "Шаблоны заявок"),
         BotCommand("invite", "Мои инвайт-коды"),
         BotCommand("help_validate", "Помощь по проверке заявок"),
+        BotCommand("admin", "Панель администратора"),
     ])
 
 
@@ -320,6 +355,9 @@ def main() -> None:
         fallbacks=[CommandHandler("cancel", cancel_validation)]
     )
 
+    # Create ConversationHandler for admin panel
+    admin_handler = get_admin_conversation_handler()
+
     # Register all handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
@@ -327,6 +365,7 @@ def main() -> None:
     application.add_handler(CommandHandler("history", history_command))
     application.add_handler(CommandHandler("template", template_command))
     application.add_handler(CommandHandler("help_validate", help_command))
+    application.add_handler(admin_handler)
     application.add_handler(ticket_validator_handler)
     application.add_handler(MessageHandler(filters.Document.IMAGE,handle_incoming_document))
     application.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, text_entered))
