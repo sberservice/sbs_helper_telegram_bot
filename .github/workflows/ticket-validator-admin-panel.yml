@@ -58,4 +58,4 @@ jobs:
           passphrase: ${{ secrets.DEPLOY_PASSPHRASE }}
           script_stop: true
           # Windows cmd.exe requires commands to be chained with & on a single line
-          script: cd /d ${{ secrets.DEPLOY_PATH }} & echo Starting Deployment... & git fetch origin ticket_validator & git checkout ticket_validator & git pull origin ticket_validator & python -m pip install --upgrade pip & pip install -r requirements.txt & echo Restarting Telegram Bot... & (taskkill /F /FI "WINDOWTITLE eq run_bot*" 2>nul || echo No existing bot process) & timeout /t 2 /nobreak & start "run_bot" cmd /c "python run_bot.py >> ${{ secrets.DEPLOY_LOGS_PATH }}\telegram_bot.log 2>&1" & echo Deployment completed!
+          script: cd /d ${{ secrets.DEPLOY_PATH }} & echo Starting Deployment... & git fetch origin ticket_validator & git checkout ticket_validator & git pull origin ticket_validator & python -m pip install --upgrade pip & pip install -r requirements.txt & echo Restarting Telegram Bot... & (taskkill /F /FI "WINDOWTITLE eq run_bot*" 2>nul || echo No existing bot process) & timeout /t 2 /nobreak & start "run_bot" cmd /k "python run_bot.py" & echo Deployment completed!
