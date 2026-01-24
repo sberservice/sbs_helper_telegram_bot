@@ -1,45 +1,22 @@
 """
-    messages.py
-    Contains constant text messages used throughout the Telegram bot.
+Common Messages
+
+Contains only truly common messages used across the entire bot,
+not specific to any module.
+
+Module-specific messages should be in their respective module's messages.py file.
 """
 # pylint: disable=line-too-long
 
-MESSAGE_WELCOME =  "Привет\!\n*Бот принимает скриншоты только в виде файлов*\.\n\nВыберите изображение из галереи, нажмите 3 точки и выберите _Отправить как файл_, либо _Отправить без сжатия_\n\nПроект на GitHub: https://github\\.com/sberservice/sbs\\_helper\\_telegram\\_bot"
+# Welcome and authentication messages
+MESSAGE_WELCOME = "Привет\!\n*Бот принимает скриншоты только в виде файлов*\.\n\nВыберите изображение из галереи, нажмите 3 точки и выберите _Отправить как файл_, либо _Отправить без сжатия_\n\nПроект на GitHub: https://github\\.com/sberservice/sbs\\_helper\\_telegram\\_bot"
 MESSAGE_PLEASE_ENTER_INVITE = "Пожалуйста, введите ваш инвайт.\nЕго можно попросить у другого пользователя этого бота, если он введет команду /invite или выберет её из меню."
 
-# Ticket Validation Messages
-MESSAGE_SEND_TICKET = "📋 Пожалуйста, отправьте текст заявки для проверки\\.\n\nВы можете скопировать текст заявки и вставить его в чат\\.\n\nДля отмены используйте /cancel"
-
-MESSAGE_VALIDATION_SUCCESS = "✅ *Заявка прошла валидацию\\!*\n\nВсе обязательные поля заполнены корректно\\."
-
-MESSAGE_VALIDATION_FAILED = "❌ *Заявка не прошла валидацию*\n\n*Найдены следующие ошибки:*\n{errors}\n\nПожалуйста, исправьте ошибки и отправьте заявку повторно\."
-
-MESSAGE_VALIDATION_HELP = """*Проверка заявок*
-
-*Доступные команды:*
-• `/validate` \\- начать проверку заявки
-• `/history` \\- история последних проверок
-
-*Как пользоваться:*
-1\\. Введите команду `/validate`
-2\\. Скопируйте текст заявки
-3\\. Отправьте текст в чат
-4\\. Получите результат проверки
-
-*Что проверяется:*
-• Наличие системы налогообложения
-• Код активации
-• ИНН организации
-• Адрес установки
-• Другие обязательные поля
-
-Если заявка не прошла проверку, бот укажет какие поля нужно исправить\\."""
-
+# Main menu messages
 MESSAGE_MAIN_MENU = "🏠 *Главное меню*\n\nВыберите действие:"
-MESSAGE_VALIDATOR_SUBMENU = "✅ *Валидация заявок*\n\nВыберите действие:"
-MESSAGE_IMAGE_INSTRUCTIONS = "📸 *Обработка скриншота*\n\nОтправьте изображение _как файл_ \\(не фото\\)\\:\n\n1\\. Выберите изображение из галереи\n2\\. Нажмите 3 точки\n3\\. Выберите _Отправить как файл_"
 MESSAGE_UNRECOGNIZED_INPUT = "🤔 Не понял вашу команду\\.\n\n*Используйте:*\n• Кнопки меню ниже\n• Команды бота \\(/menu, /validate\\)\n• Или /help для справки"
 
+# Help message - overview of all modules
 MESSAGE_MAIN_HELP = """❓ *Помощь*
 
 *Модули бота:*
@@ -62,260 +39,26 @@ MESSAGE_MAIN_HELP = """❓ *Помощь*
 • `/help_validate` \\- помощь по валидации"""
 
 
-def get_main_menu_keyboard():
+def get_main_menu_keyboard(extra_buttons=None):
     """
     Build main menu keyboard with all bot functions.
-    Returns ReplyKeyboardMarkup for main menu.
+    
+    Args:
+        extra_buttons: Optional list of additional buttons to include
+        
+    Returns:
+        ReplyKeyboardMarkup for main menu.
     """
     from telegram import ReplyKeyboardMarkup
-    from config.settings import MAIN_MENU_BUTTONS
+    
+    # Default buttons that are always shown
+    buttons = [
+        ["✅ Валидация заявок", "📸 Обработать скриншот"],
+        ["🎫 Мои инвайты", "❓ Помощь"]
+    ]
     
     return ReplyKeyboardMarkup(
-        MAIN_MENU_BUTTONS,
+        buttons,
         resize_keyboard=True,
         one_time_keyboard=False
     )
-
-
-def get_validator_submenu_keyboard():
-    """
-    Build ticket validator submenu keyboard.
-    Returns ReplyKeyboardMarkup for validator submenu.
-    """
-    from telegram import ReplyKeyboardMarkup
-    from config.settings import VALIDATOR_SUBMENU_BUTTONS
-    
-    return ReplyKeyboardMarkup(
-        VALIDATOR_SUBMENU_BUTTONS,
-        resize_keyboard=True,
-        one_time_keyboard=False
-    )
-
-
-def get_admin_validator_submenu_keyboard():
-    """
-    Build ticket validator submenu keyboard with admin panel button.
-    Returns ReplyKeyboardMarkup for admin validator submenu.
-    """
-    from telegram import ReplyKeyboardMarkup
-    from config.settings import ADMIN_VALIDATOR_SUBMENU_BUTTONS
-    
-    return ReplyKeyboardMarkup(
-        ADMIN_VALIDATOR_SUBMENU_BUTTONS,
-        resize_keyboard=True,
-        one_time_keyboard=False
-    )
-
-
-def get_image_menu_keyboard():
-    """
-    Build image processing module menu keyboard.
-    Returns ReplyKeyboardMarkup for image processing menu.
-    """
-    from telegram import ReplyKeyboardMarkup
-    from config.settings import IMAGE_MENU_BUTTONS
-    
-    return ReplyKeyboardMarkup(
-        IMAGE_MENU_BUTTONS,
-        resize_keyboard=True,
-        one_time_keyboard=False
-    )
-
-
-# ===== ADMIN PANEL MESSAGES =====
-
-MESSAGE_ADMIN_NOT_AUTHORIZED = "⛔ У вас нет прав администратора\\."
-
-MESSAGE_ADMIN_MENU = """🔐 *Панель администратора*
-
-Управление правилами валидации заявок\\.
-
-Выберите действие:"""
-
-MESSAGE_ADMIN_RULES_LIST = "📋 *Список правил валидации*\n\nВсего правил: {count}\n\n{rules}"
-
-MESSAGE_ADMIN_RULE_DETAILS = """📝 *Правило: {name}*
-
-*ID:* {id}
-*Тип:* {rule_type}
-*Паттерн:* `{pattern}`
-*Сообщение об ошибке:* {error_message}
-*Приоритет:* {priority}
-*Статус:* {status}
-
-*Применяется к типам заявок:*
-{ticket_types}"""
-
-MESSAGE_ADMIN_CREATE_RULE_NAME = "📝 Создание нового правила\\.\n\nВведите *название* правила \\(например: \"Проверка ИНН\"\\)\\.\n\nДля отмены используйте /cancel"
-
-MESSAGE_ADMIN_CREATE_RULE_TYPE = """Выберите *тип* правила:
-
-• *regex* \\- регулярное выражение
-• *required\\_field* \\- обязательное поле
-• *format* \\- формат \\(phone, email, date, inn\\)
-• *length* \\- проверка длины \\(min:X,max:Y\\)
-• *custom* \\- пользовательское"""
-
-MESSAGE_ADMIN_CREATE_RULE_PATTERN = "Введите *паттерн* \\(регулярное выражение или спецификацию\\)\\.\n\n*Примеры:*\n• regex: `ИНН[:\\s]*\\\\d{{10,12}}`\n• format: `phone` или `date`\n• length: `min:10,max:1000`"
-
-MESSAGE_ADMIN_CREATE_RULE_ERROR_MSG = "Введите *сообщение об ошибке*, которое увидит пользователь при невалидной заявке\\."
-
-MESSAGE_ADMIN_CREATE_RULE_PRIORITY = "Введите *приоритет* правила \\(число от 0 до 100\\)\\.\n\nЧем выше число, тем раньше проверяется правило\\."
-
-MESSAGE_ADMIN_RULE_CREATED = "✅ Правило *{name}* успешно создано\\!"
-
-MESSAGE_ADMIN_RULE_DELETED = "🗑️ Правило *{name}* удалено\\.\n\nУдалено связей с типами заявок: {associations}"
-
-MESSAGE_ADMIN_RULE_UPDATED = "✅ Правило *{name}* обновлено\\."
-
-MESSAGE_ADMIN_RULE_TOGGLED = "✅ Правило *{name}* {status}\\."
-
-MESSAGE_ADMIN_SELECT_TICKET_TYPE = "Выберите *тип заявки* для управления правилами:"
-
-MESSAGE_ADMIN_TICKET_TYPE_RULES = """📋 *Тип заявки: {type_name}*
-
-*Назначенные правила:*
-{rules}
-
-Выберите действие:"""
-
-MESSAGE_ADMIN_RULE_ADDED_TO_TYPE = "✅ Правило *{rule_name}* добавлено к типу *{type_name}*\\."
-
-MESSAGE_ADMIN_RULE_REMOVED_FROM_TYPE = "✅ Правило *{rule_name}* удалено из типа *{type_name}*\\."
-
-MESSAGE_ADMIN_TEST_REGEX = "🔬 *Тестирование регулярного выражения*\n\nВведите паттерн для проверки\\.\n\nДля отмены используйте /cancel"
-
-MESSAGE_ADMIN_TEST_REGEX_SAMPLE = "Введите *тестовый текст* для проверки паттерна:\n`{pattern}`"
-
-MESSAGE_ADMIN_TEST_REGEX_RESULT = "🔬 *Результат тестирования*\n\n*Паттерн:* `{pattern}`\n\n{result}"
-
-MESSAGE_ADMIN_INVALID_REGEX = "❌ Некорректное регулярное выражение: {error}"
-
-MESSAGE_ADMIN_CONFIRM_DELETE = "⚠️ Вы уверены, что хотите удалить правило *{name}*?\n\nЭто также удалит все связи с типами заявок \\({count} связей\\)\\."
-
-MESSAGE_ADMIN_OPERATION_CANCELLED = "❌ Операция отменена\\."
-
-MESSAGE_ADMIN_INVALID_INPUT = "❌ Некорректный ввод\\. Попробуйте снова\\."
-
-# Debug mode messages
-MESSAGE_DEBUG_MODE_ENABLED = "🔍 *Режим отладки включен*\n\nТеперь при валидации заявок вы будете видеть подробную информацию о процессе определения типа заявки\\."
-
-MESSAGE_DEBUG_MODE_DISABLED = "🔍 *Режим отладки выключен*\n\nПодробная информация о валидации больше не будет отображаться\\."
-
-MESSAGE_DEBUG_MODE_NOT_ADMIN = "⛔ Режим отладки доступен только администраторам\\."
-
-# ===== ADMIN TEST TEMPLATES MESSAGES =====
-
-MESSAGE_ADMIN_TEMPLATES_MENU = """🧪 *Тестовые шаблоны*
-
-Шаблоны используются для автоматической проверки правил валидации\\.
-
-Создайте шаблон с образцом заявки, укажите какие правила он должен тестировать и ожидаемые результаты \\(пройдёт/провалится\\)\\.
-
-Выберите действие:"""
-
-MESSAGE_ADMIN_TEMPLATES_LIST = "🧪 *Тестовые шаблоны*\n\nВсего шаблонов: {count}\n\nНажмите на шаблон для управления:"
-
-MESSAGE_ADMIN_TEMPLATE_DETAILS = """🧪 *Шаблон: {name}*
-
-*ID:* {id}
-*Описание:* {description}
-*Тип заявки:* {ticket_type}
-*Ожидаемый результат:* {expected_result}
-*Статус:* {status}
-
-*Правила для тестирования:* {rule_count}
-{rules_list}"""
-
-MESSAGE_ADMIN_CREATE_TEMPLATE_NAME = "📝 Создание тестового шаблона\\.\n\nВведите *название* шаблона \\(например: \"Тест ИНН \\- валидный\"\\)\\.\n\nДля отмены используйте /cancel"
-
-MESSAGE_ADMIN_CREATE_TEMPLATE_TEXT = "Введите *текст образца заявки* для тестирования\\.\n\nЭто должен быть реальный пример заявки, на которой будут проверяться правила\\."
-
-MESSAGE_ADMIN_CREATE_TEMPLATE_DESC = "Введите *описание* шаблона \\(что он проверяет\\)\\."
-
-MESSAGE_ADMIN_CREATE_TEMPLATE_EXPECTED = """Выберите *ожидаемый результат* валидации:
-
-• *pass* \\- заявка должна пройти валидацию
-• *fail* \\- заявка должна провалить валидацию"""
-
-MESSAGE_ADMIN_TEMPLATE_CREATED = "✅ Тестовый шаблон *{name}* успешно создан\\!\n\nТеперь добавьте правила, которые он должен тестировать\\."
-
-MESSAGE_ADMIN_TEMPLATE_DELETED = "🗑️ Шаблон *{name}* удалён\\.\n\nУдалено ожиданий правил: {expectations}"
-
-MESSAGE_ADMIN_TEMPLATE_TOGGLED = "✅ Шаблон *{name}* {status}\\."
-
-MESSAGE_ADMIN_ADD_RULE_TO_TEMPLATE = "Выберите правило для добавления к шаблону *{template_name}*:"
-
-MESSAGE_ADMIN_RULE_EXPECTATION_SET = "✅ Правило *{rule_name}* добавлено к шаблону\\.\n\nОжидание: {expectation}"
-
-MESSAGE_ADMIN_RULE_EXPECTATION_REMOVED = "✅ Ожидание правила *{rule_name}* удалено из шаблона\\."
-
-MESSAGE_ADMIN_SELECT_EXPECTATION = """Выберите ожидаемый результат для правила *{rule_name}*:
-
-• ✅ *Должно пройти* \\- правило должно успешно пройти
-• ❌ *Должно провалиться* \\- правило должно провалить проверку"""
-
-MESSAGE_ADMIN_TEST_RESULT_PASS = "✅ *Тест пройден\\!*\n\nШаблон: *{template_name}*\n\nВсе правила работают как ожидалось\\.\n✅ Пройдено: {passed}/{total}"
-
-MESSAGE_ADMIN_TEST_RESULT_FAIL = """❌ *Тест провален\\!*
-
-Шаблон: *{template_name}*
-
-Некоторые правила работают не как ожидалось\\.
-✅ Пройдено: {passed}/{total}
-❌ Провалено: {failed}/{total}
-
-*Несоответствия:*
-{mismatches}"""
-
-MESSAGE_ADMIN_RUN_ALL_TESTS = "▶️ *Запуск всех тестов*\n\nБудут протестированы все активные шаблоны\\."
-
-MESSAGE_ADMIN_NO_TEMPLATES = "⚠️ *Тестовые шаблоны не найдены*\n\nСоздайте первый шаблон с помощью кнопки ➕"
-
-MESSAGE_ADMIN_NO_RULES_FOR_TEMPLATE = "⚠️ *Для этого шаблона не настроены правила*\n\nДобавьте правила, которые должен тестировать этот шаблон\\."
-
-
-def get_admin_menu_keyboard():
-    """
-    Build admin panel main menu keyboard.
-    Returns ReplyKeyboardMarkup for admin menu.
-    """
-    from telegram import ReplyKeyboardMarkup
-    from config.settings import ADMIN_MENU_BUTTONS
-    
-    return ReplyKeyboardMarkup(
-        ADMIN_MENU_BUTTONS,
-        resize_keyboard=True,
-        one_time_keyboard=False
-    )
-
-
-def get_admin_rules_keyboard():
-    """
-    Build admin rules management keyboard.
-    Returns ReplyKeyboardMarkup for rules management.
-    """
-    from telegram import ReplyKeyboardMarkup
-    from config.settings import ADMIN_RULES_BUTTONS
-    
-    return ReplyKeyboardMarkup(
-        ADMIN_RULES_BUTTONS,
-        resize_keyboard=True,
-        one_time_keyboard=False
-    )
-
-
-def get_admin_templates_keyboard():
-    """
-    Build admin test templates management keyboard.
-    Returns ReplyKeyboardMarkup for template management.
-    """
-    from telegram import ReplyKeyboardMarkup
-    from config.settings import ADMIN_TEMPLATES_BUTTONS
-    
-    return ReplyKeyboardMarkup(
-        ADMIN_TEMPLATES_BUTTONS,
-        resize_keyboard=True,
-        one_time_keyboard=False
-    )
-

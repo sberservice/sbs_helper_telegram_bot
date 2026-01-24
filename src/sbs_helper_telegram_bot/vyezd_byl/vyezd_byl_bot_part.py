@@ -3,11 +3,16 @@ from telegram.ext import ContextTypes
 from src.common.telegram_user import check_if_user_legit, update_user_info_from_telegram
 
 import src.common.database as database
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_image_menu_keyboard
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
 from src.common.constants.os import IMAGES_DIR
 import logging
 from pathlib import Path  
-from config.settings import DEBUG, MAX_SCREENSHOT_SIZE_BYTES
+
+# Import module-specific messages, settings, and keyboards
+from . import messages
+from . import settings
+from .keyboards import get_submenu_keyboard
+from config.settings import DEBUG
 
 logging.basicConfig(
     level=logging.DEBUG if DEBUG else logging.INFO,
@@ -103,21 +108,21 @@ async def handle_incoming_document(update: Update, context: ContextTypes.DEFAULT
         file_size = update.message.document.file_size
         file_name = update.message.document.file_name
 
-        if file_size > MAX_SCREENSHOT_SIZE_BYTES:
-            await update.message.reply_text("Файл слишком большой.")
+        if file_size > settings.MAX_SCREENSHOT_SIZE_BYTES:
+            await update.message.reply_text(messages.MESSAGE_FILE_TOO_LARGE)
             return
 
         if check_if_user_has_unprocessed_job(user_id):
             await update.message.reply_text(
-                "У вас уже есть активный запрос, ожидайте пока появится картинка. Если её долго нет - бот сломался и не известно когда починится.",
-                reply_markup=get_image_menu_keyboard()
+                messages.MESSAGE_ACTIVE_JOB_EXISTS,
+                reply_markup=get_submenu_keyboard()
             )
             return
         else:
             position=get_number_of_jobs_in_the_queue()+1
             await update.message.reply_text(
-                "Получен файл. Ожидайте окончания обработки. Ваша позиция в очереди: "+str(position),
-                reply_markup=get_image_menu_keyboard()
+                messages.MESSAGE_FILE_RECEIVED.format(position=position),
+                reply_markup=get_submenu_keyboard()
             )
             file_name_to_save=IMAGES_DIR / f"{user_id}.jpg"
             new_file = await context.bot.get_file(file_id)
@@ -126,4 +131,4 @@ async def handle_incoming_document(update: Update, context: ContextTypes.DEFAULT
                 logger.critical("Couldn't save the file from telegram to path: %s",file_name_to_save)
             add_to_image_queue(user_id,file_name)
     else:
-        await update.message.reply_text("Бот принимает только изображения в виде __файлов__")
+        await update.message.reply_text(messages.MESSAGE_DOCUMENTS_ONLY)

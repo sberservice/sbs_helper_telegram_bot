@@ -17,54 +17,14 @@ from telegram.ext import (
 )
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
-from src.common.messages import (
-    MESSAGE_PLEASE_ENTER_INVITE,
-    MESSAGE_MAIN_MENU,
-    MESSAGE_ADMIN_NOT_AUTHORIZED,
-    MESSAGE_ADMIN_MENU,
-    MESSAGE_ADMIN_RULES_LIST,
-    MESSAGE_ADMIN_RULE_DETAILS,
-    MESSAGE_ADMIN_CREATE_RULE_NAME,
-    MESSAGE_ADMIN_CREATE_RULE_TYPE,
-    MESSAGE_ADMIN_CREATE_RULE_PATTERN,
-    MESSAGE_ADMIN_CREATE_RULE_ERROR_MSG,
-    MESSAGE_ADMIN_CREATE_RULE_PRIORITY,
-    MESSAGE_ADMIN_RULE_CREATED,
-    MESSAGE_ADMIN_RULE_DELETED,
-    MESSAGE_ADMIN_RULE_TOGGLED,
-    MESSAGE_ADMIN_SELECT_TICKET_TYPE,
-    MESSAGE_ADMIN_TICKET_TYPE_RULES,
-    MESSAGE_ADMIN_RULE_ADDED_TO_TYPE,
-    MESSAGE_ADMIN_RULE_REMOVED_FROM_TYPE,
-    MESSAGE_ADMIN_TEST_REGEX,
-    MESSAGE_ADMIN_TEST_REGEX_SAMPLE,
-    MESSAGE_ADMIN_TEST_REGEX_RESULT,
-    MESSAGE_ADMIN_CONFIRM_DELETE,
-    MESSAGE_ADMIN_OPERATION_CANCELLED,
-    MESSAGE_ADMIN_INVALID_INPUT,
-    # Test templates messages
-    MESSAGE_ADMIN_TEMPLATES_MENU,
-    MESSAGE_ADMIN_TEMPLATES_LIST,
-    MESSAGE_ADMIN_TEMPLATE_DETAILS,
-    MESSAGE_ADMIN_CREATE_TEMPLATE_NAME,
-    MESSAGE_ADMIN_CREATE_TEMPLATE_TEXT,
-    MESSAGE_ADMIN_CREATE_TEMPLATE_DESC,
-    MESSAGE_ADMIN_CREATE_TEMPLATE_EXPECTED,
-    MESSAGE_ADMIN_TEMPLATE_CREATED,
-    MESSAGE_ADMIN_TEMPLATE_DELETED,
-    MESSAGE_ADMIN_TEMPLATE_TOGGLED,
-    MESSAGE_ADMIN_ADD_RULE_TO_TEMPLATE,
-    MESSAGE_ADMIN_RULE_EXPECTATION_SET,
-    MESSAGE_ADMIN_RULE_EXPECTATION_REMOVED,
-    MESSAGE_ADMIN_SELECT_EXPECTATION,
-    MESSAGE_ADMIN_TEST_RESULT_PASS,
-    MESSAGE_ADMIN_TEST_RESULT_FAIL,
-    MESSAGE_ADMIN_NO_TEMPLATES,
-    MESSAGE_ADMIN_NO_RULES_FOR_TEMPLATE,
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, MESSAGE_MAIN_MENU, get_main_menu_keyboard
+
+# Import module-specific messages and keyboards
+from . import messages
+from .keyboards import (
     get_admin_menu_keyboard,
     get_admin_rules_keyboard,
     get_admin_templates_keyboard,
-    get_main_menu_keyboard
 )
 from src.sbs_helper_telegram_bot.ticket_validator.validation_rules import (
     load_all_rules,
@@ -154,13 +114,13 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     # Check if user is admin
     if not check_if_user_admin(update.effective_user.id):
         await update.message.reply_text(
-            MESSAGE_ADMIN_NOT_AUTHORIZED,
+            messages.MESSAGE_ADMIN_NOT_AUTHORIZED,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return ConversationHandler.END
     
     await update.message.reply_text(
-        MESSAGE_ADMIN_MENU,
+        messages.MESSAGE_ADMIN_MENU,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=get_admin_menu_keyboard()
     )
@@ -174,7 +134,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Re-check admin status
     if not check_if_user_admin(update.effective_user.id):
         await update.message.reply_text(
-            MESSAGE_ADMIN_NOT_AUTHORIZED,
+            messages.MESSAGE_ADMIN_NOT_AUTHORIZED,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return ConversationHandler.END
@@ -197,7 +157,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await run_all_tests(update, context)
     elif text == "🔙 Админ меню":
         await update.message.reply_text(
-            MESSAGE_ADMIN_MENU,
+            messages.MESSAGE_ADMIN_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_admin_menu_keyboard()
         )
@@ -211,7 +171,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
     else:
         await update.message.reply_text(
-            MESSAGE_ADMIN_INVALID_INPUT,
+            messages.MESSAGE_ADMIN_INVALID_INPUT,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return ADMIN_MENU
@@ -272,7 +232,7 @@ async def handle_rule_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if data == "admin_back":
         await query.edit_message_text(
-            MESSAGE_ADMIN_MENU,
+            messages.MESSAGE_ADMIN_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return ADMIN_MENU
@@ -295,7 +255,7 @@ async def handle_rule_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     
     elif data == "rule_cancel_delete":
         await query.edit_message_text(
-            MESSAGE_ADMIN_OPERATION_CANCELLED,
+            messages.MESSAGE_ADMIN_OPERATION_CANCELLED,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return ADMIN_MENU
@@ -348,7 +308,7 @@ async def show_rule_details(query, context: ContextTypes.DEFAULT_TYPE, rule_id: 
         
         rule_type_value = rule.rule_type.value if hasattr(rule.rule_type, 'value') else rule.rule_type
         
-        message = MESSAGE_ADMIN_RULE_DETAILS.format(
+        message = messages.MESSAGE_ADMIN_RULE_DETAILS.format(
             name=escape_markdown(rule.rule_name),
             id=rule.id,
             rule_type=escape_markdown(rule_type_value),
@@ -395,7 +355,7 @@ async def toggle_rule(query, context: ContextTypes.DEFAULT_TYPE, rule_id: int) -
         if success:
             status_text = "включено" if new_status else "отключено"
             await query.edit_message_text(
-                MESSAGE_ADMIN_RULE_TOGGLED.format(
+                messages.MESSAGE_ADMIN_RULE_TOGGLED.format(
                     name=escape_markdown(rule.rule_name),
                     status=status_text
                 ),
@@ -430,7 +390,7 @@ async def confirm_delete_rule(query, context: ContextTypes.DEFAULT_TYPE, rule_id
         ]
         
         await query.edit_message_text(
-            MESSAGE_ADMIN_CONFIRM_DELETE.format(
+            messages.MESSAGE_ADMIN_CONFIRM_DELETE.format(
                 name=escape_markdown(rule.rule_name),
                 count=len(ticket_types)
             ),
@@ -458,7 +418,7 @@ async def execute_delete_rule(query, context: ContextTypes.DEFAULT_TYPE, rule_id
         
         if success:
             await query.edit_message_text(
-                MESSAGE_ADMIN_RULE_DELETED.format(
+                messages.MESSAGE_ADMIN_RULE_DELETED.format(
                     name=escape_markdown(rule_name),
                     associations=deleted_associations
                 ),
@@ -481,7 +441,7 @@ async def start_create_rule(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Start rule creation wizard."""
     context.user_data['new_rule'] = {}
     await update.message.reply_text(
-        MESSAGE_ADMIN_CREATE_RULE_NAME,
+        messages.MESSAGE_ADMIN_CREATE_RULE_NAME,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=get_admin_rules_keyboard()
     )
@@ -511,7 +471,7 @@ async def receive_rule_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_create")])
     
     await update.message.reply_text(
-        MESSAGE_ADMIN_CREATE_RULE_TYPE,
+        messages.MESSAGE_ADMIN_CREATE_RULE_TYPE,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -527,7 +487,7 @@ async def handle_rule_type_callback(update: Update, context: ContextTypes.DEFAUL
     
     if data == "cancel_create":
         await query.edit_message_text(
-            MESSAGE_ADMIN_OPERATION_CANCELLED,
+            messages.MESSAGE_ADMIN_OPERATION_CANCELLED,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return ADMIN_MENU
@@ -537,7 +497,7 @@ async def handle_rule_type_callback(update: Update, context: ContextTypes.DEFAUL
         context.user_data['new_rule']['type'] = rule_type
         
         await query.edit_message_text(
-            MESSAGE_ADMIN_CREATE_RULE_PATTERN,
+            messages.MESSAGE_ADMIN_CREATE_RULE_PATTERN,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return CREATE_RULE_PATTERN
@@ -567,7 +527,7 @@ async def receive_rule_pattern(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data['new_rule']['pattern'] = text
     
     await update.message.reply_text(
-        MESSAGE_ADMIN_CREATE_RULE_ERROR_MSG,
+        messages.MESSAGE_ADMIN_CREATE_RULE_ERROR_MSG,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     return CREATE_RULE_ERROR_MSG
@@ -590,7 +550,7 @@ async def receive_rule_error_msg(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data['new_rule']['error_message'] = text
     
     await update.message.reply_text(
-        MESSAGE_ADMIN_CREATE_RULE_PRIORITY,
+        messages.MESSAGE_ADMIN_CREATE_RULE_PRIORITY,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     return CREATE_RULE_PRIORITY
@@ -628,7 +588,7 @@ async def receive_rule_priority(update: Update, context: ContextTypes.DEFAULT_TY
         
         if rule_id:
             await update.message.reply_text(
-                MESSAGE_ADMIN_RULE_CREATED.format(name=escape_markdown(new_rule['name'])),
+                messages.MESSAGE_ADMIN_RULE_CREATED.format(name=escape_markdown(new_rule['name'])),
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
                 reply_markup=get_admin_menu_keyboard()
             )
@@ -677,7 +637,7 @@ async def show_ticket_types(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="admin_back")])
         
         await update.message.reply_text(
-            MESSAGE_ADMIN_SELECT_TICKET_TYPE,
+            messages.MESSAGE_ADMIN_SELECT_TICKET_TYPE,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -709,7 +669,7 @@ async def show_ticket_types_inline(query, context: ContextTypes.DEFAULT_TYPE) ->
         keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="admin_back")])
         
         await query.edit_message_text(
-            MESSAGE_ADMIN_SELECT_TICKET_TYPE,
+            messages.MESSAGE_ADMIN_SELECT_TICKET_TYPE,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -753,7 +713,7 @@ async def show_ticket_type_rules(query, context: ContextTypes.DEFAULT_TYPE, type
         keyboard.append([InlineKeyboardButton("➕ Добавить правило", callback_data=f"type_add_rule_{type_id}")])
         keyboard.append([InlineKeyboardButton("🔙 К типам заявок", callback_data="types_back")])
         
-        message = MESSAGE_ADMIN_TICKET_TYPE_RULES.format(
+        message = messages.MESSAGE_ADMIN_TICKET_TYPE_RULES.format(
             type_name=escape_markdown(ticket_type.type_name),
             rules=rules_text
         )
@@ -900,7 +860,7 @@ async def show_rule_ticket_types(query, context: ContextTypes.DEFAULT_TYPE, rule
 async def start_test_regex(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start regex testing wizard."""
     await update.message.reply_text(
-        MESSAGE_ADMIN_TEST_REGEX,
+        messages.MESSAGE_ADMIN_TEST_REGEX,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=get_admin_rules_keyboard()
     )
@@ -927,7 +887,7 @@ async def receive_test_pattern(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data['test_pattern'] = text
     
     await update.message.reply_text(
-        MESSAGE_ADMIN_TEST_REGEX_SAMPLE.format(pattern=escape_markdown(text)),
+        messages.MESSAGE_ADMIN_TEST_REGEX_SAMPLE.format(pattern=escape_markdown(text)),
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     return TEST_REGEX_TEXT
@@ -945,7 +905,7 @@ async def receive_test_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     _, result = test_regex_pattern(pattern, text)
     
     await update.message.reply_text(
-        MESSAGE_ADMIN_TEST_REGEX_RESULT.format(
+        messages.MESSAGE_ADMIN_TEST_REGEX_RESULT.format(
             pattern=escape_markdown(pattern),
             result=escape_markdown(result)
         ),
@@ -962,7 +922,7 @@ async def receive_test_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def show_templates_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Display test templates menu."""
     await update.message.reply_text(
-        MESSAGE_ADMIN_TEMPLATES_MENU,
+        messages.MESSAGE_ADMIN_TEMPLATES_MENU,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=get_admin_templates_keyboard()
     )
@@ -976,7 +936,7 @@ async def show_templates_list(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         if not templates:
             await update.message.reply_text(
-                MESSAGE_ADMIN_NO_TEMPLATES,
+                messages.MESSAGE_ADMIN_NO_TEMPLATES,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
                 reply_markup=get_admin_templates_keyboard()
             )
@@ -1000,7 +960,7 @@ async def show_templates_list(update: Update, context: ContextTypes.DEFAULT_TYPE
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(
-            MESSAGE_ADMIN_TEMPLATES_LIST.format(count=len(templates)),
+            messages.MESSAGE_ADMIN_TEMPLATES_LIST.format(count=len(templates)),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup
         )
@@ -1024,7 +984,7 @@ async def handle_template_callback(update: Update, context: ContextTypes.DEFAULT
     
     if data == "templates_back":
         await query.edit_message_text(
-            MESSAGE_ADMIN_TEMPLATES_MENU,
+            messages.MESSAGE_ADMIN_TEMPLATES_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return TEMPLATES_MENU
@@ -1047,7 +1007,7 @@ async def handle_template_callback(update: Update, context: ContextTypes.DEFAULT
     
     elif data == "template_cancel_delete":
         await query.edit_message_text(
-            MESSAGE_ADMIN_OPERATION_CANCELLED,
+            messages.MESSAGE_ADMIN_OPERATION_CANCELLED,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return TEMPLATES_MENU
@@ -1113,7 +1073,7 @@ async def show_template_details(query, context: ContextTypes.DEFAULT_TYPE, templ
         expected_result = "✅ Должен пройти" if template['expected_result'] == 'pass' else "❌ Должен провалиться"
         ticket_type = template['ticket_type_name'] or "Не указан"
         
-        message = MESSAGE_ADMIN_TEMPLATE_DETAILS.format(
+        message = messages.MESSAGE_ADMIN_TEMPLATE_DETAILS.format(
             name=escape_markdown(template['template_name']),
             id=template['id'],
             description=escape_markdown(template['description'] or 'Нет описания'),
@@ -1161,7 +1121,7 @@ async def toggle_template(query, context: ContextTypes.DEFAULT_TYPE, template_id
         if success:
             status_text = "включен" if new_status else "отключен"
             await query.edit_message_text(
-                MESSAGE_ADMIN_TEMPLATE_TOGGLED.format(
+                messages.MESSAGE_ADMIN_TEMPLATE_TOGGLED.format(
                     name=escape_markdown(template['template_name']),
                     status=status_text
                 ),
@@ -1219,7 +1179,7 @@ async def execute_delete_template(query, context: ContextTypes.DEFAULT_TYPE, tem
         
         if success:
             await query.edit_message_text(
-                MESSAGE_ADMIN_TEMPLATE_DELETED.format(
+                messages.MESSAGE_ADMIN_TEMPLATE_DELETED.format(
                     name=escape_markdown(template_name),
                     expectations=expectations_count
                 ),
@@ -1317,7 +1277,7 @@ async def show_available_rules_for_template(query, context: ContextTypes.DEFAULT
         ])
         
         await query.edit_message_text(
-            MESSAGE_ADMIN_ADD_RULE_TO_TEMPLATE.format(
+            messages.MESSAGE_ADMIN_ADD_RULE_TO_TEMPLATE.format(
                 template_name=escape_markdown(template['template_name'])
             ),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -1348,7 +1308,7 @@ async def ask_rule_expectation(query, context: ContextTypes.DEFAULT_TYPE, templa
         ]
         
         await query.edit_message_text(
-            MESSAGE_ADMIN_SELECT_EXPECTATION.format(rule_name=escape_markdown(rule.rule_name)),
+            messages.MESSAGE_ADMIN_SELECT_EXPECTATION.format(rule_name=escape_markdown(rule.rule_name)),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -1372,7 +1332,7 @@ async def set_rule_expectation(query, context: ContextTypes.DEFAULT_TYPE,
         if success:
             expectation = "должно пройти" if expected_pass else "должно провалиться"
             await query.edit_message_text(
-                MESSAGE_ADMIN_RULE_EXPECTATION_SET.format(
+                messages.MESSAGE_ADMIN_RULE_EXPECTATION_SET.format(
                     rule_name=escape_markdown(rule_name),
                     expectation=expectation
                 ),
@@ -1403,7 +1363,7 @@ async def remove_rule_from_template(query, context: ContextTypes.DEFAULT_TYPE,
         
         if success:
             await query.edit_message_text(
-                MESSAGE_ADMIN_RULE_EXPECTATION_REMOVED.format(
+                messages.MESSAGE_ADMIN_RULE_EXPECTATION_REMOVED.format(
                     rule_name=escape_markdown(rule_name)
                 ),
                 parse_mode=constants.ParseMode.MARKDOWN_V2
@@ -1434,7 +1394,7 @@ async def run_single_template_test(query, context: ContextTypes.DEFAULT_TYPE, te
         
         if result['overall_pass']:
             await query.edit_message_text(
-                MESSAGE_ADMIN_TEST_RESULT_PASS.format(
+                messages.MESSAGE_ADMIN_TEST_RESULT_PASS.format(
                     template_name=escape_markdown(result['template_name']),
                     passed=result['rules_passed_as_expected'],
                     total=result['total_rules_tested']
@@ -1451,7 +1411,7 @@ async def run_single_template_test(query, context: ContextTypes.DEFAULT_TYPE, te
                     mismatches += f"\n• {escape_markdown(detail['rule_name'])}: ожидалось {expected}, {actual}"
             
             await query.edit_message_text(
-                MESSAGE_ADMIN_TEST_RESULT_FAIL.format(
+                messages.MESSAGE_ADMIN_TEST_RESULT_FAIL.format(
                     template_name=escape_markdown(result['template_name']),
                     passed=result['rules_passed_as_expected'],
                     failed=result['rules_failed_unexpectedly'],
@@ -1484,7 +1444,7 @@ async def run_all_tests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         
         if not results['results']:
             await update.message.reply_text(
-                MESSAGE_ADMIN_NO_TEMPLATES,
+                messages.MESSAGE_ADMIN_NO_TEMPLATES,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
                 reply_markup=get_admin_templates_keyboard()
             )
@@ -1542,7 +1502,7 @@ async def start_create_template(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['new_template'] = {}
     
     await update.message.reply_text(
-        MESSAGE_ADMIN_CREATE_TEMPLATE_NAME,
+        messages.MESSAGE_ADMIN_CREATE_TEMPLATE_NAME,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=get_admin_templates_keyboard()
     )
@@ -1559,7 +1519,7 @@ async def receive_template_name(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['new_template']['name'] = text
     
     await update.message.reply_text(
-        MESSAGE_ADMIN_CREATE_TEMPLATE_TEXT,
+        messages.MESSAGE_ADMIN_CREATE_TEMPLATE_TEXT,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     return CREATE_TEMPLATE_TEXT
@@ -1575,7 +1535,7 @@ async def receive_template_text(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['new_template']['text'] = text
     
     await update.message.reply_text(
-        MESSAGE_ADMIN_CREATE_TEMPLATE_DESC,
+        messages.MESSAGE_ADMIN_CREATE_TEMPLATE_DESC,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     return CREATE_TEMPLATE_DESC
@@ -1598,7 +1558,7 @@ async def receive_template_desc(update: Update, context: ContextTypes.DEFAULT_TY
     ]
     
     await update.message.reply_text(
-        MESSAGE_ADMIN_CREATE_TEMPLATE_EXPECTED,
+        messages.MESSAGE_ADMIN_CREATE_TEMPLATE_EXPECTED,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -1626,7 +1586,7 @@ async def handle_template_expected_callback(update: Update, context: ContextType
         
         if template_id:
             await query.edit_message_text(
-                MESSAGE_ADMIN_TEMPLATE_CREATED.format(
+                messages.MESSAGE_ADMIN_TEMPLATE_CREATED.format(
                     name=escape_markdown(template_data.get('name', ''))
                 ),
                 parse_mode=constants.ParseMode.MARKDOWN_V2
@@ -1662,7 +1622,7 @@ async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, text
         return ConversationHandler.END
     elif text == "🔙 Админ меню":
         await update.message.reply_text(
-            MESSAGE_ADMIN_MENU,
+            messages.MESSAGE_ADMIN_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_admin_menu_keyboard()
         )
@@ -1680,7 +1640,7 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     context.user_data.pop('manage_template_id', None)
     
     await update.message.reply_text(
-        MESSAGE_ADMIN_OPERATION_CANCELLED,
+        messages.MESSAGE_ADMIN_OPERATION_CANCELLED,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=get_main_menu_keyboard()
     )
@@ -1796,7 +1756,7 @@ async def show_templates_menu_from_submenu(update: Update, context: ContextTypes
     # Check if user is admin
     if not check_if_user_admin(update.effective_user.id):
         await update.message.reply_text(
-            MESSAGE_ADMIN_NOT_AUTHORIZED,
+            messages.MESSAGE_ADMIN_NOT_AUTHORIZED,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return ConversationHandler.END
