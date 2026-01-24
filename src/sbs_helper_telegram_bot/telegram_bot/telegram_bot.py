@@ -57,7 +57,6 @@ from src.sbs_helper_telegram_bot.ticket_validator.ticket_validator_bot_part impo
     validate_ticket_command,
     process_ticket_text,
     cancel_validation,
-    history_command,
     help_command,
     toggle_debug_mode,
     run_test_templates_command,
@@ -244,9 +243,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
-    elif text == "📜 История проверок":
-        await history_command(update, _context)
-    elif text == "📋 Проверить заявку":
+    elif text == " Проверить заявку":
         await validate_ticket_command(update, _context)
     elif text == "🧪 Тест шаблонов":
         # Admin-only button for quick test template access
@@ -309,7 +306,6 @@ async def post_init(application: Application) -> None:
         BotCommand("start", "Начать работу с ботом"),
         BotCommand("menu", "Показать главное меню"),
         BotCommand("validate", "Проверить заявку"),
-        BotCommand("history", "История проверок"),
         BotCommand("template", "Шаблоны заявок"),
         BotCommand("invite", "Мои инвайт-коды"),
         BotCommand("help_validate", "Помощь по проверке заявок"),
@@ -332,7 +328,6 @@ def main() -> None:
             /menu           → menu_command
             /invite         → invite_command
             /validate       → validate_ticket_command (ConversationHandler)
-            /history        → history_command
             /help_validate  → help_command
             /debug          → toggle_debug_mode (admins only)
             /admin          → admin panel (admins only)
@@ -364,7 +359,6 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("invite", invite_command))
-    application.add_handler(CommandHandler("history", history_command))
     application.add_handler(CommandHandler("help_validate", help_command))
     application.add_handler(CommandHandler("debug", toggle_debug_mode))
     application.add_handler(admin_handler)

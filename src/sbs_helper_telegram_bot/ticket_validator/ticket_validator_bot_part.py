@@ -18,8 +18,6 @@ from . import settings
 from .keyboards import get_submenu_keyboard, get_admin_submenu_keyboard
 from .validation_rules import (
     load_rules_from_db,
-    store_validation_result,
-    get_validation_history,
     load_all_ticket_types,
     run_all_template_tests
 )
@@ -124,15 +122,6 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Validate the ticket
         result = validate_ticket(ticket_text, rules, detected_ticket_type=detected_type)
         
-        # Store validation result in history
-        store_validation_result(
-            userid=user_id,
-            ticket_text=ticket_text,
-            is_valid=result.is_valid,
-            failed_rules=result.failed_rules,
-            ticket_type_id=detected_type.id if detected_type else None
-        )
-        
         # Determine which keyboard to show based on admin status
         reply_keyboard = get_admin_submenu_keyboard() if is_admin else get_submenu_keyboard()
         
@@ -169,62 +158,6 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     
     return ConversationHandler.END
-
-
-async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Show user's validation history.
-    Handler for /history command.
-    
-    Args:
-        update: Telegram update object
-        context: Telegram context
-    """
-    # Check if user is authorized
-    if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(
-            MESSAGE_PLEASE_ENTER_INVITE,
-            parse_mode=constants.ParseMode.MARKDOWN_V2
-        )
-        return
-    
-    # Update user info
-    update_user_info_from_telegram(update.effective_user)
-    
-    user_id = update.effective_user.id
-    
-    try:
-        history = get_validation_history(user_id, limit=5)
-        
-        if not history:
-            await update.message.reply_text(
-                "У вас пока нет истории проверок\\.",
-                parse_mode=constants.ParseMode.MARKDOWN_V2
-            )
-            return
-        
-        # Format history
-        history_text = "*История последних проверок:*\\n\\n"
-        
-        for i, record in enumerate(history, 1):
-            status_emoji = "✅" if record['validation_result'] == 'valid' else "❌"
-            # Truncate ticket text for display
-            ticket_preview = record['ticket_text'][:50].replace('\n', ' ')
-            ticket_preview = _escape_md(ticket_preview)
-            
-            history_text += f"{_escape_md(str(i))}\\. {status_emoji} _{ticket_preview}_\\.\\.\\.\n"
-        
-        await update.message.reply_text(
-            history_text,
-            parse_mode=constants.ParseMode.MARKDOWN_V2
-        )
-        
-    except Exception as e:
-        logger.error(f"Error fetching history: {e}", exc_info=True)
-        await update.message.reply_text(
-            "❌ Ошибка при загрузке истории\\.",
-            parse_mode=constants.ParseMode.MARKDOWN_V2
-        )
 
 
 async def run_test_templates_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

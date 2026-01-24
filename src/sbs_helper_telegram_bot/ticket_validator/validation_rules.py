@@ -179,70 +179,7 @@ def load_rule_by_id(rule_id: int) -> Optional[ValidationRule]:
             )
 
 
-def store_validation_result(userid: int, ticket_text: str, is_valid: bool, failed_rules: List[str], 
-                           ticket_type_id: Optional[int] = None) -> int:
-    """
-    Store validation attempt in history.
-    
-    Args:
-        userid: Telegram user ID
-        ticket_text: The ticket text that was validated
-        is_valid: Whether validation passed
-        failed_rules: List of rule names that failed
-        ticket_type_id: Optional ID of detected ticket type
-        
-    Returns:
-        ID of the created history record
-    """
-    with database.get_db_connection() as conn:
-        with database.get_cursor(conn) as cursor:
-            sql = """
-                INSERT INTO validation_history 
-                (userid, ticket_type_id, ticket_text, validation_result, failed_rules, timestamp) 
-                VALUES (%s, %s, %s, %s, %s, UNIX_TIMESTAMP())
-            """
-            val = (
-                userid,
-                ticket_type_id,
-                ticket_text, 
-                'valid' if is_valid else 'invalid',
-                json.dumps(failed_rules, ensure_ascii=False) if failed_rules else None
-            )
-            cursor.execute(sql, val)
-            return cursor.lastrowid
 
-
-def get_validation_history(userid: int, limit: int = 10) -> List[dict]:
-    """
-    Get validation history for a user.
-    
-    Args:
-        userid: Telegram user ID
-        limit: Maximum number of records to return
-        
-    Returns:
-        List of validation history records
-    """
-    with database.get_db_connection() as conn:
-        with database.get_cursor(conn) as cursor:
-            sql_query = """
-                SELECT id, ticket_text, validation_result, failed_rules, timestamp
-                FROM validation_history 
-                WHERE userid = %s
-                ORDER BY timestamp DESC
-                LIMIT %s
-            """
-            cursor.execute(sql_query, (userid, limit))
-            results = cursor.fetchall()
-            
-            for result in results:
-                if result['failed_rules']:
-                    try:
-                        result['failed_rules'] = json.loads(result['failed_rules'])
-                    except json.JSONDecodeError:
-                        result['failed_rules'] = []
-            
-            return results
 
 
 def load_template_by_name(template_name: str) -> Optional[dict]:

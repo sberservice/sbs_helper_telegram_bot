@@ -115,7 +115,6 @@ def get_validation_help_message() -> str:
 
 *Доступные команды:*
 • /validate \\- начать проверку заявки
-• /history \\- история последних проверок
 
 *Как пользоваться:*
 1\\. Введите команду /validate
@@ -127,7 +126,7 @@ def get_validation_help_message() -> str:
 
 {ticket_types_text}
 {rules_text}
-Если заявка не прошла проверку, бот укажет какие поля нужно исправить\\."""
+"""
 
 
 # For backward compatibility, provide a static message that falls back to dynamic generation
