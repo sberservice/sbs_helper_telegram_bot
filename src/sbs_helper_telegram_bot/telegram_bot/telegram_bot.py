@@ -55,9 +55,9 @@ from src.sbs_helper_telegram_bot.ticket_validator.ticket_validator_bot_part impo
     process_ticket_text,
     cancel_validation,
     history_command,
-    template_command,
     help_command,
     toggle_debug_mode,
+    run_test_templates_command,
     WAITING_FOR_TICKET
 )
 
@@ -243,8 +243,9 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         )
     elif text == " История проверок":
         await history_command(update, _context)
-    elif text == "📄 Шаблоны заявок":
-        await template_command(update, _context)
+    elif text == "🧪 Тест шаблонов":
+        # Admin-only button for quick test template access
+        await run_test_templates_command(update, _context)
     elif text == "ℹ️ Помощь по валидации":
         await help_command(update, _context)
     elif text == "🎫 Мои инвайты":
@@ -327,8 +328,9 @@ def main() -> None:
             /invite         → invite_command
             /validate       → validate_ticket_command (ConversationHandler)
             /history        → history_command
-            /template       → template_command
             /help_validate  → help_command
+            /debug          → toggle_debug_mode (admins only)
+            /admin          → admin panel (admins only)
             Image documents → handle_incoming_document
             Plain text      → text_entered (also handles menu button presses)
 
@@ -358,7 +360,6 @@ def main() -> None:
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("invite", invite_command))
     application.add_handler(CommandHandler("history", history_command))
-    application.add_handler(CommandHandler("template", template_command))
     application.add_handler(CommandHandler("help_validate", help_command))
     application.add_handler(CommandHandler("debug", toggle_debug_mode))
     application.add_handler(admin_handler)
