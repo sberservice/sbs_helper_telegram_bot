@@ -112,8 +112,9 @@ WHERE id = 1;
 
 ## Debug Information
 
-When using debug mode, negative keywords are displayed with a minus sign:
+When using debug mode, negative keywords are displayed with special indicators:
 
+### Console Output
 ```
 SCORES BY TICKET TYPE:
 1. Установка оборудования (Score: -1.0)
@@ -124,6 +125,32 @@ SCORES BY TICKET TYPE:
 ```
 
 The `+` prefix indicates positive keywords, and the `-` prefix indicates negative keywords.
+
+### Telegram Bot Debug Output
+
+When debug mode is enabled in the Telegram bot, negative keywords are shown with special unicode symbols:
+- **⊕** - Positive keyword (increases score)
+- **⊖** - Negative keyword (decreases score)
+
+Example Telegram message:
+```
+🔍 DEBUG: Определение типа заявки
+
+✅ Определён тип: Установка оборудования
+📊 Оценено типов: 2
+
+Результаты по типам:
+
+📋 Установка оборудования
+   Счёт: 1.0
+   Совпало: 2/4 (50.0%)
+   Ключевые слова:
+     ⊕ 'установка': 1x (вес: 1.0, счёт: 1.0)
+     ⊕ 'монтаж': 1x (вес: 1.0, счёт: 1.0)
+     ⊖ 'ремонт': 1x (вес: 1.0, счёт: -1.0)
+```
+
+All special characters (including minus signs in scores) are properly escaped for Telegram's MarkdownV2 format to prevent parsing errors.
 
 ## API Reference
 
