@@ -10,8 +10,12 @@ from telegram import constants
 import logging
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
-import src.common.messages as messages
-from src.common.messages import get_validator_submenu_keyboard, get_admin_validator_submenu_keyboard
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
+
+# Import module-specific messages, settings, and keyboards
+from . import messages
+from . import settings
+from .keyboards import get_submenu_keyboard, get_admin_submenu_keyboard
 from .validation_rules import (
     load_rules_from_db,
     store_validation_result,
@@ -27,8 +31,8 @@ logger = logging.getLogger(__name__)
 # Conversation states
 WAITING_FOR_TICKET = 1
 
-# Debug mode key for user_data
-DEBUG_MODE_KEY = 'validator_debug_mode'
+# Debug mode key from settings
+DEBUG_MODE_KEY = settings.DEBUG_MODE_KEY
 
 
 async def validate_ticket_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -46,7 +50,7 @@ async def validate_ticket_command(update: Update, context: ContextTypes.DEFAULT_
     # Check if user is authorized
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(
-            messages.MESSAGE_PLEASE_ENTER_INVITE,
+            MESSAGE_PLEASE_ENTER_INVITE,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return ConversationHandler.END
@@ -130,7 +134,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         
         # Determine which keyboard to show based on admin status
-        reply_keyboard = get_admin_validator_submenu_keyboard() if is_admin else get_validator_submenu_keyboard()
+        reply_keyboard = get_admin_submenu_keyboard() if is_admin else get_submenu_keyboard()
         
         # Send response to user
         if result.is_valid:
@@ -179,7 +183,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if user is authorized
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(
-            messages.MESSAGE_PLEASE_ENTER_INVITE,
+            MESSAGE_PLEASE_ENTER_INVITE,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return
@@ -237,7 +241,7 @@ async def run_test_templates_command(update: Update, context: ContextTypes.DEFAU
     # Check if user is authorized
     if not check_if_user_legit(user_id):
         await update.message.reply_text(
-            messages.MESSAGE_PLEASE_ENTER_INVITE,
+            MESSAGE_PLEASE_ENTER_INVITE,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return
@@ -268,7 +272,7 @@ async def run_test_templates_command(update: Update, context: ContextTypes.DEFAU
                 "⚠️ *Тестовые шаблоны не найдены*\n\n"
                 "Создайте тестовые шаблоны в админ\\-панели\\.",
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_admin_validator_submenu_keyboard()
+                reply_markup=get_admin_submenu_keyboard()
             )
             return
         
@@ -304,7 +308,7 @@ async def run_test_templates_command(update: Update, context: ContextTypes.DEFAU
         await update.message.reply_text(
             response,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_admin_validator_submenu_keyboard()
+            reply_markup=get_admin_submenu_keyboard()
         )
         
     except Exception as e:
@@ -327,7 +331,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if user is authorized
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(
-            messages.MESSAGE_PLEASE_ENTER_INVITE,
+            MESSAGE_PLEASE_ENTER_INVITE,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return
@@ -374,7 +378,7 @@ async def toggle_debug_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if user is authorized
     if not check_if_user_legit(user_id):
         await update.message.reply_text(
-            messages.MESSAGE_PLEASE_ENTER_INVITE,
+            MESSAGE_PLEASE_ENTER_INVITE,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return

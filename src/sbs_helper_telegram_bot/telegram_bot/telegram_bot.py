@@ -10,6 +10,7 @@ Features:
 - Queue position feedback
 - Issues new invites to verified users
 - Stores user data and tracks invite usage
+- Modular design for extensibility
 
 Commands:
     /start   - Welcome message (requires valid invite)
@@ -31,21 +32,23 @@ import src.common.invites as invites
 from src.common.constants.os import ASSETS_DIR
 from src.common.constants.errorcodes import InviteStatus
 from src.common.constants.telegram import TELEGRAM_TOKEN
+
+# Common messages (only global/shared messages)
 from src.common.messages import (
     MESSAGE_PLEASE_ENTER_INVITE,
     MESSAGE_WELCOME,
     MESSAGE_MAIN_MENU,
     MESSAGE_MAIN_HELP,
-    MESSAGE_VALIDATOR_SUBMENU,
-    MESSAGE_IMAGE_INSTRUCTIONS,
     MESSAGE_UNRECOGNIZED_INPUT,
-    MESSAGE_ADMIN_MENU,
     get_main_menu_keyboard,
-    get_validator_submenu_keyboard,
-    get_admin_validator_submenu_keyboard,
-    get_image_menu_keyboard,
-    get_admin_menu_keyboard
 )
+
+# Import module-specific messages, settings, and keyboards
+from src.sbs_helper_telegram_bot.ticket_validator import messages as validator_messages
+from src.sbs_helper_telegram_bot.ticket_validator import keyboards as validator_keyboards
+from src.sbs_helper_telegram_bot.vyezd_byl import messages as image_messages
+from src.sbs_helper_telegram_bot.vyezd_byl import keyboards as image_keyboards
+
 from src.common.telegram_user import check_if_user_legit,update_user_info_from_telegram
 from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import handle_incoming_document
 
@@ -233,11 +236,11 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     elif text == "✅ Валидация заявок":
         # Show validation submenu (with admin panel if user is admin)
         if check_if_user_admin(update.effective_user.id):
-            keyboard = get_admin_validator_submenu_keyboard()
+            keyboard = validator_keyboards.get_admin_submenu_keyboard()
         else:
-            keyboard = get_validator_submenu_keyboard()
+            keyboard = validator_keyboards.get_submenu_keyboard()
         await update.message.reply_text(
-            MESSAGE_VALIDATOR_SUBMENU,
+            validator_messages.MESSAGE_SUBMENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
@@ -258,24 +261,24 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         )
     elif text == "📸 Обработать скриншот" or text == "📸 Отправить скриншот":
         await update.message.reply_text(
-            MESSAGE_IMAGE_INSTRUCTIONS,
+            image_messages.MESSAGE_INSTRUCTIONS,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_image_menu_keyboard()
+            reply_markup=image_keyboards.get_submenu_keyboard()
         )
     elif text == "❓ Помощь по скриншотам":
         await update.message.reply_photo(
             ASSETS_DIR / "promo3.jpg",
-            caption=MESSAGE_IMAGE_INSTRUCTIONS,
+            caption=image_messages.MESSAGE_INSTRUCTIONS,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_image_menu_keyboard()
+            reply_markup=image_keyboards.get_submenu_keyboard()
         )
     elif text == "🔐 Админ панель":
         # Show admin panel if user is admin
         if check_if_user_admin(update.effective_user.id):
             await update.message.reply_text(
-                MESSAGE_ADMIN_MENU,
+                validator_messages.MESSAGE_ADMIN_MENU,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_admin_menu_keyboard()
+                reply_markup=validator_keyboards.get_admin_menu_keyboard()
             )
         else:
             await update.message.reply_text(

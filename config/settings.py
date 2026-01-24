@@ -1,94 +1,90 @@
-from typing import Final
+from typing import Final, List
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# =============================================
+# GLOBAL SETTINGS
+# Settings that apply to the entire application
+# =============================================
+
 DEBUG: Final[bool] = os.getenv("DEBUG", "0") == "1"
 INVITES_PER_NEW_USER: Final[int] = int(os.getenv("INVITES_PER_NEW_USER", "2"))
-MAX_SCREENSHOT_SIZE_BYTES: Final[int] = int(os.getenv("MAX_SCREENSHOT_SIZE_BYTES", "4000000"))
 
-MIN_UPLOADED_IMAGE_HEIGHT = 100
-MIN_UPLOADED_IMAGE_WIDTH = 100
+# =============================================
+# MAIN MENU CONFIGURATION
+# These buttons appear in the main menu for all users
+# Module-specific buttons are defined in each module's settings.py
+# =============================================
 
-# These values describe the color of the red pixel in the first letter of Яндекс карты logo
-DARK_PIXEL_COLOR = (150, 5, 5)
-LIGHT_PIXEL_COLOR = (245, 5, 5)
-
-# These values describe the color of the round location icon with the letter Я
-DARK_LOCATION_ICON_COLOR=(95,139,52)
-LIGHT_LOCATION_ICON_COLOR=(145,225,67)
-
-# These values describe the color of the triangle location icon
-DARK_TRIANGLE_ICON_COLOR=(129,77,5)
-LIGHT_TRIANGLE_ICON_COLOR=(214,126,5)
-
-# These values the navy color of the border of the frame which contains the map
-FRAME_BORDER_COLOR=(17,29,41)
-
-# These values the grey color of the border of the frame which contains tasks
-TASKS_BORDER_COLOR =(238,238,238)
-
-
-#########
-
-FAKE_ICON_DEVIATION_FROM_CENTER_PERCENTAGE = 0.1
-ALLOWED_COLOR_INTENSITY_DEVIATION = 5
-MIN_HEIGHT_TO_START_LOOKING_FOR_GOOD_PIXEL=150
-MAX_HEIGHT_TO_END_LOOK_FOR_GOOD_PIXEL=400
-COLUMN_TO_SCAN_FOR_FRAME_BORDER_COLOR = 1
-COLUMN_TO_SCAN_FOR_TASKS_BORDER_COLOR = 1
-
-#########
-# TELEGRAM MENU BUTTONS CONFIGURATION
-#########
-
-# Main menu buttons shown to all authorized users
-MAIN_MENU_BUTTONS = [
+MAIN_MENU_BUTTONS: Final[List[List[str]]] = [
     ["✅ Валидация заявок", "📸 Обработать скриншот"],
     ["🎫 Мои инвайты", "❓ Помощь"]
 ]
 
-# Ticket validator submenu - shown when user clicks validation button
+# =============================================
+# DEPRECATED: Module-specific settings below
+# These are kept for backwards compatibility but
+# should be imported from respective module settings:
+# - src.sbs_helper_telegram_bot.ticket_validator.settings
+# - src.sbs_helper_telegram_bot.vyezd_byl.settings
+# =============================================
+
+# Image processing settings (use vyezd_byl.settings instead)
+MAX_SCREENSHOT_SIZE_BYTES: Final[int] = int(os.getenv("MAX_SCREENSHOT_SIZE_BYTES", "4000000"))
+MIN_UPLOADED_IMAGE_HEIGHT = 100
+MIN_UPLOADED_IMAGE_WIDTH = 100
+
+# Pixel color detection (use vyezd_byl.settings instead)
+DARK_PIXEL_COLOR = (150, 5, 5)
+LIGHT_PIXEL_COLOR = (245, 5, 5)
+DARK_LOCATION_ICON_COLOR = (95, 139, 52)
+LIGHT_LOCATION_ICON_COLOR = (145, 225, 67)
+DARK_TRIANGLE_ICON_COLOR = (129, 77, 5)
+LIGHT_TRIANGLE_ICON_COLOR = (214, 126, 5)
+FRAME_BORDER_COLOR = (17, 29, 41)
+TASKS_BORDER_COLOR = (238, 238, 238)
+
+# Detection algorithm parameters (use vyezd_byl.settings instead)
+FAKE_ICON_DEVIATION_FROM_CENTER_PERCENTAGE = 0.1
+ALLOWED_COLOR_INTENSITY_DEVIATION = 5
+MIN_HEIGHT_TO_START_LOOKING_FOR_GOOD_PIXEL = 150
+MAX_HEIGHT_TO_END_LOOK_FOR_GOOD_PIXEL = 400
+COLUMN_TO_SCAN_FOR_FRAME_BORDER_COLOR = 1
+COLUMN_TO_SCAN_FOR_TASKS_BORDER_COLOR = 1
+
+# Menu button configurations (use module settings instead)
 VALIDATOR_SUBMENU_BUTTONS = [
     ["📋 Проверить заявку", "📜 История проверок"],
     ["ℹ️ Помощь по валидации"],
     ["🏠 Главное меню"]
 ]
 
-# Ticket validator submenu for admins (includes admin panel and test templates buttons)
 ADMIN_VALIDATOR_SUBMENU_BUTTONS = [
     ["📋 Проверить заявку", "📜 История проверок"],
     ["🧪 Тест шаблонов", "ℹ️ Помощь по валидации"],
     ["🔐 Админ панель", "🏠 Главное меню"]
 ]
 
-# Image processing module menu
 IMAGE_MENU_BUTTONS = [
     ["📸 Отправить скриншот"],
     ["❓ Помощь по скриншотам"],
     ["🏠 Главное меню"]
 ]
 
-#########
-# ADMIN PANEL MENU BUTTONS CONFIGURATION
-#########
-
-# Admin main menu
 ADMIN_MENU_BUTTONS = [
     ["📋 Список правил", "➕ Создать правило"],
     ["📁 Типы заявок", "🧪 Тест шаблоны"],
     ["🔬 Тест regex", "🏠 Главное меню"]
 ]
 
-# Admin rules management submenu
 ADMIN_RULES_BUTTONS = [
     ["📋 Все правила", "🔍 Найти правило"],
     ["➕ Создать правило", "🔬 Тест regex"],
     ["🔙 Админ меню", "🏠 Главное меню"]
 ]
 
-# Admin test templates management submenu
 ADMIN_TEMPLATES_BUTTONS = [
     ["📋 Все шаблоны", "➕ Создать шаблон"],
     ["▶️ Запустить все тесты"],
