@@ -56,10 +56,12 @@ class KeywordMatch:
     keyword: str
     count: int
     weight: float = 1.0
+    is_negative: bool = False
     
     @property
     def weighted_score(self) -> float:
-        return self.count * self.weight
+        score = self.count * self.weight
+        return -score if self.is_negative else score
 
 
 @dataclass
@@ -120,7 +122,8 @@ class DetectionDebugInfo:
             if score_info.keyword_matches:
                 lines.append("   Matched keywords:")
                 for match in score_info.keyword_matches:
-                    lines.append(f"     • '{match.keyword}': found {match.count}x (weight: {match.weight}, score: {match.weighted_score})")
+                    sign = "-" if match.is_negative else "+"
+                    lines.append(f"     {sign} '{match.keyword}': found {match.count}x (weight: {match.weight}, score: {match.weighted_score})")
             else:
                 lines.append("   No keywords matched")
         
@@ -281,22 +284,36 @@ def detect_ticket_type(
         total_keywords = len(ticket_type.detection_keywords)
         
         for keyword in ticket_type.detection_keywords:
-            keyword_lower = keyword.lower()
+            # Check if keyword is negative (starts with minus sign)
+            is_negative = keyword.startswith('-')
+            # Remove minus sign for matching
+            keyword_to_match = keyword[1:] if is_negative else keyword
+            keyword_lower = keyword_to_match.lower()
+            
             # Count occurrences of each keyword
             count = ticket_text_lower.count(keyword_lower)
             
             # Get weight for this keyword (default 1.0)
-            weight = keyword_weights.get(keyword_lower, 1.0)
+            # For negative keywords, use the original keyword (with minus) as the key
+            weight_key = keyword.lower() if is_negative else keyword_lower
+            weight = keyword_weights.get(weight_key, 1.0)
+            
+            # Calculate score (negative for negative keywords)
             weighted_score = count * weight
+            if is_negative:
+                weighted_score = -weighted_score
             score += weighted_score
             
             if count > 0:
-                matched_count += 1
+                # Only count positive keywords towards matched_count
+                if not is_negative:
+                    matched_count += 1
                 if debug:
                     keyword_matches.append(KeywordMatch(
-                        keyword=keyword,
+                        keyword=keyword_to_match,
                         count=count,
-                        weight=weight
+                        weight=weight,
+                        is_negative=is_negative
                     ))
         
         if score > 0:
