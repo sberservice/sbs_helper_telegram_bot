@@ -678,3 +678,533 @@ def get_rule_type_mapping() -> List[Dict[str, Any]]:
             """
             cursor.execute(sql_query)
             return cursor.fetchall()
+
+
+# ===== TEST TEMPLATE MANAGEMENT =====
+# Templates are now used as test cases for validation rules (admin-only)
+
+def create_test_template(
+    template_name: str, 
+    template_text: str, 
+    description: str = None,
+    expected_result: str = 'pass',
+    ticket_type_id: int = None
+) -> Optional[int]:
+    """
+    Create a new test template for validation rule testing.
+    
+    Args:
+        template_name: Name of the test template
+        template_text: Sample ticket text to test
+        description: Description of what this template tests
+        expected_result: 'pass' or 'fail' - overall expected validation result
+        ticket_type_id: Optional ticket type this template is for
+        
+    Returns:
+        ID of created template, or None on failure
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = """
+                INSERT INTO ticket_templates 
+                (template_name, template_text, description, expected_result, 
+                 ticket_type_id, active, created_timestamp)
+                VALUES (%s, %s, %s, %s, %s, 1, UNIX_TIMESTAMP())
+            """
+            cursor.execute(sql, (
+                template_name, template_text, description, 
+                expected_result, ticket_type_id
+            ))
+            return cursor.lastrowid
+
+
+def update_test_template(
+    template_id: int,
+    template_name: str = None,
+    template_text: str = None,
+    description: str = None,
+    expected_result: str = None,
+    ticket_type_id: int = None
+) -> bool:
+    """
+    Update an existing test template.
+    
+    Args:
+        template_id: ID of the template to update
+        template_name: New name (optional)
+        template_text: New text (optional)
+        description: New description (optional)
+        expected_result: New expected result (optional)
+        ticket_type_id: New ticket type ID (optional)
+        
+    Returns:
+        True if updated, False otherwise
+    """
+    updates = []
+    values = []
+    
+    if template_name is not None:
+        updates.append("template_name = %s")
+        values.append(template_name)
+    if template_text is not None:
+        updates.append("template_text = %s")
+        values.append(template_text)
+    if description is not None:
+        updates.append("description = %s")
+        values.append(description)
+    if expected_result is not None:
+        updates.append("expected_result = %s")
+        values.append(expected_result)
+    if ticket_type_id is not None:
+        updates.append("ticket_type_id = %s")
+        values.append(ticket_type_id)
+    
+    if not updates:
+        return False
+    
+    updates.append("updated_timestamp = UNIX_TIMESTAMP()")
+    values.append(template_id)
+    
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = f"UPDATE ticket_templates SET {', '.join(updates)} WHERE id = %s"
+            cursor.execute(sql, tuple(values))
+            return cursor.rowcount > 0
+
+
+def delete_test_template(template_id: int) -> Tuple[bool, int]:
+    """
+    Delete a test template and its associated rule expectations.
+    
+    Args:
+        template_id: ID of the template to delete
+        
+    Returns:
+        Tuple of (success, number_of_rule_expectations_deleted)
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            # First count the rule expectations
+            cursor.execute(
+                "SELECT COUNT(*) as cnt FROM template_rule_tests WHERE template_id = %s",
+                (template_id,)
+            )
+            rule_count = cursor.fetchone()['cnt']
+            
+            # Delete template (cascade will delete rule expectations)
+            cursor.execute(
+                "DELETE FROM ticket_templates WHERE id = %s",
+                (template_id,)
+            )
+            return cursor.rowcount > 0, rule_count
+
+
+def toggle_test_template_active(template_id: int, active: bool) -> bool:
+    """
+    Toggle a test template's active status.
+    
+    Args:
+        template_id: ID of the template
+        active: New active status
+        
+    Returns:
+        True if updated, False otherwise
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = """
+                UPDATE ticket_templates 
+                SET active = %s, updated_timestamp = UNIX_TIMESTAMP()
+                WHERE id = %s
+            """
+            cursor.execute(sql, (1 if active else 0, template_id))
+            return cursor.rowcount > 0
+
+
+def load_test_template_by_id(template_id: int) -> Optional[dict]:
+    """
+    Load a test template by ID with all details.
+    
+    Args:
+        template_id: ID of the template
+        
+    Returns:
+        Template dict with all fields, or None
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = """
+                SELECT t.id, t.template_name, t.template_text, t.description,
+                       t.expected_result, t.ticket_type_id, t.active,
+                       t.created_timestamp, t.updated_timestamp,
+                       tt.type_name as ticket_type_name
+                FROM ticket_templates t
+                LEFT JOIN ticket_types tt ON t.ticket_type_id = tt.id
+                WHERE t.id = %s
+            """
+            cursor.execute(sql, (template_id,))
+            return cursor.fetchone()
+
+
+def list_all_test_templates(include_inactive: bool = False) -> List[dict]:
+    """
+    Get all test templates with summary info.
+    
+    Args:
+        include_inactive: Whether to include inactive templates
+        
+    Returns:
+        List of template dicts
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            if include_inactive:
+                sql = """
+                    SELECT t.id, t.template_name, t.description, t.expected_result,
+                           t.ticket_type_id, t.active, tt.type_name as ticket_type_name,
+                           (SELECT COUNT(*) FROM template_rule_tests WHERE template_id = t.id) as rule_count
+                    FROM ticket_templates t
+                    LEFT JOIN ticket_types tt ON t.ticket_type_id = tt.id
+                    ORDER BY t.template_name
+                """
+            else:
+                sql = """
+                    SELECT t.id, t.template_name, t.description, t.expected_result,
+                           t.ticket_type_id, t.active, tt.type_name as ticket_type_name,
+                           (SELECT COUNT(*) FROM template_rule_tests WHERE template_id = t.id) as rule_count
+                    FROM ticket_templates t
+                    LEFT JOIN ticket_types tt ON t.ticket_type_id = tt.id
+                    WHERE t.active = 1
+                    ORDER BY t.template_name
+                """
+            cursor.execute(sql)
+            return cursor.fetchall()
+
+
+# ===== TEMPLATE RULE EXPECTATIONS =====
+
+def set_template_rule_expectation(
+    template_id: int, 
+    rule_id: int, 
+    expected_pass: bool,
+    notes: str = None
+) -> bool:
+    """
+    Set or update the expected result for a rule on a template.
+    
+    Args:
+        template_id: ID of the test template
+        rule_id: ID of the validation rule
+        expected_pass: True if the rule should pass, False if it should fail
+        notes: Optional notes explaining the expectation
+        
+    Returns:
+        True if set successfully
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            # Use INSERT ... ON DUPLICATE KEY UPDATE for upsert
+            sql = """
+                INSERT INTO template_rule_tests 
+                (template_id, validation_rule_id, expected_pass, notes, created_timestamp)
+                VALUES (%s, %s, %s, %s, UNIX_TIMESTAMP())
+                ON DUPLICATE KEY UPDATE 
+                    expected_pass = VALUES(expected_pass),
+                    notes = VALUES(notes),
+                    updated_timestamp = UNIX_TIMESTAMP()
+            """
+            cursor.execute(sql, (template_id, rule_id, 1 if expected_pass else 0, notes))
+            return True
+
+
+def remove_template_rule_expectation(template_id: int, rule_id: int) -> bool:
+    """
+    Remove a rule expectation from a template.
+    
+    Args:
+        template_id: ID of the test template
+        rule_id: ID of the validation rule
+        
+    Returns:
+        True if removed, False if not found
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = """
+                DELETE FROM template_rule_tests 
+                WHERE template_id = %s AND validation_rule_id = %s
+            """
+            cursor.execute(sql, (template_id, rule_id))
+            return cursor.rowcount > 0
+
+
+def get_template_rule_expectations(template_id: int) -> List[dict]:
+    """
+    Get all rule expectations for a template.
+    
+    Args:
+        template_id: ID of the test template
+        
+    Returns:
+        List of dicts with rule info and expected_pass
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = """
+                SELECT trt.id, trt.validation_rule_id, trt.expected_pass, trt.notes,
+                       vr.rule_name, vr.pattern, vr.rule_type, vr.error_message,
+                       vr.active as rule_active
+                FROM template_rule_tests trt
+                INNER JOIN validation_rules vr ON trt.validation_rule_id = vr.id
+                WHERE trt.template_id = %s
+                ORDER BY vr.rule_name
+            """
+            cursor.execute(sql, (template_id,))
+            return cursor.fetchall()
+
+
+def get_rules_not_in_template(template_id: int) -> List[ValidationRule]:
+    """
+    Get all active rules that are not yet assigned to a template.
+    
+    Args:
+        template_id: ID of the test template
+        
+    Returns:
+        List of ValidationRule objects not assigned to this template
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = """
+                SELECT id, rule_name, pattern, rule_type, error_message, active, priority
+                FROM validation_rules
+                WHERE active = 1
+                AND id NOT IN (
+                    SELECT validation_rule_id FROM template_rule_tests 
+                    WHERE template_id = %s
+                )
+                ORDER BY rule_name
+            """
+            cursor.execute(sql, (template_id,))
+            results = cursor.fetchall()
+            
+            return [
+                ValidationRule(
+                    id=row['id'],
+                    rule_name=row['rule_name'],
+                    pattern=row['pattern'],
+                    rule_type=row['rule_type'],
+                    error_message=row['error_message'],
+                    active=bool(row['active']),
+                    priority=row['priority']
+                )
+                for row in results
+            ]
+
+
+# ===== VALIDATION TESTING =====
+
+def run_template_validation_test(template_id: int, admin_userid: int) -> Dict[str, Any]:
+    """
+    Run validation test for a template and compare with expected results.
+    
+    This function:
+    1. Loads the template and its rule expectations
+    2. Runs validation on the template text
+    3. Compares actual results with expectations
+    4. Stores the test result
+    5. Returns detailed results
+    
+    Args:
+        template_id: ID of the test template
+        admin_userid: ID of the admin running the test
+        
+    Returns:
+        Dict with test results including:
+        - overall_pass: bool
+        - total_rules_tested: int
+        - rules_passed_as_expected: int
+        - rules_failed_unexpectedly: int
+        - details: list of per-rule results
+    """
+    from .validators import validate_ticket
+    
+    # Load template
+    template = load_test_template_by_id(template_id)
+    if not template:
+        return {'error': 'Template not found'}
+    
+    # Load rule expectations
+    expectations = get_template_rule_expectations(template_id)
+    if not expectations:
+        return {'error': 'No rule expectations defined for this template'}
+    
+    # Build rules list from expectations
+    rules = []
+    for exp in expectations:
+        rule = ValidationRule(
+            id=exp['validation_rule_id'],
+            rule_name=exp['rule_name'],
+            pattern=exp['pattern'],
+            rule_type=exp['rule_type'],
+            error_message=exp['error_message'],
+            active=True,  # Test all rules regardless of active status
+            priority=0
+        )
+        rules.append(rule)
+    
+    # Run validation
+    result = validate_ticket(template['template_text'], rules)
+    
+    # Compare with expectations
+    details = []
+    rules_passed_as_expected = 0
+    rules_failed_unexpectedly = 0
+    
+    # Build set of failed rule IDs from validation result
+    failed_rule_ids = set()
+    for rule in rules:
+        # Check if this rule's error message is in the failed rules
+        if rule.rule_name in result.failed_rules or rule.error_message in result.error_messages:
+            failed_rule_ids.add(rule.id)
+    
+    # Also check validation_details if available
+    if hasattr(result, 'validation_details') and result.validation_details:
+        for rule_name, passed in result.validation_details.items():
+            if not passed:
+                # Find rule ID by name
+                for rule in rules:
+                    if rule.rule_name == rule_name:
+                        failed_rule_ids.add(rule.id)
+    
+    for exp in expectations:
+        rule_id = exp['validation_rule_id']
+        expected_pass = bool(exp['expected_pass'])
+        actual_pass = rule_id not in failed_rule_ids
+        
+        matches_expectation = (expected_pass == actual_pass)
+        
+        detail = {
+            'rule_id': rule_id,
+            'rule_name': exp['rule_name'],
+            'expected_pass': expected_pass,
+            'actual_pass': actual_pass,
+            'matches_expectation': matches_expectation,
+            'notes': exp['notes']
+        }
+        details.append(detail)
+        
+        if matches_expectation:
+            rules_passed_as_expected += 1
+        else:
+            rules_failed_unexpectedly += 1
+    
+    overall_pass = rules_failed_unexpectedly == 0
+    
+    # Store test result
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = """
+                INSERT INTO template_test_results
+                (template_id, admin_userid, overall_pass, total_rules_tested,
+                 rules_passed_as_expected, rules_failed_unexpectedly, 
+                 details_json, run_timestamp)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, UNIX_TIMESTAMP())
+            """
+            cursor.execute(sql, (
+                template_id, admin_userid, 1 if overall_pass else 0,
+                len(expectations), rules_passed_as_expected,
+                rules_failed_unexpectedly, json.dumps(details, ensure_ascii=False)
+            ))
+    
+    return {
+        'overall_pass': overall_pass,
+        'total_rules_tested': len(expectations),
+        'rules_passed_as_expected': rules_passed_as_expected,
+        'rules_failed_unexpectedly': rules_failed_unexpectedly,
+        'details': details,
+        'template_name': template['template_name'],
+        'expected_result': template['expected_result']
+    }
+
+
+def run_all_template_tests(admin_userid: int) -> Dict[str, Any]:
+    """
+    Run validation tests for all active templates.
+    
+    Args:
+        admin_userid: ID of the admin running the tests
+        
+    Returns:
+        Dict with summary and per-template results
+    """
+    templates = list_all_test_templates(include_inactive=False)
+    
+    results = []
+    total_passed = 0
+    total_failed = 0
+    
+    for template in templates:
+        result = run_template_validation_test(template['id'], admin_userid)
+        
+        if 'error' in result:
+            results.append({
+                'template_id': template['id'],
+                'template_name': template['template_name'],
+                'error': result['error']
+            })
+        else:
+            results.append({
+                'template_id': template['id'],
+                'template_name': template['template_name'],
+                'overall_pass': result['overall_pass'],
+                'rules_passed': result['rules_passed_as_expected'],
+                'rules_failed': result['rules_failed_unexpectedly']
+            })
+            
+            if result['overall_pass']:
+                total_passed += 1
+            else:
+                total_failed += 1
+    
+    return {
+        'total_templates': len(templates),
+        'templates_passed': total_passed,
+        'templates_failed': total_failed,
+        'results': results
+    }
+
+
+def get_template_test_history(template_id: int, limit: int = 10) -> List[dict]:
+    """
+    Get test run history for a specific template.
+    
+    Args:
+        template_id: ID of the test template
+        limit: Maximum number of results
+        
+    Returns:
+        List of test result dicts
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = """
+                SELECT id, admin_userid, overall_pass, total_rules_tested,
+                       rules_passed_as_expected, rules_failed_unexpectedly,
+                       details_json, run_timestamp
+                FROM template_test_results
+                WHERE template_id = %s
+                ORDER BY run_timestamp DESC
+                LIMIT %s
+            """
+            cursor.execute(sql, (template_id, limit))
+            results = cursor.fetchall()
+            
+            for result in results:
+                if result['details_json']:
+                    try:
+                        result['details'] = json.loads(result['details_json'])
+                    except json.JSONDecodeError:
+                        result['details'] = []
+            
+            return results

@@ -2,7 +2,7 @@
 Admin Panel Bot Part
 
 Handles admin-only commands for managing validation rules,
-ticket types, and rule-type associations.
+ticket types, rule-type associations, and test templates.
 """
 
 import logging
@@ -42,8 +42,28 @@ from src.common.messages import (
     MESSAGE_ADMIN_CONFIRM_DELETE,
     MESSAGE_ADMIN_OPERATION_CANCELLED,
     MESSAGE_ADMIN_INVALID_INPUT,
+    # Test templates messages
+    MESSAGE_ADMIN_TEMPLATES_MENU,
+    MESSAGE_ADMIN_TEMPLATES_LIST,
+    MESSAGE_ADMIN_TEMPLATE_DETAILS,
+    MESSAGE_ADMIN_CREATE_TEMPLATE_NAME,
+    MESSAGE_ADMIN_CREATE_TEMPLATE_TEXT,
+    MESSAGE_ADMIN_CREATE_TEMPLATE_DESC,
+    MESSAGE_ADMIN_CREATE_TEMPLATE_EXPECTED,
+    MESSAGE_ADMIN_TEMPLATE_CREATED,
+    MESSAGE_ADMIN_TEMPLATE_DELETED,
+    MESSAGE_ADMIN_TEMPLATE_TOGGLED,
+    MESSAGE_ADMIN_ADD_RULE_TO_TEMPLATE,
+    MESSAGE_ADMIN_RULE_EXPECTATION_SET,
+    MESSAGE_ADMIN_RULE_EXPECTATION_REMOVED,
+    MESSAGE_ADMIN_SELECT_EXPECTATION,
+    MESSAGE_ADMIN_TEST_RESULT_PASS,
+    MESSAGE_ADMIN_TEST_RESULT_FAIL,
+    MESSAGE_ADMIN_NO_TEMPLATES,
+    MESSAGE_ADMIN_NO_RULES_FOR_TEMPLATE,
     get_admin_menu_keyboard,
     get_admin_rules_keyboard,
+    get_admin_templates_keyboard,
     get_main_menu_keyboard
 )
 from src.sbs_helper_telegram_bot.ticket_validator.validation_rules import (
@@ -58,7 +78,20 @@ from src.sbs_helper_telegram_bot.ticket_validator.validation_rules import (
     get_ticket_types_for_rule,
     add_rule_to_ticket_type,
     remove_rule_from_ticket_type,
-    test_regex_pattern
+    test_regex_pattern,
+    # Test template functions
+    create_test_template,
+    update_test_template,
+    delete_test_template,
+    toggle_test_template_active,
+    load_test_template_by_id,
+    list_all_test_templates,
+    set_template_rule_expectation,
+    remove_template_rule_expectation,
+    get_template_rule_expectations,
+    get_rules_not_in_template,
+    run_template_validation_test,
+    run_all_template_tests
 )
 
 logger = logging.getLogger(__name__)
@@ -80,7 +113,17 @@ logger = logging.getLogger(__name__)
     SELECT_RULE_FOR_TYPE,
     TEST_REGEX_PATTERN,
     TEST_REGEX_TEXT,
-) = range(15)
+    # Template management states
+    TEMPLATES_MENU,
+    CREATE_TEMPLATE_NAME,
+    CREATE_TEMPLATE_TEXT,
+    CREATE_TEMPLATE_DESC,
+    CREATE_TEMPLATE_EXPECTED,
+    SELECT_TEMPLATE_FOR_ACTION,
+    MANAGE_TEMPLATE_RULES,
+    SELECT_RULE_FOR_TEMPLATE,
+    SELECT_RULE_EXPECTATION,
+) = range(24)
 
 # Rule types for selection
 RULE_TYPES = ['regex', 'required_field', 'format', 'length', 'custom']
@@ -144,6 +187,14 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await show_ticket_types(update, context)
     elif text == "🔬 Тест regex":
         return await start_test_regex(update, context)
+    elif text == "🧪 Тест шаблоны":
+        return await show_templates_menu(update, context)
+    elif text == "📋 Все шаблоны":
+        return await show_templates_list(update, context)
+    elif text == "➕ Создать шаблон":
+        return await start_create_template(update, context)
+    elif text == "▶️ Запустить все тесты":
+        return await run_all_tests(update, context)
     elif text == "🔙 Админ меню":
         await update.message.reply_text(
             MESSAGE_ADMIN_MENU,
@@ -906,6 +957,691 @@ async def receive_test_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     return ADMIN_MENU
 
 
+# ===== TEST TEMPLATES MANAGEMENT =====
+
+async def show_templates_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Display test templates menu."""
+    await update.message.reply_text(
+        MESSAGE_ADMIN_TEMPLATES_MENU,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_admin_templates_keyboard()
+    )
+    return TEMPLATES_MENU
+
+
+async def show_templates_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Display list of all test templates with inline buttons."""
+    try:
+        templates = list_all_test_templates(include_inactive=True)
+        
+        if not templates:
+            await update.message.reply_text(
+                MESSAGE_ADMIN_NO_TEMPLATES,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=get_admin_templates_keyboard()
+            )
+            return TEMPLATES_MENU
+        
+        # Build inline keyboard with templates
+        keyboard = []
+        for template in templates:
+            status = "✅" if template['active'] else "❌"
+            expected = "✓" if template['expected_result'] == 'pass' else "✗"
+            rule_count = template.get('rule_count', 0)
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{status} [{expected}] {template['template_name']} ({rule_count} правил)",
+                    callback_data=f"template_view_{template['id']}"
+                )
+            ])
+        
+        keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="templates_back")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            MESSAGE_ADMIN_TEMPLATES_LIST.format(count=len(templates)),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=reply_markup
+        )
+        return SELECT_TEMPLATE_FOR_ACTION
+        
+    except Exception as e:
+        logger.error(f"Error loading templates list: {e}", exc_info=True)
+        await update.message.reply_text(
+            "❌ Ошибка при загрузке списка шаблонов\\.",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return TEMPLATES_MENU
+
+
+async def handle_template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle inline button callbacks for template management."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    if data == "templates_back":
+        await query.edit_message_text(
+            MESSAGE_ADMIN_TEMPLATES_MENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return TEMPLATES_MENU
+    
+    elif data.startswith("template_view_"):
+        template_id = int(data.replace("template_view_", ""))
+        return await show_template_details(query, context, template_id)
+    
+    elif data.startswith("template_toggle_"):
+        template_id = int(data.replace("template_toggle_", ""))
+        return await toggle_template(query, context, template_id)
+    
+    elif data.startswith("template_delete_"):
+        template_id = int(data.replace("template_delete_", ""))
+        return await confirm_delete_template(query, context, template_id)
+    
+    elif data.startswith("template_confirm_delete_"):
+        template_id = int(data.replace("template_confirm_delete_", ""))
+        return await execute_delete_template(query, context, template_id)
+    
+    elif data == "template_cancel_delete":
+        await query.edit_message_text(
+            MESSAGE_ADMIN_OPERATION_CANCELLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return TEMPLATES_MENU
+    
+    elif data.startswith("template_rules_"):
+        template_id = int(data.replace("template_rules_", ""))
+        return await show_template_rules(query, context, template_id)
+    
+    elif data.startswith("template_add_rule_"):
+        template_id = int(data.replace("template_add_rule_", ""))
+        context.user_data['manage_template_id'] = template_id
+        return await show_available_rules_for_template(query, context, template_id)
+    
+    elif data.startswith("template_remove_rule_"):
+        parts = data.replace("template_remove_rule_", "").split("_")
+        template_id = int(parts[0])
+        rule_id = int(parts[1])
+        return await remove_rule_from_template(query, context, template_id, rule_id)
+    
+    elif data.startswith("add_rule_to_template_"):
+        parts = data.replace("add_rule_to_template_", "").split("_")
+        template_id = int(parts[0])
+        rule_id = int(parts[1])
+        context.user_data['pending_rule_id'] = rule_id
+        context.user_data['manage_template_id'] = template_id
+        return await ask_rule_expectation(query, context, template_id, rule_id)
+    
+    elif data.startswith("set_expectation_"):
+        parts = data.replace("set_expectation_", "").split("_")
+        template_id = int(parts[0])
+        rule_id = int(parts[1])
+        expected_pass = parts[2] == "pass"
+        return await set_rule_expectation(query, context, template_id, rule_id, expected_pass)
+    
+    elif data.startswith("template_test_"):
+        template_id = int(data.replace("template_test_", ""))
+        return await run_single_template_test(query, context, template_id)
+    
+    return TEMPLATES_MENU
+
+
+async def show_template_details(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
+    """Show detailed information about a template."""
+    try:
+        template = load_test_template_by_id(template_id)
+        if not template:
+            await query.edit_message_text("❌ Шаблон не найден\\.")
+            return TEMPLATES_MENU
+        
+        # Get rule expectations
+        expectations = get_template_rule_expectations(template_id)
+        
+        rules_list = ""
+        if expectations:
+            for exp in expectations:
+                exp_icon = "✅" if exp['expected_pass'] else "❌"
+                rules_list += f"\n{exp_icon} {escape_markdown(exp['rule_name'])}"
+        else:
+            rules_list = "Не настроены"
+        
+        status = "✅ Активен" if template['active'] else "❌ Неактивен"
+        toggle_text = "❌ Отключить" if template['active'] else "✅ Включить"
+        expected_result = "✅ Должен пройти" if template['expected_result'] == 'pass' else "❌ Должен провалиться"
+        ticket_type = template['ticket_type_name'] or "Не указан"
+        
+        message = MESSAGE_ADMIN_TEMPLATE_DETAILS.format(
+            name=escape_markdown(template['template_name']),
+            id=template['id'],
+            description=escape_markdown(template['description'] or 'Нет описания'),
+            ticket_type=escape_markdown(ticket_type),
+            expected_result=expected_result,
+            status=status,
+            rule_count=len(expectations),
+            rules_list=rules_list
+        )
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(toggle_text, callback_data=f"template_toggle_{template_id}"),
+                InlineKeyboardButton("🗑️ Удалить", callback_data=f"template_delete_{template_id}")
+            ],
+            [InlineKeyboardButton("📋 Управление правилами", callback_data=f"template_rules_{template_id}")],
+            [InlineKeyboardButton("▶️ Запустить тест", callback_data=f"template_test_{template_id}")],
+            [InlineKeyboardButton("🔙 К списку шаблонов", callback_data="templates_back")]
+        ]
+        
+        await query.edit_message_text(
+            message,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return SELECT_TEMPLATE_FOR_ACTION
+        
+    except Exception as e:
+        logger.error(f"Error showing template details: {e}", exc_info=True)
+        await query.edit_message_text("❌ Ошибка при загрузке шаблона\\.")
+        return TEMPLATES_MENU
+
+
+async def toggle_template(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
+    """Toggle template active status."""
+    try:
+        template = load_test_template_by_id(template_id)
+        if not template:
+            await query.edit_message_text("❌ Шаблон не найден\\.")
+            return TEMPLATES_MENU
+        
+        new_status = not template['active']
+        success = toggle_test_template_active(template_id, new_status)
+        
+        if success:
+            status_text = "включен" if new_status else "отключен"
+            await query.edit_message_text(
+                MESSAGE_ADMIN_TEMPLATE_TOGGLED.format(
+                    name=escape_markdown(template['template_name']),
+                    status=status_text
+                ),
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+        else:
+            await query.edit_message_text("❌ Ошибка при изменении статуса\\.")
+        
+        return TEMPLATES_MENU
+        
+    except Exception as e:
+        logger.error(f"Error toggling template: {e}", exc_info=True)
+        await query.edit_message_text("❌ Ошибка при изменении статуса\\.")
+        return TEMPLATES_MENU
+
+
+async def confirm_delete_template(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
+    """Ask for confirmation before deleting template."""
+    try:
+        template = load_test_template_by_id(template_id)
+        if not template:
+            await query.edit_message_text("❌ Шаблон не найден\\.")
+            return TEMPLATES_MENU
+        
+        expectations = get_template_rule_expectations(template_id)
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Да, удалить", callback_data=f"template_confirm_delete_{template_id}"),
+                InlineKeyboardButton("❌ Отмена", callback_data="template_cancel_delete")
+            ]
+        ]
+        
+        await query.edit_message_text(
+            f"⚠️ Вы уверены, что хотите удалить шаблон *{escape_markdown(template['template_name'])}*?\n\n"
+            f"Это удалит все настроенные ожидания правил \\({len(expectations)} ожиданий\\)\\.",
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return SELECT_TEMPLATE_FOR_ACTION
+        
+    except Exception as e:
+        logger.error(f"Error confirming template delete: {e}", exc_info=True)
+        await query.edit_message_text("❌ Ошибка\\.")
+        return TEMPLATES_MENU
+
+
+async def execute_delete_template(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
+    """Actually delete the template."""
+    try:
+        template = load_test_template_by_id(template_id)
+        template_name = template['template_name'] if template else "Неизвестный"
+        
+        success, expectations_count = delete_test_template(template_id)
+        
+        if success:
+            await query.edit_message_text(
+                MESSAGE_ADMIN_TEMPLATE_DELETED.format(
+                    name=escape_markdown(template_name),
+                    expectations=expectations_count
+                ),
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+        else:
+            await query.edit_message_text("❌ Ошибка при удалении шаблона\\.")
+        
+        return TEMPLATES_MENU
+        
+    except Exception as e:
+        logger.error(f"Error deleting template: {e}", exc_info=True)
+        await query.edit_message_text("❌ Ошибка при удалении\\.")
+        return TEMPLATES_MENU
+
+
+async def show_template_rules(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
+    """Show rules configured for a template with add/remove options."""
+    try:
+        template = load_test_template_by_id(template_id)
+        if not template:
+            await query.edit_message_text("❌ Шаблон не найден\\.")
+            return TEMPLATES_MENU
+        
+        expectations = get_template_rule_expectations(template_id)
+        
+        keyboard = []
+        
+        if expectations:
+            for exp in expectations:
+                exp_icon = "✅" if exp['expected_pass'] else "❌"
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"{exp_icon} {exp['rule_name']} (удалить)",
+                        callback_data=f"template_remove_rule_{template_id}_{exp['validation_rule_id']}"
+                    )
+                ])
+        
+        keyboard.append([
+            InlineKeyboardButton("➕ Добавить правило", callback_data=f"template_add_rule_{template_id}")
+        ])
+        keyboard.append([
+            InlineKeyboardButton("🔙 К шаблону", callback_data=f"template_view_{template_id}")
+        ])
+        
+        message = f"📋 *Правила шаблона: {escape_markdown(template['template_name'])}*\n\n"
+        if expectations:
+            message += f"Настроено правил: {len(expectations)}\n\n"
+            message += "✅ \\= правило должно пройти\n❌ \\= правило должно провалиться\n\n"
+            message += "Нажмите на правило чтобы удалить:"
+        else:
+            message += "Правила не настроены\\. Добавьте правила для тестирования\\."
+        
+        await query.edit_message_text(
+            message,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return MANAGE_TEMPLATE_RULES
+        
+    except Exception as e:
+        logger.error(f"Error showing template rules: {e}", exc_info=True)
+        await query.edit_message_text("❌ Ошибка\\.")
+        return TEMPLATES_MENU
+
+
+async def show_available_rules_for_template(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
+    """Show rules that can be added to a template."""
+    try:
+        template = load_test_template_by_id(template_id)
+        if not template:
+            await query.edit_message_text("❌ Шаблон не найден\\.")
+            return TEMPLATES_MENU
+        
+        available_rules = get_rules_not_in_template(template_id)
+        
+        if not available_rules:
+            await query.edit_message_text(
+                "Все активные правила уже добавлены к этому шаблону\\.",
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+            return MANAGE_TEMPLATE_RULES
+        
+        keyboard = []
+        for rule in available_rules:
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{rule.rule_name}",
+                    callback_data=f"add_rule_to_template_{template_id}_{rule.id}"
+                )
+            ])
+        
+        keyboard.append([
+            InlineKeyboardButton("🔙 Назад", callback_data=f"template_rules_{template_id}")
+        ])
+        
+        await query.edit_message_text(
+            MESSAGE_ADMIN_ADD_RULE_TO_TEMPLATE.format(
+                template_name=escape_markdown(template['template_name'])
+            ),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return SELECT_RULE_FOR_TEMPLATE
+        
+    except Exception as e:
+        logger.error(f"Error showing available rules: {e}", exc_info=True)
+        await query.edit_message_text("❌ Ошибка\\.")
+        return TEMPLATES_MENU
+
+
+async def ask_rule_expectation(query, context: ContextTypes.DEFAULT_TYPE, template_id: int, rule_id: int) -> int:
+    """Ask what the expected result should be for this rule."""
+    try:
+        rule = load_rule_by_id(rule_id)
+        if not rule:
+            await query.edit_message_text("❌ Правило не найдено\\.")
+            return TEMPLATES_MENU
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Должно пройти", callback_data=f"set_expectation_{template_id}_{rule_id}_pass"),
+                InlineKeyboardButton("❌ Должно провалиться", callback_data=f"set_expectation_{template_id}_{rule_id}_fail")
+            ],
+            [InlineKeyboardButton("🔙 Отмена", callback_data=f"template_rules_{template_id}")]
+        ]
+        
+        await query.edit_message_text(
+            MESSAGE_ADMIN_SELECT_EXPECTATION.format(rule_name=escape_markdown(rule.rule_name)),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return SELECT_RULE_EXPECTATION
+        
+    except Exception as e:
+        logger.error(f"Error asking rule expectation: {e}", exc_info=True)
+        await query.edit_message_text("❌ Ошибка\\.")
+        return TEMPLATES_MENU
+
+
+async def set_rule_expectation(query, context: ContextTypes.DEFAULT_TYPE, 
+                               template_id: int, rule_id: int, expected_pass: bool) -> int:
+    """Set the expected result for a rule on a template."""
+    try:
+        rule = load_rule_by_id(rule_id)
+        rule_name = rule.rule_name if rule else "Неизвестное"
+        
+        success = set_template_rule_expectation(template_id, rule_id, expected_pass)
+        
+        if success:
+            expectation = "должно пройти" if expected_pass else "должно провалиться"
+            await query.edit_message_text(
+                MESSAGE_ADMIN_RULE_EXPECTATION_SET.format(
+                    rule_name=escape_markdown(rule_name),
+                    expectation=expectation
+                ),
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+        else:
+            await query.edit_message_text("❌ Ошибка при добавлении правила\\.")
+        
+        # Clean up
+        context.user_data.pop('pending_rule_id', None)
+        
+        return TEMPLATES_MENU
+        
+    except Exception as e:
+        logger.error(f"Error setting rule expectation: {e}", exc_info=True)
+        await query.edit_message_text("❌ Ошибка\\.")
+        return TEMPLATES_MENU
+
+
+async def remove_rule_from_template(query, context: ContextTypes.DEFAULT_TYPE, 
+                                    template_id: int, rule_id: int) -> int:
+    """Remove a rule expectation from a template."""
+    try:
+        rule = load_rule_by_id(rule_id)
+        rule_name = rule.rule_name if rule else "Неизвестное"
+        
+        success = remove_template_rule_expectation(template_id, rule_id)
+        
+        if success:
+            await query.edit_message_text(
+                MESSAGE_ADMIN_RULE_EXPECTATION_REMOVED.format(
+                    rule_name=escape_markdown(rule_name)
+                ),
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+        else:
+            await query.edit_message_text("❌ Ошибка при удалении правила\\.")
+        
+        return TEMPLATES_MENU
+        
+    except Exception as e:
+        logger.error(f"Error removing rule from template: {e}", exc_info=True)
+        await query.edit_message_text("❌ Ошибка\\.")
+        return TEMPLATES_MENU
+
+
+async def run_single_template_test(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
+    """Run validation test for a single template."""
+    try:
+        admin_userid = query.from_user.id
+        result = run_template_validation_test(template_id, admin_userid)
+        
+        if 'error' in result:
+            await query.edit_message_text(
+                f"⚠️ *Ошибка*: {escape_markdown(result['error'])}",
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+            return TEMPLATES_MENU
+        
+        if result['overall_pass']:
+            await query.edit_message_text(
+                MESSAGE_ADMIN_TEST_RESULT_PASS.format(
+                    template_name=escape_markdown(result['template_name']),
+                    passed=result['rules_passed_as_expected'],
+                    total=result['total_rules_tested']
+                ),
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+        else:
+            # Build mismatches list
+            mismatches = ""
+            for detail in result['details']:
+                if not detail['matches_expectation']:
+                    expected = "пройти" if detail['expected_pass'] else "провалиться"
+                    actual = "прошло" if detail['actual_pass'] else "провалилось"
+                    mismatches += f"\n• {escape_markdown(detail['rule_name'])}: ожидалось {expected}, {actual}"
+            
+            await query.edit_message_text(
+                MESSAGE_ADMIN_TEST_RESULT_FAIL.format(
+                    template_name=escape_markdown(result['template_name']),
+                    passed=result['rules_passed_as_expected'],
+                    failed=result['rules_failed_unexpectedly'],
+                    total=result['total_rules_tested'],
+                    mismatches=mismatches
+                ),
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+        
+        return TEMPLATES_MENU
+        
+    except Exception as e:
+        logger.error(f"Error running template test: {e}", exc_info=True)
+        await query.edit_message_text("❌ Ошибка при запуске теста\\.")
+        return TEMPLATES_MENU
+
+
+async def run_all_tests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Run all template validation tests."""
+    try:
+        admin_userid = update.effective_user.id
+        
+        # Send "running" message
+        await update.message.reply_text(
+            "🧪 *Запуск всех тестов\\.\\.\\.*",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        
+        results = run_all_template_tests(admin_userid)
+        
+        if not results['results']:
+            await update.message.reply_text(
+                MESSAGE_ADMIN_NO_TEMPLATES,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=get_admin_templates_keyboard()
+            )
+            return TEMPLATES_MENU
+        
+        # Format results
+        passed = results['templates_passed']
+        failed = results['templates_failed']
+        total = results['total_templates']
+        
+        if failed == 0:
+            status_emoji = "✅"
+            status_text = "Все тесты пройдены\\!"
+        else:
+            status_emoji = "❌"
+            status_text = f"Провалено тестов: {failed}"
+        
+        response = f"{status_emoji} *Результаты тестирования*\n\n"
+        response += f"📊 Всего шаблонов: {total}\n"
+        response += f"✅ Пройдено: {passed}\n"
+        response += f"❌ Провалено: {failed}\n\n"
+        response += f"*{status_text}*\n\n"
+        
+        # Add details for each template
+        response += "*Детали:*\n"
+        for r in results['results']:
+            template_name = escape_markdown(r['template_name'])
+            if 'error' in r:
+                response += f"⚠️ {template_name}: {escape_markdown(r['error'])}\n"
+            elif r['overall_pass']:
+                response += f"✅ {template_name}: {r['rules_passed']}/{r['rules_passed'] + r['rules_failed']} правил\n"
+            else:
+                response += f"❌ {template_name}: {r['rules_passed']}/{r['rules_passed'] + r['rules_failed']} правил \\({r['rules_failed']} провалено\\)\n"
+        
+        await update.message.reply_text(
+            response,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_admin_templates_keyboard()
+        )
+        return TEMPLATES_MENU
+        
+    except Exception as e:
+        logger.error(f"Error running all tests: {e}", exc_info=True)
+        await update.message.reply_text(
+            "❌ Ошибка при запуске тестов\\.",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return TEMPLATES_MENU
+
+
+# ===== CREATE TEMPLATE =====
+
+async def start_create_template(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start the template creation process."""
+    context.user_data['new_template'] = {}
+    
+    await update.message.reply_text(
+        MESSAGE_ADMIN_CREATE_TEMPLATE_NAME,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_admin_templates_keyboard()
+    )
+    return CREATE_TEMPLATE_NAME
+
+
+async def receive_template_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive template name."""
+    text = update.message.text
+    
+    if text in ["🏠 Главное меню", "🔙 Админ меню"]:
+        return await handle_cancel(update, context, text)
+    
+    context.user_data['new_template']['name'] = text
+    
+    await update.message.reply_text(
+        MESSAGE_ADMIN_CREATE_TEMPLATE_TEXT,
+        parse_mode=constants.ParseMode.MARKDOWN_V2
+    )
+    return CREATE_TEMPLATE_TEXT
+
+
+async def receive_template_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive template text (sample ticket)."""
+    text = update.message.text
+    
+    if text in ["🏠 Главное меню", "🔙 Админ меню"]:
+        return await handle_cancel(update, context, text)
+    
+    context.user_data['new_template']['text'] = text
+    
+    await update.message.reply_text(
+        MESSAGE_ADMIN_CREATE_TEMPLATE_DESC,
+        parse_mode=constants.ParseMode.MARKDOWN_V2
+    )
+    return CREATE_TEMPLATE_DESC
+
+
+async def receive_template_desc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive template description."""
+    text = update.message.text
+    
+    if text in ["🏠 Главное меню", "🔙 Админ меню"]:
+        return await handle_cancel(update, context, text)
+    
+    context.user_data['new_template']['description'] = text
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Должен пройти (pass)", callback_data="template_expected_pass"),
+            InlineKeyboardButton("❌ Должен провалиться (fail)", callback_data="template_expected_fail")
+        ]
+    ]
+    
+    await update.message.reply_text(
+        MESSAGE_ADMIN_CREATE_TEMPLATE_EXPECTED,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return CREATE_TEMPLATE_EXPECTED
+
+
+async def handle_template_expected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle expected result selection for new template."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    expected_result = 'pass' if data == "template_expected_pass" else 'fail'
+    
+    # Create the template
+    template_data = context.user_data.get('new_template', {})
+    
+    try:
+        template_id = create_test_template(
+            template_name=template_data.get('name', ''),
+            template_text=template_data.get('text', ''),
+            description=template_data.get('description', ''),
+            expected_result=expected_result
+        )
+        
+        if template_id:
+            await query.edit_message_text(
+                MESSAGE_ADMIN_TEMPLATE_CREATED.format(
+                    name=escape_markdown(template_data.get('name', ''))
+                ),
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+        else:
+            await query.edit_message_text("❌ Ошибка при создании шаблона\\.")
+        
+    except Exception as e:
+        logger.error(f"Error creating template: {e}", exc_info=True)
+        await query.edit_message_text("❌ Ошибка при создании шаблона\\.")
+    
+    context.user_data.pop('new_template', None)
+    return TEMPLATES_MENU
+
+
 # ===== CANCEL AND HELPERS =====
 
 async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> int:
@@ -914,6 +1650,8 @@ async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, text
     context.user_data.pop('new_rule', None)
     context.user_data.pop('test_pattern', None)
     context.user_data.pop('manage_type_id', None)
+    context.user_data.pop('new_template', None)
+    context.user_data.pop('manage_template_id', None)
     
     if text == "🏠 Главное меню":
         await update.message.reply_text(
@@ -938,6 +1676,8 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     context.user_data.pop('new_rule', None)
     context.user_data.pop('test_pattern', None)
     context.user_data.pop('manage_type_id', None)
+    context.user_data.pop('new_template', None)
+    context.user_data.pop('manage_template_id', None)
     
     await update.message.reply_text(
         MESSAGE_ADMIN_OPERATION_CANCELLED,
@@ -957,7 +1697,8 @@ def get_admin_conversation_handler() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[
             CommandHandler("admin", admin_command),
-            MessageHandler(filters.Regex("^🔐 Админ панель$"), admin_command)
+            MessageHandler(filters.Regex("^🔐 Админ панель$"), admin_command),
+            MessageHandler(filters.Regex("^🧪 Тест шаблонов$"), show_templates_menu_from_submenu)
         ],
         states={
             ADMIN_MENU: [
@@ -1006,6 +1747,40 @@ def get_admin_conversation_handler() -> ConversationHandler:
             TEST_REGEX_TEXT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_test_text)
             ],
+            # Template management states
+            TEMPLATES_MENU: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
+                CallbackQueryHandler(handle_template_callback)
+            ],
+            CREATE_TEMPLATE_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_template_name)
+            ],
+            CREATE_TEMPLATE_TEXT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_template_text)
+            ],
+            CREATE_TEMPLATE_DESC: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_template_desc)
+            ],
+            CREATE_TEMPLATE_EXPECTED: [
+                CallbackQueryHandler(handle_template_expected_callback),
+                menu_buttons_handler  # Allow menu navigation
+            ],
+            SELECT_TEMPLATE_FOR_ACTION: [
+                CallbackQueryHandler(handle_template_callback),
+                menu_buttons_handler  # Allow menu navigation
+            ],
+            MANAGE_TEMPLATE_RULES: [
+                CallbackQueryHandler(handle_template_callback),
+                menu_buttons_handler  # Allow menu navigation
+            ],
+            SELECT_RULE_FOR_TEMPLATE: [
+                CallbackQueryHandler(handle_template_callback),
+                menu_buttons_handler  # Allow menu navigation
+            ],
+            SELECT_RULE_EXPECTATION: [
+                CallbackQueryHandler(handle_template_callback),
+                menu_buttons_handler  # Allow menu navigation
+            ],
         },
         fallbacks=[
             CommandHandler("cancel", cancel_admin),
@@ -1014,3 +1789,16 @@ def get_admin_conversation_handler() -> ConversationHandler:
         name="admin_panel",
         persistent=False
     )
+
+
+async def show_templates_menu_from_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Entry point for test templates from validator submenu."""
+    # Check if user is admin
+    if not check_if_user_admin(update.effective_user.id):
+        await update.message.reply_text(
+            MESSAGE_ADMIN_NOT_AUTHORIZED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ConversationHandler.END
+    
+    return await show_templates_menu(update, context)

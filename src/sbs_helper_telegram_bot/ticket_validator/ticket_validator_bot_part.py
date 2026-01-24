@@ -11,15 +11,13 @@ import logging
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
 import src.common.messages as messages
-from src.common.messages import get_validator_submenu_keyboard
+from src.common.messages import get_validator_submenu_keyboard, get_admin_validator_submenu_keyboard
 from .validation_rules import (
     load_rules_from_db,
     store_validation_result,
     get_validation_history,
-    load_template_by_name,
-    list_all_templates,
     load_all_ticket_types,
-    load_ticket_type_by_id
+    run_all_template_tests
 )
 from .validators import validate_ticket, detect_ticket_type
 
@@ -104,8 +102,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not detected_type:
             await update.message.reply_text(
                 "⚠️ *Не удалось определить тип заявки*\n\n"
-                "Пожалуйста, убедитесь что заявка соответствует одному из известных форматов\\.\n"
-                "Используйте /template для просмотра доступных шаблонов\\.",
+                "Пожалуйста, убедитесь что заявка соответствует одному из известных форматов\\.",
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
             return ConversationHandler.END
@@ -132,13 +129,16 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             ticket_type_id=detected_type.id if detected_type else None
         )
         
+        # Determine which keyboard to show based on admin status
+        reply_keyboard = get_admin_validator_submenu_keyboard() if is_admin else get_validator_submenu_keyboard()
+        
         # Send response to user
         if result.is_valid:
             response = f"✅ *Заявка прошла валидацию\\!*\n\n🎫 Тип заявки: _{_escape_md(detected_type.type_name)}_\n\nВсе обязательные поля заполнены корректно\\."
             await update.message.reply_text(
                 response,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_validator_submenu_keyboard()
+                reply_markup=reply_keyboard
             )
         else:
             # Format error messages
@@ -154,7 +154,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(
                 response,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_validator_submenu_keyboard()
+                reply_markup=reply_keyboard
             )
         
     except Exception as e:
@@ -223,19 +223,29 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def template_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def run_test_templates_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Show ticket template or list available templates.
-    Handler for /template command.
+    Run all validation tests for test templates.
+    Admin-only command for testing validation rules.
     
     Args:
         update: Telegram update object
         context: Telegram context
     """
+    user_id = update.effective_user.id
+    
     # Check if user is authorized
-    if not check_if_user_legit(update.effective_user.id):
+    if not check_if_user_legit(user_id):
         await update.message.reply_text(
             messages.MESSAGE_PLEASE_ENTER_INVITE,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return
+    
+    # Check if user is admin
+    if not check_if_user_admin(user_id):
+        await update.message.reply_text(
+            messages.MESSAGE_ADMIN_NOT_AUTHORIZED,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return
@@ -244,55 +254,63 @@ async def template_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update_user_info_from_telegram(update.effective_user)
     
     try:
-        # Check if template name was provided
-        if context.args and len(context.args) > 0:
-            template_name = ' '.join(context.args)
-            template = load_template_by_name(template_name)
-            
-            if template:
-                # Escape special characters for Markdown V2
-                template_text = template['template_text'].replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)').replace('~', '\\~').replace('`', '\\`').replace('>', '\\>').replace('#', '\\#').replace('+', '\\+').replace('-', '\\-').replace('=', '\\=').replace('|', '\\|').replace('{', '\\{').replace('}', '\\}').replace('.', '\\.').replace('!', '\\!')
-                
-                response = f"*Шаблон: {template['template_name']}*\\n\\n{template_text}"
-                await update.message.reply_text(
-                    response,
-                    parse_mode=constants.ParseMode.MARKDOWN_V2
-                )
-            else:
-                await update.message.reply_text(
-                    f"Шаблон '{template_name}' не найден\\. Используйте /template для списка доступных шаблонов\\.",
-                    parse_mode=constants.ParseMode.MARKDOWN_V2
-                )
-        else:
-            # List all templates
-            templates = list_all_templates()
-            
-            if not templates:
-                await update.message.reply_text(
-                    "Шаблоны пока не настроены\\.",
-                    parse_mode=constants.ParseMode.MARKDOWN_V2
-                )
-                return
-            
-            response = "*Доступные шаблоны:*\\n\\n"
-            for template in templates:
-                desc = template.get('description', '').replace('.', '\\.').replace('-', '\\-').replace('!', '\\!')
-                response += f"• _{template['template_name']}_"
-                if desc:
-                    response += f" \\- {desc}"
-                response += "\\n"
-            
-            response += "\\nИспользуйте `/template <название>` для просмотра шаблона\\."
-            
-            await update.message.reply_text(
-                response,
-                parse_mode=constants.ParseMode.MARKDOWN_V2
-            )
-    
-    except Exception as e:
-        logger.error(f"Error loading template: {e}", exc_info=True)
+        # Send "running tests" message
         await update.message.reply_text(
-            "❌ Ошибка при загрузке шаблона\\.",
+            "🧪 *Запуск тестов шаблонов\\.\\.\\.*",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        
+        # Run all tests
+        results = run_all_template_tests(user_id)
+        
+        if not results['results']:
+            await update.message.reply_text(
+                "⚠️ *Тестовые шаблоны не найдены*\n\n"
+                "Создайте тестовые шаблоны в админ\\-панели\\.",
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=get_admin_validator_submenu_keyboard()
+            )
+            return
+        
+        # Format results
+        passed = results['templates_passed']
+        failed = results['templates_failed']
+        total = results['total_templates']
+        
+        if failed == 0:
+            status_emoji = "✅"
+            status_text = "Все тесты пройдены\\!"
+        else:
+            status_emoji = "❌"
+            status_text = f"Провалено тестов: {failed}"
+        
+        response = f"{status_emoji} *Результаты тестирования*\n\n"
+        response += f"📊 Всего шаблонов: {total}\n"
+        response += f"✅ Пройдено: {passed}\n"
+        response += f"❌ Провалено: {failed}\n\n"
+        response += f"*{status_text}*\n\n"
+        
+        # Add details for each template
+        response += "*Детали:*\n"
+        for r in results['results']:
+            template_name = _escape_md(r['template_name'])
+            if 'error' in r:
+                response += f"⚠️ {template_name}: {_escape_md(r['error'])}\n"
+            elif r['overall_pass']:
+                response += f"✅ {template_name}: {r['rules_passed']}/{r['rules_passed'] + r['rules_failed']} правил\n"
+            else:
+                response += f"❌ {template_name}: {r['rules_passed']}/{r['rules_passed'] + r['rules_failed']} правил \\({r['rules_failed']} провалено\\)\n"
+        
+        await update.message.reply_text(
+            response,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_admin_validator_submenu_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error running template tests: {e}", exc_info=True)
+        await update.message.reply_text(
+            "❌ Ошибка при запуске тестов\\.",
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
 
