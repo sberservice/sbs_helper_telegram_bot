@@ -244,8 +244,10 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
-    elif text == " История проверок":
+    elif text == "📜 История проверок":
         await history_command(update, _context)
+    elif text == "📋 Проверить заявку":
+        await validate_ticket_command(update, _context)
     elif text == "🧪 Тест шаблонов":
         # Admin-only button for quick test template access
         await run_test_templates_command(update, _context)
