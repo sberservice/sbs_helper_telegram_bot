@@ -414,8 +414,8 @@ def format_debug_info_for_telegram(debug_info) -> str:
     
     for score_info in sorted_scores:
         type_name = _escape_md(score_info.ticket_type.type_name)
-        # Escape decimal points in numeric values
-        total_score_str = str(score_info.total_score).replace('.', '\\.')
+        # Escape decimal points and minus signs in numeric values
+        total_score_str = str(score_info.total_score).replace('.', '\\.').replace('-', '\\-')
         match_pct_str = f"{score_info.match_percentage:.1f}".replace('.', '\\.')
         
         lines.append("")
@@ -428,7 +428,10 @@ def format_debug_info_for_telegram(debug_info) -> str:
             for match in score_info.keyword_matches[:5]:  # Limit to 5 keywords to avoid too long messages
                 keyword = _escape_md(match.keyword)
                 weight_str = str(match.weight).replace('.', '\\.')
-                lines.append(f"     • '{keyword}': {match.count}x \\(вес: {weight_str}\\)")
+                score_str = str(match.weighted_score).replace('.', '\\.').replace('-', '\\-')
+                # Use different indicator for negative keywords
+                indicator = "⊖" if match.is_negative else "⊕"
+                lines.append(f"     {indicator} '{keyword}': {match.count}x \\(вес: {weight_str}, счёт: {score_str}\\)")
             if len(score_info.keyword_matches) > 5:
                 lines.append(f"     _\\.\\.\\.и ещё {len(score_info.keyword_matches) - 5}_")
     
