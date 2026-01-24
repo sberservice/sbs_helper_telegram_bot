@@ -210,7 +210,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status_emoji = "✅" if record['validation_result'] == 'valid' else "❌"
             # Truncate ticket text for display
             ticket_preview = record['ticket_text'][:50].replace('\n', ' ')
-            ticket_preview = ticket_preview.replace('.', '\\.').replace('-', '\\-').replace('!', '\\!')
+            ticket_preview = _escape_md(ticket_preview)
             
             history_text += f"{i}\\. {status_emoji} _{ticket_preview}_\\.\\.\\.\\n"
         
