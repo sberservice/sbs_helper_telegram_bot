@@ -340,7 +340,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update_user_info_from_telegram(update.effective_user)
     
     await update.message.reply_text(
-        messages.MESSAGE_VALIDATION_HELP,
+        messages.get_validation_help_message(),
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
 

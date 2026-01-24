@@ -7,6 +7,9 @@ Messages use Telegram MarkdownV2 format where needed.
 # pylint: disable=line-too-long
 # Note: Double backslashes are intentional for Telegram MarkdownV2 escaping
 
+from typing import List
+import src.common.database as database
+
 # ===== USER MESSAGES =====
 
 MESSAGE_SEND_TICKET = "📋 Пожалуйста, отправьте текст заявки для проверки\\.\n\nВы можете скопировать текст заявки и вставить его в чат\\.\n\nДля отмены используйте /cancel"
@@ -15,7 +18,100 @@ MESSAGE_VALIDATION_SUCCESS = "✅ *Заявка прошла валидацию\
 
 MESSAGE_VALIDATION_FAILED = "❌ *Заявка не прошла валидацию*\n\n*Найдены следующие ошибки:*\n{errors}\n\nПожалуйста, исправьте ошибки и отправьте заявку повторно\\."
 
-MESSAGE_VALIDATION_HELP = """*Проверка заявок*
+
+def _escape_markdown_v2(text: str) -> str:
+    """
+    Escape special characters for Telegram MarkdownV2.
+    
+    Args:
+        text: Text to escape
+        
+    Returns:
+        Escaped text
+    """
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
+
+
+def _get_ticket_types() -> List[str]:
+    """
+    Load all active ticket types from the database.
+    
+    Returns:
+        List of ticket type names
+    """
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute("""
+                    SELECT type_name 
+                    FROM ticket_types 
+                    WHERE active = 1
+                    ORDER BY type_name
+                """)
+                results = cursor.fetchall()
+                return [row['type_name'] for row in results]
+    except Exception:
+        return []
+
+
+def _get_validation_rules() -> List[str]:
+    """
+    Load all active validation rules from the database.
+    
+    Returns:
+        List of rule names
+    """
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute("""
+                    SELECT rule_name 
+                    FROM validation_rules 
+                    WHERE active = 1
+                    ORDER BY priority DESC, id ASC
+                """)
+                results = cursor.fetchall()
+                return [row['rule_name'] for row in results]
+    except Exception:
+        return []
+
+
+def get_validation_help_message() -> str:
+    """
+    Generate the validation help message with dynamic content from the database.
+    
+    Returns:
+        Formatted help message with ticket types and validation rules
+    """
+    ticket_types = _get_ticket_types()
+    validation_rules = _get_validation_rules()
+    
+    # Build ticket types section
+    if ticket_types:
+        ticket_types_text = "*Типы заявок:*\n"
+        for tt in ticket_types:
+            ticket_types_text += f"• {_escape_markdown_v2(tt)}\n"
+    else:
+        ticket_types_text = "*Типы заявок:* не настроены\n"
+    
+    # Build validation rules section (limit to 10)
+    if validation_rules:
+        rules_text = "*Проверяемые правила:*\n"
+        display_rules = validation_rules[:10]
+        for rule in display_rules:
+            rules_text += f"• {_escape_markdown_v2(rule)}\n"
+        
+        # Add "и другие N шт" if there are more than 10 rules
+        remaining = len(validation_rules) - 10
+        if remaining > 0:
+            rules_text += f"• и другие {remaining} шт\\.\n"
+    else:
+        rules_text = "*Проверяемые правила:* не настроены\n"
+    
+    return f"""*Проверка заявок*
 
 *Доступные команды:*
 • /validate \\- начать проверку заявки
@@ -28,13 +124,14 @@ MESSAGE_VALIDATION_HELP = """*Проверка заявок*
 4\\. Получите результат проверки
 
 *Что проверяется:*
-• Наличие системы налогообложения
-• Код активации
-• ИНН организации
-• Адрес установки
-• Другие обязательные поля
 
+{ticket_types_text}
+{rules_text}
 Если заявка не прошла проверку, бот укажет какие поля нужно исправить\\."""
+
+
+# For backward compatibility, provide a static message that falls back to dynamic generation
+MESSAGE_VALIDATION_HELP = get_validation_help_message()
 
 MESSAGE_SUBMENU = "✅ *Валидация заявок*\n\nВыберите действие:"
 
