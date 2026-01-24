@@ -212,7 +212,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ticket_preview = record['ticket_text'][:50].replace('\n', ' ')
             ticket_preview = _escape_md(ticket_preview)
             
-            history_text += f"{i}\\. {status_emoji} _{ticket_preview}_\\.\\.\\.\\n"
+            history_text += f"{_escape_md(str(i))}\\. {status_emoji} _{ticket_preview}_\\.\\.\\.\n"
         
         await update.message.reply_text(
             history_text,
