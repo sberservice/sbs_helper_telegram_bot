@@ -634,6 +634,101 @@ class TestTicketTypeDetection(unittest.TestCase):
         self.assertTrue(result.is_valid)
         self.assertIsNotNone(result.detected_ticket_type)
         self.assertEqual(result.detected_ticket_type.id, 1)
+    
+    def test_negative_keywords_lower_score(self):
+        """Test that negative keywords (with minus prefix) lower the score."""
+        ticket_types = [
+            TicketType(1, "Установка", "Installation", ["установка", "монтаж", "-ремонт"]),
+            TicketType(2, "Ремонт", "Repair", ["ремонт", "поломка"]),
+        ]
+        
+        # Text contains both "установка" and "ремонт"
+        # For type 1: +1 (установка) -1 (ремонт negative) = 0
+        # For type 2: +1 (ремонт) = 1
+        ticket_text = "Установка после ремонта"
+        detected, _ = detect_ticket_type(ticket_text, ticket_types)
+        
+        # Type 2 should win because type 1's score is reduced by negative keyword
+        self.assertIsNotNone(detected)
+        self.assertEqual(detected.id, 2)
+    
+    def test_negative_keywords_with_weights(self):
+        """Test negative keywords work with custom weights."""
+        ticket_types = [
+            TicketType(1, "Установка", "Installation", ["установка", "-ремонт"]),
+            TicketType(2, "Ремонт", "Repair", ["ремонт"]),
+        ]
+        
+        ticket_text = "Установка после ремонта"
+        
+        # With high weight on negative keyword, type 1 should have negative score
+        detected, debug_info = detect_ticket_type(
+            ticket_text, ticket_types, 
+            debug=True,
+            keyword_weights={"-ремонт": 3.0}
+        )
+        
+        install_score = next(s for s in debug_info.all_scores if s.ticket_type.id == 1)
+        # установка: +1, -ремонт with weight 3.0: -3 = -2 total
+        self.assertEqual(install_score.total_score, -2.0)
+        
+        # Type 2 should win with positive score
+        self.assertEqual(detected.id, 2)
+    
+    def test_negative_keywords_debug_info(self):
+        """Test that debug info correctly shows negative keywords."""
+        ticket_types = [
+            TicketType(1, "Test", "Test", ["positive", "-negative"]),
+        ]
+        
+        ticket_text = "This has positive and negative words"
+        _, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=True)
+        
+        score_info = debug_info.all_scores[0]
+        matches = {m.keyword: m for m in score_info.keyword_matches}
+        
+        # Check positive keyword
+        self.assertIn("positive", matches)
+        self.assertFalse(matches["positive"].is_negative)
+        self.assertEqual(matches["positive"].weighted_score, 1.0)
+        
+        # Check negative keyword
+        self.assertIn("negative", matches)
+        self.assertTrue(matches["negative"].is_negative)
+        self.assertEqual(matches["negative"].weighted_score, -1.0)
+    
+    def test_negative_keywords_not_counted_in_matched(self):
+        """Test that negative keywords don't count towards matched_keywords_count."""
+        ticket_types = [
+            TicketType(1, "Test", "Test", ["keyword1", "-keyword2", "keyword3"]),
+        ]
+        
+        # Contains keyword1 and keyword2 (negative)
+        ticket_text = "This has keyword1 and keyword2"
+        _, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=True)
+        
+        score_info = debug_info.all_scores[0]
+        # Only positive keywords count towards matched_keywords_count
+        self.assertEqual(score_info.matched_keywords_count, 1)  # Only keyword1
+        self.assertEqual(score_info.total_keywords_count, 3)
+    
+    def test_multiple_negative_keywords(self):
+        """Test ticket type with multiple negative keywords."""
+        ticket_types = [
+            TicketType(1, "Установка", "Installation", ["установка", "монтаж", "-ремонт", "-замена"]),
+            TicketType(2, "Ремонт", "Repair", ["ремонт"]),
+        ]
+        
+        # Text has "установка" (+1) but also "ремонт" (-1) and "замена" (-1) = -1 total
+        ticket_text = "Установка, а не ремонт или замена оборудования"
+        detected, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=True)
+        
+        install_score = next(s for s in debug_info.all_scores if s.ticket_type.id == 1)
+        # установка: +1, -ремонт: -1, -замена: -1 = -1 total
+        self.assertEqual(install_score.total_score, -1.0)
+        
+        # Type 2 should win with positive score
+        self.assertEqual(detected.id, 2)
 
 
 class TestDetectionDebugMode(unittest.TestCase):
