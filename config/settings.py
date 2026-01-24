@@ -52,14 +52,14 @@ MAIN_MENU_BUTTONS = [
 # Ticket validator submenu - shown when user clicks validation button
 VALIDATOR_SUBMENU_BUTTONS = [
     ["📋 Проверить заявку", "📜 История проверок"],
-    ["📄 Шаблоны заявок", "ℹ️ Помощь по валидации"],
+    ["ℹ️ Помощь по валидации"],
     ["🏠 Главное меню"]
 ]
 
-# Ticket validator submenu for admins (includes admin panel button)
+# Ticket validator submenu for admins (includes admin panel and test templates buttons)
 ADMIN_VALIDATOR_SUBMENU_BUTTONS = [
     ["📋 Проверить заявку", "📜 История проверок"],
-    ["📄 Шаблоны заявок", "ℹ️ Помощь по валидации"],
+    ["🧪 Тест шаблонов", "ℹ️ Помощь по валидации"],
     ["🔐 Админ панель", "🏠 Главное меню"]
 ]
 
@@ -77,13 +77,20 @@ IMAGE_MENU_BUTTONS = [
 # Admin main menu
 ADMIN_MENU_BUTTONS = [
     ["📋 Список правил", "➕ Создать правило"],
-    ["📁 Типы заявок", "🔬 Тест regex"],
-    ["🏠 Главное меню"]
+    ["📁 Типы заявок", "🧪 Тест шаблоны"],
+    ["🔬 Тест regex", "🏠 Главное меню"]
 ]
 
 # Admin rules management submenu
 ADMIN_RULES_BUTTONS = [
     ["📋 Все правила", "🔍 Найти правило"],
     ["➕ Создать правило", "🔬 Тест regex"],
+    ["🔙 Админ меню", "🏠 Главное меню"]
+]
+
+# Admin test templates management submenu
+ADMIN_TEMPLATES_BUTTONS = [
+    ["📋 Все шаблоны", "➕ Создать шаблон"],
+    ["▶️ Запустить все тесты"],
     ["🔙 Админ меню", "🏠 Главное меню"]
 ]
