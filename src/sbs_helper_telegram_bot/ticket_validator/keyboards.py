@@ -18,7 +18,8 @@ def get_submenu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         settings.SUBMENU_BUTTONS,
         resize_keyboard=True,
-        one_time_keyboard=False
+        one_time_keyboard=False,
+        is_persistent=True
     )
 
 
@@ -32,7 +33,8 @@ def get_admin_submenu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         settings.ADMIN_SUBMENU_BUTTONS,
         resize_keyboard=True,
-        one_time_keyboard=False
+        one_time_keyboard=False,
+        is_persistent=True
     )
 
 
@@ -46,7 +48,8 @@ def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         settings.ADMIN_MENU_BUTTONS,
         resize_keyboard=True,
-        one_time_keyboard=False
+        one_time_keyboard=False,
+        is_persistent=True
     )
 
 
@@ -60,7 +63,8 @@ def get_admin_rules_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         settings.ADMIN_RULES_BUTTONS,
         resize_keyboard=True,
-        one_time_keyboard=False
+        one_time_keyboard=False,
+        is_persistent=True
     )
 
 
@@ -74,5 +78,6 @@ def get_admin_templates_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         settings.ADMIN_TEMPLATES_BUTTONS,
         resize_keyboard=True,
-        one_time_keyboard=False
+        one_time_keyboard=False,
+        is_persistent=True
     )

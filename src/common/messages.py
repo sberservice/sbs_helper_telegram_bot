@@ -59,5 +59,6 @@ def get_main_menu_keyboard(extra_buttons=None):
     return ReplyKeyboardMarkup(
         buttons,
         resize_keyboard=True,
-        one_time_keyboard=False
+        one_time_keyboard=False,
+        is_persistent=True
     )
