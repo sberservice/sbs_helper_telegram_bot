@@ -1,6 +1,6 @@
 # SBS Helper Telegram Bot 🚀
 
-[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/) [![License: Non-Commercial](https://img.shields.io/badge/license-Non--Commercial-red.svg)](LICENSE) [![For Testing Only](https://img.shields.io/badge/status-testing%20only-yellow.svg)](README.md#disclaimer)
+[![Версия Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/) [![Лицензия: Non-Commercial](https://img.shields.io/badge/license-Non--Commercial-red.svg)](LICENSE) [![Только для тестирования](https://img.shields.io/badge/status-testing%20only-yellow.svg)](README.md#disclaimer)
 
 ## TL;DR (Краткое описание) 🇷🇺
 
@@ -16,59 +16,58 @@
 
 ---
 
-## Overview
+## Описание
 
-A modular Telegram bot designed to assist **SberService** engineers with workflow tasks. Built with a plugin-based architecture allowing multiple independent modules.
+Модульный Telegram-бот, разработанный для помощи инженерам **СберСервис** в выполнении рабочих задач. Построен с использованием архитектуры на базе плагинов, позволяющей независимо работать нескольким модулям.
 
-**Note:** This project is for educational and testing purposes only. It should not be used to circumvent corporate policies.
+**Примечание:** Этот проект предназначен только для образовательных и тестовых целей. Его не следует использовать для обхода корпоративных политик.
 
-## 🌟 Features
+## 🌟 Возможности
 
-### Core Architecture
-- **Modular Design**: Plugin-based architecture for independent modules
-- **Extensible Platform**: Easy to add new modules (see [Module Guide](docs/MODULE_GUIDE.md))
-- **Interactive Menu System**: Hierarchical keyboard-based navigation
-- **Database-Driven**: MySQL backend for all data storage
+### Основная архитектура
+- **Модульный дизайн**: Архитектура на базе плагинов для независимых модулей
+- **Расширяемая платформа**: Простое добавление новых модулей (см. [Руководство модулей](docs/MODULE_GUIDE.md))
+- **Интерактивная система меню**: Иерархическая навигация на основе экранного меню
+- **Управляемая БД**: MySQL backend для хранения всех данных
 
-### Ticket Validator Module ✅
+### Модуль валидации заявок ✅
 
-A comprehensive ticket validation system:
+Комплексная система проверки заявок:
 
-- **Automatic Type Detection**: Keywords-based matching identifies ticket types
-- **Smart Validation**: Type-specific rules from database
-- **Multiple Rule Types**: regex, required_field, format, length, custom
-- **Negative Keywords**: Keywords with `-` prefix lower detection scores
-- **Keyword Weights**: Custom weights for detection keywords (case-insensitive)
-- **Admin Panel**: Full CRUD for rules, types, keywords via bot
-- **Test Templates**: Admin-only templates to verify validation rules work correctly
-- **Validation History**: Tracks all validations per user
+- **Автоматическое определение типа**: Определение типов заявок по ключевым словам
+- **Умная валидация**: Проверка корректности пришедшей заявки
+- **Множество типов правил**: regex, required_field, format, length, custom
+- **Негативные ключевые слова**: Ключевые слова с префиксом `-` снижают счёт определения
+- **Веса ключевых слов**: Пользовательские веса для ключевых слов
+- **Админ-панель**: Полный CRUD для правил, типов, ключевых слов через бота
+- **Тестовые шаблоны**: Шаблоны только для администраторов для проверки работы правил валидации
+- **История валидации**: Отслеживание всех проверок пользователя
 
-See detailed docs:
-- [Ticket Types](src/sbs_helper_telegram_bot/ticket_validator/TICKET_TYPES.md)
-- [Negative Keywords](src/sbs_helper_telegram_bot/ticket_validator/NEGATIVE_KEYWORDS.md)
-- [Test Templates](src/sbs_helper_telegram_bot/ticket_validator/TEST_TEMPLATES.md)
+Подробная документация:
+- [Типы заявок](src/sbs_helper_telegram_bot/ticket_validator/TICKET_TYPES.md)
+- [Негативные ключевые слова](src/sbs_helper_telegram_bot/ticket_validator/NEGATIVE_KEYWORDS.md)
+- [Тестовые шаблоны](src/sbs_helper_telegram_bot/ticket_validator/TEST_TEMPLATES.md)
 
-### Vyezd Byl Module (Image Processing) 📸
+### Модуль Vyezd Byl (Обработка изображений) 📸
 
-- **Image Queue**: Async background processing
-- **Smart Detection**: Light/dark mode detection, rejects images with existing markers
-- **Location Overlay**: Adds location markers to Yandex Maps screenshots
+- **Очередь изображений**: Асинхронная фоновая обработка
+- **Умное определение**: Определение режима светлого/тёмного режима, отклоняет изображения с существующими маркерами
+- **Наложение локации**: Добавляет маркеры локации на скриншоты Спринта
 
-### Shared Features
-- **Invite-Only Access**: Registration via unique invite codes
-- **Rich UI**: MarkdownV2 formatted messages
-- **Testing Suite**: Comprehensive pytest coverage
+### Общие возможности
+- **Доступ только по приглашениям**: Регистрация только по уникальным кодам приглашений
+- **Набор тестов**: Комплексное покрытие pytest
 
-## 🛠️ Installation
+## 🛠️ Установка
 
-### Prerequisites
+### Требования
 - Python 3.10+
 - MySQL 8.0+
-- Telegram bot token from [@BotFather](https://t.me/botfather)
+- Токен Telegram бота от [@BotFather](https://t.me/botfather)
 
-### Setup
+### Настройка
 
-1. **Clone & Setup Environment**:
+1. **Клонирование и подготовка окружения**:
    ```bash
    git clone https://github.com/sberservice/sbs_helper_telegram_bot.git
    cd sbs_helper_telegram_bot
@@ -77,7 +76,7 @@ See detailed docs:
    pip install -r requirements.txt
    ```
 
-2. **Configure Environment** (create `.env` file):
+2. **Конфигурация окружения** (создайте файл `.env`):
    ```
    TELEGRAM_TOKEN=your_bot_token_here
    MYSQL_HOST=localhost
@@ -88,7 +87,7 @@ See detailed docs:
    DEBUG=1
    ```
 
-3. **Setup Database**:
+3. **Настройка базы данных**:
    ```bash
    mysql -u root -p < schema.sql
    mysql -u root -p sprint_db < scripts/initial_ticket_types.sql
@@ -97,113 +96,110 @@ See detailed docs:
    mysql -u root -p sprint_db < scripts/sample_templates.sql
    ```
 
-4. **Prepare Assets**:
-   - Place location icons in `assets/` (e.g., `location.png`, `location_dark14.png`)
-   - Add `promo3.jpg` to `assets/` for help screenshots
-   - Ensure `images/` directory exists
 
-## 🏗️ Project Structure
+## 🏗️ Структура проекта
 
 ```
 src/
-├── common/                     # Shared utilities
-│   ├── database.py            # DB connection
-│   ├── messages.py            # Message templates
-│   ├── invites.py             # Invite management
-│   ├── telegram_user.py       # User model
-│   └── constants/             # Configuration constants
+├── common/                     # Общие утилиты
+│   ├── database.py            # Подключение к БД
+│   ├── messages.py            # Шаблоны сообщений
+│   ├── invites.py             # Управление приглашениями
+│   ├── telegram_user.py       # Модель пользователя
+│   └── constants/             # Константы конфигурации
 ├── sbs_helper_telegram_bot/
-│   ├── base_module.py         # Base module class
-│   ├── telegram_bot/          # Core bot
+│   ├── base_module.py         # Базовый класс модуля
+│   ├── telegram_bot/          # Основной бот
 │   │   └── telegram_bot.py
-│   ├── ticket_validator/      # Validation module
-│   │   ├── validators.py      # Validation logic
-│   │   ├── validation_rules.py # DB operations
+│   ├── ticket_validator/      # Модуль валидации
+│   │   ├── validators.py      # Логика валидации
+│   │   ├── validation_rules.py # Операции с БД
 │   │   ├── ticket_validator_bot_part.py
 │   │   ├── admin_panel_bot_part.py
-│   │   └── *.md               # Documentation
-│   └── vyezd_byl/             # Image processing module
+│   │   └── *.md               # Документация
+│   └── vyezd_byl/             # Модуль обработки изображений
 │       ├── processimagequeue.py
 │       └── vyezd_byl_bot_part.py
 config/
-│   └── settings.py            # Global config
-scripts/                       # SQL init scripts
-tests/                         # Test suite
+│   └── settings.py            # Глобальная конфигурация
+scripts/                       # SQL скрипты инициализации
+tests/                         # Набор тестов
 docs/
-│   └── MODULE_GUIDE.md        # Module development guide
-schema.sql                     # Database schema
-run_bot.py                     # Entry point
+│   └── MODULE_GUIDE.md        # Руководство разработки модулей
+schema.sql                     # Схема базы данных
+run_bot.py                     # Точка входа
 ```
 
-## 🚀 Usage
+## 🚀 Использование
 
-### Running
+### Запуск
 
-**Recommended** (starts all services):
+**Рекомендуется** (запускает все сервисы):
 ```bash
 python run_bot.py
 ```
 
-Press `Ctrl+C` to stop.
+Нажмите `Ctrl+C` для остановки.
 
-### User Commands
+### Команды пользователя
 
-| Command | Description |
-|---------|-------------|
-| `/start` | Welcome & registration |
-| `/menu` | Show main menu |
-| `/validate` | Start ticket validation |
-| `/help_validate` | Validation help |
-| `/cancel` | Cancel current operation |
-| `/invite` | Show your invite codes |
+| Команда | Описание |
+|---------|----------|
+| `/start` | Приветствие и регистрация |
+| `/menu` | Показать главное меню |
+| `/validate` | Начать валидацию заявки |
+| `/help_validate` | Справка по валидации |
+| `/cancel` | Отменить текущую операцию |
+| `/invite` | Показать ваши коды приглашений |
 
-### Admin Commands
+### Команды администратора
 
-| Command | Description |
-|---------|-------------|
-| `/admin` | Open admin panel |
+| Команда | Описание |
+|---------|----------|
+| `/admin` | Открыть админ-панель |
 
-Admin panel provides:
-- 📋 **Правила** — Manage validation rules
-- 📁 **Типы заявок** — Manage ticket types and keywords
-- 🧪 **Тест шаблоны** — Manage test templates
-- 🔬 **Тест regex** — Test regex patterns
+Админ-панель предоставляет:
+- 📋 **Правила** — Управление правилами валидации
+- 📁 **Типы заявок** — Управление типами заявок и ключевыми словами
+- 🧪 **Тест шаблоны** — Управление тестовыми шаблонами
+- 🔬 **Тест regex** — Тестирование regex-паттернов
 
-### Making a User Admin
+### Назначение администратора
 
 ```sql
 UPDATE users SET is_admin = 1 WHERE userid = <telegram_user_id>;
 ```
 
-## 🧪 Testing
+## 🧪 Тестирование
 
 ```bash
 pytest
 ```
 
-## 📚 Documentation
+## 📚 Документация
 
-- [Module Development Guide](docs/MODULE_GUIDE.md)
-- [Ticket Validator](src/sbs_helper_telegram_bot/ticket_validator/README.md)
-- [Ticket Types](src/sbs_helper_telegram_bot/ticket_validator/TICKET_TYPES.md)
-- [Negative Keywords](src/sbs_helper_telegram_bot/ticket_validator/NEGATIVE_KEYWORDS.md)
-- [Test Templates](src/sbs_helper_telegram_bot/ticket_validator/TEST_TEMPLATES.md)
+- [Руководство по разработке модулей](docs/MODULE_GUIDE.md)
+- [Валидатор заявок](src/sbs_helper_telegram_bot/ticket_validator/README.md)
+- [Типы заявок](src/sbs_helper_telegram_bot/ticket_validator/TICKET_TYPES.md)
+- [Негативные ключевые слова](src/sbs_helper_telegram_bot/ticket_validator/NEGATIVE_KEYWORDS.md)
+- [Тестовые шаблоны](src/sbs_helper_telegram_bot/ticket_validator/TEST_TEMPLATES.md)
 
-## 🤝 Contributing
+## 🤝 Участие в разработке
 
-1. Fork the repository
-2. Create a feature branch
-3. For new modules, open an issue first
-4. Submit a pull request
+1. Сделайте fork репозитория
+2. Создайте ветку для своего функционала
+3. Для новых модулей сначала откройте issue
+4. Отправьте pull request
 
-## 📄 License
+## 📄 Лицензия
 
-**Non-Commercial License**. See [LICENSE](LICENSE).
+**Лицензия Non-Commercial**. См. [LICENSE](LICENSE).
 
-## ⚠️ Disclaimer
+## ⚠️ Отказ от ответственности
 
-**For Testing and Educational Purposes Only.** This bot is designed to assist SberService engineers in a testing environment. Misuse may violate internal corporate codes. The author assumes no responsibility for misuse.
+**Только для тестирования и образовательных целей.** Этот бот разработан для помощи инженерам СберСервис в тестовых и образовательных целях. Использование в рабочих целях может нарушить внутренние корпоративные политики. Автор не несёт ответственность за неправильное использование.
 
 ---
 
-**Built for SberService engineers** | *Last Updated: January 2026*
+**Разработано для инженеров СберСервис** | *Последнее обновление: Январь 2026*
+
