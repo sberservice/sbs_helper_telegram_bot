@@ -108,11 +108,6 @@ An image processing module designed to overlay location markers on Yandex Maps s
      mysql -u root -p sprint_db < scripts/map_rules_to_ticket_types.sql
      mysql -u root -p sprint_db < scripts/sample_templates.sql
      ```
-   - (Optional) Set up admin user and test templates:
-     ```bash
-     mysql -u root -p sprint_db < scripts/migration_add_admin.sql
-     mysql -u root -p sprint_db < scripts/migration_test_templates.sql
-     ```
 
 6. **Prepare Assets**:
    - Place location icons in `assets/` directory (e.g., `location.png`, `location_dark14.png`)
@@ -232,9 +227,6 @@ The bot provides an interactive keyboard menu system:
 
 **Ticket Validation Commands:**
 - `/validate` - Start ticket validation conversation
-- `/history` - View your validation history
-- `/template` - List available ticket templates
-- `/template <name>` - Show specific template
 - `/help_validate` - Detailed help for ticket validation
 - `/cancel` - Cancel ongoing ticket validation
 

@@ -162,11 +162,64 @@ CREATE TABLE `ticket_templates` (
   `template_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `template_text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `expected_result` enum('pass','fail') DEFAULT 'pass',
+  `ticket_type_id` bigint(20) DEFAULT NULL,
   `active` tinyint(1) NOT NULL DEFAULT '1',
   `created_timestamp` bigint(20) NOT NULL,
+  `updated_timestamp` bigint(20) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `active` (`active`),
-  KEY `template_name` (`template_name`)
+  KEY `template_name` (`template_name`),
+  KEY `ticket_type_id` (`ticket_type_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `template_rule_tests`
+--
+
+DROP TABLE IF EXISTS `template_rule_tests`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `template_rule_tests` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `template_id` bigint(20) NOT NULL,
+  `validation_rule_id` bigint(20) NOT NULL,
+  `expected_pass` tinyint(1) NOT NULL DEFAULT '1' COMMENT '1 = rule should pass, 0 = rule should fail',
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Admin notes about why this expectation exists',
+  `created_timestamp` bigint(20) NOT NULL,
+  `updated_timestamp` bigint(20) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `template_rule_unique` (`template_id`, `validation_rule_id`),
+  KEY `template_id` (`template_id`),
+  KEY `validation_rule_id` (`validation_rule_id`),
+  CONSTRAINT `fk_template_rule_template` FOREIGN KEY (`template_id`) REFERENCES `ticket_templates` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_template_rule_rule` FOREIGN KEY (`validation_rule_id`) REFERENCES `validation_rules` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `template_test_results`
+--
+
+DROP TABLE IF EXISTS `template_test_results`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `template_test_results` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `template_id` bigint(20) NOT NULL,
+  `admin_userid` bigint(20) NOT NULL COMMENT 'Admin who ran the test',
+  `overall_pass` tinyint(1) NOT NULL COMMENT '1 = all expectations met, 0 = some failed',
+  `total_rules_tested` int NOT NULL DEFAULT 0,
+  `rules_passed_as_expected` int NOT NULL DEFAULT 0,
+  `rules_failed_unexpectedly` int NOT NULL DEFAULT 0,
+  `details_json` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'JSON with detailed per-rule results',
+  `run_timestamp` bigint(20) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `template_id` (`template_id`),
+  KEY `admin_userid` (`admin_userid`),
+  KEY `run_timestamp` (`run_timestamp`),
+  CONSTRAINT `fk_test_result_template` FOREIGN KEY (`template_id`) REFERENCES `ticket_templates` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
