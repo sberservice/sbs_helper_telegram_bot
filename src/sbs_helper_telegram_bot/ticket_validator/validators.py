@@ -302,7 +302,8 @@ def detect_ticket_type(
             )
         return None, None
     
-    keyword_weights = keyword_weights or {}
+    # Normalize keyword_weights keys to lowercase for case-insensitive matching
+    keyword_weights = {k.lower(): v for k, v in (keyword_weights or {}).items()}
     
     # Score each ticket type based on keyword matches
     scores = {}

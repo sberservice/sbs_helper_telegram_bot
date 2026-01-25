@@ -39,11 +39,11 @@ def load_all_ticket_types() -> List[TicketType]:
                     except json.JSONDecodeError:
                         keywords = []
                 
-                # Parse keyword weights from JSON
+                # Parse keyword weights from JSON (normalize keys to lowercase)
                 weights = {}
                 if row.get('keyword_weights'):
                     try:
-                        weights = json.loads(row['keyword_weights'])
+                        weights = _normalize_keyword_weights(json.loads(row['keyword_weights']))
                     except json.JSONDecodeError:
                         weights = {}
                 
@@ -90,11 +90,11 @@ def load_ticket_type_by_id(ticket_type_id: int) -> Optional[TicketType]:
                 except json.JSONDecodeError:
                     keywords = []
             
-            # Parse keyword weights from JSON
+            # Parse keyword weights from JSON (normalize keys to lowercase)
             weights = {}
             if row.get('keyword_weights'):
                 try:
-                    weights = json.loads(row['keyword_weights'])
+                    weights = _normalize_keyword_weights(json.loads(row['keyword_weights']))
                 except json.JSONDecodeError:
                     weights = {}
             
@@ -349,11 +349,11 @@ def load_all_ticket_types_admin(include_inactive: bool = False) -> List[TicketTy
                     except json.JSONDecodeError:
                         keywords = []
                 
-                # Parse keyword weights from JSON
+                # Parse keyword weights from JSON (normalize keys to lowercase)
                 weights = {}
                 if row.get('keyword_weights'):
                     try:
-                        weights = json.loads(row['keyword_weights'])
+                        weights = _normalize_keyword_weights(json.loads(row['keyword_weights']))
                     except json.JSONDecodeError:
                         weights = {}
                 
@@ -561,11 +561,11 @@ def get_ticket_types_for_rule(rule_id: int) -> List[TicketType]:
                     except json.JSONDecodeError:
                         keywords = []
                 
-                # Parse keyword weights from JSON
+                # Parse keyword weights from JSON (normalize keys to lowercase)
                 weights = {}
                 if row.get('keyword_weights'):
                     try:
-                        weights = json.loads(row['keyword_weights'])
+                        weights = _normalize_keyword_weights(json.loads(row['keyword_weights']))
                     except json.JSONDecodeError:
                         weights = {}
                 
