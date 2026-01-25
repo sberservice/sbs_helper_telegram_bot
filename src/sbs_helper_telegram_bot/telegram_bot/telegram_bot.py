@@ -382,6 +382,8 @@ def main() -> None:
                 MessageHandler(filters.Document.IMAGE, handle_incoming_document),
                 # Help button stays within the module
                 MessageHandler(filters.Regex("^❓ Помощь по скриншотам$"), enter_screenshot_module),
+                # Menu buttons that should exit the module (must be before generic text handler)
+                MessageHandler(filters.Regex(screenshot_exit_pattern), cancel_screenshot_module),
                 # Handle wrong input: photo instead of document, or text
                 MessageHandler(filters.PHOTO, handle_wrong_input_in_screenshot_mode),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_wrong_input_in_screenshot_mode),
@@ -390,8 +392,6 @@ def main() -> None:
         fallbacks=[
             # Any command exits the module
             MessageHandler(filters.COMMAND, cancel_screenshot_module),
-            # Menu buttons that should exit the module
-            MessageHandler(filters.Regex(screenshot_exit_pattern), cancel_screenshot_module),
         ]
     )
 
