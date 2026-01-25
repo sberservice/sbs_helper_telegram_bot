@@ -13,6 +13,7 @@ from enum import Enum
 class RuleType(Enum):
     """Validation rule types"""
     REGEX = "regex"
+    REGEX_NOT_MATCH = "regex_not_match"
     REQUIRED_FIELD = "required_field"
     FORMAT = "format"
     LENGTH = "length"
@@ -158,6 +159,24 @@ def validate_regex(ticket_text: str, pattern: str) -> bool:
     except re.error:
         # Invalid regex pattern
         return False
+
+
+def validate_regex_not_match(ticket_text: str, pattern: str) -> bool:
+    """
+    Validate ticket text against a regex pattern (negated match).
+    
+    Args:
+        ticket_text: The ticket text to validate
+        pattern: Regex pattern that should NOT match
+        
+    Returns:
+        True if pattern is NOT found in text, False if pattern matches
+    """
+    try:
+        return not bool(re.search(pattern, ticket_text, re.IGNORECASE | re.MULTILINE))
+    except re.error:
+        # Invalid regex pattern - treat as not matching
+        return True
 
 
 def validate_required_field(ticket_text: str, field_name: str) -> bool:
@@ -376,6 +395,8 @@ def validate_ticket(ticket_text: str, rules: List[ValidationRule],
         try:
             if rule_type_value == 'regex':
                 is_valid = validate_regex(ticket_text, rule.pattern)
+            elif rule_type_value == 'regex_not_match':
+                is_valid = validate_regex_not_match(ticket_text, rule.pattern)
             elif rule_type_value == 'required_field':
                 is_valid = validate_required_field(ticket_text, rule.pattern)
             elif rule_type_value == 'format':
