@@ -108,14 +108,10 @@ The system shows:
 
 5. **Run test** to verify inn_number correctly fails on this ticket
 
-## Migration
+## Installation
 
-Run the migration script to update the database:
-```bash
-mysql -u user -p database < scripts/migration_test_templates.sql
-```
+The test templates tables are included in the main `schema.sql`. Load sample templates:
 
-Load sample templates (optional):
 ```bash
 mysql -u user -p database < scripts/sample_test_templates.sql
 ```

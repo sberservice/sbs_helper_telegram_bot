@@ -31,8 +31,6 @@
 - **src/sbs_helper_telegram_bot/ticket_validator/ticket_validator_bot_part.py** - Telegram handlers
   - `validate_ticket_command()` - обработчик /validate
   - `process_ticket_text()` - обработка текста заявки
-  - `history_command()` - обработчик /history
-  - `template_command()` - обработчик /template
   - `help_command()` - обработчик /help_validate
   - `cancel_validation()` - обработчик /cancel
   - ConversationHandler state: `WAITING_FOR_TICKET`
@@ -44,7 +42,7 @@
   - Добавлен импорт ConversationHandler
   - Импортированы все обработчики из ticket_validator
   - Зарегистрирован ConversationHandler для /validate
-  - Зарегистрированы команды: /history, /template, /help_validate
+  - Зарегистрированы команды: /help_validate
 
 #### 4. Сообщения
 - **src/common/messages.py** - Добавлены константы:
@@ -75,9 +73,6 @@
 #### Команды бота
 ```
 /validate        - Начать проверку заявки (запускает ConversationHandler)
-/history         - История последних 5 проверок
-/template        - Список всех доступных шаблонов
-/template <name> - Показать конкретный шаблон
 /help_validate   - Справка по использованию
 /cancel          - Отменить текущую проверку
 ```
