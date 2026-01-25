@@ -198,6 +198,9 @@ MESSAGE_ADMIN_SELECT_TICKET_TYPE = "Выберите *тип заявки* дл�
 
 MESSAGE_ADMIN_TICKET_TYPE_RULES = """📋 *Тип заявки: {type_name}*
 
+*Ключевые слова:*
+{keywords}
+
 *Назначенные правила:*
 {rules}
 
