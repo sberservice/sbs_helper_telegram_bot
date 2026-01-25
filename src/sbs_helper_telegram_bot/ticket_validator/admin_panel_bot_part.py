@@ -706,7 +706,8 @@ async def show_ticket_type_rules(query, context: ContextTypes.DEFAULT_TYPE, type
             for kw in ticket_type.detection_keywords:
                 weight = ticket_type.get_keyword_weight(kw)
                 kw_escaped = escape_markdown(kw)
-                keywords_lines.append(f"• {kw_escaped} \\(вес: {weight}\\)")
+                weight_escaped = escape_markdown(str(weight))
+                keywords_lines.append(f"• {kw_escaped} \\(вес: {weight_escaped}\\)")
             keywords_text = "\n".join(keywords_lines)
         else:
             keywords_text = "Нет ключевых слов"
