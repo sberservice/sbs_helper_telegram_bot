@@ -190,6 +190,33 @@ async def enter_screenshot_module(update: Update, context: ContextTypes.DEFAULT_
     return WAITING_FOR_SCREENSHOT
 
 
+async def show_screenshot_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Show help for screenshot module with a promo image.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context
+        
+    Returns:
+        WAITING_FOR_SCREENSHOT state to continue waiting for document
+    """
+    from src.common.constants.os import ASSETS_DIR
+    
+    if not check_if_user_legit(update.effective_user.id):
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        return ConversationHandler.END
+    
+    await update.message.reply_photo(
+        ASSETS_DIR / "promo3.jpg",
+        caption=messages.MESSAGE_INSTRUCTIONS,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_submenu_keyboard()
+    )
+    
+    return WAITING_FOR_SCREENSHOT
+
+
 async def cancel_screenshot_module(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Cancel/exit from the screenshot module when user navigates away.
