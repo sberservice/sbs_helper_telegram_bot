@@ -89,6 +89,8 @@ class DetectionDebugInfo:
     all_scores: List[TicketTypeScore] = field(default_factory=list)
     ticket_text_preview: str = ""
     total_types_evaluated: int = 0
+    has_ambiguity: bool = False
+    ambiguous_types: List[TicketType] = field(default_factory=list)
     
     def get_summary(self) -> str:
         """Generate a human-readable summary of the detection process"""
@@ -103,6 +105,9 @@ class DetectionDebugInfo:
         if self.detected_type:
             lines.append(f"✅ DETECTED TYPE: {self.detected_type.type_name}")
             lines.append(f"   Description: {self.detected_type.description}")
+            if self.has_ambiguity:
+                ambiguous_names = ", ".join([tt.type_name for tt in self.ambiguous_types])
+                lines.append(f"⚠️ WARNING: Multiple types have the same score: {ambiguous_names}")
         else:
             lines.append("❌ NO TYPE DETECTED")
         
@@ -349,15 +354,31 @@ def detect_ticket_type(
     
     # Return ticket type with highest score
     detected_type = None
+    has_ambiguity = False
+    ambiguous_types = []
+    
     if scores:
-        best_match = max(scores.values(), key=lambda x: x[0])
-        detected_type = best_match[1]
+        # Find the highest score
+        max_score = max(score for score, _ in scores.values())
+        
+        # Find all types with the highest score
+        types_with_max_score = [tt for score, tt in scores.values() if score == max_score]
+        
+        # Check for ambiguity (multiple types with same max score)
+        if len(types_with_max_score) > 1:
+            has_ambiguity = True
+            ambiguous_types = types_with_max_score
+        
+        # Still return the first one (or could return None if ambiguous)
+        detected_type = types_with_max_score[0]
     
     if debug:
         debug_info = DetectionDebugInfo(
             detected_type=detected_type,
             all_scores=all_scores_debug,
             ticket_text_preview=ticket_text[:200] if ticket_text else "",
+            has_ambiguity=has_ambiguity,
+            ambiguous_types=ambiguous_types,
             total_types_evaluated=active_types_count
         )
         return detected_type, debug_info

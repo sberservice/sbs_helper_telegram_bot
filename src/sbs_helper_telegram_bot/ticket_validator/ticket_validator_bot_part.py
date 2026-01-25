@@ -92,7 +92,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         detected_type, debug_info = detect_ticket_type(
             ticket_text, 
             ticket_types, 
-            debug=debug_enabled
+            debug=True  # Always get debug info to check for ambiguity
         ) if ticket_types else (None, None)
         
         # Send debug info first if enabled
@@ -100,6 +100,21 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             debug_message = format_debug_info_for_telegram(debug_info)
             await update.message.reply_text(
                 debug_message,
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+        
+        # Check for ambiguous detection (multiple types with same score)
+        if debug_info and debug_info.has_ambiguity:
+            ambiguous_names = ", ".join([_escape_md(tt.type_name) for tt in debug_info.ambiguous_types])
+            warning_message = (
+                f"⚠️ *Предупреждение: неоднозначный тип заявки*\n\n"
+                f"Несколько типов заявок получили одинаковый балл:\n"
+                f"{ambiguous_names}\n\n"
+                f"Используется первый тип: _{_escape_md(detected_type.type_name)}_\n\n"
+                f"Пожалуйста, уточните заявку или обратитесь к администратору для настройки ключевых слов\\."
+            )
+            await update.message.reply_text(
+                warning_message,
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
         
