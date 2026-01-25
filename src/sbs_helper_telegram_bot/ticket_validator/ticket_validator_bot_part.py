@@ -23,6 +23,9 @@ from .validation_rules import (
 )
 from .validators import validate_ticket, detect_ticket_type
 
+# Import settings for menu button patterns
+from . import settings as validator_settings
+
 # Set up logging
 logger = logging.getLogger(__name__)
 
@@ -303,7 +306,26 @@ async def cancel_validation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         ConversationHandler.END
     """
     await update.message.reply_text(
-        "Проверка заявки отменена\\.",
+        messages.MESSAGE_VALIDATION_CANCELLED,
+        parse_mode=constants.ParseMode.MARKDOWN_V2
+    )
+    return ConversationHandler.END
+
+
+async def cancel_validation_on_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Cancel validation conversation when a menu button is pressed.
+    Notifies the user and returns END to exit conversation.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context
+        
+    Returns:
+        ConversationHandler.END
+    """
+    await update.message.reply_text(
+        messages.MESSAGE_VALIDATION_CANCELLED,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     return ConversationHandler.END
@@ -413,3 +435,36 @@ def _escape_md(text: str) -> str:
     for char in special_chars:
         text = str(text).replace(char, f'\\{char}')
     return text
+
+
+def get_menu_button_regex_pattern() -> str:
+    """
+    Get regex pattern matching all menu buttons from this module.
+    Used to create fallback handlers for ConversationHandler.
+    
+    Returns:
+        Regex pattern string matching all module menu buttons
+    """
+    import re
+    # Collect all buttons from all menu configurations
+    all_buttons = set()
+    
+    for button_row in validator_settings.SUBMENU_BUTTONS:
+        all_buttons.update(button_row)
+    for button_row in validator_settings.ADMIN_SUBMENU_BUTTONS:
+        all_buttons.update(button_row)
+    for button_row in validator_settings.ADMIN_MENU_BUTTONS:
+        all_buttons.update(button_row)
+    for button_row in validator_settings.ADMIN_RULES_BUTTONS:
+        all_buttons.update(button_row)
+    for button_row in validator_settings.ADMIN_TEMPLATES_BUTTONS:
+        all_buttons.update(button_row)
+    
+    # Remove the validation button itself as it shouldn't cancel itself
+    all_buttons.discard("📋 Проверить заявку")
+    
+    # Escape special regex characters in button texts
+    escaped_buttons = [re.escape(btn) for btn in all_buttons]
+    
+    # Create pattern matching any of the buttons
+    return "^(" + "|".join(escaped_buttons) + ")$"
