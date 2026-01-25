@@ -1,9 +1,9 @@
-from telegram import Update
-from telegram.ext import ContextTypes
+from telegram import Update, constants
+from telegram.ext import ContextTypes, ConversationHandler
 from src.common.telegram_user import check_if_user_legit, update_user_info_from_telegram
 
 import src.common.database as database
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_keyboard
 from src.common.constants.os import IMAGES_DIR
 import logging
 from pathlib import Path  
@@ -13,6 +13,9 @@ from . import messages
 from . import settings
 from .keyboards import get_submenu_keyboard
 from config.settings import DEBUG
+
+# Conversation states
+WAITING_FOR_SCREENSHOT = 1
 
 logging.basicConfig(
     level=logging.DEBUG if DEBUG else logging.INFO,
@@ -83,7 +86,7 @@ def add_to_image_queue(user_id,file_name) -> None:
         " %s, %s, 0)"
             val = (user_id,file_name)
             cursor.execute(sql_query, val)
-async def handle_incoming_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_incoming_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
         Handles incoming document messages from Telegram users.
 
@@ -95,10 +98,14 @@ async def handle_incoming_document(update: Update, context: ContextTypes.DEFAULT
         - Informs the user about their queue position
 
         Expected files: screenshots sent as "document" (not photo) to preserve original quality.
+        
+        Returns:
+            WAITING_FOR_SCREENSHOT to continue waiting for more screenshots,
+            or ConversationHandler.END if user is not authorized
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
-        return
+        return ConversationHandler.END
 
     update_user_info_from_telegram(update.effective_user)
     user_id = update.effective_user.id
@@ -110,14 +117,14 @@ async def handle_incoming_document(update: Update, context: ContextTypes.DEFAULT
 
         if file_size > settings.MAX_SCREENSHOT_SIZE_BYTES:
             await update.message.reply_text(messages.MESSAGE_FILE_TOO_LARGE)
-            return
+            return WAITING_FOR_SCREENSHOT
 
         if check_if_user_has_unprocessed_job(user_id):
             await update.message.reply_text(
                 messages.MESSAGE_ACTIVE_JOB_EXISTS,
                 reply_markup=get_submenu_keyboard()
             )
-            return
+            return WAITING_FOR_SCREENSHOT
         else:
             position=get_number_of_jobs_in_the_queue()+1
             await update.message.reply_text(
@@ -132,3 +139,72 @@ async def handle_incoming_document(update: Update, context: ContextTypes.DEFAULT
             add_to_image_queue(user_id,file_name)
     else:
         await update.message.reply_text(messages.MESSAGE_DOCUMENTS_ONLY)
+    
+    return WAITING_FOR_SCREENSHOT
+
+
+async def enter_screenshot_module(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Entry point for the screenshot processing module.
+    Shows instructions and waits for screenshot.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context
+        
+    Returns:
+        WAITING_FOR_SCREENSHOT state to wait for document
+    """
+    if not check_if_user_legit(update.effective_user.id):
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        return ConversationHandler.END
+    
+    update_user_info_from_telegram(update.effective_user)
+    
+    await update.message.reply_text(
+        messages.MESSAGE_INSTRUCTIONS,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_submenu_keyboard()
+    )
+    
+    return WAITING_FOR_SCREENSHOT
+
+
+async def cancel_screenshot_module(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Cancel/exit from the screenshot module when user navigates away.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context
+        
+    Returns:
+        ConversationHandler.END to exit the module
+    """
+    await update.message.reply_text(
+        "📷 Режим отправки скриншота завершён\\.",
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_main_menu_keyboard()
+    )
+    return ConversationHandler.END
+
+
+def get_menu_button_exit_pattern() -> str:
+    """
+    Get regex pattern for buttons that should exit the screenshot module.
+    
+    Returns:
+        Regex pattern string matching menu buttons that exit the module
+    """
+    import re
+    # Buttons that should exit the screenshot module
+    exit_buttons = [
+        "🏠 Главное меню",
+        "✅ Валидация заявок",
+        "🎫 Мои инвайты",
+        "❓ Помощь",
+        "🔐 Админ панель",
+        "📋 Проверить заявку",
+    ]
+    escaped_buttons = [re.escape(btn) for btn in exit_buttons]
+    return "^(" + "|".join(escaped_buttons) + ")$"
