@@ -18,5 +18,6 @@ def get_submenu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         settings.SUBMENU_BUTTONS,
         resize_keyboard=True,
-        one_time_keyboard=False
+        one_time_keyboard=False,
+        is_persistent=True
     )

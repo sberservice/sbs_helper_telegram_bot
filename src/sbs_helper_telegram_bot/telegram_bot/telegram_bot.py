@@ -57,9 +57,11 @@ from src.sbs_helper_telegram_bot.ticket_validator.ticket_validator_bot_part impo
     validate_ticket_command,
     process_ticket_text,
     cancel_validation,
+    cancel_validation_on_menu,
     help_command,
     toggle_debug_mode,
     run_test_templates_command,
+    get_menu_button_regex_pattern,
     WAITING_FOR_TICKET
 )
 
@@ -341,6 +343,8 @@ def main() -> None:
 
     # Create ConversationHandler for ticket validation
     # Entry points include both /validate command and the menu button
+    # Fallbacks include /cancel, any command, and menu buttons from the validator module
+    menu_button_pattern = get_menu_button_regex_pattern()
     ticket_validator_handler = ConversationHandler(
         entry_points=[
             CommandHandler("validate", validate_ticket_command),
@@ -349,7 +353,13 @@ def main() -> None:
         states={
             WAITING_FOR_TICKET: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_ticket_text)]
         },
-        fallbacks=[CommandHandler("cancel", cancel_validation)]
+        fallbacks=[
+            CommandHandler("cancel", cancel_validation),
+            # Any other command cancels validation mode
+            MessageHandler(filters.COMMAND, cancel_validation_on_menu),
+            # Menu buttons from ticket_validator module cancel validation mode
+            MessageHandler(filters.Regex(menu_button_pattern), cancel_validation_on_menu)
+        ]
     )
 
     # Create ConversationHandler for admin panel
