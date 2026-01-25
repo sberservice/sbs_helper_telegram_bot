@@ -173,7 +173,7 @@ def validate_regex(ticket_text: str, pattern: str) -> bool:
         True if pattern is found in text, False otherwise
     """
     try:
-        return bool(re.search(pattern, ticket_text, re.IGNORECASE | re.MULTILINE))
+        return bool(re.search(pattern, ticket_text, re.IGNORECASE | re.MULTILINE | re.UNICODE))
     except re.error:
         # Invalid regex pattern
         return False
@@ -191,7 +191,7 @@ def validate_regex_not_match(ticket_text: str, pattern: str) -> bool:
         True if pattern is NOT found in text, False if pattern matches
     """
     try:
-        return not bool(re.search(pattern, ticket_text, re.IGNORECASE | re.MULTILINE))
+        return not bool(re.search(pattern, ticket_text, re.IGNORECASE | re.MULTILINE | re.UNICODE))
     except re.error:
         # Invalid regex pattern - treat as not matching
         return True
