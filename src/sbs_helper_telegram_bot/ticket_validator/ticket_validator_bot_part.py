@@ -164,9 +164,9 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=reply_keyboard
             )
         else:
-            # Format error messages
+            # Format error messages - properly escape all special characters for MarkdownV2
             errors_formatted = "\n".join([
-                f"• {msg.replace('.', '\\.').replace('-', '\\-').replace('!', '\\!').replace('(', '\\(').replace(')', '\\)')}"
+                f"• {_escape_md(msg)}"
                 for msg in result.error_messages
             ])
             
