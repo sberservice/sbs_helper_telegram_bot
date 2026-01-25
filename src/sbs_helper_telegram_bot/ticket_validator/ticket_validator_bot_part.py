@@ -102,9 +102,21 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         # Check if ticket type was detected
         if not detected_type:
-            await update.message.reply_text(
+            # Build list of supported ticket types
+            supported_types = "\n".join([
+                f"• _{_escape_md(tt.type_name)}_"
+                for tt in ticket_types
+            ]) if ticket_types else "Нет доступных типов заявок\\."
+            
+            error_message = (
                 "⚠️ *Не удалось определить тип заявки*\n\n"
-                "Пожалуйста, убедитесь что заявка соответствует одному из известных форматов\\.",
+                "Пожалуйста, убедитесь что заявка соответствует одному из известных форматов\\.\n\n"
+                "*Поддерживаемые типы заявок:*\n"
+                f"{supported_types}"
+            )
+            
+            await update.message.reply_text(
+                error_message,
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
             return ConversationHandler.END
