@@ -28,6 +28,19 @@ class TicketType:
     description: str
     detection_keywords: List[str]
     active: bool = True
+    keyword_weights: Dict[str, float] = field(default_factory=dict)
+    
+    def get_keyword_weight(self, keyword: str) -> float:
+        """
+        Get weight for a keyword.
+        
+        Args:
+            keyword: The keyword to get weight for (case-insensitive)
+            
+        Returns:
+            Weight for the keyword, defaults to 1.0 if not specified
+        """
+        return self.keyword_weights.get(keyword.lower(), 1.0)
 
 
 @dataclass
@@ -318,9 +331,13 @@ def detect_ticket_type(
             count = ticket_text_lower.count(keyword_lower)
             
             # Get weight for this keyword (default 1.0)
+            # Priority: 1) keyword_weights parameter, 2) ticket_type.keyword_weights, 3) default 1.0
             # For negative keywords, use the original keyword (with minus) as the key
             weight_key = keyword.lower() if is_negative else keyword_lower
-            weight = keyword_weights.get(weight_key, 1.0)
+            if weight_key in keyword_weights:
+                weight = keyword_weights[weight_key]
+            else:
+                weight = ticket_type.get_keyword_weight(weight_key)
             
             # Calculate score (negative for negative keywords)
             weighted_score = count * weight
