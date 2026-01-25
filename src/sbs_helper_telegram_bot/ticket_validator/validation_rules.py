@@ -11,6 +11,19 @@ import src.common.database as database
 from .validators import ValidationRule, TicketType
 
 
+def _normalize_keyword_weights(weights: Dict[str, float]) -> Dict[str, float]:
+    """
+    Normalize keyword_weights dictionary keys to lowercase.
+    
+    Args:
+        weights: Dictionary mapping keywords to weights
+        
+    Returns:
+        Dictionary with lowercase keys
+    """
+    return {k.lower(): v for k, v in weights.items()}
+
+
 def load_all_ticket_types() -> List[TicketType]:
     """
     Load all active ticket types from the database.
