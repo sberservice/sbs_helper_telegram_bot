@@ -86,7 +86,7 @@ logger = logging.getLogger(__name__)
 ) = range(24)
 
 # Rule types for selection
-RULE_TYPES = ['regex', 'required_field', 'format', 'length', 'custom']
+RULE_TYPES = ['regex', 'regex_not_match', 'required_field', 'format', 'length', 'custom']
 
 
 def escape_markdown(text: str) -> str:
