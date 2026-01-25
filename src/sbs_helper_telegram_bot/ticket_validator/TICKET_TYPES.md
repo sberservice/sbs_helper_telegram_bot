@@ -57,22 +57,20 @@ Junction table mapping rules to ticket types.
 | validation_rule_id | bigint | FK to validation_rules |
 | created_timestamp | bigint | Creation time |
 
-#### Updated: `validation_history`
-Added `ticket_type_id` column to track which type was detected.
+#### `validation_history`
+Includes `ticket_type_id` column to track which type was detected.
 
 ## Setup
 
-### 1. Update Database Schema
+### 1. Create Database Schema
 
 ```bash
-# Apply schema updates (adds new tables and columns)
 mysql -u user -p database < schema.sql
 ```
 
 ### 2. Load Ticket Types
 
 ```bash
-# Create 5 default ticket types
 mysql -u user -p database < scripts/initial_ticket_types.sql
 ```
 
