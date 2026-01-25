@@ -82,9 +82,9 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     ticket_text = update.message.text
     user_id = update.effective_user.id
     
-    # Check if debug mode is enabled for this admin user
+    # Debug mode is automatically enabled for all admins
     is_admin = check_if_user_admin(user_id)
-    debug_enabled = is_admin and context.user_data.get(DEBUG_MODE_KEY, False)
+    debug_enabled = is_admin
     
     # Load ticket types and detect which type this ticket is
     try:
