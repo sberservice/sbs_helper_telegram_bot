@@ -106,7 +106,7 @@ class TestRuleTypes(unittest.TestCase):
         """Test that RULE_TYPES has correct number of types."""
         from src.sbs_helper_telegram_bot.ticket_validator.admin_panel_bot_part import RULE_TYPES
         
-        self.assertEqual(len(RULE_TYPES), 5)
+        self.assertEqual(len(RULE_TYPES), 6)
 
 
 class TestConversationStates(unittest.TestCase):
