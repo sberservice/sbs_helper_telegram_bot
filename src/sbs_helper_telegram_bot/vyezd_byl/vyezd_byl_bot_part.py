@@ -143,6 +143,26 @@ async def handle_incoming_document(update: Update, context: ContextTypes.DEFAULT
     return WAITING_FOR_SCREENSHOT
 
 
+async def handle_wrong_input_in_screenshot_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Handle when user sends a photo or text instead of a document in screenshot mode.
+    Reminds them to send the image as a file.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context
+        
+    Returns:
+        WAITING_FOR_SCREENSHOT to continue waiting for proper document
+    """
+    await update.message.reply_text(
+        messages.MESSAGE_INSTRUCTIONS,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_submenu_keyboard()
+    )
+    return WAITING_FOR_SCREENSHOT
+
+
 async def enter_screenshot_module(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Entry point for the screenshot processing module.

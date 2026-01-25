@@ -52,6 +52,7 @@ from src.sbs_helper_telegram_bot.vyezd_byl import keyboards as image_keyboards
 from src.common.telegram_user import check_if_user_legit,update_user_info_from_telegram
 from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import (
     handle_incoming_document,
+    handle_wrong_input_in_screenshot_mode,
     enter_screenshot_module,
     cancel_screenshot_module,
     get_menu_button_exit_pattern,
@@ -381,6 +382,9 @@ def main() -> None:
                 MessageHandler(filters.Document.IMAGE, handle_incoming_document),
                 # Help button stays within the module
                 MessageHandler(filters.Regex("^❓ Помощь по скриншотам$"), enter_screenshot_module),
+                # Handle wrong input: photo instead of document, or text
+                MessageHandler(filters.PHOTO, handle_wrong_input_in_screenshot_mode),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_wrong_input_in_screenshot_mode),
             ]
         },
         fallbacks=[
