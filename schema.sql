@@ -182,6 +182,7 @@ CREATE TABLE `ticket_types` (
   `type_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `detection_keywords` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `keyword_weights` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'JSON object mapping keywords to their weights (default weight is 1.0)',
   `active` tinyint(1) NOT NULL DEFAULT '1',
   `created_timestamp` bigint(20) NOT NULL,
   PRIMARY KEY (`id`),

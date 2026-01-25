@@ -21,7 +21,7 @@ def load_all_ticket_types() -> List[TicketType]:
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             sql_query = """
-                SELECT id, type_name, description, detection_keywords
+                SELECT id, type_name, description, detection_keywords, keyword_weights
                 FROM ticket_types 
                 WHERE active = 1
                 ORDER BY type_name
@@ -39,12 +39,21 @@ def load_all_ticket_types() -> List[TicketType]:
                     except json.JSONDecodeError:
                         keywords = []
                 
+                # Parse keyword weights from JSON
+                weights = {}
+                if row.get('keyword_weights'):
+                    try:
+                        weights = json.loads(row['keyword_weights'])
+                    except json.JSONDecodeError:
+                        weights = {}
+                
                 ticket_type = TicketType(
                     id=row['id'],
                     type_name=row['type_name'],
                     description=row['description'] or '',
                     detection_keywords=keywords,
-                    active=True
+                    active=True,
+                    keyword_weights=weights
                 )
                 ticket_types.append(ticket_type)
             
@@ -64,7 +73,7 @@ def load_ticket_type_by_id(ticket_type_id: int) -> Optional[TicketType]:
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             sql_query = """
-                SELECT id, type_name, description, detection_keywords, active
+                SELECT id, type_name, description, detection_keywords, keyword_weights, active
                 FROM ticket_types 
                 WHERE id = %s
             """
@@ -81,12 +90,21 @@ def load_ticket_type_by_id(ticket_type_id: int) -> Optional[TicketType]:
                 except json.JSONDecodeError:
                     keywords = []
             
+            # Parse keyword weights from JSON
+            weights = {}
+            if row.get('keyword_weights'):
+                try:
+                    weights = json.loads(row['keyword_weights'])
+                except json.JSONDecodeError:
+                    weights = {}
+            
             return TicketType(
                 id=row['id'],
                 type_name=row['type_name'],
                 description=row['description'] or '',
                 detection_keywords=keywords,
-                active=bool(row['active'])
+                active=bool(row['active']),
+                keyword_weights=weights
             )
 
 
@@ -308,13 +326,13 @@ def load_all_ticket_types_admin(include_inactive: bool = False) -> List[TicketTy
         with database.get_cursor(conn) as cursor:
             if include_inactive:
                 sql_query = """
-                    SELECT id, type_name, description, detection_keywords, active
+                    SELECT id, type_name, description, detection_keywords, keyword_weights, active
                     FROM ticket_types 
                     ORDER BY type_name
                 """
             else:
                 sql_query = """
-                    SELECT id, type_name, description, detection_keywords, active
+                    SELECT id, type_name, description, detection_keywords, keyword_weights, active
                     FROM ticket_types 
                     WHERE active = 1
                     ORDER BY type_name
@@ -331,12 +349,21 @@ def load_all_ticket_types_admin(include_inactive: bool = False) -> List[TicketTy
                     except json.JSONDecodeError:
                         keywords = []
                 
+                # Parse keyword weights from JSON
+                weights = {}
+                if row.get('keyword_weights'):
+                    try:
+                        weights = json.loads(row['keyword_weights'])
+                    except json.JSONDecodeError:
+                        weights = {}
+                
                 ticket_type = TicketType(
                     id=row['id'],
                     type_name=row['type_name'],
                     description=row['description'] or '',
                     detection_keywords=keywords,
-                    active=bool(row['active'])
+                    active=bool(row['active']),
+                    keyword_weights=weights
                 )
                 ticket_types.append(ticket_type)
             
@@ -516,7 +543,7 @@ def get_ticket_types_for_rule(rule_id: int) -> List[TicketType]:
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             sql_query = """
-                SELECT tt.id, tt.type_name, tt.description, tt.detection_keywords, tt.active
+                SELECT tt.id, tt.type_name, tt.description, tt.detection_keywords, tt.keyword_weights, tt.active
                 FROM ticket_types tt
                 INNER JOIN ticket_type_rules ttr ON tt.id = ttr.ticket_type_id
                 WHERE ttr.validation_rule_id = %s
@@ -534,12 +561,21 @@ def get_ticket_types_for_rule(rule_id: int) -> List[TicketType]:
                     except json.JSONDecodeError:
                         keywords = []
                 
+                # Parse keyword weights from JSON
+                weights = {}
+                if row.get('keyword_weights'):
+                    try:
+                        weights = json.loads(row['keyword_weights'])
+                    except json.JSONDecodeError:
+                        weights = {}
+                
                 ticket_type = TicketType(
                     id=row['id'],
                     type_name=row['type_name'],
                     description=row['description'] or '',
                     detection_keywords=keywords,
-                    active=bool(row['active'])
+                    active=bool(row['active']),
+                    keyword_weights=weights
                 )
                 ticket_types.append(ticket_type)
             
