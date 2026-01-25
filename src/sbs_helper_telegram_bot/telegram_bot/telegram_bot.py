@@ -212,6 +212,11 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         and sends a welcome message.
         - If the user is already authorized, handles menu button presses or sends the standard welcome message.
     """
+    # Check if message exists and has text
+    if not update.message or not update.message.text:
+        logger.warning("Received update without message or text")
+        return
+    
     text = update.message.text
     
     if not check_if_user_legit(update.effective_user.id):
