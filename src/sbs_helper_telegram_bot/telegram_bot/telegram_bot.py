@@ -50,7 +50,13 @@ from src.sbs_helper_telegram_bot.vyezd_byl import messages as image_messages
 from src.sbs_helper_telegram_bot.vyezd_byl import keyboards as image_keyboards
 
 from src.common.telegram_user import check_if_user_legit,update_user_info_from_telegram
-from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import handle_incoming_document
+from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import (
+    handle_incoming_document,
+    enter_screenshot_module,
+    cancel_screenshot_module,
+    get_menu_button_exit_pattern,
+    WAITING_FOR_SCREENSHOT
+)
 
 # Import ticket validator handlers
 from src.sbs_helper_telegram_bot.ticket_validator.ticket_validator_bot_part import (
@@ -261,11 +267,9 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             reply_markup=get_main_menu_keyboard()
         )
     elif text == "📸 Обработать скриншот" or text == "📸 Отправить скриншот":
-        await update.message.reply_text(
-            image_messages.MESSAGE_INSTRUCTIONS,
-            parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=image_keyboards.get_submenu_keyboard()
-        )
+        # These buttons are now handled by the screenshot ConversationHandler
+        # This fallback is for safety, but normally the ConversationHandler will catch them
+        return await enter_screenshot_module(update, _context)
     elif text == "❓ Помощь по скриншотам":
         await update.message.reply_photo(
             ASSETS_DIR / "promo3.jpg",
@@ -365,6 +369,28 @@ def main() -> None:
     # Create ConversationHandler for admin panel
     admin_handler = get_admin_conversation_handler()
 
+    # Create ConversationHandler for screenshot processing module
+    screenshot_exit_pattern = get_menu_button_exit_pattern()
+    screenshot_handler = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex("^📸 Обработать скриншот$"), enter_screenshot_module),
+            MessageHandler(filters.Regex("^📸 Отправить скриншот$"), enter_screenshot_module)
+        ],
+        states={
+            WAITING_FOR_SCREENSHOT: [
+                MessageHandler(filters.Document.IMAGE, handle_incoming_document),
+                # Help button stays within the module
+                MessageHandler(filters.Regex("^❓ Помощь по скриншотам$"), enter_screenshot_module),
+            ]
+        },
+        fallbacks=[
+            # Any command exits the module
+            MessageHandler(filters.COMMAND, cancel_screenshot_module),
+            # Menu buttons that should exit the module
+            MessageHandler(filters.Regex(screenshot_exit_pattern), cancel_screenshot_module),
+        ]
+    )
+
     # Register all handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
@@ -372,8 +398,8 @@ def main() -> None:
     application.add_handler(CommandHandler("help_validate", help_command))
     application.add_handler(CommandHandler("debug", toggle_debug_mode))
     application.add_handler(admin_handler)
+    application.add_handler(screenshot_handler)
     application.add_handler(ticket_validator_handler)
-    application.add_handler(MessageHandler(filters.Document.IMAGE,handle_incoming_document))
     application.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, text_entered))
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
