@@ -700,6 +700,20 @@ async def show_ticket_type_rules(query, context: ContextTypes.DEFAULT_TYPE, type
         else:
             rules_text = "Нет назначенных правил"
         
+        # Format keywords with weights
+        if ticket_type.detection_keywords:
+            keywords_lines = []
+            for kw in ticket_type.detection_keywords:
+                weight = ticket_type.get_keyword_weight(kw)
+                kw_escaped = escape_markdown(kw)
+                if weight != 1.0:
+                    keywords_lines.append(f"• {kw_escaped} \\(вес: {weight}\\)")
+                else:
+                    keywords_lines.append(f"• {kw_escaped}")
+            keywords_text = "\n".join(keywords_lines)
+        else:
+            keywords_text = "Нет ключевых слов"
+        
         keyboard = []
         # Add remove buttons for existing rules
         for rule in rules:
@@ -715,6 +729,7 @@ async def show_ticket_type_rules(query, context: ContextTypes.DEFAULT_TYPE, type
         
         message = messages.MESSAGE_ADMIN_TICKET_TYPE_RULES.format(
             type_name=escape_markdown(ticket_type.type_name),
+            keywords=keywords_text,
             rules=rules_text
         )
         
