@@ -53,6 +53,7 @@ def get_main_menu_keyboard(extra_buttons=None):
     # Default buttons that are always shown
     buttons = [
         ["✅ Валидация заявок", "📸 Обработать скриншот"],
+        ["🔢 UPOS Ошибки"],
         ["🎫 Мои инвайты", "❓ Помощь"]
     ]
     
