@@ -799,17 +799,17 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await admin_show_errors_list(update, context)
     elif text == "➕ Добавить ошибку":
         return await admin_start_add_error(update, context)
-    elif text == "� Найти ошибку":
+    elif text == "🔍 Найти ошибку":
         return await admin_start_search_error(update, context)
-    elif text == "�📁 Категории":
+    elif text == "📁 Категории":
         return await admin_show_categories(update, context)
     elif text == "❓ Неизвестные коды":
         return await admin_show_unknown_codes(update, context)
     elif text == "📈 Статистика":
         return await admin_show_statistics(update, context)
-    elif text == "� Импорт CSV":
+    elif text == "📥 Импорт CSV":
         return await admin_start_csv_import(update, context)
-    elif text == "�🔙 Назад в UPOS":
+    elif text == "🔙 Назад в UPOS":
         if check_if_user_admin(update.effective_user.id):
             keyboard = keyboards.get_admin_submenu_keyboard()
         else:
@@ -1929,8 +1929,8 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(admin_callback_handler, pattern="^upos_"),
                 MessageHandler(filters.Regex("^📋 Список ошибок$"), admin_show_errors_list),
                 MessageHandler(filters.Regex("^➕ Добавить ошибку$"), admin_start_add_error),
-                MessageHandler(filters.Regex("^� Найти ошибку$"), admin_start_search_error),
-                MessageHandler(filters.Regex("^�📁 Категории$"), admin_show_categories),
+                MessageHandler(filters.Regex("^🔍 Найти ошибку$"), admin_start_search_error),
+                MessageHandler(filters.Regex("^📁 Категории$"), admin_show_categories),
                 MessageHandler(filters.Regex("^❓ Неизвестные коды$"), admin_show_unknown_codes),
                 MessageHandler(filters.Regex("^📈 Статистика$"), admin_show_statistics),
                 MessageHandler(filters.Regex("^📋 Все категории$"), admin_show_categories),
