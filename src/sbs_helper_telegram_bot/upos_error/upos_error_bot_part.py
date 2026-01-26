@@ -52,8 +52,9 @@ WAITING_FOR_ERROR_CODE = 1
     ADMIN_EDIT_CATEGORY_DESCRIPTION,
     ADMIN_CONFIRM_UPDATE_DATE,
     ADMIN_IMPORT_CSV_WAITING,
-    ADMIN_IMPORT_CSV_CONFIRM
-) = range(100, 115)
+    ADMIN_IMPORT_CSV_CONFIRM,
+    ADMIN_SEARCH_ERROR_CODE
+) = range(100, 116)
 
 
 # ===== DATABASE OPERATIONS =====
@@ -798,7 +799,9 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await admin_show_errors_list(update, context)
     elif text == "➕ Добавить ошибку":
         return await admin_start_add_error(update, context)
-    elif text == "📁 Категории":
+    elif text == "� Найти ошибку":
+        return await admin_start_search_error(update, context)
+    elif text == "�📁 Категории":
         return await admin_show_categories(update, context)
     elif text == "❓ Неизвестные коды":
         return await admin_show_unknown_codes(update, context)
@@ -856,6 +859,74 @@ async def admin_show_errors_list(update: Update, context: ContextTypes.DEFAULT_T
         text += f"{status} {line}\n"
     
     keyboard = keyboards.get_error_codes_inline_keyboard(errors, page, total_pages)
+    
+    await update.message.reply_text(
+        text,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboard
+    )
+    
+    return ADMIN_MENU
+
+
+async def admin_start_search_error(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Start the flow to search for an error code by code.
+    Admin can type the error code directly instead of scrolling through the list.
+    """
+    await update.message.reply_text(
+        messages.MESSAGE_ADMIN_SEARCH_ERROR_CODE,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_admin_menu_keyboard()
+    )
+    
+    return ADMIN_SEARCH_ERROR_CODE
+
+
+async def admin_receive_search_error_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Receive error code for search and show it for editing.
+    """
+    error_code = update.message.text.strip()
+    
+    # Look up the error code in the database (include inactive)
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            cursor.execute("""
+                SELECT e.*, c.name as category_name
+                FROM upos_error_codes e
+                LEFT JOIN upos_error_categories c ON e.category_id = c.id
+                WHERE e.error_code = %s
+            """, (error_code,))
+            error = cursor.fetchone()
+    
+    if not error:
+        escaped = messages.escape_markdown_v2(error_code)
+        await update.message.reply_text(
+            messages.MESSAGE_ADMIN_ERROR_NOT_FOUND_FOR_EDIT.format(code=escaped),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_admin_menu_keyboard()
+        )
+        return ADMIN_MENU
+    
+    # Store error info for potential edit
+    context.user_data['upos_temp'] = {'error_id': error['id']}
+    
+    # Format error details
+    text = messages.format_error_code_response(
+        error_code=error['error_code'],
+        description=error['description'],
+        suggested_actions=error['suggested_actions'],
+        category_name=error.get('category_name'),
+        updated_timestamp=error.get('updated_timestamp')
+    )
+    
+    # Add status indicator
+    status = "✅ Активна" if error['active'] else "🚫 Деактивирована"
+    status_escaped = messages.escape_markdown_v2(status)
+    text += f"\n\n📌 *Статус:* {status_escaped}"
+    
+    keyboard = keyboards.get_error_detail_keyboard(error['id'], error['active'])
     
     await update.message.reply_text(
         text,
@@ -1858,7 +1929,8 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(admin_callback_handler, pattern="^upos_"),
                 MessageHandler(filters.Regex("^📋 Список ошибок$"), admin_show_errors_list),
                 MessageHandler(filters.Regex("^➕ Добавить ошибку$"), admin_start_add_error),
-                MessageHandler(filters.Regex("^📁 Категории$"), admin_show_categories),
+                MessageHandler(filters.Regex("^� Найти ошибку$"), admin_start_search_error),
+                MessageHandler(filters.Regex("^�📁 Категории$"), admin_show_categories),
                 MessageHandler(filters.Regex("^❓ Неизвестные коды$"), admin_show_unknown_codes),
                 MessageHandler(filters.Regex("^📈 Статистика$"), admin_show_statistics),
                 MessageHandler(filters.Regex("^📋 Все категории$"), admin_show_categories),
@@ -1903,6 +1975,9 @@ def get_admin_conversation_handler() -> ConversationHandler:
             ],
             ADMIN_IMPORT_CSV_CONFIRM: [
                 CallbackQueryHandler(admin_csv_import_callback, pattern="^upos_csv_"),
+            ],
+            ADMIN_SEARCH_ERROR_CODE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_receive_search_error_code)
             ],
         },
         fallbacks=[
