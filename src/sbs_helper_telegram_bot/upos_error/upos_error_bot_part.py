@@ -6,9 +6,12 @@ Includes user-facing lookup functionality and admin CRUD operations.
 """
 # pylint: disable=line-too-long
 
+import csv
+import io
 import logging
 import math
 from typing import Optional, List, Tuple
+from dataclasses import dataclass
 
 from telegram import Update, constants
 from telegram.ext import (
@@ -47,8 +50,10 @@ WAITING_FOR_ERROR_CODE = 1
     ADMIN_ADD_CATEGORY_ORDER,
     ADMIN_EDIT_CATEGORY_NAME,
     ADMIN_EDIT_CATEGORY_DESCRIPTION,
-    ADMIN_CONFIRM_UPDATE_DATE
-) = range(100, 113)
+    ADMIN_CONFIRM_UPDATE_DATE,
+    ADMIN_IMPORT_CSV_WAITING,
+    ADMIN_IMPORT_CSV_CONFIRM
+) = range(100, 115)
 
 
 # ===== DATABASE OPERATIONS =====
@@ -277,6 +282,189 @@ def category_exists(name: str) -> bool:
         with database.get_cursor(conn) as cursor:
             cursor.execute("SELECT id FROM upos_error_categories WHERE name = %s", (name,))
             return cursor.fetchone() is not None
+
+
+def get_category_by_name(name: str) -> Optional[dict]:
+    """
+    Get category by name.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            cursor.execute("SELECT * FROM upos_error_categories WHERE name = %s AND active = 1", (name,))
+            return cursor.fetchone()
+
+
+# CSV Import structures and functions
+
+@dataclass
+class CSVImportResult:
+    """Result of CSV import operation."""
+    success_count: int = 0
+    skipped_count: int = 0
+    error_count: int = 0
+    errors: List[str] = None
+    
+    def __post_init__(self):
+        if self.errors is None:
+            self.errors = []
+
+
+def parse_csv_error_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[dict], List[str]]:
+    """
+    Parse CSV content and validate error codes data.
+    
+    Expected CSV format:
+    error_code,description,suggested_actions,category (optional)
+    
+    Args:
+        csv_content: Raw CSV content as string
+        delimiter: CSV delimiter character
+        
+    Returns:
+        Tuple of (valid_records, errors_list)
+    """
+    valid_records = []
+    errors = []
+    
+    try:
+        # Try to detect the delimiter if it's not comma
+        if delimiter == ',' and ';' in csv_content and ',' not in csv_content.split('\n')[0]:
+            delimiter = ';'
+        
+        reader = csv.DictReader(io.StringIO(csv_content), delimiter=delimiter)
+        
+        # Check for required fields
+        if not reader.fieldnames:
+            errors.append("CSV файл пуст или имеет неверный формат")
+            return [], errors
+        
+        fieldnames_lower = [f.lower().strip() if f else '' for f in reader.fieldnames]
+        
+        # Map possible column names
+        code_col = None
+        desc_col = None
+        actions_col = None
+        category_col = None
+        
+        for i, fname in enumerate(fieldnames_lower):
+            if fname in ('error_code', 'код', 'код_ошибки', 'код ошибки', 'code', 'errorcode'):
+                code_col = reader.fieldnames[i]
+            elif fname in ('description', 'описание', 'desc'):
+                desc_col = reader.fieldnames[i]
+            elif fname in ('suggested_actions', 'рекомендации', 'actions', 'действия', 'рекомендуемые_действия'):
+                actions_col = reader.fieldnames[i]
+            elif fname in ('category', 'категория', 'cat'):
+                category_col = reader.fieldnames[i]
+        
+        if not code_col:
+            errors.append("Не найден столбец с кодом ошибки. Ожидаемые названия: error_code, код, код_ошибки, code")
+            return [], errors
+        if not desc_col:
+            errors.append("Не найден столбец с описанием. Ожидаемые названия: description, описание, desc")
+            return [], errors
+        if not actions_col:
+            errors.append("Не найден столбец с рекомендациями. Ожидаемые названия: suggested_actions, рекомендации, actions")
+            return [], errors
+        
+        for row_num, row in enumerate(reader, start=2):  # Start from 2 (header is row 1)
+            try:
+                error_code = (row.get(code_col) or '').strip()
+                description = (row.get(desc_col) or '').strip()
+                suggested_actions = (row.get(actions_col) or '').strip()
+                category_name = (row.get(category_col) or '').strip() if category_col else None
+                
+                # Validate required fields
+                if not error_code:
+                    errors.append(f"Строка {row_num}: пустой код ошибки")
+                    continue
+                
+                if len(error_code) > 50:
+                    errors.append(f"Строка {row_num}: код ошибки '{error_code[:20]}...' слишком длинный (макс. 50 символов)")
+                    continue
+                
+                if not description:
+                    errors.append(f"Строка {row_num}: пустое описание для кода '{error_code}'")
+                    continue
+                
+                if not suggested_actions:
+                    errors.append(f"Строка {row_num}: пустые рекомендации для кода '{error_code}'")
+                    continue
+                
+                valid_records.append({
+                    'error_code': error_code,
+                    'description': description,
+                    'suggested_actions': suggested_actions,
+                    'category_name': category_name
+                })
+                
+            except Exception as e:
+                errors.append(f"Строка {row_num}: ошибка обработки - {str(e)}")
+                
+    except csv.Error as e:
+        errors.append(f"Ошибка парсинга CSV: {str(e)}")
+    except Exception as e:
+        errors.append(f"Неожиданная ошибка: {str(e)}")
+    
+    return valid_records, errors
+
+
+def import_error_codes_from_csv(records: List[dict], skip_existing: bool = True) -> CSVImportResult:
+    """
+    Import error codes from parsed CSV records.
+    
+    Args:
+        records: List of validated record dicts
+        skip_existing: If True, skip existing codes; if False, update them
+        
+    Returns:
+        CSVImportResult with import statistics
+    """
+    result = CSVImportResult()
+    
+    for record in records:
+        try:
+            error_code = record['error_code']
+            description = record['description']
+            suggested_actions = record['suggested_actions']
+            category_name = record.get('category_name')
+            
+            # Check if code exists
+            existing = get_error_code_by_code(error_code)
+            
+            if existing:
+                if skip_existing:
+                    result.skipped_count += 1
+                    continue
+                else:
+                    # Update existing
+                    update_error_code(existing['id'], 'description', description)
+                    update_error_code(existing['id'], 'suggested_actions', suggested_actions, update_timestamp=True)
+                    if category_name:
+                        cat = get_category_by_name(category_name)
+                        if cat:
+                            update_error_code(existing['id'], 'category_id', cat['id'])
+                    result.success_count += 1
+                    continue
+            
+            # Get category ID if provided
+            category_id = None
+            if category_name:
+                cat = get_category_by_name(category_name)
+                if cat:
+                    category_id = cat['id']
+                # If category doesn't exist, create it
+                elif category_name:
+                    category_id = create_category(category_name, None, 0)
+            
+            # Create new error code
+            create_error_code(error_code, description, suggested_actions, category_id)
+            result.success_count += 1
+            
+        except Exception as e:
+            result.error_count += 1
+            result.errors.append(f"Ошибка импорта '{record.get('error_code', '?')}': {str(e)}")
+    
+    return result
 
 
 # Unknown codes and statistics
@@ -616,7 +804,9 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await admin_show_unknown_codes(update, context)
     elif text == "📈 Статистика":
         return await admin_show_statistics(update, context)
-    elif text == "🔙 Назад в UPOS":
+    elif text == "� Импорт CSV":
+        return await admin_start_csv_import(update, context)
+    elif text == "�🔙 Назад в UPOS":
         if check_if_user_admin(update.effective_user.id):
             keyboard = keyboards.get_admin_submenu_keyboard()
         else:
@@ -1347,6 +1537,241 @@ async def admin_receive_category_order(update: Update, context: ContextTypes.DEF
     return ADMIN_MENU
 
 
+# ===== CSV IMPORT HANDLERS =====
+
+async def admin_start_csv_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Start CSV import flow.
+    """
+    await update.message.reply_text(
+        messages.MESSAGE_ADMIN_CSV_IMPORT_START,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_csv_import_keyboard()
+    )
+    
+    return ADMIN_IMPORT_CSV_WAITING
+
+
+async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Receive and process CSV file for import.
+    """
+    # Check if file was sent
+    if not update.message.document:
+        await update.message.reply_text(
+            messages.MESSAGE_ADMIN_CSV_NO_FILE,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ADMIN_IMPORT_CSV_WAITING
+    
+    document = update.message.document
+    
+    # Validate file type
+    file_name = document.file_name or ''
+    if not file_name.lower().endswith('.csv'):
+        await update.message.reply_text(
+            messages.MESSAGE_ADMIN_CSV_WRONG_FORMAT,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ADMIN_IMPORT_CSV_WAITING
+    
+    # Check file size (max 5MB)
+    if document.file_size > 5 * 1024 * 1024:
+        await update.message.reply_text(
+            messages.MESSAGE_ADMIN_CSV_TOO_LARGE,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ADMIN_IMPORT_CSV_WAITING
+    
+    try:
+        # Download file
+        file = await context.bot.get_file(document.file_id)
+        file_bytes = await file.download_as_bytearray()
+        
+        # Try to decode with different encodings
+        csv_content = None
+        for encoding in ['utf-8', 'cp1251', 'latin-1']:
+            try:
+                csv_content = bytes(file_bytes).decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if csv_content is None:
+            await update.message.reply_text(
+                messages.MESSAGE_ADMIN_CSV_ENCODING_ERROR,
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+            return ADMIN_IMPORT_CSV_WAITING
+        
+        # Parse CSV
+        records, parse_errors = parse_csv_error_codes(csv_content)
+        
+        if parse_errors and not records:
+            # Only errors, no valid records
+            error_text = messages.MESSAGE_ADMIN_CSV_PARSE_ERRORS.format(
+                error_count=len(parse_errors),
+                errors='\n'.join(parse_errors[:10])  # Limit to first 10 errors
+            )
+            await update.message.reply_text(
+                error_text,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=keyboards.get_csv_import_keyboard()
+            )
+            return ADMIN_IMPORT_CSV_WAITING
+        
+        if not records:
+            await update.message.reply_text(
+                messages.MESSAGE_ADMIN_CSV_NO_RECORDS,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=keyboards.get_csv_import_keyboard()
+            )
+            return ADMIN_IMPORT_CSV_WAITING
+        
+        # Store parsed records in context for confirmation
+        context.user_data['upos_temp'] = {
+            'csv_records': records,
+            'csv_parse_errors': parse_errors
+        }
+        
+        # Count existing codes
+        existing_count = sum(1 for r in records if error_code_exists(r['error_code']))
+        new_count = len(records) - existing_count
+        
+        # Show preview and ask for confirmation
+        preview_text = messages.MESSAGE_ADMIN_CSV_PREVIEW.format(
+            total=len(records),
+            new=new_count,
+            existing=existing_count,
+            parse_errors=len(parse_errors)
+        )
+        
+        if parse_errors:
+            preview_text += "\n\n⚠️ *Ошибки парсинга \\(будут пропущены\\):*\n"
+            escaped_errors = [messages.escape_markdown_v2(e) for e in parse_errors[:5]]
+            preview_text += '\n'.join(f"• {e}" for e in escaped_errors)
+            if len(parse_errors) > 5:
+                preview_text += f"\n\\.\\.\\. и ещё {len(parse_errors) - 5}"
+        
+        await update.message.reply_text(
+            preview_text,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_csv_confirm_keyboard()
+        )
+        
+        return ADMIN_IMPORT_CSV_CONFIRM
+        
+    except Exception as e:
+        logger.error(f"Error processing CSV file: {e}")
+        await update.message.reply_text(
+            messages.MESSAGE_ADMIN_CSV_PROCESS_ERROR.format(
+                error=messages.escape_markdown_v2(str(e))
+            ),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_csv_import_keyboard()
+        )
+        return ADMIN_IMPORT_CSV_WAITING
+
+
+async def admin_csv_import_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Handle CSV import confirmation callbacks.
+    """
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    if data == "upos_csv_cancel":
+        context.user_data.pop('upos_temp', None)
+        await query.edit_message_text(
+            messages.MESSAGE_ADMIN_CSV_CANCELLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="Выберите действие:",
+            reply_markup=keyboards.get_admin_menu_keyboard()
+        )
+        return ADMIN_MENU
+    
+    elif data == "upos_csv_import_skip":
+        # Import, skip existing
+        return await _perform_csv_import(query, context, skip_existing=True)
+    
+    elif data == "upos_csv_import_update":
+        # Import, update existing
+        return await _perform_csv_import(query, context, skip_existing=False)
+    
+    return ADMIN_IMPORT_CSV_CONFIRM
+
+
+async def _perform_csv_import(query, context: ContextTypes.DEFAULT_TYPE, skip_existing: bool) -> int:
+    """
+    Perform the actual CSV import.
+    """
+    temp = context.user_data.get('upos_temp', {})
+    records = temp.get('csv_records', [])
+    
+    if not records:
+        await query.edit_message_text(
+            "❌ Нет данных для импорта\\.",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ADMIN_MENU
+    
+    await query.edit_message_text(
+        "⏳ *Импорт данных\\.\\.\\.*\n\nПожалуйста, подождите\\.",
+        parse_mode=constants.ParseMode.MARKDOWN_V2
+    )
+    
+    # Perform import
+    result = import_error_codes_from_csv(records, skip_existing=skip_existing)
+    
+    # Format result message
+    result_text = messages.MESSAGE_ADMIN_CSV_IMPORT_RESULT.format(
+        success=result.success_count,
+        skipped=result.skipped_count,
+        errors=result.error_count
+    )
+    
+    if result.errors:
+        result_text += "\n\n⚠️ *Ошибки импорта:*\n"
+        escaped_errors = [messages.escape_markdown_v2(e) for e in result.errors[:5]]
+        result_text += '\n'.join(f"• {e}" for e in escaped_errors)
+        if len(result.errors) > 5:
+            result_text += f"\n\\.\\.\\. и ещё {len(result.errors) - 5}"
+    
+    await query.edit_message_text(
+        result_text,
+        parse_mode=constants.ParseMode.MARKDOWN_V2
+    )
+    
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text="Выберите действие:",
+        reply_markup=keyboards.get_admin_menu_keyboard()
+    )
+    
+    context.user_data.pop('upos_temp', None)
+    return ADMIN_MENU
+
+
+async def admin_cancel_csv_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Cancel CSV import via button.
+    """
+    context.user_data.pop('upos_temp', None)
+    
+    await update.message.reply_text(
+        messages.MESSAGE_ADMIN_CSV_CANCELLED,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_admin_menu_keyboard()
+    )
+    
+    return ADMIN_MENU
+
+
 # ===== CONVERSATION HANDLER BUILDER =====
 
 def get_menu_button_regex_pattern() -> str:
@@ -1414,6 +1839,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 MessageHandler(filters.Regex("^📈 Статистика$"), admin_show_statistics),
                 MessageHandler(filters.Regex("^📋 Все категории$"), admin_show_categories),
                 MessageHandler(filters.Regex("^➕ Добавить категорию$"), admin_start_add_category),
+                MessageHandler(filters.Regex("^📥 Импорт CSV$"), admin_start_csv_import),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
             ],
             ADMIN_ADD_ERROR_CODE: [
@@ -1445,6 +1871,14 @@ def get_admin_conversation_handler() -> ConversationHandler:
             ],
             ADMIN_ADD_CATEGORY_ORDER: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_receive_category_order)
+            ],
+            ADMIN_IMPORT_CSV_WAITING: [
+                MessageHandler(filters.Document.FileExtension("csv"), admin_receive_csv_file),
+                MessageHandler(filters.Regex("^❌ Отмена$"), admin_cancel_csv_import),
+                MessageHandler(filters.Regex("^🔙 Админ UPOS$"), admin_menu),
+            ],
+            ADMIN_IMPORT_CSV_CONFIRM: [
+                CallbackQueryHandler(admin_csv_import_callback, pattern="^upos_csv_"),
             ],
         },
         fallbacks=[

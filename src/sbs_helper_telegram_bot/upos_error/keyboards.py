@@ -362,3 +362,50 @@ def get_confirm_delete_keyboard(item_type: str, item_id: int) -> InlineKeyboardM
             )
         ]
     ])
+
+
+def get_csv_import_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Build keyboard for CSV import waiting state.
+    
+    Returns:
+        ReplyKeyboardMarkup for CSV import
+    """
+    return ReplyKeyboardMarkup(
+        [
+            ["❌ Отмена"],
+            ["🔙 Админ UPOS"]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True
+    )
+
+
+def get_csv_confirm_keyboard() -> InlineKeyboardMarkup:
+    """
+    Build keyboard for CSV import confirmation.
+    
+    Returns:
+        InlineKeyboardMarkup with import options
+    """
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "✅ Импортировать (пропустить существующие)",
+                callback_data="upos_csv_import_skip"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔄 Импортировать (обновить существующие)",
+                callback_data="upos_csv_import_update"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "❌ Отмена",
+                callback_data="upos_csv_cancel"
+            )
+        ]
+    ])
