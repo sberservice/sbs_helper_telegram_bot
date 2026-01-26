@@ -48,6 +48,8 @@ from src.sbs_helper_telegram_bot.ticket_validator import messages as validator_m
 from src.sbs_helper_telegram_bot.ticket_validator import keyboards as validator_keyboards
 from src.sbs_helper_telegram_bot.vyezd_byl import messages as image_messages
 from src.sbs_helper_telegram_bot.vyezd_byl import keyboards as image_keyboards
+from src.sbs_helper_telegram_bot.upos_error import messages as upos_messages
+from src.sbs_helper_telegram_bot.upos_error import keyboards as upos_keyboards
 
 from src.common.telegram_user import check_if_user_legit,update_user_info_from_telegram
 from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import (
@@ -76,6 +78,13 @@ from src.sbs_helper_telegram_bot.ticket_validator.ticket_validator_bot_part impo
 # Import admin panel handlers
 from src.sbs_helper_telegram_bot.ticket_validator.admin_panel_bot_part import (
     get_admin_conversation_handler
+)
+
+# Import UPOS error handlers
+from src.sbs_helper_telegram_bot.upos_error.upos_error_bot_part import (
+    show_popular_errors,
+    get_user_conversation_handler as get_upos_user_handler,
+    get_admin_conversation_handler as get_upos_admin_handler
 )
 from src.common.telegram_user import check_if_user_admin
 
@@ -298,6 +307,19 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
                 reply_markup=get_main_menu_keyboard()
             )
+    elif text == "🔢 UPOS Ошибки":
+        # Show UPOS error module submenu
+        if check_if_user_admin(update.effective_user.id):
+            keyboard = upos_keyboards.get_admin_submenu_keyboard()
+        else:
+            keyboard = upos_keyboards.get_submenu_keyboard()
+        await update.message.reply_text(
+            upos_messages.MESSAGE_SUBMENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard
+        )
+    elif text == "📊 Популярные ошибки":
+        await show_popular_errors(update, _context)
     else:
         # Default response for unrecognized text
         await update.message.reply_text(
@@ -376,6 +398,10 @@ def main() -> None:
     # Create ConversationHandler for admin panel
     admin_handler = get_admin_conversation_handler()
 
+    # Create ConversationHandlers for UPOS error module
+    upos_user_handler = get_upos_user_handler()
+    upos_admin_handler = get_upos_admin_handler()
+
     # Create ConversationHandler for screenshot processing module
     screenshot_exit_pattern = get_menu_button_exit_pattern()
     screenshot_handler = ConversationHandler(
@@ -408,6 +434,8 @@ def main() -> None:
     application.add_handler(CommandHandler("help_validate", help_command))
     application.add_handler(CommandHandler("debug", toggle_debug_mode))
     application.add_handler(admin_handler)
+    application.add_handler(upos_admin_handler)
+    application.add_handler(upos_user_handler)
     application.add_handler(screenshot_handler)
     application.add_handler(ticket_validator_handler)
     application.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, text_entered))
