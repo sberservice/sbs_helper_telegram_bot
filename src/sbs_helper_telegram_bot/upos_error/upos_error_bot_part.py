@@ -1609,9 +1609,10 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
         
         if parse_errors and not records:
             # Only errors, no valid records
+            escaped_errors = [messages.escape_markdown_v2(e) for e in parse_errors[:10]]
             error_text = messages.MESSAGE_ADMIN_CSV_PARSE_ERRORS.format(
                 error_count=len(parse_errors),
-                errors='\n'.join(parse_errors[:10])  # Limit to first 10 errors
+                errors='\n'.join(f"• {e}" for e in escaped_errors)
             )
             await update.message.reply_text(
                 error_text,
