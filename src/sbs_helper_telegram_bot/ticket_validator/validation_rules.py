@@ -267,7 +267,7 @@ def test_regex_pattern(pattern: str, test_text: str = None) -> Tuple[bool, str]:
         Tuple of (is_valid, message)
     """
     try:
-        compiled = re.compile(pattern, re.IGNORECASE | re.MULTILINE | re.UNICODE)
+        compiled = re.compile(pattern, re.IGNORECASE | re.MULTILINE | re.UNICODE | re.DOTALL)
         if test_text:
             match = compiled.search(test_text)
             if match:
