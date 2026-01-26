@@ -160,7 +160,7 @@ MESSAGE_ADMIN_CSV_IMPORT_RESULT = """✅ *Импорт завершён\\!*
 • Пропущено \\(уже существуют\\): *{skipped}*
 • Ошибок: *{errors}*"""
 
-MESSAGE_ADMIN_CSV_PROCESS_ERROR = "❌ Ошибка обработки файла: {error}"
+MESSAGE_ADMIN_CSV_PROCESS_ERROR = "❌ Ошибка обработки файла\\: {error}"
 
 
 # ===== HELPER FUNCTIONS =====
