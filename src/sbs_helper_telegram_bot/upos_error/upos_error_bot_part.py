@@ -1587,15 +1587,35 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
         # Download file
         file = await context.bot.get_file(document.file_id)
         file_bytes = await file.download_as_bytearray()
+        raw_bytes = bytes(file_bytes)
         
         # Try to decode with different encodings
         csv_content = None
-        for encoding in ['utf-8', 'cp1251', 'latin-1']:
-            try:
-                csv_content = bytes(file_bytes).decode(encoding)
-                break
-            except UnicodeDecodeError:
-                continue
+        
+        # Check for BOM (Byte Order Mark) first
+        if raw_bytes.startswith(b'\xef\xbb\xbf'):
+            # UTF-8 with BOM
+            csv_content = raw_bytes[3:].decode('utf-8')
+        elif raw_bytes.startswith(b'\xff\xfe') or raw_bytes.startswith(b'\xfe\xff'):
+            # UTF-16
+            csv_content = raw_bytes.decode('utf-16')
+        else:
+            # Try different encodings
+            # Order matters: utf-8 first, then Mac-specific, then Windows, then fallback
+            for encoding in ['utf-8', 'mac_roman', 'cp1251', 'iso-8859-1']:
+                try:
+                    csv_content = raw_bytes.decode(encoding)
+                    # Verify the content looks reasonable (has some Cyrillic or ASCII)
+                    # This helps detect wrong encoding
+                    if encoding != 'utf-8':
+                        # For non-UTF8, check if result has garbage characters
+                        test_chars = set(csv_content[:500])
+                        # If we see replacement characters, try next encoding
+                        if '\ufffd' in test_chars:
+                            continue
+                    break
+                except UnicodeDecodeError:
+                    continue
         
         if csv_content is None:
             await update.message.reply_text(
@@ -1603,6 +1623,9 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
             return ADMIN_IMPORT_CSV_WAITING
+        
+        # Normalize line endings (Mac uses \r, Windows uses \r\n, Unix uses \n)
+        csv_content = csv_content.replace('\r\n', '\n').replace('\r', '\n')
         
         # Parse CSV
         records, parse_errors = parse_csv_error_codes(csv_content)
