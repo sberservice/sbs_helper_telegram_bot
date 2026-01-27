@@ -44,10 +44,10 @@ MESSAGE_MAIN_HELP = """❓ *Помощь*
 MESSAGE_SETTINGS_MENU = "⚙️ *Настройки*\n\nВыберите действие:"
 
 # Modules menu message
-MESSAGE_MODULES_MENU = "📦 *Модули*\n\nВыберите модуль:"
+MESSAGE_MODULES_MENU = "⚡ *Функции бота*\n\nВыберите модуль:"
 
 # Button labels for main menu
-BUTTON_MODULES = "📦 Модули"
+BUTTON_MODULES = "⚡ Функции (модули) бота"
 BUTTON_SETTINGS = "⚙️ Настройки"
 BUTTON_MAIN_MENU = "🏠 Главное меню"
 BUTTON_MY_INVITES = "🎫 Мои инвайты"
