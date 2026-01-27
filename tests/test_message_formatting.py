@@ -55,8 +55,69 @@ from src.sbs_helper_telegram_bot.ticket_validator.messages import (
 class TestMarkdownV2Formatting(unittest.TestCase):
     """Test MarkdownV2 formatting for all messages that use parse_mode=MARKDOWN_V2."""
     
-    # MarkdownV2 special characters that need escaping
-    SPECIAL_CHARS = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    # MarkdownV2 special characters that MUST be escaped (outside of formatting)
+    # These are characters that cause parsing errors if not escaped
+    MUST_ESCAPE_CHARS = ['.', '!', '-', '+', '=', '>', '#', '|', '{', '}', '(', ')', '[', ']', '~']
+    
+    # Formatting characters - these are allowed unescaped when used in pairs
+    FORMATTING_CHARS = ['*', '_', '`']
+    
+    def _find_markdown_formatted_ranges(self, message: str, char: str) -> List[Tuple[int, int]]:
+        """
+        Find all ranges of properly formatted markdown (paired characters).
+        
+        Returns list of (start, end) tuples for valid formatting ranges.
+        """
+        ranges = []
+        pos = 0
+        
+        while pos < len(message):
+            # Find opening character
+            start = message.find(char, pos)
+            if start == -1:
+                break
+            
+            # Skip if escaped
+            if start > 0 and message[start - 1] == '\\':
+                pos = start + 1
+                continue
+            
+            # Find closing character (not escaped)
+            end = start + 1
+            while end < len(message):
+                end = message.find(char, end)
+                if end == -1:
+                    break
+                # Check if not escaped
+                if end > 0 and message[end - 1] == '\\':
+                    end += 1
+                    continue
+                # Found valid closing character
+                break
+            
+            if end != -1 and end > start:
+                # Check if there's actual content between them
+                between = message[start + 1:end]
+                # For * and _, content should be on same line or just a few lines (for titles)
+                if char in ['*', '_']:
+                    if between.strip() and between.count('\n') <= 3:
+                        ranges.append((start, end))
+                # For backticks, content should be on same line
+                elif char == '`':
+                    if between.strip() and '\n' not in between:
+                        ranges.append((start, end))
+                pos = end + 1
+            else:
+                pos = start + 1
+        
+        return ranges
+    
+    def _is_in_formatted_range(self, pos: int, ranges: List[Tuple[int, int]]) -> bool:
+        """Check if a position is within any formatted range (opening or closing char)."""
+        for start, end in ranges:
+            if pos == start or pos == end:
+                return True
+        return False
     
     def _check_markdown_v2_escaping(self, message: str, message_name: str) -> List[str]:
         """
@@ -75,8 +136,14 @@ class TestMarkdownV2Formatting(unittest.TestCase):
         if '{' in message and '}' in message:
             return errors  # Dynamic messages are handled separately
         
-        for char in self.SPECIAL_CHARS:
-            # Find all occurrences of the special character
+        # Find all valid formatting ranges
+        bold_ranges = self._find_markdown_formatted_ranges(message, '*')
+        italic_ranges = self._find_markdown_formatted_ranges(message, '_')
+        code_ranges = self._find_markdown_formatted_ranges(message, '`')
+        all_formatting_ranges = bold_ranges + italic_ranges + code_ranges
+        
+        # Check characters that MUST be escaped
+        for char in self.MUST_ESCAPE_CHARS:
             pos = 0
             while True:
                 pos = message.find(char, pos)
@@ -85,78 +152,41 @@ class TestMarkdownV2Formatting(unittest.TestCase):
                 
                 # Check if it's properly escaped (preceded by backslash)
                 if pos == 0 or message[pos - 1] != '\\':
-                    # Exception: Some characters are allowed in certain contexts
-                    if self._is_allowed_unescaped_char(message, char, pos):
-                        pos += 1
-                        continue
-                        
                     errors.append(
                         f"{message_name}: Unescaped '{char}' at position {pos}. "
                         f"Context: ...{message[max(0, pos-10):pos+11]}..."
                     )
                 pos += 1
+        
+        # Check formatting characters - they're only errors if NOT in valid pairs
+        for char in self.FORMATTING_CHARS:
+            if char == '*':
+                ranges = bold_ranges
+            elif char == '_':
+                ranges = italic_ranges
+            else:
+                ranges = code_ranges
+            
+            pos = 0
+            while True:
+                pos = message.find(char, pos)
+                if pos == -1:
+                    break
+                
+                # Skip if escaped
+                if pos > 0 and message[pos - 1] == '\\':
+                    pos += 1
+                    continue
+                
+                # Check if it's part of valid formatting
+                if not self._is_in_formatted_range(pos, ranges):
+                    errors.append(
+                        f"{message_name}: Unpaired '{char}' at position {pos}. "
+                        f"Context: ...{message[max(0, pos-10):pos+11]}..."
+                    )
+                pos += 1
                 
         return errors
-    
-    def _is_allowed_unescaped_char(self, message: str, char: str, pos: int) -> bool:
-        """
-        Check if an unescaped character is allowed in certain contexts.
-        
-        For example:
-        - '*' is allowed for bold formatting if properly paired
-        - '_' is allowed for italic formatting if properly paired
-        - '`' is allowed for code formatting if properly paired
-        """
-        
-        if char in ['*', '_', '`']:
-            # Check if it's part of a proper markdown formatting pair
-            return self._is_proper_markdown_formatting(message, char, pos)
-        
-        return False
-    
-    def _is_proper_markdown_formatting(self, message: str, char: str, pos: int) -> bool:
-        """
-        Check if the character is part of proper markdown formatting.
-        """
-        
-        if char == '*':
-            # Check for bold formatting: *text*
-            # Look ahead to find the closing asterisk
-            rest_of_message = message[pos + 1:]
-            
-            # Find the next asterisk (should be the closing one)
-            next_asterisk_pos = rest_of_message.find('*')
-            if next_asterisk_pos != -1:
-                # Check if there's meaningful text between them
-                between_text = rest_of_message[:next_asterisk_pos].strip()
-                # Valid if there's text and not too many newlines (max 1-2 for titles)
-                if between_text and between_text.count('\n') <= 2:
-                    return True
-            return False
-        
-        if char == '_':
-            # Check for italic formatting: _text_
-            rest_of_message = message[pos + 1:]
-            next_underscore_pos = rest_of_message.find('_')
-            if next_underscore_pos != -1:
-                between_text = rest_of_message[:next_underscore_pos].strip()
-                # Valid if there's text and it's on the same line or just spans a couple words
-                if between_text and between_text.count('\n') == 0:
-                    return True
-            return False
-            
-        if char == '`':
-            # Check for code formatting: `text`
-            rest_of_message = message[pos + 1:]
-            next_backtick_pos = rest_of_message.find('`')
-            if next_backtick_pos != -1:
-                between_text = rest_of_message[:next_backtick_pos]
-                # Code formatting should be on single line and contain text
-                if between_text and '\n' not in between_text:
-                    return True
-            return False
-            
-        return False
 
     def test_common_messages_markdown_v2_formatting(self):
         """Test that common messages used with MARKDOWN_V2 are properly formatted."""
