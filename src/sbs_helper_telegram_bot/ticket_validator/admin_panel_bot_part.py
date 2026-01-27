@@ -301,7 +301,7 @@ async def show_rule_details(query, context: ContextTypes.DEFAULT_TYPE, rule_id: 
         
         # Get ticket types using this rule
         ticket_types = get_ticket_types_for_rule(rule_id)
-        types_text = "\n".join([f"• {escape_markdown(t.type_name)}" for t in ticket_types]) if ticket_types else "Не назначено"
+        types_text = "\n".join([f"• {escape_markdown(t.type_name)}" for t in ticket_types]) if ticket_types else messages.MESSAGE_ADMIN_NOT_ASSIGNED
         
         status = "✅ Активно" if rule.active else "❌ Неактивно"
         toggle_text = "❌ Отключить" if rule.active else "✅ Включить"
@@ -353,7 +353,7 @@ async def toggle_rule(query, context: ContextTypes.DEFAULT_TYPE, rule_id: int) -
         success = toggle_rule_active(rule_id, new_status)
         
         if success:
-            status_text = "включено" if new_status else "отключено"
+            status_text = messages.MESSAGE_ADMIN_ENABLED if new_status else messages.MESSAGE_ADMIN_DISABLED
             await query.edit_message_text(
                 messages.MESSAGE_ADMIN_RULE_TOGGLED.format(
                     name=escape_markdown(rule.rule_name),
@@ -362,7 +362,7 @@ async def toggle_rule(query, context: ContextTypes.DEFAULT_TYPE, rule_id: int) -
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
         else:
-            await query.edit_message_text("❌ Ошибка при обновлении правила\\.")
+            await query.edit_message_text(messages.MESSAGE_ADMIN_ERROR_UPDATING)
         
         return ADMIN_MENU
         
@@ -698,7 +698,7 @@ async def show_ticket_type_rules(query, context: ContextTypes.DEFAULT_TYPE, type
                 for r in rules
             ])
         else:
-            rules_text = "Нет назначенных правил"
+            rules_text = messages.MESSAGE_ADMIN_NO_ASSIGNED_RULES
         
         # Format keywords with weights
         if ticket_type.detection_keywords:
@@ -710,7 +710,7 @@ async def show_ticket_type_rules(query, context: ContextTypes.DEFAULT_TYPE, type
                 keywords_lines.append(f"• {kw_escaped} \\(вес: {weight_escaped}\\)")
             keywords_text = "\n".join(keywords_lines)
         else:
-            keywords_text = "Нет ключевых слов"
+            keywords_text = messages.MESSAGE_ADMIN_NO_KEYWORDS
         
         keyboard = []
         # Add remove buttons for existing rules
@@ -754,7 +754,7 @@ async def show_available_rules_for_type(query, context: ContextTypes.DEFAULT_TYP
         available_rules = [r for r in all_rules if r.id not in assigned_ids]
         
         if not available_rules:
-            await query.answer("Все правила уже добавлены к этому типу", show_alert=True)
+            await query.answer(messages.MESSAGE_ADMIN_ALL_RULES_ADDED, show_alert=True)
             return await show_ticket_type_rules(query, context, type_id)
         
         keyboard = []
@@ -768,7 +768,7 @@ async def show_available_rules_for_type(query, context: ContextTypes.DEFAULT_TYP
         keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=f"type_view_{type_id}")])
         
         await query.edit_message_text(
-            "Выберите правило для добавления:",
+            messages.MESSAGE_ADMIN_SELECT_RULE_TO_ADD,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -788,17 +788,17 @@ async def add_rule_to_type(query, context: ContextTypes.DEFAULT_TYPE, type_id: i
             rule = load_rule_by_id(rule_id)
             
             await query.answer(
-                f"Правило {rule.rule_name if rule else 'ID:'+str(rule_id)} добавлено!",
+                messages.MESSAGE_ADMIN_RULE_ADDED.format(rule_name=rule.rule_name if rule else 'ID:'+str(rule_id)),
                 show_alert=True
             )
         else:
-            await query.answer("Правило уже добавлено", show_alert=True)
+            await query.answer(messages.MESSAGE_ADMIN_RULE_ALREADY_ADDED, show_alert=True)
         
         return await show_ticket_type_rules(query, context, type_id)
         
     except Exception as e:
         logger.error(f"Error adding rule to type: {e}", exc_info=True)
-        await query.answer("Ошибка", show_alert=True)
+        await query.answer(messages.MESSAGE_ADMIN_ERROR, show_alert=True)
         return ADMIN_MENU
 
 
@@ -808,15 +808,15 @@ async def remove_rule_from_type(query, context: ContextTypes.DEFAULT_TYPE, type_
         success = remove_rule_from_ticket_type(rule_id, type_id)
         
         if success:
-            await query.answer("Правило удалено из типа", show_alert=True)
+            await query.answer(messages.MESSAGE_ADMIN_RULE_REMOVED, show_alert=True)
         else:
-            await query.answer("Ошибка при удалении", show_alert=True)
+            await query.answer(messages.MESSAGE_ADMIN_ERROR_REMOVING, show_alert=True)
         
         return await show_ticket_type_rules(query, context, type_id)
         
     except Exception as e:
         logger.error(f"Error removing rule from type: {e}", exc_info=True)
-        await query.answer("Ошибка", show_alert=True)
+        await query.answer(messages.MESSAGE_ADMIN_ERROR, show_alert=True)
         return ADMIN_MENU
 
 
@@ -857,7 +857,7 @@ async def show_rule_ticket_types(query, context: ContextTypes.DEFAULT_TYPE, rule
         
         await query.edit_message_text(
             f"📁 *Типы заявок для правила: {escape_markdown(rule.rule_name)}*\n\n"
-            f"Назначено типов: {len(assigned_types)}",
+            f"{messages.MESSAGE_ADMIN_ASSIGNED_TYPES.format(count=len(assigned_types))}",
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -1079,12 +1079,12 @@ async def show_template_details(query, context: ContextTypes.DEFAULT_TYPE, templ
                 exp_icon = "✅" if exp['expected_pass'] else "❌"
                 rules_list += f"\n{exp_icon} {escape_markdown(exp['rule_name'])}"
         else:
-            rules_list = "Не настроены"
+            rules_list = messages.MESSAGE_ADMIN_NOT_CONFIGURED
         
         status = "✅ Активен" if template['active'] else "❌ Неактивен"
         toggle_text = "❌ Отключить" if template['active'] else "✅ Включить"
         expected_result = "✅ Должен пройти" if template['expected_result'] == 'pass' else "❌ Должен провалиться"
-        ticket_type = template['ticket_type_name'] or "Не указан"
+        ticket_type = template['ticket_type_name'] or messages.MESSAGE_ADMIN_NOT_SPECIFIED
         
         message = messages.MESSAGE_ADMIN_TEMPLATE_DETAILS.format(
             name=escape_markdown(template['template_name']),
@@ -1132,7 +1132,7 @@ async def toggle_template(query, context: ContextTypes.DEFAULT_TYPE, template_id
         success = toggle_test_template_active(template_id, new_status)
         
         if success:
-            status_text = "включен" if new_status else "отключен"
+            status_text = messages.MESSAGE_ADMIN_TEMPLATE_ENABLED if new_status else messages.MESSAGE_ADMIN_TEMPLATE_DISABLED
             await query.edit_message_text(
                 messages.MESSAGE_ADMIN_TEMPLATE_TOGGLED.format(
                     name=escape_markdown(template['template_name']),
@@ -1170,7 +1170,7 @@ async def confirm_delete_template(query, context: ContextTypes.DEFAULT_TYPE, tem
         
         await query.edit_message_text(
             f"⚠️ Вы уверены, что хотите удалить шаблон *{escape_markdown(template['template_name'])}*?\n\n"
-            f"Это удалит все настроенные ожидания правил \\({len(expectations)} ожиданий\\)\\.",
+            f"{messages.MESSAGE_ADMIN_CONFIRM_DELETE_TEMPLATE.format(count=len(expectations))}",
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -1186,7 +1186,7 @@ async def execute_delete_template(query, context: ContextTypes.DEFAULT_TYPE, tem
     """Actually delete the template."""
     try:
         template = load_test_template_by_id(template_id)
-        template_name = template['template_name'] if template else "Неизвестный"
+        template_name = template['template_name'] if template else messages.MESSAGE_ADMIN_UNKNOWN_TEMPLATE
         
         success, expectations_count = delete_test_template(template_id)
         
@@ -1240,11 +1240,11 @@ async def show_template_rules(query, context: ContextTypes.DEFAULT_TYPE, templat
         
         message = f"📋 *Правила шаблона: {escape_markdown(template['template_name'])}*\n\n"
         if expectations:
-            message += f"Настроено правил: {len(expectations)}\n\n"
+            message += messages.MESSAGE_ADMIN_RULES_CONFIGURED.format(count=len(expectations))
             message += "✅ \\= правило должно пройти\n❌ \\= правило должно провалиться\n\n"
-            message += "Нажмите на правило чтобы удалить:"
+            message += messages.MESSAGE_ADMIN_CLICK_RULE_TO_REMOVE
         else:
-            message += "Правила не настроены\\. Добавьте правила для тестирования\\."
+            message += messages.MESSAGE_ADMIN_NO_RULES_CONFIGURED
         
         await query.edit_message_text(
             message,
@@ -1271,7 +1271,7 @@ async def show_available_rules_for_template(query, context: ContextTypes.DEFAULT
         
         if not available_rules:
             await query.edit_message_text(
-                "Все активные правила уже добавлены к этому шаблону\\.",
+                messages.MESSAGE_ADMIN_ALL_RULES_IN_TEMPLATE,
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
             return MANAGE_TEMPLATE_RULES
@@ -1338,12 +1338,12 @@ async def set_rule_expectation(query, context: ContextTypes.DEFAULT_TYPE,
     """Set the expected result for a rule on a template."""
     try:
         rule = load_rule_by_id(rule_id)
-        rule_name = rule.rule_name if rule else "Неизвестное"
+        rule_name = rule.rule_name if rule else messages.MESSAGE_ADMIN_UNKNOWN_RULE
         
         success = set_template_rule_expectation(template_id, rule_id, expected_pass)
         
         if success:
-            expectation = "должно пройти" if expected_pass else "должно провалиться"
+            expectation = messages.MESSAGE_ADMIN_SHOULD_PASS if expected_pass else messages.MESSAGE_ADMIN_SHOULD_FAIL
             await query.edit_message_text(
                 messages.MESSAGE_ADMIN_RULE_EXPECTATION_SET.format(
                     rule_name=escape_markdown(rule_name),
@@ -1370,7 +1370,7 @@ async def remove_rule_from_template(query, context: ContextTypes.DEFAULT_TYPE,
     """Remove a rule expectation from a template."""
     try:
         rule = load_rule_by_id(rule_id)
-        rule_name = rule.rule_name if rule else "Неизвестное"
+        rule_name = rule.rule_name if rule else messages.MESSAGE_ADMIN_UNKNOWN_RULE
         
         success = remove_template_rule_expectation(template_id, rule_id)
         
@@ -1419,8 +1419,8 @@ async def run_single_template_test(query, context: ContextTypes.DEFAULT_TYPE, te
             mismatches = ""
             for detail in result['details']:
                 if not detail['matches_expectation']:
-                    expected = "пройти" if detail['expected_pass'] else "провалиться"
-                    actual = "прошло" if detail['actual_pass'] else "провалилось"
+                    expected = messages.MESSAGE_ADMIN_EXPECTED_PASS if detail['expected_pass'] else messages.MESSAGE_ADMIN_EXPECTED_FAIL
+                    actual = messages.MESSAGE_ADMIN_ACTUAL_PASSED if detail['actual_pass'] else messages.MESSAGE_ADMIN_ACTUAL_FAILED
                     mismatches += f"\n• {escape_markdown(detail['rule_name'])}: ожидалось {expected}, {actual}"
             
             await query.edit_message_text(
@@ -1470,10 +1470,10 @@ async def run_all_tests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         
         if failed == 0:
             status_emoji = "✅"
-            status_text = "Все тесты пройдены\\!"
+            status_text = messages.MESSAGE_ADMIN_ALL_TESTS_PASSED
         else:
             status_emoji = "❌"
-            status_text = f"Провалено тестов: {failed}"
+            status_text = messages.MESSAGE_ADMIN_TESTS_FAILED.format(count=failed)
         
         response = f"{status_emoji} *Результаты тестирования*\n\n"
         response += f"📊 Всего шаблонов: {total}\n"

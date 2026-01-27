@@ -42,6 +42,15 @@ from src.common.messages import (
     MESSAGE_UNRECOGNIZED_INPUT,
     MESSAGE_SETTINGS_MENU,
     MESSAGE_MODULES_MENU,
+    MESSAGE_AVAILABLE_INVITES,
+    MESSAGE_NO_INVITES,
+    MESSAGE_WELCOME_SHORT,
+    MESSAGE_INVITE_ISSUED,
+    MESSAGE_INVITE_ALREADY_USED,
+    MESSAGE_NO_ADMIN_RIGHTS,
+    COMMAND_DESC_START,
+    COMMAND_DESC_MENU,
+    COMMAND_DESC_HELP,
     BUTTON_MODULES,
     BUTTON_SETTINGS,
     BUTTON_MAIN_MENU,
@@ -199,11 +208,11 @@ async def invite_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) ->
 
             result = cursor.fetchall()
             if len(result)>0:
-                await update.message.reply_text("Доступные инвайты:")
+                await update.message.reply_text(MESSAGE_AVAILABLE_INVITES)
                 for row in result:
                     await update.message.reply_text(f'{row["invite"]}')
             else:
-                await update.message.reply_text("У вас нет доступных инвайтов.")
+                await update.message.reply_text(MESSAGE_NO_INVITES)
 
 
 async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -260,10 +269,10 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     if not check_if_user_legit(update.effective_user.id):
         if check_if_invite_entered(update.effective_user.id,text) == InviteStatus.SUCCESS:
             update_user_info_from_telegram(update.effective_user)
-            await update.message.reply_text("Добро пожаловать!")
+            await update.message.reply_text(MESSAGE_WELCOME_SHORT)
             for _ in range(INVITES_PER_NEW_USER):                            
                 invite=invites.generate_invite_for_user(update.effective_user.id)
-                await update.message.reply_text("Вам выдан инвайт. Вы можете им поделиться: "+invite)
+                await update.message.reply_text(MESSAGE_INVITE_ISSUED.format(invite=invite))
             # Show main menu after successful registration
             await update.message.reply_text(
                 MESSAGE_MAIN_MENU,
@@ -274,7 +283,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
             return
         else:
-            await update.message.reply_text("Данный инвайт уже был использован. Пожалуйста, введите другой инвайт.")
+            await update.message.reply_text(MESSAGE_INVITE_ALREADY_USED)
             return
         return
     
@@ -346,7 +355,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             )
         else:
             await update.message.reply_text(
-                "⛔ У вас нет прав администратора\\.",
+                MESSAGE_NO_ADMIN_RIGHTS,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
                 reply_markup=get_main_menu_keyboard()
             )
@@ -384,9 +393,9 @@ async def post_init(application: Application) -> None:
     # Set bot commands for the menu button in Telegram
     # Only core commands are listed - module commands still work but aren't shown
     await application.bot.set_my_commands([
-        BotCommand("start", "Начать работу с ботом"),
-        BotCommand("menu", "Показать главное меню"),
-        BotCommand("help", "Показать справку"),
+        BotCommand("start", COMMAND_DESC_START),
+        BotCommand("menu", COMMAND_DESC_MENU),
+        BotCommand("help", COMMAND_DESC_HELP),
     ])
 
 
