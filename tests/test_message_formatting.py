@@ -23,7 +23,8 @@ from src.common.messages import (
     MESSAGE_MAIN_MENU,
     MESSAGE_SETTINGS_MENU,
     MESSAGE_MODULES_MENU,
-    MESSAGE_UNRECOGNIZED_INPUT
+    MESSAGE_UNRECOGNIZED_INPUT,
+    MESSAGE_NO_ADMIN_RIGHTS,
 )
 from src.sbs_helper_telegram_bot.upos_error.messages import (
     MESSAGE_SUBMENU,
@@ -36,19 +37,67 @@ from src.sbs_helper_telegram_bot.upos_error.messages import (
     MESSAGE_ADMIN_MENU,
     MESSAGE_ADMIN_NOT_AUTHORIZED,
     MESSAGE_ADMIN_ERRORS_LIST_EMPTY,
-    MESSAGE_ADMIN_ERRORS_LIST_HEADER
+    MESSAGE_ADMIN_ERRORS_LIST_HEADER,
+    MESSAGE_SELECT_ACTION,
+    MESSAGE_NO_CATEGORY,
+    MESSAGE_NO_DATA,
+    MESSAGE_USE_LIST_BUTTON,
+    MESSAGE_NO_IMPORT_DATA,
+    MESSAGE_IMPORT_IN_PROGRESS,
+    MESSAGE_AND_MORE,
+    MESSAGE_CSV_ERROR_NO_CODE_COLUMN,
+    MESSAGE_CSV_ERROR_NO_DESC_COLUMN,
+    MESSAGE_CSV_ERROR_NO_ACTIONS_COLUMN,
+    BUTTON_FORWARD,
+    BUTTON_BACK,
+    BUTTON_BACK_TO_MENU,
 )
 from src.sbs_helper_telegram_bot.vyezd_byl.messages import (
     MESSAGE_SUBMENU as VYEZD_MESSAGE_SUBMENU,
     MESSAGE_INSTRUCTIONS,
-    MESSAGE_HELP as VYEZD_MESSAGE_HELP
+    MESSAGE_HELP as VYEZD_MESSAGE_HELP,
+    MESSAGE_PROCESSING_DONE,
 )
 from src.sbs_helper_telegram_bot.ticket_validator.messages import (
     MESSAGE_SEND_TICKET,
     MESSAGE_VALIDATION_CANCELLED,
     MESSAGE_VALIDATION_SUCCESS,
     MESSAGE_VALIDATION_FAILED,
-    MESSAGE_SUBMENU as VALIDATOR_MESSAGE_SUBMENU
+    MESSAGE_SUBMENU as VALIDATOR_MESSAGE_SUBMENU,
+    MESSAGE_ADMIN_NOT_ASSIGNED,
+    MESSAGE_ADMIN_ENABLED,
+    MESSAGE_ADMIN_DISABLED,
+    MESSAGE_ADMIN_NO_ASSIGNED_RULES,
+    MESSAGE_ADMIN_NO_KEYWORDS,
+    MESSAGE_ADMIN_ALL_RULES_ADDED,
+    MESSAGE_ADMIN_SELECT_RULE_TO_ADD,
+    MESSAGE_ADMIN_RULE_ADDED,
+    MESSAGE_ADMIN_RULE_ALREADY_ADDED,
+    MESSAGE_ADMIN_ERROR,
+    MESSAGE_ADMIN_RULE_REMOVED,
+    MESSAGE_ADMIN_ERROR_REMOVING,
+    MESSAGE_ADMIN_NOT_CONFIGURED,
+    MESSAGE_ADMIN_NOT_SPECIFIED,
+    MESSAGE_ADMIN_TEMPLATE_ENABLED,
+    MESSAGE_ADMIN_TEMPLATE_DISABLED,
+    MESSAGE_ADMIN_UNKNOWN_TEMPLATE,
+    MESSAGE_ADMIN_CLICK_RULE_TO_REMOVE,
+    MESSAGE_ADMIN_NO_RULES_CONFIGURED,
+    MESSAGE_ADMIN_ALL_RULES_IN_TEMPLATE,
+    MESSAGE_ADMIN_UNKNOWN_RULE,
+    MESSAGE_ADMIN_SHOULD_PASS,
+    MESSAGE_ADMIN_SHOULD_FAIL,
+    MESSAGE_ADMIN_EXPECTED_PASS,
+    MESSAGE_ADMIN_EXPECTED_FAIL,
+    MESSAGE_ADMIN_ACTUAL_PASSED,
+    MESSAGE_ADMIN_ACTUAL_FAILED,
+    MESSAGE_ADMIN_ALL_TESTS_PASSED,
+    MESSAGE_ADMIN_RULE_NOT_FOUND,
+    MESSAGE_ADMIN_ERROR_UPDATING,
+    MESSAGE_NO_TICKET_TYPES,
+    MESSAGE_NO_RULES_CONFIGURED,
+    MESSAGE_VALIDATION_ERROR,
+    MESSAGE_RUNNING_TESTS,
 )
 
 
@@ -196,7 +245,8 @@ class TestMarkdownV2Formatting(unittest.TestCase):
             (MESSAGE_WELCOME, "MESSAGE_WELCOME"),
             (MESSAGE_MAIN_HELP, "MESSAGE_MAIN_HELP"),
             (MESSAGE_PLEASE_ENTER_INVITE, "MESSAGE_PLEASE_ENTER_INVITE"),
-            (MESSAGE_UNRECOGNIZED_INPUT, "MESSAGE_UNRECOGNIZED_INPUT")
+            (MESSAGE_UNRECOGNIZED_INPUT, "MESSAGE_UNRECOGNIZED_INPUT"),
+            (MESSAGE_NO_ADMIN_RIGHTS, "MESSAGE_NO_ADMIN_RIGHTS"),
         ]
         
         all_errors = []
@@ -220,6 +270,10 @@ class TestMarkdownV2Formatting(unittest.TestCase):
             (MESSAGE_ADMIN_MENU, "MESSAGE_ADMIN_MENU"),
             (MESSAGE_ADMIN_NOT_AUTHORIZED, "MESSAGE_ADMIN_NOT_AUTHORIZED"),
             (MESSAGE_ADMIN_ERRORS_LIST_EMPTY, "MESSAGE_ADMIN_ERRORS_LIST_EMPTY"),
+            (MESSAGE_USE_LIST_BUTTON, "MESSAGE_USE_LIST_BUTTON"),
+            (MESSAGE_NO_IMPORT_DATA, "MESSAGE_NO_IMPORT_DATA"),
+            (MESSAGE_IMPORT_IN_PROGRESS, "MESSAGE_IMPORT_IN_PROGRESS"),
+            (MESSAGE_AND_MORE, "MESSAGE_AND_MORE"),
         ]
         
         all_errors = []
@@ -257,6 +311,15 @@ class TestMarkdownV2Formatting(unittest.TestCase):
             (MESSAGE_VALIDATION_CANCELLED, "MESSAGE_VALIDATION_CANCELLED"),
             (MESSAGE_VALIDATION_SUCCESS, "MESSAGE_VALIDATION_SUCCESS"),
             (VALIDATOR_MESSAGE_SUBMENU, "VALIDATOR_MESSAGE_SUBMENU"),
+            (MESSAGE_ADMIN_NO_RULES_CONFIGURED, "MESSAGE_ADMIN_NO_RULES_CONFIGURED"),
+            (MESSAGE_ADMIN_ALL_RULES_IN_TEMPLATE, "MESSAGE_ADMIN_ALL_RULES_IN_TEMPLATE"),
+            (MESSAGE_ADMIN_ALL_TESTS_PASSED, "MESSAGE_ADMIN_ALL_TESTS_PASSED"),
+            (MESSAGE_ADMIN_RULE_NOT_FOUND, "MESSAGE_ADMIN_RULE_NOT_FOUND"),
+            (MESSAGE_ADMIN_ERROR_UPDATING, "MESSAGE_ADMIN_ERROR_UPDATING"),
+            (MESSAGE_NO_TICKET_TYPES, "MESSAGE_NO_TICKET_TYPES"),
+            (MESSAGE_NO_RULES_CONFIGURED, "MESSAGE_NO_RULES_CONFIGURED"),
+            (MESSAGE_VALIDATION_ERROR, "MESSAGE_VALIDATION_ERROR"),
+            (MESSAGE_RUNNING_TESTS, "MESSAGE_RUNNING_TESTS"),
         ]
         
         all_errors = []
@@ -311,6 +374,64 @@ class TestMarkdownV2Formatting(unittest.TestCase):
             # Should have bold formatting
             if '*' not in message:
                 self.fail(f"Menu message {i} should have bold formatting")
+    
+    def test_plain_text_messages_no_escaping(self):
+        """Test that plain text messages (used without parse_mode) don't have escape sequences."""
+        
+        # These messages are displayed as plain text, so they should NOT have
+        # backslash escape sequences that would look wrong to users
+        plain_text_messages = [
+            # UPOS error module - plain text messages
+            (MESSAGE_SELECT_ACTION, "MESSAGE_SELECT_ACTION"),
+            (MESSAGE_NO_CATEGORY, "MESSAGE_NO_CATEGORY"),
+            (MESSAGE_NO_DATA, "MESSAGE_NO_DATA"),
+            (MESSAGE_CSV_ERROR_NO_CODE_COLUMN, "MESSAGE_CSV_ERROR_NO_CODE_COLUMN"),
+            (MESSAGE_CSV_ERROR_NO_DESC_COLUMN, "MESSAGE_CSV_ERROR_NO_DESC_COLUMN"),
+            (MESSAGE_CSV_ERROR_NO_ACTIONS_COLUMN, "MESSAGE_CSV_ERROR_NO_ACTIONS_COLUMN"),
+            (BUTTON_FORWARD, "BUTTON_FORWARD"),
+            (BUTTON_BACK, "BUTTON_BACK"),
+            (BUTTON_BACK_TO_MENU, "BUTTON_BACK_TO_MENU"),
+            # Ticket validator module - plain text messages  
+            (MESSAGE_ADMIN_NOT_ASSIGNED, "MESSAGE_ADMIN_NOT_ASSIGNED"),
+            (MESSAGE_ADMIN_ENABLED, "MESSAGE_ADMIN_ENABLED"),
+            (MESSAGE_ADMIN_DISABLED, "MESSAGE_ADMIN_DISABLED"),
+            (MESSAGE_ADMIN_NO_ASSIGNED_RULES, "MESSAGE_ADMIN_NO_ASSIGNED_RULES"),
+            (MESSAGE_ADMIN_NO_KEYWORDS, "MESSAGE_ADMIN_NO_KEYWORDS"),
+            (MESSAGE_ADMIN_ALL_RULES_ADDED, "MESSAGE_ADMIN_ALL_RULES_ADDED"),
+            (MESSAGE_ADMIN_SELECT_RULE_TO_ADD, "MESSAGE_ADMIN_SELECT_RULE_TO_ADD"),
+            (MESSAGE_ADMIN_RULE_ALREADY_ADDED, "MESSAGE_ADMIN_RULE_ALREADY_ADDED"),
+            (MESSAGE_ADMIN_ERROR, "MESSAGE_ADMIN_ERROR"),
+            (MESSAGE_ADMIN_RULE_REMOVED, "MESSAGE_ADMIN_RULE_REMOVED"),
+            (MESSAGE_ADMIN_ERROR_REMOVING, "MESSAGE_ADMIN_ERROR_REMOVING"),
+            (MESSAGE_ADMIN_NOT_CONFIGURED, "MESSAGE_ADMIN_NOT_CONFIGURED"),
+            (MESSAGE_ADMIN_NOT_SPECIFIED, "MESSAGE_ADMIN_NOT_SPECIFIED"),
+            (MESSAGE_ADMIN_TEMPLATE_ENABLED, "MESSAGE_ADMIN_TEMPLATE_ENABLED"),
+            (MESSAGE_ADMIN_TEMPLATE_DISABLED, "MESSAGE_ADMIN_TEMPLATE_DISABLED"),
+            (MESSAGE_ADMIN_UNKNOWN_TEMPLATE, "MESSAGE_ADMIN_UNKNOWN_TEMPLATE"),
+            (MESSAGE_ADMIN_CLICK_RULE_TO_REMOVE, "MESSAGE_ADMIN_CLICK_RULE_TO_REMOVE"),
+            (MESSAGE_ADMIN_UNKNOWN_RULE, "MESSAGE_ADMIN_UNKNOWN_RULE"),
+            (MESSAGE_ADMIN_SHOULD_PASS, "MESSAGE_ADMIN_SHOULD_PASS"),
+            (MESSAGE_ADMIN_SHOULD_FAIL, "MESSAGE_ADMIN_SHOULD_FAIL"),
+            (MESSAGE_ADMIN_EXPECTED_PASS, "MESSAGE_ADMIN_EXPECTED_PASS"),
+            (MESSAGE_ADMIN_EXPECTED_FAIL, "MESSAGE_ADMIN_EXPECTED_FAIL"),
+            (MESSAGE_ADMIN_ACTUAL_PASSED, "MESSAGE_ADMIN_ACTUAL_PASSED"),
+            (MESSAGE_ADMIN_ACTUAL_FAILED, "MESSAGE_ADMIN_ACTUAL_FAILED"),
+            # Vyezd byl module - plain text message
+            (MESSAGE_PROCESSING_DONE, "MESSAGE_PROCESSING_DONE"),
+        ]
+        
+        errors = []
+        
+        for message, name in plain_text_messages:
+            # Plain text messages should not have backslash escaping
+            if '\\' in message:
+                errors.append(
+                    f"{name}: Plain text message contains escape character '\\'. "
+                    f"Value: {message[:50]}..."
+                )
+        
+        if errors:
+            self.fail("Plain text messages with unexpected escaping found:\n" + "\n".join(errors))
 
 
 class TestMessageIntegration(unittest.TestCase):
@@ -330,11 +451,42 @@ class TestMessageIntegration(unittest.TestCase):
         # List of all message constants that are used with MARKDOWN_V2 in the codebase
         # (This would need to be updated when new messages are added)
         known_markdown_v2_messages = {
+            # Common messages
             'MESSAGE_WELCOME',
             'MESSAGE_MAIN_HELP',
             'MESSAGE_PLEASE_ENTER_INVITE',
             'MESSAGE_UNRECOGNIZED_INPUT',
-            # Add more as they're identified
+            'MESSAGE_NO_ADMIN_RIGHTS',
+            # UPOS error messages
+            'MESSAGE_SUBMENU',
+            'MESSAGE_ENTER_ERROR_CODE',
+            'MESSAGE_SEARCH_CANCELLED',
+            'MESSAGE_INVALID_ERROR_CODE',
+            'MESSAGE_NO_POPULAR_ERRORS',
+            'MESSAGE_ADMIN_MENU',
+            'MESSAGE_ADMIN_NOT_AUTHORIZED',
+            'MESSAGE_ADMIN_ERRORS_LIST_EMPTY',
+            'MESSAGE_USE_LIST_BUTTON',
+            'MESSAGE_NO_IMPORT_DATA',
+            'MESSAGE_IMPORT_IN_PROGRESS',
+            'MESSAGE_AND_MORE',
+            # Ticket validator messages
+            'MESSAGE_SEND_TICKET',
+            'MESSAGE_VALIDATION_CANCELLED',
+            'MESSAGE_VALIDATION_SUCCESS',
+            'MESSAGE_ADMIN_NO_RULES_CONFIGURED',
+            'MESSAGE_ADMIN_ALL_RULES_IN_TEMPLATE',
+            'MESSAGE_ADMIN_ALL_TESTS_PASSED',
+            'MESSAGE_ADMIN_RULE_NOT_FOUND',
+            'MESSAGE_ADMIN_ERROR_UPDATING',
+            'MESSAGE_NO_TICKET_TYPES',
+            'MESSAGE_NO_RULES_CONFIGURED',
+            'MESSAGE_VALIDATION_ERROR',
+            'MESSAGE_RUNNING_TESTS',
+            # Vyezd byl messages
+            'VYEZD_MESSAGE_SUBMENU',
+            'MESSAGE_INSTRUCTIONS',
+            'VYEZD_MESSAGE_HELP',
         }
         
         # In a real implementation, you might scan the codebase for

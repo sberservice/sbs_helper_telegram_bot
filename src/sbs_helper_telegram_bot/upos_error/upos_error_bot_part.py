@@ -358,13 +358,13 @@ def parse_csv_error_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[
                 category_col = reader.fieldnames[i]
         
         if not code_col:
-            errors.append("Не найден столбец с кодом ошибки. Ожидаемые названия: error_code, код, код_ошибки, code")
+            errors.append(messages.MESSAGE_CSV_ERROR_NO_CODE_COLUMN)
             return [], errors
         if not desc_col:
-            errors.append("Не найден столбец с описанием. Ожидаемые названия: description, описание, desc")
+            errors.append(messages.MESSAGE_CSV_ERROR_NO_DESC_COLUMN)
             return [], errors
         if not actions_col:
-            errors.append("Не найден столбец с рекомендациями. Ожидаемые названия: suggested_actions, рекомендации, actions")
+            errors.append(messages.MESSAGE_CSV_ERROR_NO_ACTIONS_COLUMN)
             return [], errors
         
         for row_num, row in enumerate(reader, start=2):  # Start from 2 (header is row 1)
@@ -376,19 +376,19 @@ def parse_csv_error_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[
                 
                 # Validate required fields
                 if not error_code:
-                    errors.append(f"Строка {row_num}: пустой код ошибки")
+                    errors.append(messages.MESSAGE_CSV_ERROR_EMPTY_CODE.format(row=row_num))
                     continue
                 
                 if len(error_code) > 50:
-                    errors.append(f"Строка {row_num}: код ошибки '{error_code[:20]}...' слишком длинный (макс. 50 символов)")
+                    errors.append(messages.MESSAGE_CSV_ERROR_CODE_TOO_LONG.format(row=row_num, code=error_code[:20]))
                     continue
                 
                 if not description:
-                    errors.append(f"Строка {row_num}: пустое описание для кода '{error_code}'")
+                    errors.append(messages.MESSAGE_CSV_ERROR_EMPTY_DESC.format(row=row_num, code=error_code))
                     continue
                 
                 if not suggested_actions:
-                    errors.append(f"Строка {row_num}: пустые рекомендации для кода '{error_code}'")
+                    errors.append(messages.MESSAGE_CSV_ERROR_EMPTY_ACTIONS.format(row=row_num, code=error_code))
                     continue
                 
                 valid_records.append({
@@ -399,12 +399,12 @@ def parse_csv_error_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[
                 })
                 
             except Exception as e:
-                errors.append(f"Строка {row_num}: ошибка обработки - {str(e)}")
+                errors.append(messages.MESSAGE_CSV_ERROR_ROW_PROCESSING.format(row=row_num, error=str(e)))
                 
     except csv.Error as e:
-        errors.append(f"Ошибка парсинга CSV: {str(e)}")
+        errors.append(messages.MESSAGE_CSV_ERROR_PARSE.format(error=str(e)))
     except Exception as e:
-        errors.append(f"Неожиданная ошибка: {str(e)}")
+        errors.append(messages.MESSAGE_CSV_ERROR_UNEXPECTED.format(error=str(e)))
     
     return valid_records, errors
 
@@ -463,7 +463,7 @@ def import_error_codes_from_csv(records: List[dict], skip_existing: bool = True)
             
         except Exception as e:
             result.error_count += 1
-            result.errors.append(f"Ошибка импорта '{record.get('error_code', '?')}': {str(e)}")
+            result.errors.append(messages.MESSAGE_CSV_ERROR_IMPORT.format(code=record.get('error_code', '?'), error=str(e)))
     
     return result
 
@@ -707,7 +707,7 @@ async def process_error_code_input(update: Update, context: ContextTypes.DEFAULT
         keyboard = keyboards.get_submenu_keyboard()
     
     await update.message.reply_text(
-        "Выберите действие:",
+        messages.MESSAGE_SELECT_ACTION,
         reply_markup=keyboard
     )
     
@@ -1055,7 +1055,7 @@ async def _create_error_code(update_or_query, context: ContextTypes.DEFAULT_TYPE
     create_error_code(error_code, description, suggested_actions, category_id)
     
     # Get category name for response
-    category_name = "Без категории"
+    category_name = messages.MESSAGE_NO_CATEGORY
     if category_id:
         cat = get_category_by_id(category_id)
         if cat:
@@ -1087,7 +1087,7 @@ async def _create_error_code(update_or_query, context: ContextTypes.DEFAULT_TYPE
         # Send new message with keyboard
         await context.bot.send_message(
             chat_id=update_or_query.message.chat_id,
-            text="Выберите действие:",
+            text=messages.MESSAGE_SELECT_ACTION,
             reply_markup=keyboards.get_admin_menu_keyboard()
         )
     
@@ -1132,7 +1132,7 @@ async def admin_show_categories(update: Update, context: ContextTypes.DEFAULT_TY
     )
     
     await update.message.reply_text(
-        "Выберите действие:",
+        messages.MESSAGE_SELECT_ACTION,
         reply_markup=keyboards.get_admin_categories_keyboard()
     )
     
@@ -1191,7 +1191,7 @@ async def admin_show_statistics(update: Update, context: ContextTypes.DEFAULT_TY
             escaped_code = messages.escape_markdown_v2(code_info['error_code'])
             top_codes_text += f"{i}\\. `{escaped_code}` \\({code_info['cnt']}x\\)\n"
     else:
-        top_codes_text = "Нет данных"
+        top_codes_text = messages.MESSAGE_NO_DATA
     
     text = messages.MESSAGE_ADMIN_STATS.format(
         total_codes=stats['total_codes'],
@@ -1302,7 +1302,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     # Back to errors list
     elif data == "upos_errors_list":
         # Can't show full list in callback, just acknowledge
-        await query.edit_message_text("Используйте кнопку «📋 Список ошибок» для просмотра списка\\.")
+        await query.edit_message_text(messages.MESSAGE_USE_LIST_BUTTON)
         return ADMIN_MENU
     
     # Back to admin menu
@@ -1513,7 +1513,7 @@ async def admin_confirm_update_date_callback(update: Update, context: ContextTyp
     
     await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text="Выберите действие:",
+        text=messages.MESSAGE_SELECT_ACTION,
         reply_markup=keyboards.get_admin_menu_keyboard()
     )
     
@@ -1746,7 +1746,7 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
             escaped_errors = [messages.escape_markdown_v2(e) for e in parse_errors[:5]]
             preview_text += '\n'.join(f"• {e}" for e in escaped_errors)
             if len(parse_errors) > 5:
-                preview_text += f"\n\\.\\.\\. и ещё {len(parse_errors) - 5}"
+                preview_text += messages.MESSAGE_AND_MORE.format(count=len(parse_errors) - 5)
         
         await update.message.reply_text(
             preview_text,
@@ -1785,7 +1785,7 @@ async def admin_csv_import_callback(update: Update, context: ContextTypes.DEFAUL
         )
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text="Выберите действие:",
+            text=messages.MESSAGE_SELECT_ACTION,
             reply_markup=keyboards.get_admin_menu_keyboard()
         )
         return ADMIN_MENU
@@ -1810,13 +1810,13 @@ async def _perform_csv_import(query, context: ContextTypes.DEFAULT_TYPE, skip_ex
     
     if not records:
         await query.edit_message_text(
-            "❌ Нет данных для импорта\\.",
+            messages.MESSAGE_NO_IMPORT_DATA,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return ADMIN_MENU
     
     await query.edit_message_text(
-        "⏳ *Импорт данных\\.\\.\\.*\n\nПожалуйста, подождите\\.",
+        messages.MESSAGE_IMPORT_IN_PROGRESS,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     
@@ -1835,7 +1835,7 @@ async def _perform_csv_import(query, context: ContextTypes.DEFAULT_TYPE, skip_ex
         escaped_errors = [messages.escape_markdown_v2(e) for e in result.errors[:5]]
         result_text += '\n'.join(f"• {e}" for e in escaped_errors)
         if len(result.errors) > 5:
-            result_text += f"\n\\.\\.\\. и ещё {len(result.errors) - 5}"
+            result_text += messages.MESSAGE_AND_MORE.format(count=len(result.errors) - 5)
     
     await query.edit_message_text(
         result_text,
@@ -1844,7 +1844,7 @@ async def _perform_csv_import(query, context: ContextTypes.DEFAULT_TYPE, skip_ex
     
     await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text="Выберите действие:",
+        text=messages.MESSAGE_SELECT_ACTION,
         reply_markup=keyboards.get_admin_menu_keyboard()
     )
     

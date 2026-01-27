@@ -169,6 +169,39 @@ MESSAGE_ADMIN_CSV_IMPORT_RESULT = """✅ *Импорт завершён\\!*
 MESSAGE_ADMIN_CSV_PROCESS_ERROR = "❌ Ошибка обработки файла\\: {error}"
 
 
+# ===== CSV PARSING ERROR MESSAGES =====
+
+MESSAGE_CSV_ERROR_NO_CODE_COLUMN = "Не найден столбец с кодом ошибки. Ожидаемые названия: error_code, код, код_ошибки, code"
+MESSAGE_CSV_ERROR_NO_DESC_COLUMN = "Не найден столбец с описанием. Ожидаемые названия: description, описание, desc"
+MESSAGE_CSV_ERROR_NO_ACTIONS_COLUMN = "Не найден столбец с рекомендациями. Ожидаемые названия: suggested_actions, рекомендации, actions"
+MESSAGE_CSV_ERROR_EMPTY_CODE = "Строка {row}: пустой код ошибки"
+MESSAGE_CSV_ERROR_CODE_TOO_LONG = "Строка {row}: код ошибки '{code}...' слишком длинный (макс. 50 символов)"
+MESSAGE_CSV_ERROR_EMPTY_DESC = "Строка {row}: пустое описание для кода '{code}'"
+MESSAGE_CSV_ERROR_EMPTY_ACTIONS = "Строка {row}: пустые рекомендации для кода '{code}'"
+MESSAGE_CSV_ERROR_ROW_PROCESSING = "Строка {row}: ошибка обработки - {error}"
+MESSAGE_CSV_ERROR_PARSE = "Ошибка парсинга CSV: {error}"
+MESSAGE_CSV_ERROR_UNEXPECTED = "Неожиданная ошибка: {error}"
+MESSAGE_CSV_ERROR_IMPORT = "Ошибка импорта '{code}': {error}"
+
+
+# ===== COMMON UI MESSAGES =====
+
+MESSAGE_SELECT_ACTION = "Выберите действие:"
+MESSAGE_NO_CATEGORY = "Без категории"
+MESSAGE_NO_DATA = "Нет данных"
+MESSAGE_USE_LIST_BUTTON = "Используйте кнопку «📋 Список ошибок» для просмотра списка\\."
+MESSAGE_NO_IMPORT_DATA = "❌ Нет данных для импорта\\."
+MESSAGE_IMPORT_IN_PROGRESS = "⏳ *Импорт данных\\.\\.\\.*\n\nПожалуйста, подождите\\."
+MESSAGE_AND_MORE = "\\.\\.\\. и ещё {count}"
+
+
+# ===== KEYBOARD BUTTON LABELS =====
+
+BUTTON_FORWARD = "Вперёд ➡️"
+BUTTON_BACK = "⬅️ Назад"
+BUTTON_BACK_TO_MENU = "🔙 Назад в меню"
+
+
 # ===== HELPER FUNCTIONS =====
 
 def escape_markdown_v2(text: str) -> str:

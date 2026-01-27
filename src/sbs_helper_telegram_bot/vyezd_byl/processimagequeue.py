@@ -43,6 +43,7 @@ from src.common.constants.errorcodes import (
     ERROR_MESSAGES,
     ERR_UNKNOWN_FORMAT,
 )
+from src.sbs_helper_telegram_bot.vyezd_byl import messages
 from config.settings import (
     MIN_UPLOADED_IMAGE_HEIGHT,
     MIN_UPLOADED_IMAGE_WIDTH,
@@ -292,7 +293,7 @@ def generate_image(user_id, file_name) -> bool:
 
     chat_id = user_id
     local_image_path = IMAGES_DIR / file_name
-    caption = "Готово!"
+    caption = messages.MESSAGE_PROCESSING_DONE
 
     api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument"
 

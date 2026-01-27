@@ -106,12 +106,9 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Check for ambiguous detection (multiple types with same score)
         if debug_info and debug_info.has_ambiguity:
             ambiguous_names = ", ".join([_escape_md(tt.type_name) for tt in debug_info.ambiguous_types])
-            warning_message = (
-                f"⚠️ *Предупреждение: неоднозначный тип заявки*\n\n"
-                f"Несколько типов заявок получили одинаковый балл:\n"
-                f"{ambiguous_names}\n\n"
-                f"Используется первый тип: _{_escape_md(detected_type.type_name)}_\n\n"
-                f"Пожалуйста, уточните заявку или обратитесь к администратору для настройки ключевых слов\\."
+            warning_message = messages.MESSAGE_AMBIGUOUS_TYPE_WARNING.format(
+                types=ambiguous_names,
+                detected_type=_escape_md(detected_type.type_name)
             )
             await update.message.reply_text(
                 warning_message,
@@ -124,14 +121,9 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             supported_types = "\n".join([
                 f"• _{_escape_md(tt.type_name)}_"
                 for tt in ticket_types
-            ]) if ticket_types else "Нет доступных типов заявок\\."
+            ]) if ticket_types else messages.MESSAGE_NO_TICKET_TYPES
             
-            error_message = (
-                "⚠️ *Не удалось определить тип заявки для проверки*\n\n"
-                "Пожалуйста, убедитесь что заявка соответствует одному из известных форматов\\.\n\n"
-                "*Поддерживаемые на данный момент типы заявок:*\n"
-                f"{supported_types}"
-            )
+            error_message = messages.MESSAGE_TYPE_NOT_DETECTED.format(types=supported_types)
             
             await update.message.reply_text(
                 error_message,
@@ -144,7 +136,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         if not rules:
             await update.message.reply_text(
-                "⚠️ Правила валидации не настроены\\. Обратитесь к администратору\\.",
+                messages.MESSAGE_NO_RULES_CONFIGURED,
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
             return ConversationHandler.END
@@ -183,7 +175,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.error(f"Error validating ticket: {e}", exc_info=True)
         await update.message.reply_text(
-            "❌ Произошла ошибка при валидации\\. Попробуйте позже\\.",
+            messages.MESSAGE_VALIDATION_ERROR,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
     
@@ -223,7 +215,7 @@ async def run_test_templates_command(update: Update, context: ContextTypes.DEFAU
     try:
         # Send "running tests" message
         await update.message.reply_text(
-            "🧪 *Запуск тестов шаблонов\\.\\.\\.*",
+            messages.MESSAGE_RUNNING_TESTS,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         
@@ -232,8 +224,7 @@ async def run_test_templates_command(update: Update, context: ContextTypes.DEFAU
         
         if not results['results']:
             await update.message.reply_text(
-                "⚠️ *Тестовые шаблоны не найдены*\n\n"
-                "Создайте тестовые шаблоны в админ\\-панели\\.",
+                messages.MESSAGE_NO_TEST_TEMPLATES,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
                 reply_markup=get_admin_submenu_keyboard()
             )
@@ -246,10 +237,10 @@ async def run_test_templates_command(update: Update, context: ContextTypes.DEFAU
         
         if failed == 0:
             status_emoji = "✅"
-            status_text = "Все тесты пройдены\\!"
+            status_text = messages.MESSAGE_ADMIN_ALL_TESTS_PASSED
         else:
             status_emoji = "❌"
-            status_text = f"Провалено тестов: {failed}"
+            status_text = messages.MESSAGE_ADMIN_TESTS_FAILED.format(count=failed)
         
         response = f"{status_emoji} *Результаты тестирования*\n\n"
         response += f"📊 Всего шаблонов: {total}\n"

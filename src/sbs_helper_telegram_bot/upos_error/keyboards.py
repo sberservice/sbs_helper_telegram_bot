@@ -7,6 +7,7 @@ Telegram keyboard builders for the UPOS error code lookup module.
 from typing import List, Optional
 from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from . import settings
+from . import messages
 
 
 def get_submenu_keyboard() -> ReplyKeyboardMarkup:
@@ -120,18 +121,18 @@ def get_error_codes_inline_keyboard(
     nav_buttons = []
     if page > 1:
         nav_buttons.append(
-            InlineKeyboardButton("⬅️ Назад", callback_data=f"upos_page_{page-1}")
+            InlineKeyboardButton(messages.BUTTON_BACK, callback_data=f"upos_page_{page-1}")
         )
     if page < total_pages:
         nav_buttons.append(
-            InlineKeyboardButton("Вперёд ➡️", callback_data=f"upos_page_{page+1}")
+            InlineKeyboardButton(messages.BUTTON_FORWARD, callback_data=f"upos_page_{page+1}")
         )
     if nav_buttons:
         keyboard.append(nav_buttons)
     
     # Back button
     keyboard.append([
-        InlineKeyboardButton("🔙 Назад в меню", callback_data="upos_admin_menu")
+        InlineKeyboardButton(messages.BUTTON_BACK_TO_MENU, callback_data="upos_admin_menu")
     ])
     
     return InlineKeyboardMarkup(keyboard)
@@ -180,11 +181,11 @@ def get_categories_inline_keyboard(
     nav_buttons = []
     if page > 1:
         nav_buttons.append(
-            InlineKeyboardButton("⬅️ Назад", callback_data=f"upos_cat_page_{page-1}")
+            InlineKeyboardButton(messages.BUTTON_BACK, callback_data=f"upos_cat_page_{page-1}")
         )
     if page < total_pages:
         nav_buttons.append(
-            InlineKeyboardButton("Вперёд ➡️", callback_data=f"upos_cat_page_{page+1}")
+            InlineKeyboardButton(messages.BUTTON_FORWARD, callback_data=f"upos_cat_page_{page+1}")
         )
     if nav_buttons:
         keyboard.append(nav_buttons)
@@ -192,7 +193,7 @@ def get_categories_inline_keyboard(
     # Back button (not for selection mode)
     if not for_selection:
         keyboard.append([
-            InlineKeyboardButton("🔙 Назад в меню", callback_data="upos_admin_menu")
+            InlineKeyboardButton(messages.BUTTON_BACK_TO_MENU, callback_data="upos_admin_menu")
         ])
     
     return InlineKeyboardMarkup(keyboard)
@@ -300,17 +301,17 @@ def get_unknown_codes_inline_keyboard(
     nav_buttons = []
     if page > 1:
         nav_buttons.append(
-            InlineKeyboardButton("⬅️ Назад", callback_data=f"upos_unknown_page_{page-1}")
+            InlineKeyboardButton(messages.BUTTON_BACK, callback_data=f"upos_unknown_page_{page-1}")
         )
     if page < total_pages:
         nav_buttons.append(
-            InlineKeyboardButton("Вперёд ➡️", callback_data=f"upos_unknown_page_{page+1}")
+            InlineKeyboardButton(messages.BUTTON_FORWARD, callback_data=f"upos_unknown_page_{page+1}")
         )
     if nav_buttons:
         keyboard.append(nav_buttons)
     
     keyboard.append([
-        InlineKeyboardButton("🔙 Назад в меню", callback_data="upos_admin_menu")
+        InlineKeyboardButton(messages.BUTTON_BACK_TO_MENU, callback_data="upos_admin_menu")
     ])
     
     return InlineKeyboardMarkup(keyboard)
