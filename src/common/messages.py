@@ -28,7 +28,7 @@ MESSAGE_MAIN_HELP = """❓ *Помощь*
 Обрабатывает скриншоты карт\. Отправьте изображение как файл \\(не фото\\), и бот выполнит необходимую обработку\.
 
 *🔢 UPOS Ошибки*
-Поиск кодов ошибок системы UPOS с подробными описаниями и рекомендациями по устранению\. Используйте команду /upos или кнопку в меню\.
+Поиск кодов ошибок системы UPOS с подробными описаниями и рекомендациями по устранению\.
 
 *🎫 Мои инвайты*
 Показывает ваши доступные инвайт\-коды, которыми вы можете поделиться с другими пользователями для предоставления доступа к боту\.
@@ -36,15 +36,32 @@ MESSAGE_MAIN_HELP = """❓ *Помощь*
 *Основные команды бота:*
 • `/start` \\- начать работу с ботом
 • `/menu` \\- показать главное меню
-• `/upos` \\- поиск кодов ошибок UPOS
-• `/invite` \- показать инвайт\-коды
+• `/help` \\- показать эту справку
 
 📚 *GitHub:* https://github.com/sberservice/sbs_helper_telegram_bot"""
+
+# Settings menu message
+MESSAGE_SETTINGS_MENU = "⚙️ *Настройки*\n\nВыберите действие:"
+
+# Modules menu message
+MESSAGE_MODULES_MENU = "📦 *Модули*\n\nВыберите модуль:"
+
+# Button labels for main menu
+BUTTON_MODULES = "📦 Модули"
+BUTTON_SETTINGS = "⚙️ Настройки"
+BUTTON_MAIN_MENU = "🏠 Главное меню"
+BUTTON_MY_INVITES = "🎫 Мои инвайты"
+BUTTON_HELP = "❓ Помощь"
+
+# Module buttons
+BUTTON_VALIDATE_TICKET = "✅ Валидация заявок"
+BUTTON_SCREENSHOT = "📸 Обработать скриншот"
+BUTTON_UPOS_ERRORS = "🔢 UPOS Ошибки"
 
 
 def get_main_menu_keyboard(extra_buttons=None):
     """
-    Build main menu keyboard with all bot functions.
+    Build main menu keyboard with Modules and Settings buttons.
     
     Args:
         extra_buttons: Optional list of additional buttons to include
@@ -54,11 +71,54 @@ def get_main_menu_keyboard(extra_buttons=None):
     """
     from telegram import ReplyKeyboardMarkup
     
-    # Default buttons that are always shown
+    # Simplified main menu with just Modules and Settings
     buttons = [
-        ["✅ Валидация заявок", "📸 Обработать скриншот"],
-        ["🔢 UPOS Ошибки"],
-        ["🎫 Мои инвайты", "❓ Помощь"]
+        [BUTTON_MODULES, BUTTON_SETTINGS]
+    ]
+    
+    return ReplyKeyboardMarkup(
+        buttons,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True
+    )
+
+
+def get_settings_menu_keyboard():
+    """
+    Build settings menu keyboard with invites, help, and back to main menu.
+    
+    Returns:
+        ReplyKeyboardMarkup for settings menu.
+    """
+    from telegram import ReplyKeyboardMarkup
+    
+    buttons = [
+        [BUTTON_MY_INVITES, BUTTON_HELP],
+        [BUTTON_MAIN_MENU]
+    ]
+    
+    return ReplyKeyboardMarkup(
+        buttons,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True
+    )
+
+
+def get_modules_menu_keyboard():
+    """
+    Build modules menu keyboard with all available bot modules.
+    
+    Returns:
+        ReplyKeyboardMarkup for modules menu.
+    """
+    from telegram import ReplyKeyboardMarkup
+    
+    buttons = [
+        [BUTTON_VALIDATE_TICKET, BUTTON_SCREENSHOT],
+        [BUTTON_UPOS_ERRORS],
+        [BUTTON_MAIN_MENU]
     ]
     
     return ReplyKeyboardMarkup(

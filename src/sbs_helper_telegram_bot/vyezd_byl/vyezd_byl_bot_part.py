@@ -247,11 +247,14 @@ def get_menu_button_exit_pattern() -> str:
     # Buttons that should exit the screenshot module
     exit_buttons = [
         "🏠 Главное меню",
+        "📦 Модули",
+        "⚙️ Настройки",
         "✅ Валидация заявок",
         "🎫 Мои инвайты",
         "❓ Помощь",
         "🔐 Админ панель",
         "📋 Проверить заявку",
+        "🔢 UPOS Ошибки",
     ]
     escaped_buttons = [re.escape(btn) for btn in exit_buttons]
     return "^(" + "|".join(escaped_buttons) + ")$"

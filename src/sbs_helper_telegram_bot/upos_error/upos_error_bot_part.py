@@ -1884,6 +1884,16 @@ def get_menu_button_regex_pattern() -> str:
     for row in settings.ADMIN_CATEGORIES_BUTTONS:
         buttons.extend(row)
     
+    # Add main menu navigation buttons that should also exit the conversation
+    buttons.extend([
+        "📦 Модули",
+        "⚙️ Настройки",
+        "✅ Валидация заявок",
+        "📸 Обработать скриншот",
+        "🎫 Мои инвайты",
+        "❓ Помощь",
+    ])
+    
     # Remove duplicates and escape for regex
     unique_buttons = list(set(buttons))
     escaped = [b.replace("(", "\\(").replace(")", "\\)").replace("+", "\\+") for b in unique_buttons]

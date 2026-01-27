@@ -475,6 +475,14 @@ def get_menu_button_regex_pattern() -> str:
     for button_row in validator_settings.ADMIN_TEMPLATES_BUTTONS:
         all_buttons.update(button_row)
     
+    # Add main menu navigation buttons that should also exit the conversation
+    all_buttons.add("📦 Модули")
+    all_buttons.add("⚙️ Настройки")
+    all_buttons.add("🔢 UPOS Ошибки")
+    all_buttons.add("📸 Обработать скриншот")
+    all_buttons.add("🎫 Мои инвайты")
+    all_buttons.add("❓ Помощь")
+    
     # Remove the validation button itself as it shouldn't cancel itself
     all_buttons.discard("📋 Проверить заявку")
     

@@ -40,7 +40,19 @@ from src.common.messages import (
     MESSAGE_MAIN_MENU,
     MESSAGE_MAIN_HELP,
     MESSAGE_UNRECOGNIZED_INPUT,
+    MESSAGE_SETTINGS_MENU,
+    MESSAGE_MODULES_MENU,
+    BUTTON_MODULES,
+    BUTTON_SETTINGS,
+    BUTTON_MAIN_MENU,
+    BUTTON_MY_INVITES,
+    BUTTON_HELP,
+    BUTTON_VALIDATE_TICKET,
+    BUTTON_SCREENSHOT,
+    BUTTON_UPOS_ERRORS,
     get_main_menu_keyboard,
+    get_settings_menu_keyboard,
+    get_modules_menu_keyboard,
 )
 
 # Import module-specific messages, settings, and keyboards
@@ -212,6 +224,23 @@ async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
+async def help_main_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+        Handles the /help command.
+
+        Shows the main help message to authorized users.
+    """
+    if not check_if_user_legit(update.effective_user.id):
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        return
+    
+    await update.message.reply_text(
+        MESSAGE_MAIN_HELP,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_settings_menu_keyboard()
+    )
+
+
 async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """
         Handles incoming text messages.
@@ -250,13 +279,27 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         return
     
     # Handle menu button presses for authorized users
-    if text == "🏠 Главное меню":
+    if text == BUTTON_MAIN_MENU:
         await update.message.reply_text(
             MESSAGE_MAIN_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_main_menu_keyboard()
         )
-    elif text == "✅ Валидация заявок":
+    elif text == BUTTON_MODULES:
+        # Show modules menu
+        await update.message.reply_text(
+            MESSAGE_MODULES_MENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_modules_menu_keyboard()
+        )
+    elif text == BUTTON_SETTINGS:
+        # Show settings menu
+        await update.message.reply_text(
+            MESSAGE_SETTINGS_MENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_settings_menu_keyboard()
+        )
+    elif text == BUTTON_VALIDATE_TICKET:
         # Show validation submenu (with admin panel if user is admin)
         if check_if_user_admin(update.effective_user.id):
             keyboard = validator_keyboards.get_admin_submenu_keyboard()
@@ -267,22 +310,22 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
-    elif text == " Проверить заявку":
+    elif text == "📋 Проверить заявку":
         await validate_ticket_command(update, _context)
     elif text == "🧪 Тест шаблонов":
         # Admin-only button for quick test template access
         await run_test_templates_command(update, _context)
     elif text == "ℹ️ Помощь по валидации":
         await help_command(update, _context)
-    elif text == "🎫 Мои инвайты":
+    elif text == BUTTON_MY_INVITES:
         await invite_command(update, _context)
-    elif text == "❓ Помощь":
+    elif text == BUTTON_HELP:
         await update.message.reply_text(
             MESSAGE_MAIN_HELP,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=get_settings_menu_keyboard()
         )
-    elif text == "📸 Обработать скриншот" or text == "📸 Отправить скриншот":
+    elif text == BUTTON_SCREENSHOT or text == "📸 Отправить скриншот":
         # These buttons are now handled by the screenshot ConversationHandler
         # This fallback is for safety, but normally the ConversationHandler will catch them
         return await enter_screenshot_module(update, _context)
@@ -307,7 +350,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
                 reply_markup=get_main_menu_keyboard()
             )
-    elif text == "🔢 UPOS Ошибки":
+    elif text == BUTTON_UPOS_ERRORS:
         # Show UPOS error module submenu
         if check_if_user_admin(update.effective_user.id):
             keyboard = upos_keyboards.get_admin_submenu_keyboard()
@@ -335,17 +378,15 @@ async def post_init(application: Application) -> None:
         Post-initialization setup after bot starts.
         
         Sets up bot command menu that appears in Telegram UI.
+        Only core bot commands are shown here - module-specific commands
+        are still functional but not listed in the menu to keep it clean.
     """
     # Set bot commands for the menu button in Telegram
+    # Only core commands are listed - module commands still work but aren't shown
     await application.bot.set_my_commands([
         BotCommand("start", "Начать работу с ботом"),
         BotCommand("menu", "Показать главное меню"),
-        BotCommand("validate", "Проверить заявку"),
-        BotCommand("template", "Шаблоны заявок"),
-        BotCommand("invite", "Мои инвайт-коды"),
-        BotCommand("help_validate", "Помощь по проверке заявок"),
-        BotCommand("debug", "Режим отладки (для админов)"),
-        BotCommand("admin", "Панель администратора"),
+        BotCommand("help", "Показать справку"),
     ])
 
 
@@ -430,6 +471,7 @@ def main() -> None:
     # Register all handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
+    application.add_handler(CommandHandler("help", help_main_command))
     application.add_handler(CommandHandler("invite", invite_command))
     application.add_handler(CommandHandler("help_validate", help_command))
     application.add_handler(CommandHandler("debug", toggle_debug_mode))
