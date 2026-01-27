@@ -47,7 +47,7 @@ MESSAGE_SETTINGS_MENU = "⚙️ *Настройки*\n\nВыберите дей�
 MESSAGE_MODULES_MENU = "⚡ *Функции бота*\n\nВыберите модуль:"
 
 # Button labels for main menu
-BUTTON_MODULES = "⚡ Функции (модули) бота"
+BUTTON_MODULES = "⚡ Начать работу"
 BUTTON_SETTINGS = "⚙️ Настройки"
 BUTTON_MAIN_MENU = "🏠 Главное меню"
 BUTTON_MY_INVITES = "🎫 Мои инвайты"
