@@ -45,6 +45,7 @@ from src.common.messages import (
     MESSAGE_AVAILABLE_INVITES,
     MESSAGE_NO_INVITES,
     MESSAGE_WELCOME_SHORT,
+    MESSAGE_WELCOME_PRE_INVITED,
     MESSAGE_INVITE_ISSUED,
     MESSAGE_INVITE_ALREADY_USED,
     MESSAGE_NO_ADMIN_RIGHTS,
@@ -190,11 +191,34 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """
         Handles the /start command.
 
-        - Verifies the user has a valid invite (via check_if_user_legit() )
-        - If not, replies with the invite-required message and exits
+        - Checks if user is pre-invited (in chat_members) and activates them if needed
+        - Verifies the user has a valid invite (via check_if_user_legit())
+        - If not authorized, replies with the invite-required message and exits
         - Otherwise, updates the user's info from Telegram data and sends the welcome message with main menu
     """
-    if not check_if_user_legit(update.effective_user.id):
+    user_id = update.effective_user.id
+    
+    # Check if this is a pre-invited user who hasn't activated yet
+    if invites.check_if_user_pre_invited(user_id) and not invites.is_pre_invited_user_activated(user_id):
+        # Activate the pre-invited user
+        invites.mark_pre_invited_user_activated(user_id)
+        update_user_info_from_telegram(update.effective_user)
+        
+        # Issue invites to the newly activated pre-invited user
+        await update.message.reply_text(MESSAGE_WELCOME_PRE_INVITED)
+        for _ in range(INVITES_PER_NEW_USER):
+            invite = invites.generate_invite_for_user(user_id)
+            await update.message.reply_text(MESSAGE_INVITE_ISSUED.format(invite=invite))
+        
+        # Show main menu
+        await update.message.reply_text(
+            MESSAGE_MAIN_MENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_main_menu_keyboard()
+        )
+        return
+    
+    if not check_if_user_legit(user_id):
         await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return
 
@@ -270,6 +294,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     """
         Handles incoming text messages.
 
+        - If the user is pre-invited but not yet activated, activates them and welcomes them.
         - If the user is not yet authorized, checks whether the message contains a valid invite code.
         On success: registers the user, issues a number of invite codes
         and sends a welcome message.
@@ -281,13 +306,35 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         return
     
     text = update.message.text
+    user_id = update.effective_user.id
     
-    if not check_if_user_legit(update.effective_user.id):
-        if check_if_invite_entered(update.effective_user.id,text) == InviteStatus.SUCCESS:
+    # First, check if this is a pre-invited user who hasn't activated yet
+    # This takes priority over invite code validation to avoid "wasting" invites
+    if invites.check_if_user_pre_invited(user_id) and not invites.is_pre_invited_user_activated(user_id):
+        # Activate the pre-invited user
+        invites.mark_pre_invited_user_activated(user_id)
+        update_user_info_from_telegram(update.effective_user)
+        
+        # Issue invites to the newly activated pre-invited user
+        await update.message.reply_text(MESSAGE_WELCOME_PRE_INVITED)
+        for _ in range(INVITES_PER_NEW_USER):
+            invite = invites.generate_invite_for_user(user_id)
+            await update.message.reply_text(MESSAGE_INVITE_ISSUED.format(invite=invite))
+        
+        # Show main menu
+        await update.message.reply_text(
+            MESSAGE_MAIN_MENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_main_menu_keyboard()
+        )
+        return
+    
+    if not check_if_user_legit(user_id):
+        if check_if_invite_entered(user_id, text) == InviteStatus.SUCCESS:
             update_user_info_from_telegram(update.effective_user)
             await update.message.reply_text(MESSAGE_WELCOME_SHORT)
             for _ in range(INVITES_PER_NEW_USER):                            
-                invite=invites.generate_invite_for_user(update.effective_user.id)
+                invite = invites.generate_invite_for_user(user_id)
                 await update.message.reply_text(MESSAGE_INVITE_ISSUED.format(invite=invite))
             # Show main menu after successful registration
             await update.message.reply_text(
@@ -295,7 +342,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
                 reply_markup=get_main_menu_keyboard()
             )
-        elif check_if_invite_entered(update.effective_user.id,text) == InviteStatus.NOT_EXISTS:
+        elif check_if_invite_entered(user_id, text) == InviteStatus.NOT_EXISTS:
             await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
             return
         else:

@@ -18,6 +18,7 @@ from telegram.ext import (
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
 from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, MESSAGE_MAIN_MENU, get_main_menu_keyboard
+from src.common import invites as invites_module
 
 # Import module-specific messages and keyboards
 from . import messages
@@ -25,6 +26,7 @@ from .keyboards import (
     get_admin_menu_keyboard,
     get_admin_rules_keyboard,
     get_admin_templates_keyboard,
+    get_admin_preinvite_keyboard,
 )
 from src.sbs_helper_telegram_bot.ticket_validator.validation_rules import (
     load_all_rules,
@@ -83,7 +85,13 @@ logger = logging.getLogger(__name__)
     MANAGE_TEMPLATE_RULES,
     SELECT_RULE_FOR_TEMPLATE,
     SELECT_RULE_EXPECTATION,
-) = range(24)
+    # Pre-invite management states
+    PREINVITE_MENU,
+    PREINVITE_ADD_ID,
+    PREINVITE_ADD_NOTES,
+    PREINVITE_VIEW,
+    PREINVITE_CONFIRM_DELETE,
+) = range(29)
 
 # Rule types for selection
 RULE_TYPES = ['regex', 'regex_not_match', 'required_field', 'format', 'length', 'custom']
@@ -155,7 +163,13 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await start_create_template(update, context)
     elif text == "▶️ Запустить все тесты":
         return await run_all_tests(update, context)
-    elif text == "🔙 Админ меню":
+    elif text == "� Пре-инвайты":
+        return await show_preinvite_menu(update, context)
+    elif text == "📋 Список пре-инвайтов":
+        return await show_preinvite_list(update, context)
+    elif text == "➕ Добавить пользователя":
+        return await start_add_preinvite(update, context)
+    elif text == "�🔙 Админ меню":
         await update.message.reply_text(
             messages.MESSAGE_ADMIN_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -1651,6 +1665,7 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     context.user_data.pop('manage_type_id', None)
     context.user_data.pop('new_template', None)
     context.user_data.pop('manage_template_id', None)
+    context.user_data.pop('new_preinvite', None)
     
     await update.message.reply_text(
         messages.MESSAGE_ADMIN_OPERATION_CANCELLED,
@@ -1658,6 +1673,300 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         reply_markup=get_main_menu_keyboard()
     )
     return ConversationHandler.END
+
+
+# ===== PRE-INVITE MANAGEMENT =====
+
+async def show_preinvite_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show pre-invite management menu."""
+    await update.message.reply_text(
+        messages.MESSAGE_ADMIN_PREINVITE_MENU,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_admin_preinvite_keyboard()
+    )
+    return PREINVITE_MENU
+
+
+async def show_preinvite_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Display list of pre-invited users."""
+    try:
+        users = invites_module.get_pre_invited_users(include_activated=True, limit=50)
+        total_count = invites_module.get_pre_invited_user_count(include_activated=True)
+        
+        if not users:
+            await update.message.reply_text(
+                messages.MESSAGE_ADMIN_PREINVITE_NO_USERS,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=get_admin_preinvite_keyboard()
+            )
+            return PREINVITE_MENU
+        
+        # Build inline keyboard with users
+        keyboard = []
+        for user in users:
+            status = "✅" if user['activated_timestamp'] else "⏳"
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{status} {user['telegram_id']}",
+                    callback_data=f"preinvite_view_{user['telegram_id']}"
+                )
+            ])
+        
+        keyboard.append([
+            InlineKeyboardButton("🔙 Назад", callback_data="preinvite_back")
+        ])
+        
+        await update.message.reply_text(
+            messages.MESSAGE_ADMIN_PREINVITE_LIST.format(count=total_count),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return PREINVITE_MENU
+        
+    except Exception as e:
+        logger.error(f"Error loading pre-invited users: {e}", exc_info=True)
+        await update.message.reply_text(
+            "❌ Ошибка при загрузке списка пользователей\\.",
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_admin_preinvite_keyboard()
+        )
+        return PREINVITE_MENU
+
+
+async def start_add_preinvite(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start the process of adding a pre-invited user."""
+    context.user_data['new_preinvite'] = {}
+    
+    await update.message.reply_text(
+        messages.MESSAGE_ADMIN_PREINVITE_ADD,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_admin_preinvite_keyboard()
+    )
+    return PREINVITE_ADD_ID
+
+
+async def receive_preinvite_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive the Telegram ID for the new pre-invite."""
+    text = update.message.text.strip()
+    
+    # Handle menu buttons
+    if text in ["🔙 Админ меню", "🏠 Главное меню", "📋 Список пре-инвайтов"]:
+        return await handle_cancel(update, context, text)
+    
+    # Validate that input is a number
+    try:
+        telegram_id = int(text)
+    except ValueError:
+        await update.message.reply_text(
+            messages.MESSAGE_ADMIN_PREINVITE_INVALID_ID,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return PREINVITE_ADD_ID
+    
+    # Check if user already exists
+    if invites_module.check_if_user_pre_invited(telegram_id):
+        await update.message.reply_text(
+            messages.MESSAGE_ADMIN_PREINVITE_EXISTS.format(telegram_id=telegram_id),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_admin_preinvite_keyboard()
+        )
+        return PREINVITE_MENU
+    
+    context.user_data['new_preinvite']['telegram_id'] = telegram_id
+    
+    await update.message.reply_text(
+        messages.MESSAGE_ADMIN_PREINVITE_ADD_NOTES,
+        parse_mode=constants.ParseMode.MARKDOWN_V2
+    )
+    return PREINVITE_ADD_NOTES
+
+
+async def receive_preinvite_notes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive the notes for the new pre-invite and complete creation."""
+    text = update.message.text.strip()
+    
+    # Handle menu buttons
+    if text in ["🔙 Админ меню", "🏠 Главное меню", "📋 Список пре-инвайтов"]:
+        return await handle_cancel(update, context, text)
+    
+    preinvite_data = context.user_data.get('new_preinvite', {})
+    telegram_id = preinvite_data.get('telegram_id')
+    
+    if not telegram_id:
+        await update.message.reply_text(
+            "❌ Ошибка\\: данные сессии потеряны\\. Начните заново\\.",
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_admin_preinvite_keyboard()
+        )
+        return PREINVITE_MENU
+    
+    # Use None if user entered '-'
+    notes = None if text == "-" else text
+    
+    # Add the user to pre-invites
+    try:
+        success = invites_module.add_pre_invited_user(
+            telegram_id=telegram_id,
+            added_by_userid=update.effective_user.id,
+            notes=notes
+        )
+        
+        if success:
+            await update.message.reply_text(
+                messages.MESSAGE_ADMIN_PREINVITE_ADDED.format(telegram_id=telegram_id),
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=get_admin_preinvite_keyboard()
+            )
+        else:
+            await update.message.reply_text(
+                messages.MESSAGE_ADMIN_PREINVITE_EXISTS.format(telegram_id=telegram_id),
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=get_admin_preinvite_keyboard()
+            )
+    except Exception as e:
+        logger.error(f"Error adding pre-invite: {e}", exc_info=True)
+        await update.message.reply_text(
+            "❌ Ошибка при добавлении пользователя\\.",
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_admin_preinvite_keyboard()
+        )
+    
+    context.user_data.pop('new_preinvite', None)
+    return PREINVITE_MENU
+
+
+async def handle_preinvite_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle pre-invite inline button callbacks."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    if data == "preinvite_back":
+        await query.message.reply_text(
+            messages.MESSAGE_ADMIN_PREINVITE_MENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_admin_preinvite_keyboard()
+        )
+        return PREINVITE_MENU
+    
+    if data.startswith("preinvite_view_"):
+        telegram_id = int(data.replace("preinvite_view_", ""))
+        return await show_preinvite_details(query, context, telegram_id)
+    
+    if data.startswith("preinvite_delete_"):
+        telegram_id = int(data.replace("preinvite_delete_", ""))
+        return await confirm_delete_preinvite(query, context, telegram_id)
+    
+    if data.startswith("preinvite_confirm_delete_"):
+        telegram_id = int(data.replace("preinvite_confirm_delete_", ""))
+        return await delete_preinvite(query, context, telegram_id)
+    
+    if data == "preinvite_cancel_delete":
+        await query.edit_message_text(
+            messages.MESSAGE_ADMIN_OPERATION_CANCELLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return PREINVITE_MENU
+    
+    return PREINVITE_MENU
+
+
+async def show_preinvite_details(query, context: ContextTypes.DEFAULT_TYPE, telegram_id: int) -> int:
+    """Show details for a pre-invited user."""
+    from datetime import datetime
+    
+    users = invites_module.get_pre_invited_users(include_activated=True, limit=100)
+    user = next((u for u in users if u['telegram_id'] == telegram_id), None)
+    
+    if not user:
+        await query.edit_message_text(
+            "❌ Пользователь не найден\\.",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return PREINVITE_MENU
+    
+    # Format added by
+    if user['added_by_userid']:
+        added_by = messages.MESSAGE_ADMIN_PREINVITE_ADDED_BY_ADMIN.format(admin_id=user['added_by_userid'])
+    else:
+        added_by = messages.MESSAGE_ADMIN_PREINVITE_ADDED_BY_UNKNOWN
+    
+    # Format notes
+    notes = escape_markdown(user['notes']) if user['notes'] else messages.MESSAGE_ADMIN_PREINVITE_NO_NOTES
+    
+    # Format created timestamp
+    created_dt = datetime.fromtimestamp(user['created_timestamp'])
+    created = escape_markdown(created_dt.strftime("%Y-%m-%d %H:%M"))
+    
+    # Format status
+    if user['activated_timestamp']:
+        activated_dt = datetime.fromtimestamp(user['activated_timestamp'])
+        status = messages.MESSAGE_ADMIN_PREINVITE_STATUS_ACTIVATED.format(
+            date=escape_markdown(activated_dt.strftime("%Y-%m-%d %H:%M"))
+        )
+    else:
+        status = messages.MESSAGE_ADMIN_PREINVITE_STATUS_PENDING
+    
+    keyboard = [
+        [InlineKeyboardButton("🗑️ Удалить", callback_data=f"preinvite_delete_{telegram_id}")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="preinvite_back")]
+    ]
+    
+    await query.edit_message_text(
+        messages.MESSAGE_ADMIN_PREINVITE_DETAILS.format(
+            telegram_id=telegram_id,
+            added_by=escape_markdown(added_by),
+            notes=notes,
+            created=created,
+            status=status
+        ),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return PREINVITE_VIEW
+
+
+async def confirm_delete_preinvite(query, context: ContextTypes.DEFAULT_TYPE, telegram_id: int) -> int:
+    """Ask for confirmation before deleting a pre-invite."""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Да, удалить", callback_data=f"preinvite_confirm_delete_{telegram_id}"),
+            InlineKeyboardButton("❌ Отмена", callback_data="preinvite_cancel_delete")
+        ]
+    ]
+    
+    await query.edit_message_text(
+        messages.MESSAGE_ADMIN_PREINVITE_CONFIRM_DELETE.format(telegram_id=telegram_id),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return PREINVITE_CONFIRM_DELETE
+
+
+async def delete_preinvite(query, context: ContextTypes.DEFAULT_TYPE, telegram_id: int) -> int:
+    """Delete a pre-invited user."""
+    try:
+        success = invites_module.remove_pre_invited_user(telegram_id)
+        
+        if success:
+            await query.edit_message_text(
+                messages.MESSAGE_ADMIN_PREINVITE_DELETED.format(telegram_id=telegram_id),
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+        else:
+            await query.edit_message_text(
+                "❌ Пользователь не найден\\.",
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+    except Exception as e:
+        logger.error(f"Error deleting pre-invite: {e}", exc_info=True)
+        await query.edit_message_text(
+            "❌ Ошибка при удалении\\.",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+    
+    return PREINVITE_MENU
 
 
 # Build the conversation handler
@@ -1752,6 +2061,25 @@ def get_admin_conversation_handler() -> ConversationHandler:
             ],
             SELECT_RULE_EXPECTATION: [
                 CallbackQueryHandler(handle_template_callback),
+                menu_buttons_handler  # Allow menu navigation
+            ],
+            # Pre-invite management states
+            PREINVITE_MENU: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
+                CallbackQueryHandler(handle_preinvite_callback)
+            ],
+            PREINVITE_ADD_ID: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_preinvite_id)
+            ],
+            PREINVITE_ADD_NOTES: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_preinvite_notes)
+            ],
+            PREINVITE_VIEW: [
+                CallbackQueryHandler(handle_preinvite_callback),
+                menu_buttons_handler  # Allow menu navigation
+            ],
+            PREINVITE_CONFIRM_DELETE: [
+                CallbackQueryHandler(handle_preinvite_callback),
                 menu_buttons_handler  # Allow menu navigation
             ],
         },
