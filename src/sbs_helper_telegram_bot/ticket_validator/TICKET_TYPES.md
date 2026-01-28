@@ -27,7 +27,7 @@ The bot counts occurrences of these keywords and picks the type with the most ma
 
 ### 3. Rule Mapping
 
-Validation rules are mapped to ticket types through the `ticket_type_rules` junction table, creating a many-to-many relationship:
+Validation rules are mapped to ticket types through the `ticket_validator_ticket_type_rules` junction table, creating a many-to-many relationship:
 - One rule can be used in multiple ticket types
 - One ticket type can have multiple rules
 
@@ -35,7 +35,7 @@ Validation rules are mapped to ticket types through the `ticket_type_rules` junc
 
 ### New Tables
 
-#### `ticket_types`
+#### `ticket_validator_ticket_types`
 Stores different types of service requests.
 
 | Column | Type | Description |
@@ -47,7 +47,7 @@ Stores different types of service requests.
 | active | tinyint(1) | Active flag |
 | created_timestamp | bigint | Creation time |
 
-#### `ticket_type_rules`
+#### `ticket_validator_ticket_type_rules`
 Junction table mapping rules to ticket types.
 
 | Column | Type | Description |

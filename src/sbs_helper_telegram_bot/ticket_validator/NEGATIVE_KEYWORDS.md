@@ -105,7 +105,7 @@ Use negative keywords to prevent classification when contradictory terms appear:
 Negative keywords are stored in the same JSON array as positive keywords in the `detection_keywords` column:
 
 ```sql
-UPDATE ticket_types 
+UPDATE ticket_validator_ticket_types 
 SET detection_keywords = '["установка", "монтаж", "-ремонт", "-замена"]'
 WHERE id = 1;
 ```
@@ -193,7 +193,7 @@ To add negative keywords to existing ticket types:
 
 ```sql
 -- Add negative keywords to prevent misclassification
-UPDATE ticket_types 
+UPDATE ticket_validator_ticket_types 
 SET detection_keywords = JSON_ARRAY_APPEND(
     detection_keywords, 
     '$', 
@@ -205,7 +205,7 @@ WHERE type_name = 'Установка оборудования';
 Or replace the entire keywords array:
 
 ```sql
-UPDATE ticket_types 
+UPDATE ticket_validator_ticket_types 
 SET detection_keywords = '["ключевое", "слово", "-исключение"]'
 WHERE type_name = 'Установка оборудования';
 ```

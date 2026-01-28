@@ -49,7 +49,7 @@ def _get_ticket_types() -> List[str]:
             with database.get_cursor(conn) as cursor:
                 cursor.execute("""
                     SELECT type_name 
-                    FROM ticket_types 
+                    FROM ticket_validator_ticket_types 
                     WHERE active = 1
                     ORDER BY type_name
                 """)
@@ -71,7 +71,7 @@ def _get_validation_rules() -> List[str]:
             with database.get_cursor(conn) as cursor:
                 cursor.execute("""
                     SELECT rule_name 
-                    FROM validation_rules 
+                    FROM ticket_validator_validation_rules 
                     WHERE active = 1
                     ORDER BY priority DESC, id ASC
                 """)

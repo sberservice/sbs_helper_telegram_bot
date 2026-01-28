@@ -3,7 +3,7 @@
 -- Run this after creating the tables from schema.sql
 
 -- Tax System Validation (Система налогообложения)
-INSERT INTO validation_rules 
+INSERT INTO ticket_validator_validation_rules 
 (rule_name, pattern, rule_type, error_message, active, priority, created_timestamp)
 VALUES 
 ('tax_system', 
@@ -15,7 +15,7 @@ VALUES
  UNIX_TIMESTAMP());
 
 -- Activation Code Validation (Код активации)
-INSERT INTO validation_rules 
+INSERT INTO ticket_validator_validation_rules 
 (rule_name, pattern, rule_type, error_message, active, priority, created_timestamp)
 VALUES 
 ('activation_code', 
@@ -27,7 +27,7 @@ VALUES
  UNIX_TIMESTAMP());
 
 -- INN Validation (ИНН организации - 10 или 12 цифр)
-INSERT INTO validation_rules 
+INSERT INTO ticket_validator_validation_rules 
 (rule_name, pattern, rule_type, error_message, active, priority, created_timestamp)
 VALUES 
 ('inn_number', 
@@ -39,7 +39,7 @@ VALUES
  UNIX_TIMESTAMP());
 
 -- Installation Address Validation (Адрес установки)
-INSERT INTO validation_rules 
+INSERT INTO ticket_validator_validation_rules 
 (rule_name, pattern, rule_type, error_message, active, priority, created_timestamp)
 VALUES 
 ('installation_address', 
@@ -51,7 +51,7 @@ VALUES
  UNIX_TIMESTAMP());
 
 -- Contact Phone Validation (Контактный телефон)
-INSERT INTO validation_rules 
+INSERT INTO ticket_validator_validation_rules 
 (rule_name, pattern, rule_type, error_message, active, priority, created_timestamp)
 VALUES 
 ('contact_phone', 
@@ -63,7 +63,7 @@ VALUES
  UNIX_TIMESTAMP());
 
 -- Organization Name Validation (Название организации)
-INSERT INTO validation_rules 
+INSERT INTO ticket_validator_validation_rules 
 (rule_name, pattern, rule_type, error_message, active, priority, created_timestamp)
 VALUES 
 ('organization_name', 
@@ -75,7 +75,7 @@ VALUES
  UNIX_TIMESTAMP());
 
 -- Contact Person Validation (Контактное лицо)
-INSERT INTO validation_rules 
+INSERT INTO ticket_validator_validation_rules 
 (rule_name, pattern, rule_type, error_message, active, priority, created_timestamp)
 VALUES 
 ('contact_person', 
@@ -87,7 +87,7 @@ VALUES
  UNIX_TIMESTAMP());
 
 -- Equipment Type Validation (Тип оборудования)
-INSERT INTO validation_rules 
+INSERT INTO ticket_validator_validation_rules 
 (rule_name, pattern, rule_type, error_message, active, priority, created_timestamp)
 VALUES 
 ('equipment_type', 
@@ -99,7 +99,7 @@ VALUES
  UNIX_TIMESTAMP());
 
 -- Service Date Validation (Дата обслуживания)
-INSERT INTO validation_rules 
+INSERT INTO ticket_validator_validation_rules 
 (rule_name, pattern, rule_type, error_message, active, priority, created_timestamp)
 VALUES 
 ('service_date', 
@@ -111,7 +111,7 @@ VALUES
  UNIX_TIMESTAMP());
 
 -- Minimum Length Check (Общая проверка длины заявки)
-INSERT INTO validation_rules 
+INSERT INTO ticket_validator_validation_rules 
 (rule_name, pattern, rule_type, error_message, active, priority, created_timestamp)
 VALUES 
 ('minimum_length', 

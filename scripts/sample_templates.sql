@@ -2,7 +2,7 @@
 -- Run this after creating the tables from schema.sql
 
 -- Standard Installation Template
-INSERT INTO ticket_templates 
+INSERT INTO ticket_validator_ticket_templates 
 (template_name, template_text, description, active, created_timestamp)
 VALUES 
 ('Стандартная установка', 
@@ -27,7 +27,7 @@ VALUES
 UNIX_TIMESTAMP());
 
 -- Maintenance Template
-INSERT INTO ticket_templates 
+INSERT INTO ticket_validator_ticket_templates 
 (template_name, template_text, description, active, created_timestamp)
 VALUES 
 ('Техническое обслуживание', 

@@ -108,10 +108,10 @@ CREATE TABLE `users` (
 -- Table structure for table `validation_rules`
 --
 
-DROP TABLE IF EXISTS `validation_rules`;
+DROP TABLE IF EXISTS `ticket_validator_validation_rules`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `validation_rules` (
+CREATE TABLE `ticket_validator_validation_rules` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `rule_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `pattern` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -131,10 +131,10 @@ CREATE TABLE `validation_rules` (
 -- Table structure for table `validation_history`
 --
 
-DROP TABLE IF EXISTS `validation_history`;
+DROP TABLE IF EXISTS `ticket_validator_validation_history`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `validation_history` (
+CREATE TABLE `ticket_validator_validation_history` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `userid` bigint(20) NOT NULL,
   `ticket_type_id` bigint(20) DEFAULT NULL,
@@ -154,10 +154,10 @@ CREATE TABLE `validation_history` (
 -- Table structure for table `ticket_templates`
 --
 
-DROP TABLE IF EXISTS `ticket_templates`;
+DROP TABLE IF EXISTS `ticket_validator_ticket_templates`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `ticket_templates` (
+CREATE TABLE `ticket_validator_ticket_templates` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `template_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `template_text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -178,10 +178,10 @@ CREATE TABLE `ticket_templates` (
 -- Table structure for table `template_rule_tests`
 --
 
-DROP TABLE IF EXISTS `template_rule_tests`;
+DROP TABLE IF EXISTS `ticket_validator_template_rule_tests`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `template_rule_tests` (
+CREATE TABLE `ticket_validator_template_rule_tests` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `template_id` bigint(20) NOT NULL,
   `validation_rule_id` bigint(20) NOT NULL,
@@ -193,8 +193,8 @@ CREATE TABLE `template_rule_tests` (
   UNIQUE KEY `template_rule_unique` (`template_id`, `validation_rule_id`),
   KEY `template_id` (`template_id`),
   KEY `validation_rule_id` (`validation_rule_id`),
-  CONSTRAINT `fk_template_rule_template` FOREIGN KEY (`template_id`) REFERENCES `ticket_templates` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_template_rule_rule` FOREIGN KEY (`validation_rule_id`) REFERENCES `validation_rules` (`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_template_rule_template` FOREIGN KEY (`template_id`) REFERENCES `ticket_validator_ticket_templates` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_template_rule_rule` FOREIGN KEY (`validation_rule_id`) REFERENCES `ticket_validator_validation_rules` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -202,10 +202,10 @@ CREATE TABLE `template_rule_tests` (
 -- Table structure for table `template_test_results`
 --
 
-DROP TABLE IF EXISTS `template_test_results`;
+DROP TABLE IF EXISTS `ticket_validator_template_test_results`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `template_test_results` (
+CREATE TABLE `ticket_validator_template_test_results` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `template_id` bigint(20) NOT NULL,
   `admin_userid` bigint(20) NOT NULL COMMENT 'Admin who ran the test',
@@ -219,7 +219,7 @@ CREATE TABLE `template_test_results` (
   KEY `template_id` (`template_id`),
   KEY `admin_userid` (`admin_userid`),
   KEY `run_timestamp` (`run_timestamp`),
-  CONSTRAINT `fk_test_result_template` FOREIGN KEY (`template_id`) REFERENCES `ticket_templates` (`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_test_result_template` FOREIGN KEY (`template_id`) REFERENCES `ticket_validator_ticket_templates` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -227,10 +227,10 @@ CREATE TABLE `template_test_results` (
 -- Table structure for table `ticket_types`
 --
 
-DROP TABLE IF EXISTS `ticket_types`;
+DROP TABLE IF EXISTS `ticket_validator_ticket_types`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `ticket_types` (
+CREATE TABLE `ticket_validator_ticket_types` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `type_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -248,10 +248,10 @@ CREATE TABLE `ticket_types` (
 -- Table structure for table `ticket_type_rules`
 --
 
-DROP TABLE IF EXISTS `ticket_type_rules`;
+DROP TABLE IF EXISTS `ticket_validator_ticket_type_rules`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `ticket_type_rules` (
+CREATE TABLE `ticket_validator_ticket_type_rules` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `ticket_type_id` bigint(20) NOT NULL,
   `validation_rule_id` bigint(20) NOT NULL,
