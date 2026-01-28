@@ -33,7 +33,7 @@ ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
 ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     ["📋 Список правил", "➕ Создать правило"],
     ["📁 Типы заявок", "🧪 Тест шаблоны"],
-    ["� Пре-инвайты", "🔬 Тест regex"],
+    ["👥 Пре-инвайты", "🔬 Тест regex"],
     ["🏠 Главное меню"]
 ]
 
