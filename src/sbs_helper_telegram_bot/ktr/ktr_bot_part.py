@@ -56,6 +56,35 @@ WAITING_FOR_CODE = 1
 ) = range(200, 215)
 
 
+# ===== HELPER FUNCTIONS =====
+
+def _validate_date_format(date_str: str) -> bool:
+    """
+    Validate date string is in dd.mm.yyyy format.
+    
+    Args:
+        date_str: Date string to validate
+        
+    Returns:
+        True if valid format, False otherwise
+    """
+    if not date_str:
+        return False
+    
+    parts = date_str.split('.')
+    if len(parts) != 3:
+        return False
+    
+    try:
+        day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+        # Basic validation
+        if not (1 <= day <= 31 and 1 <= month <= 12 and 1900 <= year <= 2100):
+            return False
+        return True
+    except (ValueError, IndexError):
+        return False
+
+
 # ===== DATABASE OPERATIONS =====
 
 def get_ktr_code_by_code(code: str) -> Optional[dict]:
@@ -126,9 +155,16 @@ def get_all_ktr_codes(page: int = 1, per_page: int = None, include_inactive: boo
             return cursor.fetchall(), total
 
 
-def create_ktr_code(code: str, description: str, minutes: int, category_id: Optional[int] = None) -> int:
+def create_ktr_code(code: str, description: str, minutes: int, category_id: Optional[int] = None, date_updated: Optional[str] = None) -> int:
     """
     Create a new KTR code.
+    
+    Args:
+        code: KTR code
+        description: Work description
+        minutes: Labor cost in minutes
+        category_id: Optional category ID
+        date_updated: Optional update date in dd.mm.yyyy format
     
     Returns:
         The new code ID
@@ -137,9 +173,9 @@ def create_ktr_code(code: str, description: str, minutes: int, category_id: Opti
         with database.get_cursor(conn) as cursor:
             cursor.execute("""
                 INSERT INTO ktr_codes 
-                (code, description, minutes, category_id, created_timestamp)
-                VALUES (%s, %s, %s, %s, UNIX_TIMESTAMP())
-            """, (code, description, minutes, category_id))
+                (code, description, minutes, category_id, date_updated, created_timestamp)
+                VALUES (%s, %s, %s, %s, %s, UNIX_TIMESTAMP())
+            """, (code, description, minutes, category_id, date_updated))
             return cursor.lastrowid
 
 
@@ -147,7 +183,7 @@ def update_ktr_code(code_id: int, field: str, value, update_timestamp: bool = Fa
     """
     Update a field of a KTR code.
     """
-    allowed_fields = ['description', 'minutes', 'category_id', 'active']
+    allowed_fields = ['description', 'minutes', 'category_id', 'active', 'date_updated']
     if field not in allowed_fields:
         return False
     
@@ -387,6 +423,7 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
         desc_col = None
         minutes_col = None
         category_col = None
+        date_col = None
         
         for i, fname in enumerate(fieldnames_lower):
             if fname in ('code', 'код', 'ktr_code', 'код_ктр', 'ktr'):
@@ -397,6 +434,8 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
                 minutes_col = reader.fieldnames[i]
             elif fname in ('category', 'категория', 'cat'):
                 category_col = reader.fieldnames[i]
+            elif fname in ('date_updated', 'дата_обновления', 'дата', 'date', 'updated'):
+                date_col = reader.fieldnames[i]
             # Any other columns are silently ignored
         
         if not code_col:
@@ -426,6 +465,7 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
                 description = (row.get(desc_col) or '').strip()
                 minutes_str = (row.get(minutes_col) or '').strip()
                 category_name = (row.get(category_col) or '').strip() if category_col else None
+                date_updated = (row.get(date_col) or '').strip() if date_col else None
                 
                 # Skip empty rows
                 if not code and not description and not minutes_str:
@@ -476,11 +516,18 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
                 if category_name and len(category_name) > 100:
                     category_name = category_name[:100]
                 
+                # Validate date format if provided (dd.mm.yyyy)
+                if date_updated:
+                    if not _validate_date_format(date_updated):
+                        errors.append(f"Строка {row_num}: некорректный формат даты '{date_updated}' (ожидается дд.мм.гггг)")
+                        date_updated = None
+                
                 valid_records.append({
                     'code': code,
                     'description': description,
                     'minutes': minutes,
-                    'category_name': category_name if category_name else None
+                    'category_name': category_name if category_name else None,
+                    'date_updated': date_updated
                 })
                 
             except Exception as e:
@@ -526,6 +573,7 @@ def import_ktr_codes_from_csv(records: List[dict], skip_existing: bool = True) -
             description = record['description']
             minutes = record['minutes']
             category_name = record.get('category_name')
+            date_updated = record.get('date_updated')
             
             # Check if code exists (using pre-fetched set)
             code_exists = code in existing_codes_set
@@ -540,6 +588,8 @@ def import_ktr_codes_from_csv(records: List[dict], skip_existing: bool = True) -
                     if existing:
                         update_ktr_code(existing['id'], 'description', description)
                         update_ktr_code(existing['id'], 'minutes', minutes, update_timestamp=True)
+                        if date_updated:
+                            update_ktr_code(existing['id'], 'date_updated', date_updated)
                         # Also reactivate if it was inactive
                         if not existing['active']:
                             update_ktr_code(existing['id'], 'active', 1)
@@ -559,7 +609,7 @@ def import_ktr_codes_from_csv(records: List[dict], skip_existing: bool = True) -
                 category_id = _get_or_create_category(category_name, category_cache)
             
             # Create new code
-            create_ktr_code(code, description, minutes, category_id)
+            create_ktr_code(code, description, minutes, category_id, date_updated)
             result.success_count += 1
             
         except Exception as e:
@@ -817,7 +867,8 @@ async def process_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
             description=code_info['description'],
             minutes=code_info['minutes'],
             category_name=code_info.get('category_name'),
-            updated_timestamp=code_info.get('updated_timestamp')
+            updated_timestamp=code_info.get('updated_timestamp'),
+            date_updated=code_info.get('date_updated')
         )
         
         await update.message.reply_text(
@@ -1055,7 +1106,8 @@ async def admin_receive_search_code(update: Update, context: ContextTypes.DEFAUL
         description=ktr['description'],
         minutes=ktr['minutes'],
         category_name=ktr.get('category_name'),
-        updated_timestamp=ktr.get('updated_timestamp')
+        updated_timestamp=ktr.get('updated_timestamp'),
+        date_updated=ktr.get('date_updated')
     )
     
     # Add status indicator
@@ -1543,7 +1595,8 @@ async def _show_code_details(query, context: ContextTypes.DEFAULT_TYPE, code_id:
         description=ktr['description'],
         minutes=ktr['minutes'],
         category_name=ktr.get('category_name'),
-        updated_timestamp=ktr.get('updated_timestamp')
+        updated_timestamp=ktr.get('updated_timestamp'),
+        date_updated=ktr.get('date_updated')
     )
     
     if not ktr['active']:

@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS `ktr_codes` (
   `category_id` bigint(20) DEFAULT NULL,
   `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `minutes` int(11) NOT NULL DEFAULT '0',
+  `date_updated` varchar(10) DEFAULT NULL COMMENT 'Date when minutes value was updated (dd.mm.yyyy format)',
   `active` tinyint(1) NOT NULL DEFAULT '1',
   `created_timestamp` bigint(20) NOT NULL,
   `updated_timestamp` bigint(20) DEFAULT NULL,
