@@ -566,7 +566,7 @@ async def show_monthly_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         top_items.append(messages.MESSAGE_TOP_ITEM.format(
             rank=user['rank'],
             name=name,
-            score=user['best_score'],
+            score=int(user['best_score']),
             tests_count=user['tests_count']
         ))
     
@@ -577,7 +577,7 @@ async def show_monthly_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     elif user_rank:
         your_position = messages.MESSAGE_YOUR_POSITION.format(
             rank=user_rank['rank'],
-            score=user_rank['best_score']
+            score=int(user_rank['best_score'])
         )
     else:
         your_position = messages.MESSAGE_NOT_IN_TOP
