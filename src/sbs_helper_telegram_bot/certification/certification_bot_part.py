@@ -499,11 +499,11 @@ async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     message = messages.MESSAGE_MY_RANKING.format(
         rank=rank_str,
-        best_score=user_stats['best_score'],
+        best_score=int(user_stats['best_score']) if user_stats['best_score'] else 0,
         total_tests=user_stats['total_tests'],
         passed_tests=user_stats['passed_tests'],
         last_test_date=last_test_date,
-        last_test_score=user_stats['last_test_score'] or 0
+        last_test_score=int(user_stats['last_test_score']) if user_stats['last_test_score'] else 0
     )
     
     await update.message.reply_text(
@@ -537,7 +537,7 @@ async def show_test_history(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         history_items.append(messages.MESSAGE_HISTORY_ITEM.format(
             num=i,
             date=date_str,
-            score=attempt['score_percent'],
+            score=int(attempt['score_percent']),
             status=status,
             category=category
         ))
