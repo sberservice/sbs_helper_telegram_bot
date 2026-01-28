@@ -308,20 +308,28 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         is_correct=is_correct
     )
     
-    # Show result
-    if is_correct:
-        result_text = messages.MESSAGE_ANSWER_CORRECT
-    else:
-        result_text = messages.MESSAGE_ANSWER_INCORRECT.format(
-            correct_option=settings.ANSWER_EMOJIS.get(correct_option, correct_option)
-        )
+    # Check if we should show correct answer
+    test_settings = logic.get_test_settings()
+    show_correct = test_settings.get('show_correct_answer', True)
     
-    # Add explanation if available
-    if question.get('explanation'):
-        result_text = messages.MESSAGE_ANSWER_WITH_EXPLANATION.format(
-            result=result_text,
-            explanation=logic.escape_markdown(question['explanation'])
-        )
+    # Show result
+    if show_correct:
+        if is_correct:
+            result_text = messages.MESSAGE_ANSWER_CORRECT
+        else:
+            result_text = messages.MESSAGE_ANSWER_INCORRECT.format(
+                correct_option=settings.ANSWER_EMOJIS.get(correct_option, correct_option)
+            )
+        
+        # Add explanation if available
+        if question.get('explanation'):
+            result_text = messages.MESSAGE_ANSWER_WITH_EXPLANATION.format(
+                result=result_text,
+                explanation=logic.escape_markdown(question['explanation'])
+            )
+    else:
+        # Just show that answer was recorded, without revealing correctness
+        result_text = messages.MESSAGE_ANSWER_RECORDED
     
     await query.edit_message_text(
         result_text,
@@ -398,10 +406,17 @@ async def finish_test(
         status_text = messages.MESSAGE_TEST_PASSED if result['passed'] else messages.MESSAGE_TEST_FAILED
         message_template = messages.MESSAGE_TEST_COMPLETED
     
+    # Format score - use integer if whole number, otherwise escape the decimal point
+    score = result['score_percent']
+    if score == int(score):
+        score_str = str(int(score))
+    else:
+        score_str = str(score).replace('.', '\\.')
+    
     result_message = message_template.format(
         correct=result['correct_answers'],
         total=result['total_questions'],
-        score=result['score_percent'],
+        score=score_str,
         time_spent=time_spent_str,
         status=status_text,
         rank_info=rank_info
