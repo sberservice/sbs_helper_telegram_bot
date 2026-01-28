@@ -109,7 +109,13 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await show_outdated_questions(update, context)
     elif text == "⚙️ Настройки теста":
         return await show_settings(update, context)
-    elif text == "🔙 Назад":
+    elif text == "� Все вопросы":
+        # Handle from questions submenu
+        return await show_questions_list(update, context)
+    elif text == "📋 Все категории":
+        # Handle from categories submenu
+        return await show_categories_list(update, context)
+    elif text == "�🔙 Назад":
         # Go back to certification submenu
         if check_if_user_admin(update.effective_user.id):
             keyboard = keyboards.get_admin_submenu_keyboard()
