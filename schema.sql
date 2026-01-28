@@ -503,4 +503,26 @@ CREATE TABLE `certification_settings` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
+--
+-- Table structure for table `chat_members`
+-- Pre-invited users who can access the bot without an invite code
+--
+
+DROP TABLE IF EXISTS `chat_members`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `chat_members` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `telegram_id` bigint(20) NOT NULL COMMENT 'Pre-authorized Telegram user ID',
+  `added_by_userid` bigint(20) DEFAULT NULL COMMENT 'Admin who added this user',
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'Optional admin notes about the user',
+  `created_timestamp` bigint(20) NOT NULL,
+  `activated_timestamp` bigint(20) DEFAULT NULL COMMENT 'When user first used the bot (NULL = not yet activated)',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `telegram_id` (`telegram_id`),
+  KEY `added_by_userid` (`added_by_userid`),
+  KEY `activated_timestamp` (`activated_timestamp`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
 -- Dump completed on 2025-12-04 18:58:13

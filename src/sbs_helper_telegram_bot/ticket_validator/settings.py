@@ -33,7 +33,8 @@ ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
 ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     ["📋 Список правил", "➕ Создать правило"],
     ["📁 Типы заявок", "🧪 Тест шаблоны"],
-    ["🔬 Тест regex", "🏠 Главное меню"]
+    ["� Пре-инвайты", "🔬 Тест regex"],
+    ["🏠 Главное меню"]
 ]
 
 # Admin rules management submenu
@@ -47,6 +48,13 @@ ADMIN_RULES_BUTTONS: Final[List[List[str]]] = [
 ADMIN_TEMPLATES_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все шаблоны", "➕ Создать шаблон"],
     ["▶️ Запустить все тесты"],
+    ["🔙 Админ меню", "🏠 Главное меню"]
+]
+
+# Admin pre-invited users management submenu
+ADMIN_PREINVITE_BUTTONS: Final[List[List[str]]] = [
+    ["📋 Список пре-инвайтов"],
+    ["➕ Добавить пользователя"],
     ["🔙 Админ меню", "🏠 Главное меню"]
 ]
 

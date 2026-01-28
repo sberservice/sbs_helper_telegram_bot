@@ -1,29 +1,35 @@
 from src.common import database
+from src.common import invites as invites_module
 
-def check_if_user_legit(telegram_id) -> bool: #did the user use an invite
+def check_if_user_legit(telegram_id) -> bool:
     """
-        Checks whether the user has successfully used an invite.
+        Checks whether the user is authorized to use the bot.
 
-        Queries the `invites` table to see if the given user_id appears as a
-        `consumed_userid`. Returns True if at least one active invite has been
-        consumed by this user, False otherwise.
+        A user is considered legitimate if they have:
+        1. Successfully consumed an invite code, OR
+        2. Are pre-registered in the chat_members table
 
         Args:
-            user_id: Telegram user ID to verify.
+            telegram_id: Telegram user ID to verify.
 
         Returns:
-            True if the user has a consumed invite (i.e., is legitimate), False otherwise.
+            True if the user is authorized (via invite OR chat_members), False otherwise.
     """
+    # Check if user has consumed an invite
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             sql_query = "SELECT count(consumed_userid) as invite_consumed from invites where consumed_userid=%s"
             val=(telegram_id,)
             cursor.execute(sql_query,val)
             result = cursor.fetchone()
-            if result["invite_consumed"]>0:
+            if result["invite_consumed"] > 0:
                 return True
-            else:
-                return False
+    
+    # Check if user is pre-invited (in chat_members table)
+    if invites_module.check_if_user_pre_invited(telegram_id):
+        return True
+    
+    return False
 
 
 def check_if_user_admin(telegram_id) -> bool:

@@ -81,3 +81,18 @@ def get_admin_templates_keyboard() -> ReplyKeyboardMarkup:
         one_time_keyboard=False,
         is_persistent=True
     )
+
+
+def get_admin_preinvite_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Build admin pre-invited users management keyboard.
+    
+    Returns:
+        ReplyKeyboardMarkup for pre-invite management
+    """
+    return ReplyKeyboardMarkup(
+        settings.ADMIN_PREINVITE_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True
+    )

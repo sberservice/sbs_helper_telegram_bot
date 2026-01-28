@@ -7,6 +7,12 @@ Functions:
 - generate_invite_string(length=6) -> str: Generates an uppercase alphanumeric code (without 0).
 - invite_exists(invite) -> bool: Checks if an invite code already exists in the database.
 - generate_invite_for_user(user_id) -> str: Creates/stores a unique unused invite code for a user.
+- check_if_user_pre_invited(telegram_id) -> bool: Checks if user is in the chat_members table.
+- mark_pre_invited_user_activated(telegram_id) -> bool: Sets activated_timestamp for a pre-invited user.
+- add_pre_invited_user(telegram_id, added_by_userid, notes) -> bool: Adds user to chat_members.
+- remove_pre_invited_user(telegram_id) -> bool: Removes user from chat_members.
+- get_pre_invited_users() -> list: Returns all pre-invited users.
+- is_pre_invited_user_activated(telegram_id) -> bool: Checks if pre-invited user has activated.
 """
 
 import string
@@ -72,3 +78,166 @@ def generate_invite_for_user(user_id):
             val = (user_id,invite)
             cursor.execute(sql, val)
             return invite
+
+
+# ============================================================================
+# Pre-invited users (chat_members table) functions
+# ============================================================================
+
+def check_if_user_pre_invited(telegram_id) -> bool:
+    """
+    Check if a user exists in the chat_members table (pre-invited).
+    
+    Args:
+        telegram_id: Telegram user ID to check.
+        
+    Returns:
+        True if user is in chat_members table, False otherwise.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql_query = "SELECT COUNT(*) as count FROM chat_members WHERE telegram_id = %s"
+            cursor.execute(sql_query, (telegram_id,))
+            result = cursor.fetchone()
+            return result["count"] > 0
+
+
+def is_pre_invited_user_activated(telegram_id) -> bool:
+    """
+    Check if a pre-invited user has already activated (first used the bot).
+    
+    Args:
+        telegram_id: Telegram user ID to check.
+        
+    Returns:
+        True if user is pre-invited AND has activated, False otherwise.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql_query = "SELECT activated_timestamp FROM chat_members WHERE telegram_id = %s"
+            cursor.execute(sql_query, (telegram_id,))
+            result = cursor.fetchone()
+            if result is None:
+                return False
+            return result["activated_timestamp"] is not None
+
+
+def mark_pre_invited_user_activated(telegram_id) -> bool:
+    """
+    Mark a pre-invited user as activated (first use of the bot).
+    Sets activated_timestamp to current time.
+    
+    Args:
+        telegram_id: Telegram user ID to activate.
+        
+    Returns:
+        True if user was found and updated, False otherwise.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = "UPDATE chat_members SET activated_timestamp = UNIX_TIMESTAMP() WHERE telegram_id = %s AND activated_timestamp IS NULL"
+            cursor.execute(sql, (telegram_id,))
+            return cursor.rowcount > 0
+
+
+def add_pre_invited_user(telegram_id, added_by_userid=None, notes=None) -> bool:
+    """
+    Add a user to the chat_members table (pre-invite them).
+    
+    Args:
+        telegram_id: Telegram user ID to pre-invite.
+        added_by_userid: Admin user ID who is adding this user (optional).
+        notes: Optional notes about the user.
+        
+    Returns:
+        True if user was added, False if user already exists.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            try:
+                sql = """
+                    INSERT INTO chat_members (telegram_id, added_by_userid, notes, created_timestamp)
+                    VALUES (%s, %s, %s, UNIX_TIMESTAMP())
+                """
+                cursor.execute(sql, (telegram_id, added_by_userid, notes))
+                return True
+            except Exception:
+                # User already exists (unique constraint violation)
+                return False
+
+
+def remove_pre_invited_user(telegram_id) -> bool:
+    """
+    Remove a user from the chat_members table.
+    
+    Note: If user has also redeemed an invite, they will retain access via the invite.
+    
+    Args:
+        telegram_id: Telegram user ID to remove.
+        
+    Returns:
+        True if user was found and removed, False otherwise.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = "DELETE FROM chat_members WHERE telegram_id = %s"
+            cursor.execute(sql, (telegram_id,))
+            return cursor.rowcount > 0
+
+
+def get_pre_invited_users(include_activated=True, limit=50, offset=0) -> list:
+    """
+    Get list of all pre-invited users.
+    
+    Args:
+        include_activated: If True, includes users who have already activated.
+                          If False, only returns users who haven't used the bot yet.
+        limit: Maximum number of results to return.
+        offset: Number of results to skip (for pagination).
+        
+    Returns:
+        List of dicts with user info: telegram_id, added_by_userid, notes,
+        created_timestamp, activated_timestamp.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            if include_activated:
+                sql = """
+                    SELECT telegram_id, added_by_userid, notes, created_timestamp, activated_timestamp
+                    FROM chat_members
+                    ORDER BY created_timestamp DESC
+                    LIMIT %s OFFSET %s
+                """
+                cursor.execute(sql, (limit, offset))
+            else:
+                sql = """
+                    SELECT telegram_id, added_by_userid, notes, created_timestamp, activated_timestamp
+                    FROM chat_members
+                    WHERE activated_timestamp IS NULL
+                    ORDER BY created_timestamp DESC
+                    LIMIT %s OFFSET %s
+                """
+                cursor.execute(sql, (limit, offset))
+            return cursor.fetchall()
+
+
+def get_pre_invited_user_count(include_activated=True) -> int:
+    """
+    Get count of pre-invited users.
+    
+    Args:
+        include_activated: If True, counts all users. If False, only pending.
+        
+    Returns:
+        Number of pre-invited users.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            if include_activated:
+                sql = "SELECT COUNT(*) as count FROM chat_members"
+                cursor.execute(sql)
+            else:
+                sql = "SELECT COUNT(*) as count FROM chat_members WHERE activated_timestamp IS NULL"
+                cursor.execute(sql)
+            result = cursor.fetchone()
+            return result["count"]
