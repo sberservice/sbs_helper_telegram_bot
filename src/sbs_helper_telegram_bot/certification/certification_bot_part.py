@@ -385,7 +385,10 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     test_settings = logic.get_test_settings()
     show_correct = test_settings.get('show_correct_answer', True)
     
-    # Show result
+    # Move to next question
+    context.user_data[settings.CURRENT_QUESTION_INDEX_KEY] = current_index + 1
+    
+    # Show result or proceed automatically
     if show_correct:
         if is_correct:
             result_text = messages.MESSAGE_ANSWER_CORRECT
@@ -401,20 +404,35 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 result=result_text,
                 explanation=logic.escape_markdown(question['explanation'])
             )
+        
+        await query.edit_message_text(
+            result_text,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_next_question_keyboard()
+        )
+        
+        return ANSWERING_QUESTION
     else:
-        # Just show that answer was recorded, without revealing correctness
-        result_text = messages.MESSAGE_ANSWER_RECORDED
-    
-    await query.edit_message_text(
-        result_text,
-        parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=keyboards.get_next_question_keyboard()
-    )
-    
-    # Move to next question
-    context.user_data[settings.CURRENT_QUESTION_INDEX_KEY] = current_index + 1
-    
-    return ANSWERING_QUESTION
+        # Auto-proceed to next question without showing result
+        new_index = context.user_data.get(settings.CURRENT_QUESTION_INDEX_KEY, 0)
+        questions = context.user_data.get(settings.TEST_QUESTIONS_KEY, [])
+        
+        if new_index >= len(questions):
+            # Test finished
+            await query.edit_message_text(
+                "⏳ Завершаем тест\\.\\.\\.",
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+            await finish_test(update, context, is_callback=True)
+            return ConversationHandler.END
+        
+        # Delete the old message and send next question
+        await query.edit_message_text(
+            "⏳ Следующий вопрос\\.\\.\\.",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        await send_question(update, context, is_callback=True)
+        return ANSWERING_QUESTION
 
 
 async def handle_next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
