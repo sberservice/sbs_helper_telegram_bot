@@ -227,7 +227,8 @@ def format_ktr_code_response(
     description: str,
     minutes: int,
     category_name: Optional[str] = None,
-    updated_timestamp: Optional[int] = None
+    updated_timestamp: Optional[int] = None,
+    date_updated: Optional[str] = None
 ) -> str:
     """
     Format KTR code information for display to user.
@@ -238,6 +239,7 @@ def format_ktr_code_response(
         minutes: Labor cost in minutes
         category_name: Optional category name
         updated_timestamp: Optional Unix timestamp of last update
+        date_updated: Optional date when minutes value was updated (dd.mm.yyyy)
         
     Returns:
         Formatted MarkdownV2 message
@@ -253,6 +255,10 @@ def format_ktr_code_response(
     
     parts.append(f"\n📋 *Описание:*\n{escaped_desc}\n")
     parts.append(f"\n🕐 *Трудозатраты:* *{minutes}* минут")
+    
+    if date_updated:
+        escaped_date = escape_markdown_v2(date_updated)
+        parts.append(f" _{escaped_date}_")
     
     # Format hours and minutes for convenience
     if minutes >= 60:
