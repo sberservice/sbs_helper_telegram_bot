@@ -1,8 +1,8 @@
 -- Initial ticket types for different types of service requests
--- Run this after creating the ticket_types and ticket_type_rules tables
+-- Run this after creating the ticket_validator_ticket_types and ticket_validator_ticket_type_rules tables
 
 -- Ticket Type: Installation (Установка)
-INSERT INTO ticket_types 
+INSERT INTO ticket_validator_ticket_types 
 (type_name, description, detection_keywords, active, created_timestamp)
 VALUES 
 ('Установка оборудования', 
@@ -12,7 +12,7 @@ VALUES
  UNIX_TIMESTAMP());
 
 -- Ticket Type: Maintenance (Техническое обслуживание)
-INSERT INTO ticket_types 
+INSERT INTO ticket_validator_ticket_types 
 (type_name, description, detection_keywords, active, created_timestamp)
 VALUES 
 ('Техническое обслуживание', 
@@ -22,7 +22,7 @@ VALUES
  UNIX_TIMESTAMP());
 
 -- Ticket Type: Repair (Ремонт)
-INSERT INTO ticket_types 
+INSERT INTO ticket_validator_ticket_types 
 (type_name, description, detection_keywords, active, created_timestamp)
 VALUES 
 ('Ремонт', 
@@ -32,7 +32,7 @@ VALUES
  UNIX_TIMESTAMP());
 
 -- Ticket Type: Registration (Регистрация в ФНС)
-INSERT INTO ticket_types 
+INSERT INTO ticket_validator_ticket_types 
 (type_name, description, detection_keywords, active, created_timestamp)
 VALUES 
 ('Регистрация в ФНС', 
@@ -42,7 +42,7 @@ VALUES
  UNIX_TIMESTAMP());
 
 -- Ticket Type: Replacement (Замена оборудования)
-INSERT INTO ticket_types 
+INSERT INTO ticket_validator_ticket_types 
 (type_name, description, detection_keywords, active, created_timestamp)
 VALUES 
 ('Замена оборудования', 

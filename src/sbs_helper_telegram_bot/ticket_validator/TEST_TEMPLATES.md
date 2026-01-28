@@ -19,20 +19,20 @@ When you run a test on a template:
 
 ## Database Schema
 
-### Modified: `ticket_templates`
+### Modified: `ticket_validator_ticket_templates`
 Added columns:
 - `expected_result` ENUM('pass', 'fail') - Overall expected validation result
 - `ticket_type_id` BIGINT - Optional association with a ticket type
 - `updated_timestamp` BIGINT - Last update time
 
-### New: `template_rule_tests`
+### New: `ticket_validator_template_rule_tests`
 Junction table linking templates to rules:
 - `template_id` - Reference to test template
 - `validation_rule_id` - Reference to validation rule
 - `expected_pass` - Whether this rule should pass (1) or fail (0)
 - `notes` - Admin notes about the expectation
 
-### New: `template_test_results`
+### New: `ticket_validator_template_test_results`
 Stores test run history:
 - `template_id` - Which template was tested
 - `admin_userid` - Who ran the test

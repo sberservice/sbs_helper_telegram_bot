@@ -3,13 +3,13 @@
 -- These templates are used by admins to verify validation rules work correctly
 
 -- Clean up existing templates (optional - remove this line if you want to keep existing templates)
--- TRUNCATE TABLE template_rule_tests;
--- DELETE FROM ticket_templates;
+-- TRUNCATE TABLE ticket_validator_template_rule_tests;
+-- DELETE FROM ticket_validator_ticket_templates;
 
 -- ============================================
 -- TEST TEMPLATE 1: Valid installation ticket (should PASS all rules)
 -- ============================================
-INSERT INTO ticket_templates 
+INSERT INTO ticket_validator_ticket_templates 
 (template_name, template_text, description, expected_result, active, created_timestamp)
 VALUES 
 ('Тест: Валидная заявка на установку',
@@ -39,7 +39,7 @@ UNIX_TIMESTAMP());
 -- ============================================
 -- TEST TEMPLATE 2: Invalid - missing INN (should FAIL inn_number rule)
 -- ============================================
-INSERT INTO ticket_templates 
+INSERT INTO ticket_validator_ticket_templates 
 (template_name, template_text, description, expected_result, active, created_timestamp)
 VALUES 
 ('Тест: Отсутствует ИНН',
@@ -64,7 +64,7 @@ UNIX_TIMESTAMP());
 -- ============================================
 -- TEST TEMPLATE 3: Invalid - missing tax system (should FAIL tax_system rule)
 -- ============================================
-INSERT INTO ticket_templates 
+INSERT INTO ticket_validator_ticket_templates 
 (template_name, template_text, description, expected_result, active, created_timestamp)
 VALUES 
 ('Тест: Отсутствует система налогообложения',
@@ -89,7 +89,7 @@ UNIX_TIMESTAMP());
 -- ============================================
 -- TEST TEMPLATE 4: Invalid - missing activation code (should FAIL activation_code rule)
 -- ============================================
-INSERT INTO ticket_templates 
+INSERT INTO ticket_validator_ticket_templates 
 (template_name, template_text, description, expected_result, active, created_timestamp)
 VALUES 
 ('Тест: Отсутствует код активации',
@@ -114,7 +114,7 @@ UNIX_TIMESTAMP());
 -- ============================================
 -- TEST TEMPLATE 5: Invalid - missing phone (should FAIL contact_phone rule)
 -- ============================================
-INSERT INTO ticket_templates 
+INSERT INTO ticket_validator_ticket_templates 
 (template_name, template_text, description, expected_result, active, created_timestamp)
 VALUES 
 ('Тест: Отсутствует телефон',
@@ -139,7 +139,7 @@ UNIX_TIMESTAMP());
 -- ============================================
 -- TEST TEMPLATE 6: Invalid - missing address (should FAIL installation_address rule)
 -- ============================================
-INSERT INTO ticket_templates 
+INSERT INTO ticket_validator_ticket_templates 
 (template_name, template_text, description, expected_result, active, created_timestamp)
 VALUES 
 ('Тест: Отсутствует адрес установки',
@@ -164,7 +164,7 @@ UNIX_TIMESTAMP());
 -- ============================================
 -- TEST TEMPLATE 7: Invalid - too short (should FAIL minimum_length rule)
 -- ============================================
-INSERT INTO ticket_templates 
+INSERT INTO ticket_validator_ticket_templates 
 (template_name, template_text, description, expected_result, active, created_timestamp)
 VALUES 
 ('Тест: Слишком короткая заявка',
@@ -179,7 +179,7 @@ UNIX_TIMESTAMP());
 -- ============================================
 -- TEST TEMPLATE 8: Valid maintenance ticket (should PASS)
 -- ============================================
-INSERT INTO ticket_templates 
+INSERT INTO ticket_validator_ticket_templates 
 (template_name, template_text, description, expected_result, active, created_timestamp)
 VALUES 
 ('Тест: Валидная заявка на ТО',
@@ -207,7 +207,7 @@ UNIX_TIMESTAMP());
 -- ============================================
 -- TEST TEMPLATE 9: Edge case - valid INN formats
 -- ============================================
-INSERT INTO ticket_templates 
+INSERT INTO ticket_validator_ticket_templates 
 (template_name, template_text, description, expected_result, active, created_timestamp)
 VALUES 
 ('Тест: ИНН юрлица (10 цифр)',
@@ -231,7 +231,7 @@ UNIX_TIMESTAMP());
 -- ============================================
 -- TEST TEMPLATE 10: Edge case - 12-digit INN (individual)
 -- ============================================
-INSERT INTO ticket_templates 
+INSERT INTO ticket_validator_ticket_templates 
 (template_name, template_text, description, expected_result, active, created_timestamp)
 VALUES 
 ('Тест: ИНН ИП (12 цифр)',

@@ -35,7 +35,7 @@ def load_all_ticket_types() -> List[TicketType]:
         with database.get_cursor(conn) as cursor:
             sql_query = """
                 SELECT id, type_name, description, detection_keywords, keyword_weights
-                FROM ticket_types 
+                FROM ticket_validator_ticket_types 
                 WHERE active = 1
                 ORDER BY type_name
             """
@@ -87,7 +87,7 @@ def load_ticket_type_by_id(ticket_type_id: int) -> Optional[TicketType]:
         with database.get_cursor(conn) as cursor:
             sql_query = """
                 SELECT id, type_name, description, detection_keywords, keyword_weights, active
-                FROM ticket_types 
+                FROM ticket_validator_ticket_types 
                 WHERE id = %s
             """
             cursor.execute(sql_query, (ticket_type_id,))
@@ -140,8 +140,8 @@ def load_rules_from_db(ticket_type_id: Optional[int] = None) -> List[ValidationR
                 sql_query = """
                     SELECT vr.id, vr.rule_name, vr.pattern, vr.rule_type, vr.error_message, 
                            vr.active, vr.priority, vr.created_timestamp, vr.updated_timestamp
-                    FROM validation_rules vr
-                    INNER JOIN ticket_type_rules ttr ON vr.id = ttr.validation_rule_id
+                    FROM ticket_validator_validation_rules vr
+                    INNER JOIN ticket_validator_ticket_type_rules ttr ON vr.id = ttr.validation_rule_id
                     WHERE ttr.ticket_type_id = %s AND vr.active = 1
                     ORDER BY vr.priority DESC, vr.id ASC
                 """
@@ -151,7 +151,7 @@ def load_rules_from_db(ticket_type_id: Optional[int] = None) -> List[ValidationR
                 sql_query = """
                     SELECT id, rule_name, pattern, rule_type, error_message, 
                            active, priority, created_timestamp, updated_timestamp
-                    FROM validation_rules 
+                    FROM ticket_validator_validation_rules 
                     WHERE active = 1
                     ORDER BY priority DESC, id ASC
                 """
@@ -190,7 +190,7 @@ def load_rule_by_id(rule_id: int) -> Optional[ValidationRule]:
             sql_query = """
                 SELECT id, rule_name, pattern, rule_type, error_message, 
                        active, priority, created_timestamp, updated_timestamp
-                FROM validation_rules 
+                FROM ticket_validator_validation_rules 
                 WHERE id = %s
             """
             cursor.execute(sql_query, (rule_id,))
@@ -227,7 +227,7 @@ def load_template_by_name(template_name: str) -> Optional[dict]:
         with database.get_cursor(conn) as cursor:
             sql_query = """
                 SELECT id, template_name, template_text, description
-                FROM ticket_templates 
+                FROM ticket_validator_ticket_templates 
                 WHERE template_name = %s AND active = 1
             """
             cursor.execute(sql_query, (template_name,))
@@ -245,7 +245,7 @@ def list_all_templates() -> List[dict]:
         with database.get_cursor(conn) as cursor:
             sql_query = """
                 SELECT id, template_name, description
-                FROM ticket_templates 
+                FROM ticket_validator_ticket_templates 
                 WHERE active = 1
                 ORDER BY template_name
             """
@@ -295,7 +295,7 @@ def load_all_rules(include_inactive: bool = False) -> List[ValidationRule]:
                 sql_query = """
                     SELECT id, rule_name, pattern, rule_type, error_message, 
                            active, priority, created_timestamp, updated_timestamp
-                    FROM validation_rules 
+                    FROM ticket_validator_validation_rules 
                     ORDER BY priority DESC, id ASC
                 """
                 cursor.execute(sql_query)
@@ -303,7 +303,7 @@ def load_all_rules(include_inactive: bool = False) -> List[ValidationRule]:
                 sql_query = """
                     SELECT id, rule_name, pattern, rule_type, error_message, 
                            active, priority, created_timestamp, updated_timestamp
-                    FROM validation_rules 
+                    FROM ticket_validator_validation_rules 
                     WHERE active = 1
                     ORDER BY priority DESC, id ASC
                 """
@@ -340,13 +340,13 @@ def load_all_ticket_types_admin(include_inactive: bool = False) -> List[TicketTy
             if include_inactive:
                 sql_query = """
                     SELECT id, type_name, description, detection_keywords, keyword_weights, active
-                    FROM ticket_types 
+                    FROM ticket_validator_ticket_types 
                     ORDER BY type_name
                 """
             else:
                 sql_query = """
                     SELECT id, type_name, description, detection_keywords, keyword_weights, active
-                    FROM ticket_types 
+                    FROM ticket_validator_ticket_types 
                     WHERE active = 1
                     ORDER BY type_name
                 """
@@ -401,7 +401,7 @@ def create_validation_rule(rule_name: str, pattern: str, rule_type: str,
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             sql = """
-                INSERT INTO validation_rules 
+                INSERT INTO ticket_validator_validation_rules 
                 (rule_name, pattern, rule_type, error_message, priority, active, created_timestamp) 
                 VALUES (%s, %s, %s, %s, %s, 1, UNIX_TIMESTAMP())
             """
@@ -454,7 +454,7 @@ def update_validation_rule(rule_id: int, rule_name: str = None, pattern: str = N
     
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            sql = f"UPDATE validation_rules SET {', '.join(updates)} WHERE id = %s"
+            sql = f"UPDATE ticket_validator_validation_rules SET {', '.join(updates)} WHERE id = %s"
             cursor.execute(sql, tuple(values))
             return cursor.rowcount > 0
 
@@ -473,7 +473,7 @@ def toggle_rule_active(rule_id: int, active: bool) -> bool:
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             sql = """
-                UPDATE validation_rules 
+                UPDATE ticket_validator_validation_rules 
                 SET active = %s, updated_timestamp = UNIX_TIMESTAMP() 
                 WHERE id = %s
             """
@@ -494,12 +494,12 @@ def delete_validation_rule(rule_id: int) -> Tuple[bool, int]:
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             # First, delete associations
-            sql_assoc = "DELETE FROM ticket_type_rules WHERE validation_rule_id = %s"
+            sql_assoc = "DELETE FROM ticket_validator_ticket_type_rules WHERE validation_rule_id = %s"
             cursor.execute(sql_assoc, (rule_id,))
             deleted_associations = cursor.rowcount
             
             # Then delete the rule
-            sql_rule = "DELETE FROM validation_rules WHERE id = %s"
+            sql_rule = "DELETE FROM ticket_validator_validation_rules WHERE id = %s"
             cursor.execute(sql_rule, (rule_id,))
             
             return cursor.rowcount > 0, deleted_associations
@@ -520,8 +520,8 @@ def get_rules_for_ticket_type(ticket_type_id: int) -> List[ValidationRule]:
             sql_query = """
                 SELECT vr.id, vr.rule_name, vr.pattern, vr.rule_type, vr.error_message, 
                        vr.active, vr.priority
-                FROM validation_rules vr
-                INNER JOIN ticket_type_rules ttr ON vr.id = ttr.validation_rule_id
+                FROM ticket_validator_validation_rules vr
+                INNER JOIN ticket_validator_ticket_type_rules ttr ON vr.id = ttr.validation_rule_id
                 WHERE ttr.ticket_type_id = %s
                 ORDER BY vr.priority DESC, vr.id ASC
             """
@@ -557,8 +557,8 @@ def get_ticket_types_for_rule(rule_id: int) -> List[TicketType]:
         with database.get_cursor(conn) as cursor:
             sql_query = """
                 SELECT tt.id, tt.type_name, tt.description, tt.detection_keywords, tt.keyword_weights, tt.active
-                FROM ticket_types tt
-                INNER JOIN ticket_type_rules ttr ON tt.id = ttr.ticket_type_id
+                FROM ticket_validator_ticket_types tt
+                INNER JOIN ticket_validator_ticket_type_rules ttr ON tt.id = ttr.ticket_type_id
                 WHERE ttr.validation_rule_id = %s
                 ORDER BY tt.type_name
             """
@@ -610,7 +610,7 @@ def add_rule_to_ticket_type(rule_id: int, ticket_type_id: int) -> bool:
         with database.get_cursor(conn) as cursor:
             try:
                 sql = """
-                    INSERT INTO ticket_type_rules 
+                    INSERT INTO ticket_validator_ticket_type_rules 
                     (ticket_type_id, validation_rule_id, created_timestamp) 
                     VALUES (%s, %s, UNIX_TIMESTAMP())
                 """
@@ -635,7 +635,7 @@ def remove_rule_from_ticket_type(rule_id: int, ticket_type_id: int) -> bool:
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             sql = """
-                DELETE FROM ticket_type_rules 
+                DELETE FROM ticket_validator_ticket_type_rules 
                 WHERE ticket_type_id = %s AND validation_rule_id = %s
             """
             cursor.execute(sql, (ticket_type_id, rule_id))
@@ -657,9 +657,9 @@ def get_rule_type_mapping() -> List[Dict[str, Any]]:
                     vr.rule_name,
                     tt.id as ticket_type_id,
                     tt.type_name
-                FROM ticket_type_rules ttr
-                INNER JOIN validation_rules vr ON ttr.validation_rule_id = vr.id
-                INNER JOIN ticket_types tt ON ttr.ticket_type_id = tt.id
+                FROM ticket_validator_ticket_type_rules ttr
+                INNER JOIN ticket_validator_validation_rules vr ON ttr.validation_rule_id = vr.id
+                INNER JOIN ticket_validator_ticket_types tt ON ttr.ticket_type_id = tt.id
                 ORDER BY vr.rule_name, tt.type_name
             """
             cursor.execute(sql_query)
@@ -692,7 +692,7 @@ def create_test_template(
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             sql = """
-                INSERT INTO ticket_templates 
+                INSERT INTO ticket_validator_ticket_templates 
                 (template_name, template_text, description, expected_result, 
                  ticket_type_id, active, created_timestamp)
                 VALUES (%s, %s, %s, %s, %s, 1, UNIX_TIMESTAMP())
@@ -753,7 +753,7 @@ def update_test_template(
     
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            sql = f"UPDATE ticket_templates SET {', '.join(updates)} WHERE id = %s"
+            sql = f"UPDATE ticket_validator_ticket_templates SET {', '.join(updates)} WHERE id = %s"
             cursor.execute(sql, tuple(values))
             return cursor.rowcount > 0
 
@@ -772,14 +772,14 @@ def delete_test_template(template_id: int) -> Tuple[bool, int]:
         with database.get_cursor(conn) as cursor:
             # First count the rule expectations
             cursor.execute(
-                "SELECT COUNT(*) as cnt FROM template_rule_tests WHERE template_id = %s",
+                "SELECT COUNT(*) as cnt FROM ticket_validator_template_rule_tests WHERE template_id = %s",
                 (template_id,)
             )
             rule_count = cursor.fetchone()['cnt']
             
             # Delete template (cascade will delete rule expectations)
             cursor.execute(
-                "DELETE FROM ticket_templates WHERE id = %s",
+                "DELETE FROM ticket_validator_ticket_templates WHERE id = %s",
                 (template_id,)
             )
             return cursor.rowcount > 0, rule_count
@@ -799,7 +799,7 @@ def toggle_test_template_active(template_id: int, active: bool) -> bool:
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             sql = """
-                UPDATE ticket_templates 
+                UPDATE ticket_validator_ticket_templates 
                 SET active = %s, updated_timestamp = UNIX_TIMESTAMP()
                 WHERE id = %s
             """
@@ -824,8 +824,8 @@ def load_test_template_by_id(template_id: int) -> Optional[dict]:
                        t.expected_result, t.ticket_type_id, t.active,
                        t.created_timestamp, t.updated_timestamp,
                        tt.type_name as ticket_type_name
-                FROM ticket_templates t
-                LEFT JOIN ticket_types tt ON t.ticket_type_id = tt.id
+                FROM ticket_validator_ticket_templates t
+                LEFT JOIN ticket_validator_ticket_types tt ON t.ticket_type_id = tt.id
                 WHERE t.id = %s
             """
             cursor.execute(sql, (template_id,))
@@ -848,18 +848,18 @@ def list_all_test_templates(include_inactive: bool = False) -> List[dict]:
                 sql = """
                     SELECT t.id, t.template_name, t.description, t.expected_result,
                            t.ticket_type_id, t.active, tt.type_name as ticket_type_name,
-                           (SELECT COUNT(*) FROM template_rule_tests WHERE template_id = t.id) as rule_count
-                    FROM ticket_templates t
-                    LEFT JOIN ticket_types tt ON t.ticket_type_id = tt.id
+                           (SELECT COUNT(*) FROM ticket_validator_template_rule_tests WHERE template_id = t.id) as rule_count
+                    FROM ticket_validator_ticket_templates t
+                    LEFT JOIN ticket_validator_ticket_types tt ON t.ticket_type_id = tt.id
                     ORDER BY t.template_name
                 """
             else:
                 sql = """
                     SELECT t.id, t.template_name, t.description, t.expected_result,
                            t.ticket_type_id, t.active, tt.type_name as ticket_type_name,
-                           (SELECT COUNT(*) FROM template_rule_tests WHERE template_id = t.id) as rule_count
-                    FROM ticket_templates t
-                    LEFT JOIN ticket_types tt ON t.ticket_type_id = tt.id
+                           (SELECT COUNT(*) FROM ticket_validator_template_rule_tests WHERE template_id = t.id) as rule_count
+                    FROM ticket_validator_ticket_templates t
+                    LEFT JOIN ticket_validator_ticket_types tt ON t.ticket_type_id = tt.id
                     WHERE t.active = 1
                     ORDER BY t.template_name
                 """
@@ -891,7 +891,7 @@ def set_template_rule_expectation(
         with database.get_cursor(conn) as cursor:
             # Use INSERT ... ON DUPLICATE KEY UPDATE for upsert
             sql = """
-                INSERT INTO template_rule_tests 
+                INSERT INTO ticket_validator_template_rule_tests 
                 (template_id, validation_rule_id, expected_pass, notes, created_timestamp)
                 VALUES (%s, %s, %s, %s, UNIX_TIMESTAMP())
                 ON DUPLICATE KEY UPDATE 
@@ -917,7 +917,7 @@ def remove_template_rule_expectation(template_id: int, rule_id: int) -> bool:
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             sql = """
-                DELETE FROM template_rule_tests 
+                DELETE FROM ticket_validator_template_rule_tests 
                 WHERE template_id = %s AND validation_rule_id = %s
             """
             cursor.execute(sql, (template_id, rule_id))
@@ -940,8 +940,8 @@ def get_template_rule_expectations(template_id: int) -> List[dict]:
                 SELECT trt.id, trt.validation_rule_id, trt.expected_pass, trt.notes,
                        vr.rule_name, vr.pattern, vr.rule_type, vr.error_message,
                        vr.active as rule_active
-                FROM template_rule_tests trt
-                INNER JOIN validation_rules vr ON trt.validation_rule_id = vr.id
+                FROM ticket_validator_template_rule_tests trt
+                INNER JOIN ticket_validator_validation_rules vr ON trt.validation_rule_id = vr.id
                 WHERE trt.template_id = %s
                 ORDER BY vr.rule_name
             """
@@ -963,10 +963,10 @@ def get_rules_not_in_template(template_id: int) -> List[ValidationRule]:
         with database.get_cursor(conn) as cursor:
             sql = """
                 SELECT id, rule_name, pattern, rule_type, error_message, active, priority
-                FROM validation_rules
+                FROM ticket_validator_validation_rules
                 WHERE active = 1
                 AND id NOT IN (
-                    SELECT validation_rule_id FROM template_rule_tests 
+                    SELECT validation_rule_id FROM ticket_validator_template_rule_tests 
                     WHERE template_id = %s
                 )
                 ORDER BY rule_name
@@ -1091,7 +1091,7 @@ def run_template_validation_test(template_id: int, admin_userid: int) -> Dict[st
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             sql = """
-                INSERT INTO template_test_results
+                INSERT INTO ticket_validator_template_test_results
                 (template_id, admin_userid, overall_pass, total_rules_tested,
                  rules_passed_as_expected, rules_failed_unexpectedly, 
                  details_json, run_timestamp)
@@ -1178,7 +1178,7 @@ def get_template_test_history(template_id: int, limit: int = 10) -> List[dict]:
                 SELECT id, admin_userid, overall_pass, total_rules_tested,
                        rules_passed_as_expected, rules_failed_unexpectedly,
                        details_json, run_timestamp
-                FROM template_test_results
+                FROM ticket_validator_template_test_results
                 WHERE template_id = %s
                 ORDER BY run_timestamp DESC
                 LIMIT %s
