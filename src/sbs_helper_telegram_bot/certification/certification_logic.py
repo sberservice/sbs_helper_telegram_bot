@@ -1290,25 +1290,26 @@ def format_time_remaining(seconds: int) -> str:
 def format_time_spent(seconds: int) -> str:
     """
     Format time spent as human-readable string.
+    Escaped for MarkdownV2.
     
     Args:
         seconds: Time in seconds
         
     Returns:
-        Formatted time string
+        Formatted time string (MarkdownV2 escaped)
     """
     if seconds < 60:
-        return f"{seconds} сек."
+        return f"{seconds} сек\\."
     
     minutes = seconds // 60
     secs = seconds % 60
     
     if minutes < 60:
-        return f"{minutes} мин. {secs} сек."
+        return f"{minutes} мин\\. {secs} сек\\."
     
     hours = minutes // 60
     mins = minutes % 60
-    return f"{hours} ч. {mins} мин."
+    return f"{hours} ч\\. {mins} мин\\."
 
 
 def get_month_name(month: int) -> str:
