@@ -390,6 +390,7 @@ def get_question_edit_keyboard(question_id: int) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("📊 Сложность", callback_data=f"cert_q_edit_diff_{question_id}"),
+            InlineKeyboardButton("📁 Категории", callback_data=f"cert_q_edit_cats_{question_id}"),
         ],
         [
             InlineKeyboardButton("🔙 Назад", callback_data=f"cert_q_view_{question_id}"),
@@ -463,6 +464,43 @@ def get_category_multiselect_keyboard(
     keyboard.append([
         InlineKeyboardButton("✅ Готово", callback_data="cert_catsel_done"),
         InlineKeyboardButton("❌ Отмена", callback_data="cert_cancel"),
+    ])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_category_edit_multiselect_keyboard(
+    categories: List[dict], 
+    selected_ids: Optional[List[int]] = None,
+    question_id: int = None
+) -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for editing question categories.
+    
+    Args:
+        categories: List of category dicts
+        selected_ids: List of already selected category IDs
+        question_id: Question ID being edited
+        
+    Returns:
+        InlineKeyboardMarkup for category multi-selection during edit
+    """
+    selected_ids = selected_ids or []
+    keyboard = []
+    
+    for cat in categories:
+        is_selected = cat['id'] in selected_ids
+        prefix = "✅ " if is_selected else "⬜️ "
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{prefix}{cat['name']}",
+                callback_data=f"cert_q_cat_toggle_{cat['id']}"
+            )
+        ])
+    
+    keyboard.append([
+        InlineKeyboardButton("✅ Сохранить", callback_data="cert_q_cat_save"),
+        InlineKeyboardButton("❌ Отмена", callback_data=f"cert_q_view_{question_id}" if question_id else "cert_cancel"),
     ])
     
     return InlineKeyboardMarkup(keyboard)

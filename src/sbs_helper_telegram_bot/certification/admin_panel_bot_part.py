@@ -59,6 +59,7 @@ logger = logging.getLogger(__name__)
     Q_CREATE_CATEGORIES,
     Q_CREATE_RELEVANCE,
     Q_EDIT_FIELD,
+    Q_EDIT_CATEGORIES,
     Q_CONFIRM_DELETE,
     Q_UPDATE_RELEVANCE,
     # Settings
@@ -68,7 +69,7 @@ logger = logging.getLogger(__name__)
     SETTINGS_PASSING_SCORE,
     # Outdated questions
     OUTDATED_LIST,
-) = range(29)
+) = range(30)
 
 
 # ============================================================================
@@ -353,6 +354,33 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             reply_markup=keyboards.get_difficulty_keyboard()
         )
         return Q_EDIT_FIELD
+    
+    if data.startswith("cert_q_edit_cats_"):
+        q_id = int(data.replace("cert_q_edit_cats_", ""))
+        context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
+        
+        # Get current categories for the question
+        question = logic.get_question_by_id(q_id)
+        current_cat_ids = [c['id'] for c in question.get('categories', [])] if question else []
+        context.user_data['editing_question_categories'] = current_cat_ids
+        
+        # Get all active categories
+        categories = logic.get_all_categories(active_only=True)
+        
+        await query.edit_message_text(
+            "📁 *Редактирование категорий*\n\nВыберите категории для вопроса:",
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_category_edit_multiselect_keyboard(categories, current_cat_ids, q_id)
+        )
+        return Q_EDIT_CATEGORIES
+    
+    # Question category editing callbacks
+    if data.startswith("cert_q_cat_toggle_"):
+        cat_id = int(data.replace("cert_q_cat_toggle_", ""))
+        return await toggle_question_category(update, context, cat_id)
+    
+    if data == "cert_q_cat_save":
+        return await save_question_categories(update, context)
     
     if data.startswith("cert_q_page_"):
         page = int(data.replace("cert_q_page_", ""))
@@ -1009,6 +1037,64 @@ async def receive_question_edit_callback(update: Update, context: ContextTypes.D
     
     # Clean up
     context.user_data.pop("edit_field", None)
+    
+    # Return to question details
+    return await show_question_details(update, context, q_id)
+
+
+async def toggle_question_category(update: Update, context: ContextTypes.DEFAULT_TYPE, category_id: int) -> int:
+    """Toggle category selection for question being edited."""
+    query = update.callback_query
+    
+    q_id = context.user_data.get(settings.ADMIN_EDITING_QUESTION_KEY)
+    selected = context.user_data.get('editing_question_categories', [])
+    
+    if category_id in selected:
+        selected.remove(category_id)
+    else:
+        selected.append(category_id)
+    
+    context.user_data['editing_question_categories'] = selected
+    
+    categories = logic.get_all_categories(active_only=True)
+    
+    await query.edit_message_reply_markup(
+        reply_markup=keyboards.get_category_edit_multiselect_keyboard(categories, selected, q_id)
+    )
+    
+    return Q_EDIT_CATEGORIES
+
+
+async def save_question_categories(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save updated question categories."""
+    query = update.callback_query
+    await query.answer()
+    
+    q_id = context.user_data.get(settings.ADMIN_EDITING_QUESTION_KEY)
+    selected = context.user_data.get('editing_question_categories', [])
+    
+    if not q_id:
+        await query.edit_message_text(
+            "❌ Ошибка: данные редактирования потеряны",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ADMIN_MENU
+    
+    success = logic.update_question(q_id, category_ids=selected)
+    
+    if success:
+        await query.edit_message_text(
+            "✅ *Категории обновлены\\!*",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+    else:
+        await query.edit_message_text(
+            "❌ Ошибка сохранения категорий",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+    
+    # Clean up
+    context.user_data.pop('editing_question_categories', None)
     
     # Return to question details
     return await show_question_details(update, context, q_id)
@@ -1700,6 +1786,10 @@ def get_admin_conversation_handler() -> ConversationHandler:
             ],
             Q_CREATE_RELEVANCE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_relevance_date),
+            ],
+            Q_EDIT_CATEGORIES: [
+                CallbackQueryHandler(admin_callback_handler, pattern="^cert_q_cat_"),
+                CallbackQueryHandler(admin_callback_handler, pattern="^cert_q_view_"),
             ],
             Q_CONFIRM_DELETE: [
                 CallbackQueryHandler(admin_callback_handler, pattern="^cert_"),
