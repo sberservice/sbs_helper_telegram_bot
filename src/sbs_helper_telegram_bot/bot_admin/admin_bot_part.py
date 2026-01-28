@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
     INVITE_LIST,
     INVITE_ISSUE_USER,
     INVITE_ISSUE_COUNT,
-) = range(20)
+) = range(19)
 
 
 # ============================================================================
