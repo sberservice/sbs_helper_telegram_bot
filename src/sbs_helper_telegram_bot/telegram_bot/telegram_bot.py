@@ -59,6 +59,7 @@ from src.common.messages import (
     BUTTON_VALIDATE_TICKET,
     BUTTON_SCREENSHOT,
     BUTTON_UPOS_ERRORS,
+    BUTTON_CERTIFICATION,
     get_main_menu_keyboard,
     get_settings_menu_keyboard,
     get_modules_menu_keyboard,
@@ -107,6 +108,21 @@ from src.sbs_helper_telegram_bot.upos_error.upos_error_bot_part import (
     get_user_conversation_handler as get_upos_user_handler,
     get_admin_conversation_handler as get_upos_admin_handler
 )
+
+# Import certification module handlers
+from src.sbs_helper_telegram_bot.certification import keyboards as certification_keyboards
+from src.sbs_helper_telegram_bot.certification import messages as certification_messages
+from src.sbs_helper_telegram_bot.certification.certification_bot_part import (
+    get_user_conversation_handler as get_certification_user_handler,
+    certification_submenu as enter_certification_module,
+    show_my_ranking,
+    show_test_history,
+    show_monthly_top,
+)
+from src.sbs_helper_telegram_bot.certification.admin_panel_bot_part import (
+    get_admin_conversation_handler as get_certification_admin_handler
+)
+
 from src.common.telegram_user import check_if_user_admin
 
 from config.settings import DEBUG, INVITES_PER_NEW_USER
@@ -372,6 +388,23 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         )
     elif text == "📊 Популярные ошибки":
         await show_popular_errors(update, _context)
+    elif text == BUTTON_CERTIFICATION:
+        # Show certification module submenu
+        if check_if_user_admin(update.effective_user.id):
+            keyboard = certification_keyboards.get_admin_submenu_keyboard()
+        else:
+            keyboard = certification_keyboards.get_submenu_keyboard()
+        await update.message.reply_text(
+            certification_messages.MESSAGE_SUBMENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard
+        )
+    elif text == "📊 Мой рейтинг":
+        await show_my_ranking(update, _context)
+    elif text == "📜 История тестов":
+        await show_test_history(update, _context)
+    elif text == "🏆 Топ месяца":
+        await show_monthly_top(update, _context)
     else:
         # Default response for unrecognized text
         await update.message.reply_text(
@@ -477,6 +510,10 @@ def main() -> None:
         ]
     )
 
+    # Create ConversationHandlers for certification module
+    certification_user_handler = get_certification_user_handler()
+    certification_admin_handler = get_certification_admin_handler()
+
     # Register all handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
@@ -487,6 +524,8 @@ def main() -> None:
     application.add_handler(admin_handler)
     application.add_handler(upos_admin_handler)
     application.add_handler(upos_user_handler)
+    application.add_handler(certification_admin_handler)
+    application.add_handler(certification_user_handler)
     application.add_handler(screenshot_handler)
     application.add_handler(ticket_validator_handler)
     application.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, text_entered))
