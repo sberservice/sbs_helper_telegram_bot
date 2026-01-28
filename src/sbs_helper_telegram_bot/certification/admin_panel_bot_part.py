@@ -1196,7 +1196,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
     """
     return ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex("^🔐 Админ панель$"), admin_command),
+            MessageHandler(filters.Regex("^⚙️ Управление$"), admin_command),
         ],
         states={
             ADMIN_MENU: [
