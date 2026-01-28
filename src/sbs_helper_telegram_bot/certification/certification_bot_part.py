@@ -8,6 +8,7 @@ Telegram handlers for the user-facing certification functionality:
 """
 
 import logging
+import random
 import time
 from datetime import datetime
 from typing import Optional
@@ -53,6 +54,45 @@ def obfuscate_name(name: str) -> str:
     if not name:
         return ""
     return f"{name[0]}\\.\\.\\."
+
+
+def shuffle_question_options(question: dict) -> dict:
+    """
+    Shuffle the answer options for a question and track the mapping.
+    
+    Args:
+        question: Question dict with option_a, option_b, option_c, option_d, correct_option
+        
+    Returns:
+        Question dict with shuffled_options list and option_mapping dict
+    """
+    # Create list of (original_letter, option_text) tuples
+    options = [
+        ('A', question['option_a']),
+        ('B', question['option_b']),
+        ('C', question['option_c']),
+        ('D', question['option_d']),
+    ]
+    
+    # Shuffle the options
+    random.shuffle(options)
+    
+    # Create mapping: displayed_letter -> original_letter
+    # e.g., if original B is now shown as A, mapping['A'] = 'B'
+    display_letters = ['A', 'B', 'C', 'D']
+    option_mapping = {}  # displayed -> original
+    shuffled_options = []  # list of option texts in display order
+    
+    for i, (original_letter, option_text) in enumerate(options):
+        display_letter = display_letters[i]
+        option_mapping[display_letter] = original_letter
+        shuffled_options.append(option_text)
+    
+    # Store in question
+    question['shuffled_options'] = shuffled_options
+    question['option_mapping'] = option_mapping
+    
+    return question
 
 
 # ============================================================================
@@ -174,7 +214,9 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
     
     # Store test data in context
     context.user_data[settings.CURRENT_ATTEMPT_ID_KEY] = attempt_id
-    context.user_data[settings.TEST_QUESTIONS_KEY] = questions
+    # Shuffle options for each question
+    shuffled_questions = [shuffle_question_options(q) for q in questions]
+    context.user_data[settings.TEST_QUESTIONS_KEY] = shuffled_questions
     context.user_data[settings.CURRENT_QUESTION_INDEX_KEY] = 0
     context.user_data[settings.TEST_START_TIME_KEY] = time.time()
     context.user_data[settings.SELECTED_CATEGORY_KEY] = category_id
@@ -232,12 +274,16 @@ async def send_question(
     # Format question text
     question_text = logic.escape_markdown(question['question_text'])
     
-    # Build options text
+    # Build options text using shuffled options
+    shuffled = question.get('shuffled_options', [
+        question['option_a'], question['option_b'], 
+        question['option_c'], question['option_d']
+    ])
     options_text = f"""
-🅰️ {logic.escape_markdown(question['option_a'])}
-🅱️ {logic.escape_markdown(question['option_b'])}
-©️ {logic.escape_markdown(question['option_c'])}
-🇩 {logic.escape_markdown(question['option_d'])}"""
+🅰️ {logic.escape_markdown(shuffled[0])}
+🅱️ {logic.escape_markdown(shuffled[1])}
+©️ {logic.escape_markdown(shuffled[2])}
+🇩 {logic.escape_markdown(shuffled[3])}"""
     
     full_message = messages.MESSAGE_QUESTION_TEMPLATE.format(
         current=current_index + 1,
@@ -312,14 +358,26 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     
     question = questions[current_index]
     correct_option = question['correct_option']
-    is_correct = user_answer.upper() == correct_option.upper()
     
-    # Save answer
+    # Map user's displayed answer to original option letter
+    option_mapping = question.get('option_mapping', {'A': 'A', 'B': 'B', 'C': 'C', 'D': 'D'})
+    original_answer = option_mapping.get(user_answer.upper(), user_answer.upper())
+    is_correct = original_answer == correct_option.upper()
+    
+    # Find which displayed letter corresponds to the correct answer
+    # (reverse mapping: original -> displayed)
+    displayed_correct = user_answer.upper()  # default
+    for displayed, original in option_mapping.items():
+        if original == correct_option.upper():
+            displayed_correct = displayed
+            break
+    
+    # Save answer (save the original letter for consistency)
     logic.save_answer(
         attempt_id=attempt_id,
         question_id=question['id'],
         question_order=current_index + 1,
-        user_answer=user_answer.upper(),
+        user_answer=original_answer,
         is_correct=is_correct
     )
     
@@ -332,8 +390,9 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         if is_correct:
             result_text = messages.MESSAGE_ANSWER_CORRECT
         else:
+            # Show the displayed letter of the correct answer
             result_text = messages.MESSAGE_ANSWER_INCORRECT.format(
-                correct_option=settings.ANSWER_EMOJIS.get(correct_option, correct_option)
+                correct_option=settings.ANSWER_EMOJIS.get(displayed_correct, displayed_correct)
             )
         
         # Add explanation if available
