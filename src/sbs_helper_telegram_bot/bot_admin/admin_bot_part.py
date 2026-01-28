@@ -489,6 +489,12 @@ async def show_user_details_callback(query, context: ContextTypes.DEFAULT_TYPE, 
     
     is_self = query.from_user.id == user_id
     
+    # Format invited_by field
+    if user['invited_by']:
+        invited_by_text = escape_markdown(f"#{user['invited_by']}")
+    else:
+        invited_by_text = escape_markdown("Самостоятельно/Пре-инвайт")
+    
     await query.edit_message_text(
         messages.MESSAGE_USER_DETAILS.format(
             user_id=user_id,
@@ -500,7 +506,7 @@ async def show_user_details_callback(query, context: ContextTypes.DEFAULT_TYPE, 
             is_admin="✅ Да" if user['is_admin'] else "❌ Нет",
             invites_issued=user['invites_issued'],
             invites_used=user['invites_used'],
-            invited_by=f"#{user['invited_by']}" if user['invited_by'] else "Самостоятельно/Пре-инвайт"
+            invited_by=invited_by_text
         ),
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.get_user_details_keyboard(user_id, user['is_admin'], is_self)
@@ -689,7 +695,7 @@ async def show_preinvite_details_callback(query, context: ContextTypes.DEFAULT_T
     await query.edit_message_text(
         messages.MESSAGE_PREINVITE_DETAILS.format(
             telegram_id=telegram_id,
-            added_by=escape_markdown(added_by),
+            added_by=added_by,
             notes=notes,
             created=escape_markdown(created),
             status=status
