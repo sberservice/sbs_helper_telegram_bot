@@ -93,6 +93,8 @@ DB_SETTING_QUESTIONS_COUNT: Final[str] = 'questions_count'
 DB_SETTING_TIME_LIMIT: Final[str] = 'time_limit_minutes'
 DB_SETTING_PASSING_SCORE: Final[str] = 'passing_score_percent'
 DB_SETTING_SHOW_CORRECT: Final[str] = 'show_correct_answer'
+DB_SETTING_OBFUSCATE_NAMES: Final[str] = 'obfuscate_names'
 
 # Default values
 DEFAULT_SHOW_CORRECT: Final[bool] = True
+DEFAULT_OBFUSCATE_NAMES: Final[bool] = False

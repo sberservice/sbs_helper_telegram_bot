@@ -172,6 +172,10 @@ def get_test_settings() -> Dict[str, int]:
         'show_correct_answer': get_setting(
             settings.DB_SETTING_SHOW_CORRECT,
             settings.DEFAULT_SHOW_CORRECT
+        ) in (True, 'True', 'true', '1', 1),
+        'obfuscate_names': get_setting(
+            settings.DB_SETTING_OBFUSCATE_NAMES,
+            settings.DEFAULT_OBFUSCATE_NAMES
         ) in (True, 'True', 'true', '1', 1)
     }
 
