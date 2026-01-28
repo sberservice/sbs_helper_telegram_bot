@@ -671,7 +671,7 @@ def get_menu_button_regex_pattern() -> str:
         "📊 Мой рейтинг",
         "📜 История тестов",
         "🏆 Топ месяца",
-        "🔐 Админ панель",
+        "⚙️ Управление",
     ]
     escaped_buttons = [b.replace("(", "\\(").replace(")", "\\)") for b in buttons]
     return "^(" + "|".join(escaped_buttons) + ")$"
