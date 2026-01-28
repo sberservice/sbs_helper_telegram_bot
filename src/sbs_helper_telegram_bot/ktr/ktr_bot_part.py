@@ -180,12 +180,44 @@ def delete_ktr_code(code_id: int) -> bool:
 
 def ktr_code_exists(code: str) -> bool:
     """
-    Check if KTR code already exists.
+    Check if KTR code already exists (including inactive).
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             cursor.execute("SELECT id FROM ktr_codes WHERE code = %s", (code,))
             return cursor.fetchone() is not None
+
+
+def get_ktr_code_by_code_any_status(code: str) -> Optional[dict]:
+    """
+    Look up a KTR code in the database (including inactive codes).
+    Used for import operations.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            cursor.execute("""
+                SELECT k.*, c.name as category_name
+                FROM ktr_codes k
+                LEFT JOIN ktr_categories c ON k.category_id = c.id
+                WHERE k.code = %s
+            """, (code,))
+            return cursor.fetchone()
+
+
+def batch_check_existing_codes(codes: List[str]) -> set:
+    """
+    Check which codes already exist in the database (batch operation).
+    Returns a set of existing codes.
+    """
+    if not codes:
+        return set()
+    
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            # Use IN clause for batch check
+            placeholders = ','.join(['%s'] * len(codes))
+            cursor.execute(f"SELECT code FROM ktr_codes WHERE code IN ({placeholders})", tuple(codes))
+            return {row['code'] for row in cursor.fetchall()}
 
 
 # Category operations
@@ -316,6 +348,8 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
     Expected CSV format:
     code,description,minutes,category (optional)
     
+    Unexpected columns are ignored.
+    
     Args:
         csv_content: Raw CSV content as string
         delimiter: CSV delimiter character
@@ -325,10 +359,18 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
     """
     valid_records = []
     errors = []
+    seen_codes = set()  # Track duplicates within CSV
     
     try:
+        # Limit content size to prevent memory issues
+        max_content_size = 5 * 1024 * 1024  # 5MB
+        if len(csv_content) > max_content_size:
+            errors.append("CSV файл слишком большой")
+            return [], errors
+        
         # Try to detect the delimiter if it's not comma
-        if delimiter == ',' and ';' in csv_content and ',' not in csv_content.split('\n')[0]:
+        first_line = csv_content.split('\n')[0] if csv_content else ''
+        if delimiter == ',' and ';' in first_line and ',' not in first_line:
             delimiter = ';'
         
         reader = csv.DictReader(io.StringIO(csv_content), delimiter=delimiter)
@@ -340,7 +382,7 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
         
         fieldnames_lower = [f.lower().strip() if f else '' for f in reader.fieldnames]
         
-        # Map possible column names
+        # Map possible column names (only the ones we expect)
         code_col = None
         desc_col = None
         minutes_col = None
@@ -355,6 +397,7 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
                 minutes_col = reader.fieldnames[i]
             elif fname in ('category', 'категория', 'cat'):
                 category_col = reader.fieldnames[i]
+            # Any other columns are silently ignored
         
         if not code_col:
             errors.append(messages.MESSAGE_CSV_ERROR_NO_CODE_COLUMN)
@@ -366,44 +409,85 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
             errors.append(messages.MESSAGE_CSV_ERROR_NO_MINUTES_COLUMN)
             return [], errors
         
-        for row_num, row in enumerate(reader, start=2):  # Start from 2 (header is row 1)
+        row_num = 1  # Header is row 1
+        max_rows = 10000  # Limit number of rows to prevent hangs
+        
+        for row in reader:
+            row_num += 1
+            
+            # Safety limit
+            if row_num > max_rows + 1:
+                errors.append(f"Превышен лимит строк ({max_rows}). Остальные строки пропущены.")
+                break
+            
             try:
-                code = (row.get(code_col) or '').strip()
+                # Only extract the columns we mapped, ignore everything else
+                code = (row.get(code_col) or '').strip().upper()  # Normalize to uppercase
                 description = (row.get(desc_col) or '').strip()
                 minutes_str = (row.get(minutes_col) or '').strip()
                 category_name = (row.get(category_col) or '').strip() if category_col else None
+                
+                # Skip empty rows
+                if not code and not description and not minutes_str:
+                    continue
                 
                 # Validate required fields
                 if not code:
                     errors.append(messages.MESSAGE_CSV_ERROR_EMPTY_CODE.format(row=row_num))
                     continue
                 
+                # Check code format (alphanumeric)
+                if not code.replace('-', '').replace('_', '').replace('.', '').isalnum():
+                    errors.append(f"Строка {row_num}: код '{code}' содержит недопустимые символы")
+                    continue
+                
                 if len(code) > 50:
                     errors.append(messages.MESSAGE_CSV_ERROR_CODE_TOO_LONG.format(row=row_num, code=code[:20]))
                     continue
+                
+                # Check for duplicates within CSV
+                if code in seen_codes:
+                    errors.append(f"Строка {row_num}: дублирующийся код '{code}' в файле")
+                    continue
+                seen_codes.add(code)
                 
                 if not description:
                     errors.append(messages.MESSAGE_CSV_ERROR_EMPTY_DESC.format(row=row_num, code=code))
                     continue
                 
+                if len(description) > 1000:
+                    errors.append(f"Строка {row_num}: описание слишком длинное (макс. 1000 символов)")
+                    continue
+                
                 # Parse minutes
                 try:
-                    minutes = int(minutes_str)
+                    # Handle various number formats
+                    minutes_str = minutes_str.replace(',', '.').strip()
+                    minutes = int(float(minutes_str))
                     if minutes < 0:
                         raise ValueError("Negative minutes")
+                    if minutes > 100000:  # Sanity check: ~70 days max
+                        raise ValueError("Minutes too large")
                 except (ValueError, TypeError):
                     errors.append(messages.MESSAGE_CSV_ERROR_INVALID_MINUTES.format(row=row_num, code=code))
                     continue
+                
+                # Validate category name if provided
+                if category_name and len(category_name) > 100:
+                    category_name = category_name[:100]
                 
                 valid_records.append({
                     'code': code,
                     'description': description,
                     'minutes': minutes,
-                    'category_name': category_name
+                    'category_name': category_name if category_name else None
                 })
                 
             except Exception as e:
                 errors.append(messages.MESSAGE_CSV_ERROR_ROW_PROCESSING.format(row=row_num, error=str(e)))
+                if len(errors) > 100:  # Limit error count
+                    errors.append("Слишком много ошибок, обработка прервана")
+                    break
                 
     except csv.Error as e:
         errors.append(messages.MESSAGE_CSV_ERROR_PARSE.format(error=str(e)))
@@ -426,6 +510,16 @@ def import_ktr_codes_from_csv(records: List[dict], skip_existing: bool = True) -
     """
     result = CSVImportResult()
     
+    if not records:
+        return result
+    
+    # Pre-fetch existing codes in batch to avoid N+1 queries
+    all_codes = [r['code'] for r in records]
+    existing_codes_set = batch_check_existing_codes(all_codes)
+    
+    # Pre-fetch categories
+    category_cache = {}
+    
     for record in records:
         try:
             code = record['code']
@@ -433,33 +527,36 @@ def import_ktr_codes_from_csv(records: List[dict], skip_existing: bool = True) -
             minutes = record['minutes']
             category_name = record.get('category_name')
             
-            # Check if code exists
-            existing = get_ktr_code_by_code(code)
+            # Check if code exists (using pre-fetched set)
+            code_exists = code in existing_codes_set
             
-            if existing:
+            if code_exists:
                 if skip_existing:
                     result.skipped_count += 1
                     continue
                 else:
-                    # Update existing
-                    update_ktr_code(existing['id'], 'description', description)
-                    update_ktr_code(existing['id'], 'minutes', minutes, update_timestamp=True)
-                    if category_name:
-                        cat = get_category_by_name(category_name)
-                        if cat:
-                            update_ktr_code(existing['id'], 'category_id', cat['id'])
-                    result.success_count += 1
+                    # Update existing - need to fetch full record
+                    existing = get_ktr_code_by_code_any_status(code)
+                    if existing:
+                        update_ktr_code(existing['id'], 'description', description)
+                        update_ktr_code(existing['id'], 'minutes', minutes, update_timestamp=True)
+                        # Also reactivate if it was inactive
+                        if not existing['active']:
+                            update_ktr_code(existing['id'], 'active', 1)
+                        if category_name:
+                            cat_id = _get_or_create_category(category_name, category_cache)
+                            if cat_id:
+                                update_ktr_code(existing['id'], 'category_id', cat_id)
+                        result.success_count += 1
+                    else:
+                        result.error_count += 1
+                        result.errors.append(f"Не удалось найти код '{code}' для обновления")
                     continue
             
             # Get category ID if provided
             category_id = None
             if category_name:
-                cat = get_category_by_name(category_name)
-                if cat:
-                    category_id = cat['id']
-                # If category doesn't exist, create it
-                elif category_name:
-                    category_id = create_category(category_name, None, 0)
+                category_id = _get_or_create_category(category_name, category_cache)
             
             # Create new code
             create_ktr_code(code, description, minutes, category_id)
@@ -467,9 +564,43 @@ def import_ktr_codes_from_csv(records: List[dict], skip_existing: bool = True) -
             
         except Exception as e:
             result.error_count += 1
-            result.errors.append(messages.MESSAGE_CSV_ERROR_IMPORT.format(code=record.get('code', '?'), error=str(e)))
+            error_msg = str(e)
+            if len(error_msg) > 100:
+                error_msg = error_msg[:100] + '...'
+            result.errors.append(messages.MESSAGE_CSV_ERROR_IMPORT.format(code=record.get('code', '?'), error=error_msg))
+            
+            # Stop if too many errors
+            if result.error_count > 50:
+                result.errors.append("Слишком много ошибок импорта, обработка прервана")
+                break
     
     return result
+
+
+def _get_or_create_category(category_name: str, cache: dict) -> Optional[int]:
+    """
+    Get category ID from cache or database, create if doesn't exist.
+    """
+    if not category_name:
+        return None
+    
+    # Check cache first
+    if category_name in cache:
+        return cache[category_name]
+    
+    # Check database
+    cat = get_category_by_name(category_name)
+    if cat:
+        cache[category_name] = cat['id']
+        return cat['id']
+    
+    # Create new category
+    try:
+        cat_id = create_category(category_name, None, 0)
+        cache[category_name] = cat_id
+        return cat_id
+    except Exception:
+        return None
 
 
 # Unknown codes and statistics
@@ -1716,8 +1847,10 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
             'csv_parse_errors': parse_errors
         }
         
-        # Count existing codes
-        existing_count = sum(1 for r in records if ktr_code_exists(r['code']))
+        # Count existing codes using batch operation
+        all_codes = [r['code'] for r in records]
+        existing_codes_set = batch_check_existing_codes(all_codes)
+        existing_count = len(existing_codes_set)
         new_count = len(records) - existing_count
         
         # Show preview and ask for confirmation
