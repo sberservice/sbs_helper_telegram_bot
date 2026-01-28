@@ -61,6 +61,7 @@ from src.common.messages import (
     BUTTON_SCREENSHOT,
     BUTTON_UPOS_ERRORS,
     BUTTON_CERTIFICATION,
+    BUTTON_KTR,
     BUTTON_BOT_ADMIN,
     get_main_menu_keyboard,
     get_settings_menu_keyboard,
@@ -109,6 +110,15 @@ from src.sbs_helper_telegram_bot.upos_error.upos_error_bot_part import (
     show_popular_errors,
     get_user_conversation_handler as get_upos_user_handler,
     get_admin_conversation_handler as get_upos_admin_handler
+)
+
+# Import KTR module handlers
+from src.sbs_helper_telegram_bot.ktr import keyboards as ktr_keyboards
+from src.sbs_helper_telegram_bot.ktr import messages as ktr_messages
+from src.sbs_helper_telegram_bot.ktr.ktr_bot_part import (
+    show_popular_codes as show_popular_ktr_codes,
+    get_user_conversation_handler as get_ktr_user_handler,
+    get_admin_conversation_handler as get_ktr_admin_handler
 )
 
 # Import certification module handlers
@@ -474,6 +484,19 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         await show_test_history(update, _context)
     elif text == "🏆 Топ месяца":
         await show_monthly_top(update, _context)
+    elif text == BUTTON_KTR:
+        # Show KTR module submenu
+        if is_admin:
+            keyboard = ktr_keyboards.get_admin_submenu_keyboard()
+        else:
+            keyboard = ktr_keyboards.get_submenu_keyboard()
+        await update.message.reply_text(
+            ktr_messages.MESSAGE_SUBMENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard
+        )
+    elif text == "📊 Популярные коды":
+        await show_popular_ktr_codes(update, _context)
     else:
         # Default response for unrecognized text
         await update.message.reply_text(
@@ -583,6 +606,10 @@ def main() -> None:
     certification_user_handler = get_certification_user_handler()
     certification_admin_handler = get_certification_admin_handler()
 
+    # Create ConversationHandlers for KTR module
+    ktr_user_handler = get_ktr_user_handler()
+    ktr_admin_handler = get_ktr_admin_handler()
+
     # Create ConversationHandler for main bot admin panel
     bot_admin_handler = get_bot_admin_handler()
 
@@ -597,6 +624,8 @@ def main() -> None:
     application.add_handler(admin_handler)
     application.add_handler(upos_admin_handler)
     application.add_handler(upos_user_handler)
+    application.add_handler(ktr_admin_handler)
+    application.add_handler(ktr_user_handler)
     application.add_handler(certification_admin_handler)
     application.add_handler(certification_user_handler)
     application.add_handler(screenshot_handler)
