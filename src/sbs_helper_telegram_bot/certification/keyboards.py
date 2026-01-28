@@ -260,6 +260,30 @@ def get_category_actions_keyboard(category_id: int, is_active: bool) -> InlineKe
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_category_edit_keyboard(category_id: int) -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for selecting which category field to edit.
+    
+    Args:
+        category_id: Category ID
+        
+    Returns:
+        InlineKeyboardMarkup with field edit options
+    """
+    keyboard = [
+        [
+            InlineKeyboardButton("📝 Название", callback_data=f"cert_cat_edit_name_{category_id}"),
+        ],
+        [
+            InlineKeyboardButton("📄 Описание", callback_data=f"cert_cat_edit_desc_{category_id}"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Назад", callback_data=f"cert_cat_view_{category_id}"),
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_questions_list_keyboard(questions: List[dict], page: int = 1, per_page: int = 8) -> InlineKeyboardMarkup:
     """
     Build inline keyboard for questions list with pagination.
@@ -333,6 +357,42 @@ def get_question_actions_keyboard(question_id: int, is_active: bool) -> InlineKe
         ],
         [
             InlineKeyboardButton("🔙 К списку", callback_data="cert_q_list"),
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_question_edit_keyboard(question_id: int) -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for selecting which question field to edit.
+    
+    Args:
+        question_id: Question ID
+        
+    Returns:
+        InlineKeyboardMarkup with field edit options
+    """
+    keyboard = [
+        [
+            InlineKeyboardButton("📝 Текст вопроса", callback_data=f"cert_q_edit_text_{question_id}"),
+        ],
+        [
+            InlineKeyboardButton("🅰️ Вариант A", callback_data=f"cert_q_edit_opt_a_{question_id}"),
+            InlineKeyboardButton("🅱️ Вариант B", callback_data=f"cert_q_edit_opt_b_{question_id}"),
+        ],
+        [
+            InlineKeyboardButton("©️ Вариант C", callback_data=f"cert_q_edit_opt_c_{question_id}"),
+            InlineKeyboardButton("🇩 Вариант D", callback_data=f"cert_q_edit_opt_d_{question_id}"),
+        ],
+        [
+            InlineKeyboardButton("✅ Правильный ответ", callback_data=f"cert_q_edit_correct_{question_id}"),
+            InlineKeyboardButton("💡 Пояснение", callback_data=f"cert_q_edit_expl_{question_id}"),
+        ],
+        [
+            InlineKeyboardButton("📊 Сложность", callback_data=f"cert_q_edit_diff_{question_id}"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Назад", callback_data=f"cert_q_view_{question_id}"),
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
