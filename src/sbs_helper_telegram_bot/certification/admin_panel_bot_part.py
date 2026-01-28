@@ -272,12 +272,18 @@ async def show_categories_list(update: Update, context: ContextTypes.DEFAULT_TYP
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboards.get_admin_categories_keyboard()
         )
-        return ADMIN_MENU
+        return CAT_LIST  # Changed from ADMIN_MENU to CAT_LIST
     
     await update.message.reply_text(
         "📁 *Категории тестов*",
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.get_categories_list_keyboard(categories)
+    )
+    
+    # Also show reply keyboard for add button
+    await update.message.reply_text(
+        "Выберите действие:",
+        reply_markup=keyboards.get_admin_categories_keyboard()
     )
     
     return CAT_LIST
@@ -293,12 +299,23 @@ async def show_categories_list_callback(update: Update, context: ContextTypes.DE
             messages.MESSAGE_NO_CATEGORIES,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
-        return ADMIN_MENU
+        # Send reply keyboard
+        await query.message.reply_text(
+            "Выберите действие:",
+            reply_markup=keyboards.get_admin_categories_keyboard()
+        )
+        return CAT_LIST  # Changed from ADMIN_MENU
     
     await query.edit_message_text(
         "📁 *Категории тестов*",
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.get_categories_list_keyboard(categories)
+    )
+    
+    # Send reply keyboard
+    await query.message.reply_text(
+        "Выберите действие:",
+        reply_markup=keyboards.get_admin_categories_keyboard()
     )
     
     return CAT_LIST
@@ -505,12 +522,18 @@ async def show_questions_list(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboards.get_admin_questions_keyboard()
         )
-        return ADMIN_MENU
+        return Q_LIST  # Changed from ADMIN_MENU to Q_LIST
     
     await update.message.reply_text(
         "❓ *Вопросы*",
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.get_questions_list_keyboard(questions)
+    )
+    
+    # Also show reply keyboard for add/search buttons
+    await update.message.reply_text(
+        "Выберите действие:",
+        reply_markup=keyboards.get_admin_questions_keyboard()
     )
     
     return Q_LIST
@@ -526,12 +549,23 @@ async def show_questions_list_callback(update: Update, context: ContextTypes.DEF
             messages.MESSAGE_NO_QUESTIONS_ADMIN,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
-        return ADMIN_MENU
+        # Send reply keyboard
+        await query.message.reply_text(
+            "Выберите действие:",
+            reply_markup=keyboards.get_admin_questions_keyboard()
+        )
+        return Q_LIST  # Already was correct, but ensure consistency
     
     await query.edit_message_text(
         "❓ *Вопросы*",
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.get_questions_list_keyboard(questions)
+    )
+    
+    # Send reply keyboard
+    await query.message.reply_text(
+        "Выберите действие:",
+        reply_markup=keyboards.get_admin_questions_keyboard()
     )
     
     return Q_LIST
