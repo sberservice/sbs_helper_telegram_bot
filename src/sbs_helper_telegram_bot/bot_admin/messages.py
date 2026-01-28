@@ -124,7 +124,7 @@ MESSAGE_PREINVITE_NO_USERS = """⚠️ *Пре\\-инвайты не найде�
 
 MESSAGE_PREINVITE_STATUS_PENDING = "⏳ Ожидает активации"
 MESSAGE_PREINVITE_STATUS_ACTIVATED = "✅ Активирован: {date}"
-MESSAGE_PREINVITE_ADDED_BY_ADMIN = "Админ #{admin_id}"
+MESSAGE_PREINVITE_ADDED_BY_ADMIN = "Админ \#{admin_id}"
 MESSAGE_PREINVITE_ADDED_BY_UNKNOWN = "Неизвестно"
 MESSAGE_PREINVITE_NO_NOTES = "Нет заметок"
 
