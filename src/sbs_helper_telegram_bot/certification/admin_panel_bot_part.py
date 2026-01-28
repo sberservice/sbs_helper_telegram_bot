@@ -261,7 +261,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     # Question edit - show edit menu
     if data.startswith("cert_q_edit_") and not any(
         data.startswith(f"cert_q_edit_{field}_") 
-        for field in ["text", "opt_a", "opt_b", "opt_c", "opt_d", "correct", "expl", "diff"]
+        for field in ["text", "opt_a", "opt_b", "opt_c", "opt_d", "correct", "expl", "diff", "cats"]
     ):
         q_id = int(data.replace("cert_q_edit_", ""))
         context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
