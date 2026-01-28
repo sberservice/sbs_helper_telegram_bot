@@ -347,4 +347,160 @@ CREATE TABLE `upos_error_request_log` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
+-- --------------------------------------------------------
+--
+-- Employee Certification Module Tables
+--
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `certification_categories`
+--
+
+DROP TABLE IF EXISTS `certification_categories`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `certification_categories` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `display_order` int(11) NOT NULL DEFAULT '0',
+  `active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_timestamp` bigint(20) NOT NULL,
+  `updated_timestamp` bigint(20) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `name` (`name`),
+  KEY `active` (`active`),
+  KEY `display_order` (`display_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `certification_questions`
+--
+
+DROP TABLE IF EXISTS `certification_questions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `certification_questions` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `question_text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `option_a` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `option_b` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `option_c` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `option_d` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `correct_option` enum('A','B','C','D') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `explanation` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'Optional explanation shown after answering',
+  `difficulty` enum('easy','medium','hard') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'medium',
+  `relevance_date` date NOT NULL COMMENT 'Date until which the question is considered relevant',
+  `active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_timestamp` bigint(20) NOT NULL,
+  `updated_timestamp` bigint(20) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `active` (`active`),
+  KEY `difficulty` (`difficulty`),
+  KEY `relevance_date` (`relevance_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `certification_question_categories`
+-- Junction table for many-to-many relationship between questions and categories
+--
+
+DROP TABLE IF EXISTS `certification_question_categories`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `certification_question_categories` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `question_id` bigint(20) NOT NULL,
+  `category_id` bigint(20) NOT NULL,
+  `created_timestamp` bigint(20) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `question_category_unique` (`question_id`, `category_id`),
+  KEY `question_id` (`question_id`),
+  KEY `category_id` (`category_id`),
+  CONSTRAINT `fk_qc_question` FOREIGN KEY (`question_id`) REFERENCES `certification_questions` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_qc_category` FOREIGN KEY (`category_id`) REFERENCES `certification_categories` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `certification_attempts`
+-- Stores each test attempt by a user
+--
+
+DROP TABLE IF EXISTS `certification_attempts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `certification_attempts` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `userid` bigint(20) NOT NULL,
+  `category_id` bigint(20) DEFAULT NULL COMMENT 'NULL means all categories (full certification)',
+  `total_questions` int(11) NOT NULL,
+  `correct_answers` int(11) NOT NULL DEFAULT '0',
+  `score_percent` decimal(5,2) NOT NULL DEFAULT '0.00',
+  `passed` tinyint(1) NOT NULL DEFAULT '0',
+  `time_limit_seconds` int(11) NOT NULL COMMENT 'Time limit for the test in seconds',
+  `time_spent_seconds` int(11) DEFAULT NULL COMMENT 'Actual time spent (NULL if not completed)',
+  `started_timestamp` bigint(20) NOT NULL,
+  `completed_timestamp` bigint(20) DEFAULT NULL,
+  `status` enum('in_progress','completed','expired','cancelled') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'in_progress',
+  PRIMARY KEY (`id`),
+  KEY `userid` (`userid`),
+  KEY `category_id` (`category_id`),
+  KEY `started_timestamp` (`started_timestamp`),
+  KEY `completed_timestamp` (`completed_timestamp`),
+  KEY `status` (`status`),
+  KEY `passed` (`passed`),
+  KEY `score_percent` (`score_percent`),
+  CONSTRAINT `fk_attempt_category` FOREIGN KEY (`category_id`) REFERENCES `certification_categories` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `certification_answers`
+-- Stores individual answers for each attempt
+--
+
+DROP TABLE IF EXISTS `certification_answers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `certification_answers` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `attempt_id` bigint(20) NOT NULL,
+  `question_id` bigint(20) NOT NULL,
+  `question_order` int(11) NOT NULL COMMENT 'Order in which question was shown (1-based)',
+  `user_answer` enum('A','B','C','D') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'NULL if not answered (timed out)',
+  `is_correct` tinyint(1) DEFAULT NULL COMMENT 'NULL if not answered',
+  `answered_timestamp` bigint(20) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `attempt_question_unique` (`attempt_id`, `question_id`),
+  KEY `attempt_id` (`attempt_id`),
+  KEY `question_id` (`question_id`),
+  KEY `is_correct` (`is_correct`),
+  CONSTRAINT `fk_answer_attempt` FOREIGN KEY (`attempt_id`) REFERENCES `certification_attempts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_answer_question` FOREIGN KEY (`question_id`) REFERENCES `certification_questions` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `certification_settings`
+-- Configurable settings for certification module
+--
+
+DROP TABLE IF EXISTS `certification_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `certification_settings` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `setting_key` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `setting_value` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `updated_timestamp` bigint(20) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `setting_key` (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
 -- Dump completed on 2025-12-04 18:58:13
