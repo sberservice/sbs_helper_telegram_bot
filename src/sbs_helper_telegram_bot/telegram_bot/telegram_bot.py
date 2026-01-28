@@ -61,6 +61,7 @@ from src.common.messages import (
     BUTTON_SCREENSHOT,
     BUTTON_UPOS_ERRORS,
     BUTTON_CERTIFICATION,
+    BUTTON_BOT_ADMIN,
     get_main_menu_keyboard,
     get_settings_menu_keyboard,
     get_modules_menu_keyboard,
@@ -122,6 +123,11 @@ from src.sbs_helper_telegram_bot.certification.certification_bot_part import (
 )
 from src.sbs_helper_telegram_bot.certification.admin_panel_bot_part import (
     get_admin_conversation_handler as get_certification_admin_handler
+)
+
+# Import bot admin module handlers
+from src.sbs_helper_telegram_bot.bot_admin.admin_bot_part import (
+    get_admin_conversation_handler as get_bot_admin_handler
 )
 
 from src.common.telegram_user import check_if_user_admin
@@ -211,10 +217,11 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(MESSAGE_INVITE_ISSUED.format(invite=invite))
         
         # Show main menu
+        is_admin = check_if_user_admin(user_id)
         await update.message.reply_text(
             MESSAGE_MAIN_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=get_main_menu_keyboard(is_admin=is_admin)
         )
         return
     
@@ -224,10 +231,11 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
 
     user = update.effective_user
     update_user_info_from_telegram(user)
+    is_admin = check_if_user_admin(user_id)
     await update.message.reply_text(
         MESSAGE_WELCOME,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=get_main_menu_keyboard()
+        reply_markup=get_main_menu_keyboard(is_admin=is_admin)
     )
 
 async def invite_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -261,15 +269,17 @@ async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
 
         Shows the main menu keyboard to authorized users.
     """
-    if not check_if_user_legit(update.effective_user.id):
+    user_id = update.effective_user.id
+    if not check_if_user_legit(user_id):
         await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return
     
     update_user_info_from_telegram(update.effective_user)
+    is_admin = check_if_user_admin(user_id)
     await update.message.reply_text(
         MESSAGE_MAIN_MENU,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=get_main_menu_keyboard()
+        reply_markup=get_main_menu_keyboard(is_admin=is_admin)
     )
 
 
@@ -322,10 +332,11 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             await update.message.reply_text(MESSAGE_INVITE_ISSUED.format(invite=invite))
         
         # Show main menu
+        is_admin = check_if_user_admin(user_id)
         await update.message.reply_text(
             MESSAGE_MAIN_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=get_main_menu_keyboard(is_admin=is_admin)
         )
         return
     
@@ -337,10 +348,11 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
                 invite = invites.generate_invite_for_user(user_id)
                 await update.message.reply_text(MESSAGE_INVITE_ISSUED.format(invite=invite))
             # Show main menu after successful registration
+            is_admin = check_if_user_admin(user_id)
             await update.message.reply_text(
                 MESSAGE_MAIN_MENU,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_main_menu_keyboard()
+                reply_markup=get_main_menu_keyboard(is_admin=is_admin)
             )
         elif check_if_invite_entered(user_id, text) == InviteStatus.NOT_EXISTS:
             await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
@@ -351,11 +363,12 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         return
     
     # Handle menu button presses for authorized users
+    is_admin = check_if_user_admin(user_id)
     if text == BUTTON_MAIN_MENU:
         await update.message.reply_text(
             MESSAGE_MAIN_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=get_main_menu_keyboard(is_admin=is_admin)
         )
     elif text == BUTTON_MODULES:
         # Show modules menu
@@ -373,7 +386,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         )
     elif text == BUTTON_VALIDATE_TICKET:
         # Show validation submenu (with admin panel if user is admin)
-        if check_if_user_admin(update.effective_user.id):
+        if is_admin:
             keyboard = validator_keyboards.get_admin_submenu_keyboard()
         else:
             keyboard = validator_keyboards.get_submenu_keyboard()
@@ -410,7 +423,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         )
     elif text == "🔐 Админ панель":
         # Show admin panel if user is admin
-        if check_if_user_admin(update.effective_user.id):
+        if is_admin:
             await update.message.reply_text(
                 validator_messages.MESSAGE_ADMIN_MENU,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -420,11 +433,20 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             await update.message.reply_text(
                 MESSAGE_NO_ADMIN_RIGHTS,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_main_menu_keyboard()
+                reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+            )
+    elif text == BUTTON_BOT_ADMIN:
+        # Show bot admin panel if user is admin - this is entry point handled by ConversationHandler
+        # This fallback is for safety if handler doesn't catch it
+        if not is_admin:
+            await update.message.reply_text(
+                MESSAGE_NO_ADMIN_RIGHTS,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=get_main_menu_keyboard(is_admin=is_admin)
             )
     elif text == BUTTON_UPOS_ERRORS:
         # Show UPOS error module submenu
-        if check_if_user_admin(update.effective_user.id):
+        if is_admin:
             keyboard = upos_keyboards.get_admin_submenu_keyboard()
         else:
             keyboard = upos_keyboards.get_submenu_keyboard()
@@ -437,7 +459,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         await show_popular_errors(update, _context)
     elif text == BUTTON_CERTIFICATION:
         # Show certification module submenu
-        if check_if_user_admin(update.effective_user.id):
+        if is_admin:
             keyboard = certification_keyboards.get_admin_submenu_keyboard()
         else:
             keyboard = certification_keyboards.get_submenu_keyboard()
@@ -457,7 +479,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(
             MESSAGE_UNRECOGNIZED_INPUT,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=get_main_menu_keyboard(is_admin=is_admin)
         )
 
 
@@ -561,6 +583,9 @@ def main() -> None:
     certification_user_handler = get_certification_user_handler()
     certification_admin_handler = get_certification_admin_handler()
 
+    # Create ConversationHandler for main bot admin panel
+    bot_admin_handler = get_bot_admin_handler()
+
     # Register all handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
@@ -568,6 +593,7 @@ def main() -> None:
     application.add_handler(CommandHandler("invite", invite_command))
     application.add_handler(CommandHandler("help_validate", help_command))
     application.add_handler(CommandHandler("debug", toggle_debug_mode))
+    application.add_handler(bot_admin_handler)  # Main bot admin panel (must be before module admins)
     application.add_handler(admin_handler)
     application.add_handler(upos_admin_handler)
     application.add_handler(upos_user_handler)

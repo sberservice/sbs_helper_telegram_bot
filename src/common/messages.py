@@ -66,6 +66,7 @@ BUTTON_SETTINGS = "⚙️ Настройки"
 BUTTON_MAIN_MENU = "🏠 Главное меню"
 BUTTON_MY_INVITES = "🎫 Мои инвайты"
 BUTTON_HELP = "❓ Помощь"
+BUTTON_BOT_ADMIN = "🛠️ Админ бота"
 
 # Module buttons
 BUTTON_VALIDATE_TICKET = "✅ Валидация заявок"
@@ -74,22 +75,28 @@ BUTTON_UPOS_ERRORS = "🔢 UPOS Ошибки"
 BUTTON_CERTIFICATION = "📝 Аттестация"
 
 
-def get_main_menu_keyboard(extra_buttons=None):
+def get_main_menu_keyboard(is_admin: bool = False):
     """
     Build main menu keyboard with Modules and Settings buttons.
+    For admins, includes the Bot Admin button.
     
     Args:
-        extra_buttons: Optional list of additional buttons to include
+        is_admin: Whether the user is an admin
         
     Returns:
         ReplyKeyboardMarkup for main menu.
     """
     from telegram import ReplyKeyboardMarkup
     
-    # Simplified main menu with just Modules and Settings
-    buttons = [
-        [BUTTON_MODULES, BUTTON_SETTINGS]
-    ]
+    if is_admin:
+        buttons = [
+            [BUTTON_MODULES, BUTTON_SETTINGS],
+            [BUTTON_BOT_ADMIN]
+        ]
+    else:
+        buttons = [
+            [BUTTON_MODULES, BUTTON_SETTINGS]
+        ]
     
     return ReplyKeyboardMarkup(
         buttons,
