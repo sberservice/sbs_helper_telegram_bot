@@ -40,6 +40,21 @@ logger = logging.getLogger(__name__)
 ) = range(3)
 
 
+def obfuscate_name(name: str) -> str:
+    """
+    Obfuscate a name by keeping only the first letter and replacing rest with dots.
+    
+    Args:
+        name: The name to obfuscate (e.g., "Иван")
+        
+    Returns:
+        Obfuscated name (e.g., "И...")
+    """
+    if not name:
+        return ""
+    return f"{name[0]}\\.\\.\\."
+
+
 # ============================================================================
 # Entry Points and Navigation
 # ============================================================================
@@ -556,12 +571,21 @@ async def show_monthly_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return
     
+    # Check if names should be obfuscated
+    test_settings = logic.get_test_settings()
+    should_obfuscate = test_settings.get('obfuscate_names', False)
+    
     # Format top list
     top_items = []
     for user in ranking:
-        name = logic.escape_markdown(user['first_name'])
-        if user['last_name']:
-            name += f" {logic.escape_markdown(user['last_name'])}"
+        if should_obfuscate:
+            name = obfuscate_name(user['first_name'])
+            if user['last_name']:
+                name += f" {obfuscate_name(user['last_name'])}"
+        else:
+            name = logic.escape_markdown(user['first_name'])
+            if user['last_name']:
+                name += f" {logic.escape_markdown(user['last_name'])}"
         
         top_items.append(messages.MESSAGE_TOP_ITEM.format(
             rank=user['rank'],
