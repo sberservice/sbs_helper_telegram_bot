@@ -354,6 +354,40 @@ def toggle_category_active(category_id: int) -> Optional[bool]:
         return None
 
 
+def update_category_field(category_id: int, field: str, value: Optional[str]) -> bool:
+    """
+    Update a specific field of a category.
+    
+    Args:
+        category_id: Category ID
+        field: Field name to update (name, description)
+        value: New value for the field
+        
+    Returns:
+        True on success, False on error
+    """
+    # Validate field name to prevent SQL injection
+    allowed_fields = {'name', 'description'}
+    
+    if field not in allowed_fields:
+        logger.error(f"Invalid field name for category update: {field}")
+        return False
+    
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    f"""UPDATE certification_categories 
+                        SET {field} = %s, updated_timestamp = %s 
+                        WHERE id = %s""",
+                    (value, int(time.time()), category_id)
+                )
+                return cursor.rowcount > 0
+    except Exception as e:
+        logger.error(f"Error updating category {category_id} field {field}: {e}")
+        return False
+
+
 # ============================================================================
 # Question Management
 # ============================================================================
@@ -636,6 +670,44 @@ def toggle_question_active(question_id: int) -> Optional[bool]:
     except Exception as e:
         logger.error(f"Error toggling question {question_id}: {e}")
         return None
+
+
+def update_question_field(question_id: int, field: str, value: Optional[str]) -> bool:
+    """
+    Update a specific field of a question.
+    
+    Args:
+        question_id: Question ID
+        field: Field name to update (question_text, option_a, option_b, option_c, option_d,
+               correct_option, explanation, difficulty)
+        value: New value for the field
+        
+    Returns:
+        True on success, False on error
+    """
+    # Validate field name to prevent SQL injection
+    allowed_fields = {
+        'question_text', 'option_a', 'option_b', 'option_c', 'option_d',
+        'correct_option', 'explanation', 'difficulty'
+    }
+    
+    if field not in allowed_fields:
+        logger.error(f"Invalid field name for question update: {field}")
+        return False
+    
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    f"""UPDATE certification_questions 
+                        SET {field} = %s, updated_timestamp = %s 
+                        WHERE id = %s""",
+                    (value, int(time.time()), question_id)
+                )
+                return cursor.rowcount > 0
+    except Exception as e:
+        logger.error(f"Error updating question {question_id} field {field}: {e}")
+        return False
 
 
 def update_question_relevance(question_id: int, months: int = None, new_date: date = None) -> bool:

@@ -171,6 +171,41 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         page = int(data.replace("cert_cat_page_", ""))
         return await show_categories_page(update, context, page)
     
+    # Category edit - show edit menu
+    if data.startswith("cert_cat_edit_") and not any(
+        data.startswith(f"cert_cat_edit_{field}_") 
+        for field in ["name", "desc"]
+    ):
+        cat_id = int(data.replace("cert_cat_edit_", ""))
+        context.user_data[settings.ADMIN_EDITING_CATEGORY_KEY] = cat_id
+        await query.edit_message_text(
+            "✏️ *Редактирование категории*\n\nВыберите поле для редактирования:",
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_category_edit_keyboard(cat_id)
+        )
+        return CAT_EDIT_NAME  # Using this state for category edit
+    
+    # Category edit - specific field handlers
+    if data.startswith("cert_cat_edit_name_"):
+        cat_id = int(data.replace("cert_cat_edit_name_", ""))
+        context.user_data[settings.ADMIN_EDITING_CATEGORY_KEY] = cat_id
+        context.user_data["edit_field"] = "name"
+        await query.edit_message_text(
+            "📝 Введите новое название категории:",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return CAT_EDIT_NAME
+    
+    if data.startswith("cert_cat_edit_desc_"):
+        cat_id = int(data.replace("cert_cat_edit_desc_", ""))
+        context.user_data[settings.ADMIN_EDITING_CATEGORY_KEY] = cat_id
+        context.user_data["edit_field"] = "description"
+        await query.edit_message_text(
+            "📄 Введите новое описание \\(или /skip чтобы очистить\\):",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return CAT_EDIT_DESC
+    
     if data == "cert_cancel":
         await query.edit_message_text(
             messages.MESSAGE_CANCELLED,
@@ -207,6 +242,103 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return Q_UPDATE_RELEVANCE
+    
+    # Question edit - show edit menu
+    if data.startswith("cert_q_edit_") and not any(
+        data.startswith(f"cert_q_edit_{field}_") 
+        for field in ["text", "opt_a", "opt_b", "opt_c", "opt_d", "correct", "expl", "diff"]
+    ):
+        q_id = int(data.replace("cert_q_edit_", ""))
+        context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
+        await query.edit_message_text(
+            "✏️ *Редактирование вопроса*\n\nВыберите поле для редактирования:",
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_question_edit_keyboard(q_id)
+        )
+        return Q_EDIT_FIELD
+    
+    # Question edit - specific field handlers
+    if data.startswith("cert_q_edit_text_"):
+        q_id = int(data.replace("cert_q_edit_text_", ""))
+        context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
+        context.user_data["edit_field"] = "question_text"
+        await query.edit_message_text(
+            "📝 Введите новый текст вопроса:",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return Q_EDIT_FIELD
+    
+    if data.startswith("cert_q_edit_opt_a_"):
+        q_id = int(data.replace("cert_q_edit_opt_a_", ""))
+        context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
+        context.user_data["edit_field"] = "option_a"
+        await query.edit_message_text(
+            "🅰️ Введите новый текст варианта A:",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return Q_EDIT_FIELD
+    
+    if data.startswith("cert_q_edit_opt_b_"):
+        q_id = int(data.replace("cert_q_edit_opt_b_", ""))
+        context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
+        context.user_data["edit_field"] = "option_b"
+        await query.edit_message_text(
+            "🅱️ Введите новый текст варианта B:",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return Q_EDIT_FIELD
+    
+    if data.startswith("cert_q_edit_opt_c_"):
+        q_id = int(data.replace("cert_q_edit_opt_c_", ""))
+        context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
+        context.user_data["edit_field"] = "option_c"
+        await query.edit_message_text(
+            "©️ Введите новый текст варианта C:",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return Q_EDIT_FIELD
+    
+    if data.startswith("cert_q_edit_opt_d_"):
+        q_id = int(data.replace("cert_q_edit_opt_d_", ""))
+        context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
+        context.user_data["edit_field"] = "option_d"
+        await query.edit_message_text(
+            "🇩 Введите новый текст варианта D:",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return Q_EDIT_FIELD
+    
+    if data.startswith("cert_q_edit_expl_"):
+        q_id = int(data.replace("cert_q_edit_expl_", ""))
+        context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
+        context.user_data["edit_field"] = "explanation"
+        await query.edit_message_text(
+            "💡 Введите новое пояснение \\(или /skip чтобы очистить\\):",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return Q_EDIT_FIELD
+    
+    if data.startswith("cert_q_edit_correct_"):
+        q_id = int(data.replace("cert_q_edit_correct_", ""))
+        context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
+        context.user_data["edit_field"] = "correct_option"
+        await query.edit_message_text(
+            "✅ Выберите правильный ответ:",
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_correct_answer_keyboard()
+        )
+        return Q_EDIT_FIELD
+    
+    if data.startswith("cert_q_edit_diff_"):
+        q_id = int(data.replace("cert_q_edit_diff_", ""))
+        context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
+        context.user_data["edit_field"] = "difficulty"
+        await query.edit_message_text(
+            "📊 Выберите уровень сложности:",
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_difficulty_keyboard()
+        )
+        return Q_EDIT_FIELD
     
     if data.startswith("cert_q_page_"):
         page = int(data.replace("cert_q_page_", ""))
@@ -362,6 +494,63 @@ async def show_category_details(update: Update, context: ContextTypes.DEFAULT_TY
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.get_category_actions_keyboard(category_id, category['active'])
     )
+    
+    return CAT_VIEW
+
+
+async def receive_category_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive and save edited category field value."""
+    text = update.message.text
+    cat_id = context.user_data.get(settings.ADMIN_EDITING_CATEGORY_KEY)
+    field = context.user_data.get("edit_field")
+    
+    if not cat_id or not field:
+        await update.message.reply_text(
+            "❌ Ошибка: данные редактирования потеряны",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ADMIN_MENU
+    
+    # Handle /skip for description field
+    if field == "description" and text == "/skip":
+        text = None
+    
+    # Update the category field
+    success = logic.update_category_field(cat_id, field, text)
+    
+    if success:
+        await update.message.reply_text(
+            "✅ *Поле успешно обновлено\\!*",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        # Show category details again
+        category = logic.get_category_by_id(cat_id)
+        if category:
+            status = "✅ Активна" if category['active'] else "❌ Неактивна"
+            created_date = datetime.fromtimestamp(category['created_timestamp']).strftime('%d\\.%m\\.%Y')
+            
+            message = messages.MESSAGE_CATEGORY_DETAILS.format(
+                name=logic.escape_markdown(category['name']),
+                description=logic.escape_markdown(category['description'] or "—"),
+                questions_count=category['questions_count'],
+                status=status,
+                display_order=category['display_order'],
+                created_date=created_date
+            )
+            
+            await update.message.reply_text(
+                message,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=keyboards.get_category_actions_keyboard(cat_id, category['active'])
+            )
+    else:
+        await update.message.reply_text(
+            "❌ Ошибка сохранения",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+    
+    # Clean up
+    context.user_data.pop("edit_field", None)
     
     return CAT_VIEW
 
@@ -633,6 +822,124 @@ async def show_question_details(update: Update, context: ContextTypes.DEFAULT_TY
     )
     
     return Q_VIEW
+
+
+async def receive_question_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive and save edited question field value."""
+    text = update.message.text
+    q_id = context.user_data.get(settings.ADMIN_EDITING_QUESTION_KEY)
+    field = context.user_data.get("edit_field")
+    
+    if not q_id or not field:
+        await update.message.reply_text(
+            "❌ Ошибка: данные редактирования потеряны",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ADMIN_MENU
+    
+    # Handle /skip for explanation field
+    if field == "explanation" and text == "/skip":
+        text = None
+    
+    # Update the question field
+    success = logic.update_question_field(q_id, field, text)
+    
+    if success:
+        await update.message.reply_text(
+            "✅ *Поле успешно обновлено\\!*",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        # Show question details again
+        question = logic.get_question_by_id(q_id)
+        if question:
+            status = "✅ Активен" if question['active'] else "❌ Неактивен"
+            difficulty = settings.DIFFICULTY_LABELS.get(question['difficulty'], question['difficulty'])
+            
+            if question.get('categories'):
+                categories_str = ", ".join(logic.escape_markdown(c['name']) for c in question['categories'])
+            else:
+                categories_str = "—"
+            
+            rel_date = question['relevance_date']
+            if isinstance(rel_date, str):
+                relevance_str = logic.escape_markdown(rel_date)
+            else:
+                relevance_str = rel_date.strftime('%d\\.%m\\.%Y')
+            
+            message = messages.MESSAGE_QUESTION_DETAILS.format(
+                id=q_id,
+                question_text=logic.escape_markdown(question['question_text']),
+                option_a=logic.escape_markdown(question['option_a']),
+                option_b=logic.escape_markdown(question['option_b']),
+                option_c=logic.escape_markdown(question['option_c']),
+                option_d=logic.escape_markdown(question['option_d']),
+                correct_option=settings.ANSWER_EMOJIS.get(question['correct_option'], question['correct_option']),
+                explanation=logic.escape_markdown(question['explanation'] or "—"),
+                difficulty=difficulty,
+                categories=categories_str,
+                relevance_date=relevance_str,
+                status=status
+            )
+            
+            await update.message.reply_text(
+                message,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=keyboards.get_question_actions_keyboard(q_id, question['active'])
+            )
+    else:
+        await update.message.reply_text(
+            "❌ Ошибка сохранения",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+    
+    # Clean up
+    context.user_data.pop("edit_field", None)
+    
+    return Q_VIEW
+
+
+async def receive_question_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle correct answer or difficulty selection during edit."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    q_id = context.user_data.get(settings.ADMIN_EDITING_QUESTION_KEY)
+    field = context.user_data.get("edit_field")
+    
+    if not q_id or not field:
+        await query.edit_message_text(
+            "❌ Ошибка: данные редактирования потеряны",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ADMIN_MENU
+    
+    # Determine the value based on callback
+    value = None
+    if field == "correct_option" and data.startswith("cert_correct_"):
+        value = data.replace("cert_correct_", "")
+    elif field == "difficulty" and data.startswith("cert_diff_"):
+        value = data.replace("cert_diff_", "")
+    
+    if value:
+        success = logic.update_question_field(q_id, field, value)
+        
+        if success:
+            await query.edit_message_text(
+                "✅ *Поле успешно обновлено\\!*",
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+        else:
+            await query.edit_message_text(
+                "❌ Ошибка сохранения",
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+    
+    # Clean up
+    context.user_data.pop("edit_field", None)
+    
+    # Return to question details
+    return await show_question_details(update, context, q_id)
 
 
 async def toggle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, question_id: int) -> int:
@@ -1255,6 +1562,14 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CAT_CREATE_ORDER: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_category_order),
             ],
+            CAT_EDIT_NAME: [
+                CallbackQueryHandler(admin_callback_handler, pattern="^cert_cat_edit_"),
+                CallbackQueryHandler(admin_callback_handler, pattern="^cert_cat_view_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_category_edit),
+            ],
+            CAT_EDIT_DESC: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_category_edit),
+            ],
             CAT_CONFIRM_DELETE: [
                 CallbackQueryHandler(admin_callback_handler, pattern="^cert_"),
             ],
@@ -1267,6 +1582,13 @@ def get_admin_conversation_handler() -> ConversationHandler:
             ],
             Q_VIEW: [
                 CallbackQueryHandler(admin_callback_handler, pattern="^cert_"),
+            ],
+            Q_EDIT_FIELD: [
+                CallbackQueryHandler(receive_question_edit_callback, pattern="^cert_correct_"),
+                CallbackQueryHandler(receive_question_edit_callback, pattern="^cert_diff_"),
+                CallbackQueryHandler(admin_callback_handler, pattern="^cert_q_view_"),
+                CallbackQueryHandler(admin_callback_handler, pattern="^cert_q_edit_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_question_edit),
             ],
             Q_CREATE_TEXT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_question_text),
