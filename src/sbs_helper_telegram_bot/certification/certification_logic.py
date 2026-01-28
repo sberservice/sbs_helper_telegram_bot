@@ -154,7 +154,7 @@ def get_test_settings() -> Dict[str, int]:
     Get all test configuration settings.
     
     Returns:
-        Dict with questions_count, time_limit_minutes, passing_score_percent
+        Dict with questions_count, time_limit_minutes, passing_score_percent, show_correct_answer
     """
     return {
         'questions_count': int(get_setting(
@@ -168,7 +168,11 @@ def get_test_settings() -> Dict[str, int]:
         'passing_score_percent': int(get_setting(
             settings.DB_SETTING_PASSING_SCORE, 
             settings.DEFAULT_PASSING_SCORE_PERCENT
-        ))
+        )),
+        'show_correct_answer': get_setting(
+            settings.DB_SETTING_SHOW_CORRECT,
+            settings.DEFAULT_SHOW_CORRECT
+        ) in (True, 'True', 'true', '1', 1)
     }
 
 

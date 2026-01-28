@@ -370,6 +370,30 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return SETTINGS_PASSING_SCORE
     
+    if data == "cert_set_show_correct":
+        # Toggle show_correct_answer setting
+        test_settings = logic.get_test_settings()
+        new_value = not test_settings['show_correct_answer']
+        logic.set_setting(settings.DB_SETTING_SHOW_CORRECT, str(new_value), "Show correct answer after each question")
+        
+        # Refresh settings display
+        test_settings = logic.get_test_settings()
+        show_correct_text = "✅ Да" if test_settings['show_correct_answer'] else "❌ Нет"
+        
+        message = messages.MESSAGE_CERTIFICATION_SETTINGS.format(
+            questions_count=test_settings['questions_count'],
+            time_limit=test_settings['time_limit_minutes'],
+            passing_score=test_settings['passing_score_percent'],
+            show_correct=show_correct_text
+        )
+        
+        await query.edit_message_text(
+            message,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_settings_keyboard(test_settings['show_correct_answer'])
+        )
+        return SETTINGS_MENU
+    
     # Question creation - correct answer selection
     if data.startswith("cert_correct_"):
         answer = data.replace("cert_correct_", "")
@@ -1366,16 +1390,19 @@ async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     """Show certification settings."""
     test_settings = logic.get_test_settings()
     
+    show_correct_text = "✅ Да" if test_settings['show_correct_answer'] else "❌ Нет"
+    
     message = messages.MESSAGE_CERTIFICATION_SETTINGS.format(
         questions_count=test_settings['questions_count'],
         time_limit=test_settings['time_limit_minutes'],
-        passing_score=test_settings['passing_score_percent']
+        passing_score=test_settings['passing_score_percent'],
+        show_correct=show_correct_text
     )
     
     await update.message.reply_text(
         message,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=keyboards.get_settings_keyboard()
+        reply_markup=keyboards.get_settings_keyboard(test_settings['show_correct_answer'])
     )
     
     return SETTINGS_MENU

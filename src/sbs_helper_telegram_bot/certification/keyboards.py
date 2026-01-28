@@ -499,17 +499,22 @@ def get_outdated_questions_keyboard(questions: List[dict]) -> InlineKeyboardMark
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_settings_keyboard() -> InlineKeyboardMarkup:
+def get_settings_keyboard(show_correct: bool = True) -> InlineKeyboardMarkup:
     """
     Build inline keyboard for certification settings.
+    
+    Args:
+        show_correct: Current value of show_correct_answer setting
     
     Returns:
         InlineKeyboardMarkup for settings
     """
+    show_correct_text = "✅ Показывать ответ" if show_correct else "❌ Показывать ответ"
     keyboard = [
         [InlineKeyboardButton("📋 Кол-во вопросов", callback_data="cert_set_questions")],
         [InlineKeyboardButton("⏱ Время на тест", callback_data="cert_set_time")],
         [InlineKeyboardButton("🎯 Проходной балл", callback_data="cert_set_score")],
+        [InlineKeyboardButton(f"👁 {show_correct_text}", callback_data="cert_set_show_correct")],
         [InlineKeyboardButton("🔙 Назад", callback_data="cert_admin_menu")],
     ]
     return InlineKeyboardMarkup(keyboard)
