@@ -122,6 +122,14 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=keyboard
         )
         return ConversationHandler.END
+    elif text == "🔙 Админ меню":
+        # Go back to admin menu from questions/categories submenu
+        await update.message.reply_text(
+            messages.MESSAGE_ADMIN_MENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_admin_menu_keyboard()
+        )
+        return ADMIN_MENU
     elif text == "🏠 Главное меню":
         return ConversationHandler.END
     
