@@ -82,21 +82,21 @@ class TestCertificationLogicUtilities(unittest.TestCase):
         self.assertEqual(format_time_remaining(3599), "59:59")
         
     def test_format_time_spent(self):
-        """Test time formatting for time spent."""
+        """Test time formatting for time spent (MarkdownV2 escaped)."""
         from src.sbs_helper_telegram_bot.certification.certification_logic import format_time_spent
         
         # Test seconds only
-        self.assertEqual(format_time_spent(30), "30 сек.")
-        self.assertEqual(format_time_spent(59), "59 сек.")
+        self.assertEqual(format_time_spent(30), "30 сек\\.")
+        self.assertEqual(format_time_spent(59), "59 сек\\.")
         
         # Test minutes and seconds
-        self.assertEqual(format_time_spent(60), "1 мин. 0 сек.")
-        self.assertEqual(format_time_spent(90), "1 мин. 30 сек.")
-        self.assertEqual(format_time_spent(600), "10 мин. 0 сек.")
+        self.assertEqual(format_time_spent(60), "1 мин\\. 0 сек\\.")
+        self.assertEqual(format_time_spent(90), "1 мин\\. 30 сек\\.")
+        self.assertEqual(format_time_spent(600), "10 мин\\. 0 сек\\.")
         
         # Test hours
-        self.assertEqual(format_time_spent(3600), "1 ч. 0 мин.")
-        self.assertEqual(format_time_spent(3660), "1 ч. 1 мин.")
+        self.assertEqual(format_time_spent(3600), "1 ч\\. 0 мин\\.")
+        self.assertEqual(format_time_spent(3660), "1 ч\\. 1 мин\\.")
         
     def test_get_month_name(self):
         """Test Russian month name conversion."""
