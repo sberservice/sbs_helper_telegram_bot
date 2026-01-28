@@ -1785,25 +1785,59 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
         
         # Try to decode with different encodings
         csv_content = None
+        detected_encoding = None
         
         # Check for BOM (Byte Order Mark) first
         if raw_bytes.startswith(b'\xef\xbb\xbf'):
             # UTF-8 with BOM
             csv_content = raw_bytes[3:].decode('utf-8')
-        elif raw_bytes.startswith(b'\xff\xfe') or raw_bytes.startswith(b'\xfe\xff'):
-            # UTF-16
-            csv_content = raw_bytes.decode('utf-16')
+            detected_encoding = 'UTF-8 with BOM'
+        elif raw_bytes.startswith(b'\xff\xfe'):
+            # UTF-16 LE
+            csv_content = raw_bytes.decode('utf-16-le')
+            detected_encoding = 'UTF-16 LE'
+        elif raw_bytes.startswith(b'\xfe\xff'):
+            # UTF-16 BE
+            csv_content = raw_bytes.decode('utf-16-be')
+            detected_encoding = 'UTF-16 BE'
         else:
-            # Try different encodings
-            for encoding in ['utf-8', 'mac_roman', 'cp1251', 'iso-8859-1']:
+            # Try different encodings in order of likelihood for Mac
+            # macroman (alias for mac_roman) is common for Mac Excel exports
+            encodings_to_try = [
+                'utf-8',
+                'macroman',      # Mac OS Roman (primary Mac encoding)
+                'mac-cyrillic',  # Mac Cyrillic for Russian
+                'cp1251',        # Windows Cyrillic
+                'windows-1251',  # Alternative name for cp1251
+                'koi8-r',        # KOI8-R Cyrillic
+                'iso-8859-5',    # ISO Cyrillic
+                'utf-16',        # UTF-16 without BOM
+                'latin1',        # ISO-8859-1
+            ]
+            
+            for encoding in encodings_to_try:
                 try:
-                    csv_content = raw_bytes.decode(encoding)
+                    test_content = raw_bytes.decode(encoding)
+                    
+                    # Check if decoding produced replacement characters
+                    # which would indicate wrong encoding
+                    if '\ufffd' in test_content:
+                        continue
+                    
+                    # For non-UTF-8, do additional validation
                     if encoding != 'utf-8':
-                        test_chars = set(csv_content[:500])
-                        if '\ufffd' in test_chars:
+                        # Check if the content looks reasonable (has some ASCII chars)
+                        sample = test_content[:1000]
+                        ascii_chars = sum(1 for c in sample if ord(c) < 128)
+                        if len(sample) > 0 and ascii_chars / len(sample) < 0.3:
+                            # Too few ASCII chars, probably wrong encoding
                             continue
+                    
+                    csv_content = test_content
+                    detected_encoding = encoding
                     break
-                except UnicodeDecodeError:
+                    
+                except (UnicodeDecodeError, LookupError):
                     continue
         
         if csv_content is None:
@@ -1815,6 +1849,10 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
         
         # Normalize line endings
         csv_content = csv_content.replace('\r\n', '\n').replace('\r', '\n')
+        
+        # Log detected encoding for debugging
+        if detected_encoding:
+            logger.info(f"CSV file decoded successfully using {detected_encoding} encoding")
         
         # Parse CSV
         records, parse_errors = parse_csv_ktr_codes(csv_content)
@@ -1853,12 +1891,19 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
         existing_count = len(existing_codes_set)
         new_count = len(records) - existing_count
         
+        # Prepare encoding info for display
+        encoding_info = ""
+        if detected_encoding and detected_encoding != 'utf-8':
+            escaped_enc = messages.escape_markdown_v2(detected_encoding)
+            encoding_info = f"\n_\\(кодировка: {escaped_enc}\\)_"
+        
         # Show preview and ask for confirmation
         preview_text = messages.MESSAGE_ADMIN_CSV_PREVIEW.format(
             total=len(records),
             new=new_count,
             existing=existing_count,
-            parse_errors=len(parse_errors)
+            parse_errors=len(parse_errors),
+            encoding_info=encoding_info
         )
         
         if parse_errors:
