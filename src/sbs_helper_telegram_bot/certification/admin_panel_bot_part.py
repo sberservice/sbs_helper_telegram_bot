@@ -1971,6 +1971,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             MessageHandler(filters.Regex("^🏠 Главное меню$"), cancel_admin),
             MessageHandler(filters.Regex("^🔙 Назад$"), back_to_submenu),
             MessageHandler(filters.Regex("^🔙 Админ меню$"), back_to_admin_menu),
+            MessageHandler(filters.COMMAND, cancel_admin),  # Handle /start and other commands
         ],
         name="certification_admin",
         persistent=False,
