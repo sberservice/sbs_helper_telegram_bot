@@ -104,8 +104,8 @@ class TestCheckIfInviteEntered(unittest.TestCase):
 class TestCheckIfUserLegit(unittest.TestCase):
     """Tests for check_if_user_legit function."""
 
-    @patch('src.common.telegram_user.database')
     @patch('src.common.invites.database')
+    @patch('src.common.telegram_user.database')
     def test_legitimate_user_exists(self, mock_database, mock_invites_database):
         """Test when user has consumed invite."""
         mock_conn = MagicMock()
@@ -113,55 +113,53 @@ class TestCheckIfUserLegit(unittest.TestCase):
         
         mock_database.get_db_connection.return_value.__enter__.return_value = mock_conn
         mock_database.get_cursor.return_value.__enter__.return_value = mock_cursor
-        mock_invites_database.get_db_connection.return_value.__enter__.return_value = mock_conn
-        mock_invites_database.get_cursor.return_value.__enter__.return_value = mock_cursor
         
-        # First call returns pre-invite check (no pre-invite), second returns consumed check
-        mock_cursor.fetchone.side_effect = [None, {"invite_consumed": 1}]
+        # User has consumed an invite
+        mock_cursor.fetchone.return_value = {"invite_consumed": 1}
         
         result = check_if_user_legit(123456)
         
         self.assertTrue(result)
 
+    @patch('src.common.invites.check_if_user_pre_invited')
     @patch('src.common.telegram_user.database')
-    @patch('src.common.invites.database')
-    def test_illegitimate_user_not_exists(self, mock_database, mock_invites_database):
-        """Test when user has no consumed invite."""
+    def test_illegitimate_user_not_exists(self, mock_database, mock_pre_invited):
+        """Test when user has no consumed invite and not pre-invited."""
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         
         mock_database.get_db_connection.return_value.__enter__.return_value = mock_conn
         mock_database.get_cursor.return_value.__enter__.return_value = mock_cursor
-        mock_invites_database.get_db_connection.return_value.__enter__.return_value = mock_conn
-        mock_invites_database.get_cursor.return_value.__enter__.return_value = mock_cursor
         
-        # First call returns pre-invite check (no pre-invite), second returns consumed check
-        mock_cursor.fetchone.side_effect = [None, {"invite_consumed": 0}]
+        # User has not consumed an invite
+        mock_cursor.fetchone.return_value = {"invite_consumed": 0}
+        # User is not pre-invited
+        mock_pre_invited.return_value = False
         
         result = check_if_user_legit(123456)
         
         self.assertFalse(result)
 
+    @patch('src.common.invites.check_if_user_pre_invited')
     @patch('src.common.telegram_user.database')
-    @patch('src.common.invites.database')
-    def test_check_if_user_legit_queries_database(self, mock_database, mock_invites_database):
+    def test_check_if_user_legit_queries_database(self, mock_database, mock_pre_invited):
         """Test that the function queries the correct table."""
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         
         mock_database.get_db_connection.return_value.__enter__.return_value = mock_conn
         mock_database.get_cursor.return_value.__enter__.return_value = mock_cursor
-        mock_invites_database.get_db_connection.return_value.__enter__.return_value = mock_conn
-        mock_invites_database.get_cursor.return_value.__enter__.return_value = mock_cursor
         
-        # First call returns pre-invite check (no pre-invite), second returns consumed check
-        mock_cursor.fetchone.side_effect = [None, {"invite_consumed": 0}]
+        # User has not consumed an invite
+        mock_cursor.fetchone.return_value = {"invite_consumed": 0}
+        # User is not pre-invited
+        mock_pre_invited.return_value = False
         
         check_if_user_legit(123456)
         
-        # Verify correct SQL query (should be the second call, after pre-invite check)
-        self.assertEqual(mock_cursor.execute.call_count, 2)
-        query = mock_cursor.execute.call_args_list[1][0][0]
+        # Verify correct SQL query
+        self.assertEqual(mock_cursor.execute.call_count, 1)
+        query = mock_cursor.execute.call_args_list[0][0][0]
         self.assertIn("invites", query)
         self.assertIn("consumed_userid", query)
 
