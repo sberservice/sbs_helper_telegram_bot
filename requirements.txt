@@ -17,4 +17,5 @@ python-dateutil==2.9.0
 python-dotenv==1.2.1
 python-telegram-bot==22.5
 requests==2.32.5
+telethon==1.37.0
 urllib3==2.6.2
