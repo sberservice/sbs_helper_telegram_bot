@@ -26,6 +26,7 @@ from src.common.telegram_user import check_if_user_legit, check_if_user_admin, s
 from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, MESSAGE_MAIN_MENU, get_main_menu_keyboard
 from src.common import invites as invites_module
 from src.common import database
+from src.common import bot_settings
 
 from . import settings
 from . import messages
@@ -58,7 +59,10 @@ logger = logging.getLogger(__name__)
     INVITE_LIST,
     INVITE_ISSUE_USER,
     INVITE_ISSUE_COUNT,
-) = range(19)
+    # Bot settings states
+    BOT_SETTINGS_MENU,
+    INVITE_SYSTEM_SETTINGS,
+) = range(21)
 
 
 # ============================================================================
@@ -314,6 +318,12 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await show_invite_list(update, context)
     elif text == "🎁 Выдать инвайты":
         return await start_issue_invites(update, context)
+    
+    # Bot settings handlers
+    elif text == "⚙️ Настройки бота":
+        return await show_bot_settings_menu(update, context)
+    elif text == "🔐 Инвайт-система":
+        return await show_invite_system_settings(update, context)
     
     return ADMIN_MENU
 
@@ -868,6 +878,51 @@ async def receive_invite_count(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 # ============================================================================
+# Bot Settings
+# ============================================================================
+
+async def show_bot_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show bot settings submenu."""
+    await update.message.reply_text(
+        messages.MESSAGE_BOT_SETTINGS_MENU,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_bot_settings_keyboard()
+    )
+    return BOT_SETTINGS_MENU
+
+
+async def show_invite_system_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show invite system settings with toggle button."""
+    is_enabled = bot_settings.is_invite_system_enabled()
+    status = messages.MESSAGE_INVITE_SYSTEM_STATUS_ENABLED if is_enabled else messages.MESSAGE_INVITE_SYSTEM_STATUS_DISABLED
+    
+    await update.message.reply_text(
+        messages.MESSAGE_INVITE_SYSTEM_SETTINGS.format(status=status),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_invite_system_toggle_keyboard(is_enabled)
+    )
+    return INVITE_SYSTEM_SETTINGS
+
+
+async def toggle_invite_system(query, context: ContextTypes.DEFAULT_TYPE, enable: bool) -> int:
+    """Toggle the invite system on or off."""
+    admin_id = query.from_user.id
+    bot_settings.set_invite_system_enabled(enable, admin_id)
+    
+    if enable:
+        message = messages.MESSAGE_INVITE_SYSTEM_ENABLED
+    else:
+        message = messages.MESSAGE_INVITE_SYSTEM_DISABLED
+    
+    await query.edit_message_text(
+        message,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_invite_system_toggle_keyboard(enable)
+    )
+    return INVITE_SYSTEM_SETTINGS
+
+
+# ============================================================================
 # Callback Handler
 # ============================================================================
 
@@ -1066,6 +1121,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return PREINVITE_MENU
     
+    # Bot settings callbacks
+    if data == "bot_admin_settings_menu":
+        await query.message.reply_text(
+            messages.MESSAGE_BOT_SETTINGS_MENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_bot_settings_keyboard()
+        )
+        return BOT_SETTINGS_MENU
+    
+    if data == "bot_admin_invite_system_enable":
+        return await toggle_invite_system(query, context, True)
+    
+    if data == "bot_admin_invite_system_disable":
+        return await toggle_invite_system(query, context, False)
+    
     return None
 
 
@@ -1175,6 +1245,15 @@ def get_admin_conversation_handler() -> ConversationHandler:
             ],
             INVITE_ISSUE_COUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_invite_count)
+            ],
+            # Bot settings states
+            BOT_SETTINGS_MENU: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
+                CallbackQueryHandler(handle_callback)
+            ],
+            INVITE_SYSTEM_SETTINGS: [
+                CallbackQueryHandler(handle_callback),
+                menu_buttons_handler
             ],
         },
         fallbacks=[
