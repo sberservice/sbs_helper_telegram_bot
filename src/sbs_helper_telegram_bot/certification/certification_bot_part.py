@@ -426,12 +426,12 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             await finish_test(update, context, is_callback=True)
             return ConversationHandler.END
         
-        # Delete the old message and send next question
-        await query.edit_message_text(
-            "⏳ Следующий вопрос\\.\\.\\.",
-            parse_mode=constants.ParseMode.MARKDOWN_V2
-        )
+        # Send next question and delete the old message
         await send_question(update, context, is_callback=True)
+        try:
+            await query.message.delete()
+        except Exception:
+            pass  # Ignore if message cannot be deleted
         return ANSWERING_QUESTION
 
 
