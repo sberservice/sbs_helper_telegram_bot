@@ -9,10 +9,49 @@ Messages use Telegram MarkdownV2 format where needed.
 
 from typing import Optional
 from datetime import datetime
+import src.common.database as database
 
 # ===== USER MESSAGES =====
 
 MESSAGE_SUBMENU = "⏱️ *КТР \\(Коэффициент Трудозатрат\\)*\n\nВыберите действие:"
+
+
+def _get_codes_count() -> int:
+    """
+    Get count of active KTR codes from the database.
+    
+    Returns:
+        Number of active KTR codes
+    """
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute("""
+                    SELECT COUNT(*) as cnt 
+                    FROM ktr_codes 
+                    WHERE active = 1
+                """)
+                result = cursor.fetchone()
+                if result:
+                    return result['cnt']
+    except Exception:
+        pass
+    return 0
+
+
+def get_submenu_message() -> str:
+    """
+    Build submenu message with statistics.
+    
+    Returns:
+        Formatted message for MarkdownV2
+    """
+    codes_count = _get_codes_count()
+    return (
+        "⏱️ *КТР \\(Коэффициент Трудозатрат\\)*\n\n"
+        f"📊 В базе: *{codes_count}* кодов КТР"
+        "\n\nВыберите действие:"
+    )
 
 MESSAGE_ENTER_CODE = "🔍 *Поиск кода КТР*\n\nВведите код КТР \\(например: `POS2421`\\)\\.\n\nДля отмены используйте /cancel или любую кнопку меню\\."
 
