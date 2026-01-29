@@ -23,7 +23,7 @@ Non-legitimate users are prompted to enter an invite code via text message.
 import logging
 
 from telegram import Update, constants, BotCommand
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, ConversationHandler
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters, ConversationHandler
 
 import src.common.database as database
 import src.common.invites as invites
@@ -131,6 +131,7 @@ from src.sbs_helper_telegram_bot.certification.certification_bot_part import (
     show_my_ranking,
     show_test_history,
     show_monthly_top,
+    handle_top_category_selection,
 )
 from src.sbs_helper_telegram_bot.certification.admin_panel_bot_part import (
     get_admin_conversation_handler as get_certification_admin_handler
@@ -654,6 +655,7 @@ def main() -> None:
     application.add_handler(ktr_user_handler)
     application.add_handler(certification_admin_handler)
     application.add_handler(certification_user_handler)
+    application.add_handler(CallbackQueryHandler(handle_top_category_selection, pattern="^cert_top_"))
     application.add_handler(feedback_admin_handler)
     application.add_handler(feedback_user_handler)
     application.add_handler(screenshot_handler)
