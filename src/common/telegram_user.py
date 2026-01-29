@@ -92,6 +92,21 @@ def check_if_user_admin(telegram_id) -> bool:
             return False
 
 
+def get_all_admin_ids() -> list:
+    """
+        Gets all admin user IDs from the users table.
+
+        Returns:
+            List of telegram user IDs with admin status.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql_query = "SELECT userid FROM users WHERE is_admin = 1"
+            cursor.execute(sql_query)
+            results = cursor.fetchall()
+            return [row["userid"] for row in results]
+
+
 def set_user_admin(telegram_id, is_admin: bool = True) -> bool:
     """
         Sets or removes admin status for a user.

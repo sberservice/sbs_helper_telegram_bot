@@ -31,10 +31,12 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+import requests
 from telethon import TelegramClient
 from telethon.tl.types import ChannelParticipantsRecent, ChannelParticipantsSearch
 from telethon.errors import ChatAdminRequiredError, ChannelPrivateError
 
+from src.common.constants.telegram import TELEGRAM_TOKEN
 from src.common.constants.sync import (
     TELETHON_API_ID,
     TELETHON_API_HASH,
@@ -48,6 +50,7 @@ from src.common.invites import (
     bulk_add_pre_invited_users,
     bulk_remove_pre_invited_users
 )
+from src.common.telegram_user import get_all_admin_ids
 
 # Configure logging
 logging.basicConfig(
@@ -56,6 +59,32 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger(__name__)
+
+
+def notify_admins(message: str):
+    """Send notification message to all bot admins."""
+    try:
+        admin_ids = get_all_admin_ids()
+        if not admin_ids:
+            logger.warning("No admins found to notify")
+            return
+        
+        for admin_id in admin_ids:
+            try:
+                url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+                requests.post(
+                    url,
+                    json={
+                        "chat_id": admin_id,
+                        "text": f"🔔 *Chat Members Sync Alert*\n\n{message}",
+                        "parse_mode": "Markdown"
+                    },
+                    timeout=5
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify admin {admin_id}: {e}")
+    except Exception as e:
+        logger.error(f"Failed to get admin list: {e}")
 
 
 def validate_config() -> bool:
@@ -82,7 +111,7 @@ def validate_config() -> bool:
     return True
 
 
-async def get_group_members(client: TelegramClient, chat_id: int) -> set:
+async def get_group_members(client: TelegramClient, chat_id: int) -> tuple:
     """
     Fetch all members from a Telegram group/channel.
     
@@ -91,9 +120,10 @@ async def get_group_members(client: TelegramClient, chat_id: int) -> set:
         chat_id: Telegram chat/channel ID.
         
     Returns:
-        Set of user IDs that are members of the group.
+        Tuple of (set of user IDs, dict mapping user ID to user info).
     """
     members = set()
+    user_info = {}
     
     try:
         # Get the entity (group/channel)
@@ -104,6 +134,16 @@ async def get_group_members(client: TelegramClient, chat_id: int) -> set:
         async for participant in client.iter_participants(entity):
             if not participant.bot:  # Skip bots
                 members.add(participant.id)
+                # Store user info for notifications
+                first_name = participant.first_name or ""
+                last_name = participant.last_name or ""
+                username = participant.username or ""
+                user_info[participant.id] = {
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "username": username,
+                    "full_name": f"{first_name} {last_name}".strip()
+                }
         
         logger.info(f"Found {len(members)} members (excluding bots)")
         
@@ -117,7 +157,7 @@ async def get_group_members(client: TelegramClient, chat_id: int) -> set:
         logger.error(f"Error fetching members: {e}")
         raise
     
-    return members
+    return members, user_info
 
 
 async def sync_members(client: TelegramClient, dry_run: bool = False) -> dict:
@@ -140,7 +180,7 @@ async def sync_members(client: TelegramClient, dry_run: bool = False) -> dict:
     }
     
     # Fetch current group members
-    group_members = await get_group_members(client, SYNC_CHAT_ID)
+    group_members, user_info = await get_group_members(client, SYNC_CHAT_ID)
     stats["group_members"] = len(group_members)
     
     # Get current database members
@@ -170,15 +210,50 @@ async def sync_members(client: TelegramClient, dry_run: bool = False) -> dict:
         return stats
     
     # Apply changes
+    notification_parts = []
+    
     if to_add:
         added = bulk_add_pre_invited_users(list(to_add), notes=SYNC_AUTO_NOTE)
         stats["added"] = added
         logger.info(f"Added {added} new members to chat_members")
+        
+        # Build notification for added users
+        if added > 0:
+            added_list = []
+            for user_id in sorted(to_add)[:20]:  # Limit to first 20
+                info = user_info.get(user_id, {})
+                name = info.get("full_name", "")
+                username = info.get("username", "")
+                if name:
+                    user_str = f"• {name}"
+                    if username:
+                        user_str += f" (@{username})"
+                else:
+                    user_str = f"• ID: {user_id}"
+                added_list.append(user_str)
+            
+            more_text = f" (+{added - 20} more)" if added > 20 else ""
+            notification_parts.append(f"✅ *Added {added} user(s)*{more_text}\n" + "\n".join(added_list))
     
     if to_remove:
         removed = bulk_remove_pre_invited_users(list(to_remove))
         stats["removed"] = removed
         logger.info(f"Removed {removed} members from chat_members")
+        
+        # Build notification for removed users
+        if removed > 0:
+            removed_list = []
+            for user_id in sorted(to_remove)[:20]:  # Limit to first 20
+                removed_list.append(f"• ID: {user_id}")
+            
+            more_text = f" (+{removed - 20} more)" if removed > 20 else ""
+            notification_parts.append(f"❌ *Removed {removed} user(s)*{more_text}\n" + "\n".join(removed_list))
+    
+    # Notify admins if there were changes
+    if notification_parts:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        notification = f"📊 Sync completed at {timestamp}\n\n" + "\n\n".join(notification_parts)
+        notify_admins(notification)
     
     return stats
 
@@ -220,7 +295,9 @@ async def daemon_loop(dry_run: bool = False):
             stats = await run_sync(dry_run)
             logger.info(f"Sync completed: added={stats['added']}, removed={stats['removed']}")
         except Exception as e:
+            error_msg = f"❌ *Sync failed* at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nError: `{str(e)}`"
             logger.error(f"Sync failed: {e}")
+            notify_admins(error_msg)
         
         # Wait for next sync
         next_sync = datetime.now().timestamp() + (SYNC_INTERVAL_HOURS * 3600)
