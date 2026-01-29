@@ -60,6 +60,8 @@ MESSAGE_QUESTION_TEMPLATE = """❓ *Вопрос {current}/{total}*
 
 {question_text}
 
+{options}
+
 ⏱ Осталось времени: {time_remaining}"""
 
 MESSAGE_TIME_WARNING = "⚠️ *Внимание\\!* Осталось менее 2 минут\\!"
@@ -252,8 +254,11 @@ MESSAGE_QUESTION_DETAILS = """❓ *Вопрос ID:{id}*
 
 *Варианты ответов:*
 🅰️ {option_a}
+
 🅱️ {option_b}
+
 ©️ {option_c}
+
 🇩 {option_d}
 
 ✅ *Правильный:* {correct_option}

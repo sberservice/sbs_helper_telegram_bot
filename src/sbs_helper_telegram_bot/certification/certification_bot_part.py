@@ -289,18 +289,21 @@ async def send_question(
         question['option_a'], question['option_b'], 
         question['option_c'], question['option_d']
     ])
-    options_text = f"""
-🅰️ {logic.escape_markdown(shuffled[0])}
+    options_text = f"""🅰️ {logic.escape_markdown(shuffled[0])}
+
 🅱️ {logic.escape_markdown(shuffled[1])}
+
 ©️ {logic.escape_markdown(shuffled[2])}
+
 🇩 {logic.escape_markdown(shuffled[3])}"""
     
     full_message = messages.MESSAGE_QUESTION_TEMPLATE.format(
         current=current_index + 1,
         total=len(questions),
         question_text=question_text,
+        options=options_text,
         time_remaining=time_remaining_str
-    ) + options_text
+    )
     
     # Add time warning if needed
     if attempt and (attempt['time_limit_seconds'] - int(time.time() - start_time)) < 120:
