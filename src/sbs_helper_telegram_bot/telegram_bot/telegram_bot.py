@@ -63,6 +63,7 @@ from src.common.messages import (
     BUTTON_CERTIFICATION,
     BUTTON_KTR,
     BUTTON_BOT_ADMIN,
+    BUTTON_FEEDBACK,
     get_main_menu_keyboard,
     get_settings_menu_keyboard,
     get_modules_menu_keyboard,
@@ -138,6 +139,16 @@ from src.sbs_helper_telegram_bot.certification.admin_panel_bot_part import (
 # Import bot admin module handlers
 from src.sbs_helper_telegram_bot.bot_admin.admin_bot_part import (
     get_admin_conversation_handler as get_bot_admin_handler
+)
+
+# Import feedback module handlers
+from src.sbs_helper_telegram_bot.feedback import messages as feedback_messages
+from src.sbs_helper_telegram_bot.feedback import keyboards as feedback_keyboards
+from src.sbs_helper_telegram_bot.feedback.feedback_bot_part import (
+    get_feedback_user_handler,
+)
+from src.sbs_helper_telegram_bot.feedback.admin_panel_bot_part import (
+    get_feedback_admin_handler,
 )
 
 from src.common.telegram_user import check_if_user_admin
@@ -497,6 +508,17 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         )
     elif text == "📊 Популярные коды":
         await show_popular_ktr_codes(update, _context)
+    elif text == BUTTON_FEEDBACK:
+        # Show feedback module submenu
+        if is_admin:
+            keyboard = feedback_keyboards.get_submenu_keyboard(is_admin=True)
+        else:
+            keyboard = feedback_keyboards.get_submenu_keyboard(is_admin=False)
+        await update.message.reply_text(
+            feedback_messages.MESSAGE_SUBMENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard
+        )
     else:
         # Default response for unrecognized text
         await update.message.reply_text(
@@ -613,6 +635,10 @@ def main() -> None:
     # Create ConversationHandler for main bot admin panel
     bot_admin_handler = get_bot_admin_handler()
 
+    # Create ConversationHandlers for feedback module
+    feedback_user_handler = get_feedback_user_handler()
+    feedback_admin_handler = get_feedback_admin_handler()
+
     # Register all handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
@@ -628,6 +654,8 @@ def main() -> None:
     application.add_handler(ktr_user_handler)
     application.add_handler(certification_admin_handler)
     application.add_handler(certification_user_handler)
+    application.add_handler(feedback_admin_handler)
+    application.add_handler(feedback_user_handler)
     application.add_handler(screenshot_handler)
     application.add_handler(ticket_validator_handler)
     application.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, text_entered))
