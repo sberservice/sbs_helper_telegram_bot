@@ -112,10 +112,13 @@ async def certification_submenu(update: Update, context: ContextTypes.DEFAULT_TY
     
     # Get statistics for the submenu
     stats = logic.get_certification_statistics()
-    if stats['total_questions'] > 0 or stats['active_categories'] > 0:
+    questions_count = int(stats.get('total_questions', 0) or 0)
+    categories_count = int(stats.get('active_categories', 0) or 0)
+    
+    if questions_count > 0 or categories_count > 0:
         submenu_text = messages.MESSAGE_SUBMENU.format(
-            questions_count=stats['total_questions'],
-            categories_count=stats['active_categories']
+            questions_count=questions_count,
+            categories_count=categories_count
         )
     else:
         submenu_text = messages.MESSAGE_SUBMENU_NO_STATS
