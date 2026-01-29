@@ -254,7 +254,9 @@ class TestCertificationMessages(unittest.TestCase):
         from src.sbs_helper_telegram_bot.certification import messages
         
         # User messages
-        self.assertIsNotNone(messages.MESSAGE_SUBMENU)
+        self.assertIsNotNone(messages.MESSAGE_SUBMENU_BASE)
+        self.assertIsNotNone(messages.MESSAGE_SUBMENU_NO_STATS)
+        self.assertTrue(callable(messages.get_submenu_message))
         self.assertIsNotNone(messages.MESSAGE_TEST_INTRO)
         self.assertIsNotNone(messages.MESSAGE_NO_QUESTIONS)
         self.assertIsNotNone(messages.MESSAGE_TEST_STARTED)

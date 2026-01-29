@@ -116,10 +116,7 @@ async def certification_submenu(update: Update, context: ContextTypes.DEFAULT_TY
     categories_count = int(stats.get('active_categories', 0) or 0)
     
     if questions_count > 0 or categories_count > 0:
-        submenu_text = messages.MESSAGE_SUBMENU.format(
-            questions_count=questions_count,
-            categories_count=categories_count
-        )
+        submenu_text = messages.get_submenu_message(questions_count, categories_count)
     else:
         submenu_text = messages.MESSAGE_SUBMENU_NO_STATS
     
