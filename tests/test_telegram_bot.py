@@ -104,9 +104,10 @@ class TestCheckIfInviteEntered(unittest.TestCase):
 class TestCheckIfUserLegit(unittest.TestCase):
     """Tests for check_if_user_legit function."""
 
-    @patch('src.common.invites.database')
+    @patch('src.common.telegram_user.bot_settings')
+    @patch('src.common.telegram_user.invites_module')
     @patch('src.common.telegram_user.database')
-    def test_legitimate_user_exists(self, mock_database, mock_invites_database):
+    def test_legitimate_user_exists(self, mock_database, mock_invites, mock_bot_settings):
         """Test when user has consumed invite."""
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -114,6 +115,10 @@ class TestCheckIfUserLegit(unittest.TestCase):
         mock_database.get_db_connection.return_value.__enter__.return_value = mock_conn
         mock_database.get_cursor.return_value.__enter__.return_value = mock_cursor
         
+        # User is not pre-invited
+        mock_invites.check_if_user_pre_invited.return_value = False
+        # Invite system is enabled
+        mock_bot_settings.is_invite_system_enabled.return_value = True
         # User has consumed an invite
         mock_cursor.fetchone.return_value = {"invite_consumed": 1}
         
@@ -121,9 +126,10 @@ class TestCheckIfUserLegit(unittest.TestCase):
         
         self.assertTrue(result)
 
-    @patch('src.common.invites.check_if_user_pre_invited')
+    @patch('src.common.telegram_user.bot_settings')
+    @patch('src.common.telegram_user.invites_module')
     @patch('src.common.telegram_user.database')
-    def test_illegitimate_user_not_exists(self, mock_database, mock_pre_invited):
+    def test_illegitimate_user_not_exists(self, mock_database, mock_invites, mock_bot_settings):
         """Test when user has no consumed invite and not pre-invited."""
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -131,18 +137,21 @@ class TestCheckIfUserLegit(unittest.TestCase):
         mock_database.get_db_connection.return_value.__enter__.return_value = mock_conn
         mock_database.get_cursor.return_value.__enter__.return_value = mock_cursor
         
+        # User is not pre-invited
+        mock_invites.check_if_user_pre_invited.return_value = False
+        # Invite system is enabled
+        mock_bot_settings.is_invite_system_enabled.return_value = True
         # User has not consumed an invite
         mock_cursor.fetchone.return_value = {"invite_consumed": 0}
-        # User is not pre-invited
-        mock_pre_invited.return_value = False
         
         result = check_if_user_legit(123456)
         
         self.assertFalse(result)
 
-    @patch('src.common.invites.check_if_user_pre_invited')
+    @patch('src.common.telegram_user.bot_settings')
+    @patch('src.common.telegram_user.invites_module')
     @patch('src.common.telegram_user.database')
-    def test_check_if_user_legit_queries_database(self, mock_database, mock_pre_invited):
+    def test_check_if_user_legit_queries_database(self, mock_database, mock_invites, mock_bot_settings):
         """Test that the function queries the correct table."""
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -150,10 +159,12 @@ class TestCheckIfUserLegit(unittest.TestCase):
         mock_database.get_db_connection.return_value.__enter__.return_value = mock_conn
         mock_database.get_cursor.return_value.__enter__.return_value = mock_cursor
         
+        # User is not pre-invited
+        mock_invites.check_if_user_pre_invited.return_value = False
+        # Invite system is enabled
+        mock_bot_settings.is_invite_system_enabled.return_value = True
         # User has not consumed an invite
         mock_cursor.fetchone.return_value = {"invite_consumed": 0}
-        # User is not pre-invited
-        mock_pre_invited.return_value = False
         
         check_if_user_legit(123456)
         
@@ -162,6 +173,44 @@ class TestCheckIfUserLegit(unittest.TestCase):
         query = mock_cursor.execute.call_args_list[0][0][0]
         self.assertIn("invites", query)
         self.assertIn("consumed_userid", query)
+
+    @patch('src.common.telegram_user.bot_settings')
+    @patch('src.common.telegram_user.invites_module')
+    @patch('src.common.telegram_user.database')
+    def test_invite_user_blocked_when_system_disabled(self, mock_database, mock_invites, mock_bot_settings):
+        """Test that invite users are blocked when invite system is disabled."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        
+        mock_database.get_db_connection.return_value.__enter__.return_value = mock_conn
+        mock_database.get_cursor.return_value.__enter__.return_value = mock_cursor
+        
+        # User is not pre-invited
+        mock_invites.check_if_user_pre_invited.return_value = False
+        # Invite system is disabled
+        mock_bot_settings.is_invite_system_enabled.return_value = False
+        # User has consumed an invite
+        mock_cursor.fetchone.return_value = {"invite_consumed": 1}
+        
+        result = check_if_user_legit(123456)
+        
+        # User should not be legit when invite system is disabled
+        self.assertFalse(result)
+
+    @patch('src.common.telegram_user.bot_settings')
+    @patch('src.common.telegram_user.invites_module')
+    @patch('src.common.telegram_user.database')
+    def test_pre_invited_user_always_allowed(self, mock_database, mock_invites, mock_bot_settings):
+        """Test that pre-invited users always have access regardless of invite system."""
+        # User is pre-invited
+        mock_invites.check_if_user_pre_invited.return_value = True
+        # Invite system is disabled (shouldn't matter)
+        mock_bot_settings.is_invite_system_enabled.return_value = False
+        
+        result = check_if_user_legit(123456)
+        
+        # Pre-invited users should always be legit
+        self.assertTrue(result)
 
 
 class TestUpdateUserInfoFromTelegram(unittest.TestCase):

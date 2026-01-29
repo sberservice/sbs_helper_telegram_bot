@@ -17,6 +17,7 @@ BUTTON_BOT_ADMIN: Final[str] = "🛠️ Админ бота"
 ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     ["👥 Пользователи", "👤 Пре-инвайты"],
     ["📊 Статистика", "🎫 Инвайты"],
+    ["⚙️ Настройки бота"],
     ["🏠 Главное меню"]
 ]
 
@@ -46,6 +47,12 @@ STATISTICS_BUTTONS: Final[List[List[str]]] = [
 INVITE_MANAGEMENT_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все инвайты"],
     ["🎁 Выдать инвайты"],
+    ["🔙 Админ бота", "🏠 Главное меню"]
+]
+
+# Bot settings submenu
+BOT_SETTINGS_BUTTONS: Final[List[List[str]]] = [
+    ["🔐 Инвайт-система"],
     ["🔙 Админ бота", "🏠 Главное меню"]
 ]
 

@@ -83,6 +83,44 @@ def get_invite_management_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def get_bot_settings_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Build bot settings submenu keyboard.
+    
+    Returns:
+        ReplyKeyboardMarkup for bot settings menu
+    """
+    return ReplyKeyboardMarkup(
+        settings.BOT_SETTINGS_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True
+    )
+
+
+def get_invite_system_toggle_keyboard(is_enabled: bool) -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for invite system toggle.
+    
+    Args:
+        is_enabled: Whether invite system is currently enabled
+        
+    Returns:
+        InlineKeyboardMarkup for invite system toggle
+    """
+    if is_enabled:
+        button_text = "❌ Выключить инвайт-систему"
+        callback = "bot_admin_invite_system_disable"
+    else:
+        button_text = "✅ Включить инвайт-систему"
+        callback = "bot_admin_invite_system_enable"
+    
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(button_text, callback_data=callback)],
+        [InlineKeyboardButton("🔙 Назад", callback_data="bot_admin_settings_menu")]
+    ])
+
+
 def get_user_details_keyboard(user_id: int, is_admin: bool, is_self: bool = False) -> InlineKeyboardMarkup:
     """
     Build inline keyboard for user details view.
