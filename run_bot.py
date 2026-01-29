@@ -12,44 +12,75 @@ import subprocess
 import sys
 import signal
 import threading
+import time
 
-def output_reader(process, prefix):
+# Restart settings
+RESTART_DELAY_SECONDS = 5  # Wait N seconds before restarting a failed process
+MAX_RESTART_ATTEMPTS = 3   # Maximum number of restart attempts per process
+
+def output_reader(process, prefix, stop_event):
     """Read and print output from subprocess with a prefix."""
-    for line in iter(process.stdout.readline, ''):
+    while not stop_event.is_set():
+        line = process.stdout.readline()
         if line:
             print(f"[{prefix}] {line.rstrip()}")
+        elif process.poll() is not None:
+            break
 
-def run_bot():
-    """Start both the telegram bot and image queue processor."""
-    
-    print("🚀 Starting SPRINT Fake Location Overlay Bot...\n")
-    
-    # Start telegram bot in a subprocess
-    print("📱 Starting Telegram Bot...")
-    telegram_process = subprocess.Popen(
+
+def start_telegram_bot():
+    """Start the telegram bot subprocess."""
+    return subprocess.Popen(
         [sys.executable, "-m", "src.sbs_helper_telegram_bot.telegram_bot.telegram_bot"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1
     )
-    
-    # Start image queue processor in a subprocess
-    print("🖼️  Starting Image Queue Processor...")
-    queue_process = subprocess.Popen(
+
+
+def start_queue_processor():
+    """Start the image queue processor subprocess."""
+    return subprocess.Popen(
         [sys.executable, "-m", "src.sbs_helper_telegram_bot.vyezd_byl.processimagequeue"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1
     )
+
+
+def start_output_thread(process, prefix, stop_event):
+    """Start a thread to read output from a process."""
+    thread = threading.Thread(target=output_reader, args=(process, prefix, stop_event), daemon=True)
+    thread.start()
+    return thread
+
+
+def run_bot():
+    """Start both the telegram bot and image queue processor."""
+    
+    print("🚀 Starting SPRINT Fake Location Overlay Bot...\n")
+    
+    # Track restart attempts for each process
+    telegram_restart_count = 0
+    queue_restart_count = 0
+    
+    # Stop events for output threads
+    telegram_stop_event = threading.Event()
+    queue_stop_event = threading.Event()
+    
+    # Start telegram bot in a subprocess
+    print("📱 Starting Telegram Bot...")
+    telegram_process = start_telegram_bot()
+    
+    # Start image queue processor in a subprocess
+    print("🖼️  Starting Image Queue Processor...")
+    queue_process = start_queue_processor()
     
     # Start threads to read output from both processes
-    telegram_thread = threading.Thread(target=output_reader, args=(telegram_process, "BOT"), daemon=True)
-    queue_thread = threading.Thread(target=output_reader, args=(queue_process, "QUEUE"), daemon=True)
-    
-    telegram_thread.start()
-    queue_thread.start()
+    telegram_thread = start_output_thread(telegram_process, "BOT", telegram_stop_event)
+    queue_thread = start_output_thread(queue_process, "QUEUE", queue_stop_event)
     
     print("✅ Both services started!\n")
     print("Press Ctrl+C to stop all services.\n")
@@ -76,14 +107,64 @@ def run_bot():
         queue_poll = queue_process.poll()
         
         if telegram_poll is not None and queue_poll is not None:
-            print("❌ All services have stopped.")
-            sys.exit(1)
+            # Both processes stopped - try to restart both
+            if telegram_restart_count < MAX_RESTART_ATTEMPTS and queue_restart_count < MAX_RESTART_ATTEMPTS:
+                print(f"⚠️  Both services stopped. Restarting in {RESTART_DELAY_SECONDS} seconds...")
+                time.sleep(RESTART_DELAY_SECONDS)
+                
+                telegram_stop_event.set()
+                queue_stop_event.set()
+                telegram_stop_event = threading.Event()
+                queue_stop_event = threading.Event()
+                
+                print(f"🔄 Restarting Telegram Bot (attempt {telegram_restart_count + 1}/{MAX_RESTART_ATTEMPTS})...")
+                telegram_process = start_telegram_bot()
+                telegram_thread = start_output_thread(telegram_process, "BOT", telegram_stop_event)
+                telegram_restart_count += 1
+                
+                print(f"🔄 Restarting Image Queue Processor (attempt {queue_restart_count + 1}/{MAX_RESTART_ATTEMPTS})...")
+                queue_process = start_queue_processor()
+                queue_thread = start_output_thread(queue_process, "QUEUE", queue_stop_event)
+                queue_restart_count += 1
+            else:
+                print("❌ All services have stopped and max restart attempts reached.")
+                sys.exit(1)
+                
         elif telegram_poll is not None:
-            print("❌ Telegram bot stopped unexpectedly.")
-            sys.exit(1)
+            if telegram_restart_count < MAX_RESTART_ATTEMPTS:
+                telegram_restart_count += 1
+                print(f"⚠️  Telegram bot stopped unexpectedly. Restarting in {RESTART_DELAY_SECONDS} seconds... (attempt {telegram_restart_count}/{MAX_RESTART_ATTEMPTS})")
+                time.sleep(RESTART_DELAY_SECONDS)
+                
+                telegram_stop_event.set()
+                telegram_stop_event = threading.Event()
+                
+                print(f"🔄 Restarting Telegram Bot...")
+                telegram_process = start_telegram_bot()
+                telegram_thread = start_output_thread(telegram_process, "BOT", telegram_stop_event)
+            else:
+                print(f"❌ Telegram bot stopped unexpectedly. Max restart attempts ({MAX_RESTART_ATTEMPTS}) reached.")
+                queue_process.terminate()
+                sys.exit(1)
+                
         elif queue_poll is not None:
-            print("❌ Image queue processor stopped unexpectedly.")
-            sys.exit(1)
+            if queue_restart_count < MAX_RESTART_ATTEMPTS:
+                queue_restart_count += 1
+                print(f"⚠️  Image queue processor stopped unexpectedly. Restarting in {RESTART_DELAY_SECONDS} seconds... (attempt {queue_restart_count}/{MAX_RESTART_ATTEMPTS})")
+                time.sleep(RESTART_DELAY_SECONDS)
+                
+                queue_stop_event.set()
+                queue_stop_event = threading.Event()
+                
+                print(f"🔄 Restarting Image Queue Processor...")
+                queue_process = start_queue_processor()
+                queue_thread = start_output_thread(queue_process, "QUEUE", queue_stop_event)
+            else:
+                print(f"❌ Image queue processor stopped unexpectedly. Max restart attempts ({MAX_RESTART_ATTEMPTS}) reached.")
+                telegram_process.terminate()
+                sys.exit(1)
+        
+        time.sleep(0.5)  # Small delay to prevent busy-waiting
 
 
 if __name__ == "__main__":
