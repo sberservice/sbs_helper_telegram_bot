@@ -853,7 +853,7 @@ def get_user_conversation_handler() -> ConversationHandler:
         ],
         states={
             SELECTING_CATEGORY: [
-                CallbackQueryHandler(handle_category_selection, pattern="^cert_"),
+                CallbackQueryHandler(handle_category_selection, pattern="^cert_start_|^cert_cancel$"),
             ],
             ANSWERING_QUESTION: [
                 CallbackQueryHandler(handle_answer, pattern="^cert_answer_"),
