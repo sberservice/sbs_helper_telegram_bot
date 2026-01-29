@@ -58,7 +58,7 @@ MESSAGE_TEST_STARTED = """🚀 *Тест начат\\!*
 
 MESSAGE_QUESTION_TEMPLATE = """❓ *Вопрос {current}/{total}*
 
-{question_text}
+*{question_text}*
 
 {options}
 
