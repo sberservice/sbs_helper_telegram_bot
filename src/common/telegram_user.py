@@ -46,8 +46,10 @@ def check_if_invite_user_blocked(telegram_id) -> bool:
         Checks if a user should be blocked due to invite system being disabled.
         
         Returns True if:
-        1. User joined via invite (not pre-invited), AND
-        2. Invite system is currently disabled
+        1. Invite system is currently disabled, AND
+        2. User is NOT in chat_members (pre-invited)
+        
+        When invite system is disabled, only chat_members have access.
         
         Args:
             telegram_id: Telegram user ID to check.
@@ -59,19 +61,12 @@ def check_if_invite_user_blocked(telegram_id) -> bool:
     if bot_settings.is_invite_system_enabled():
         return False
     
-    # If user is pre-invited, they're not blocked
+    # If user is pre-invited (in chat_members), they're not blocked
     if invites_module.check_if_user_pre_invited(telegram_id):
         return False
     
-    # Check if user has consumed an invite (i.e., they joined via invite)
-    with database.get_db_connection() as conn:
-        with database.get_cursor(conn) as cursor:
-            sql_query = "SELECT count(consumed_userid) as invite_consumed from invites where consumed_userid=%s"
-            val=(telegram_id,)
-            cursor.execute(sql_query,val)
-            result = cursor.fetchone()
-            # If they have consumed an invite but invite system is disabled, they're blocked
-            return result["invite_consumed"] > 0
+    # When invite system is disabled, any user not in chat_members is blocked
+    return True
 
 
 def check_if_user_admin(telegram_id) -> bool:

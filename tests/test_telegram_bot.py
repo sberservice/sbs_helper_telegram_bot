@@ -179,18 +179,10 @@ class TestCheckIfUserLegit(unittest.TestCase):
     @patch('src.common.telegram_user.database')
     def test_invite_user_blocked_when_system_disabled(self, mock_database, mock_invites, mock_bot_settings):
         """Test that invite users are blocked when invite system is disabled."""
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        
-        mock_database.get_db_connection.return_value.__enter__.return_value = mock_conn
-        mock_database.get_cursor.return_value.__enter__.return_value = mock_cursor
-        
         # User is not pre-invited
         mock_invites.check_if_user_pre_invited.return_value = False
         # Invite system is disabled
         mock_bot_settings.is_invite_system_enabled.return_value = False
-        # User has consumed an invite
-        mock_cursor.fetchone.return_value = {"invite_consumed": 1}
         
         result = check_if_user_legit(123456)
         
