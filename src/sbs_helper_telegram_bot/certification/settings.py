@@ -40,7 +40,7 @@ ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
 # Admin panel menu buttons
 ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     ["❓ Вопросы", "📁 Категории"],
-    ["⚠️ Устаревшие вопросы"],
+    ["⚠️ Устаревшие вопросы", "📊 Статистика"],
     ["⚙️ Настройки теста"],
     ["🔙 Назад", "🏠 Главное меню"]
 ]

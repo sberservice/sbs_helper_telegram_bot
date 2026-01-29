@@ -110,8 +110,18 @@ async def certification_submenu(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         keyboard = keyboards.get_submenu_keyboard()
     
+    # Get statistics for the submenu
+    stats = logic.get_certification_statistics()
+    if stats['total_questions'] > 0 or stats['active_categories'] > 0:
+        submenu_text = messages.MESSAGE_SUBMENU.format(
+            questions_count=stats['total_questions'],
+            categories_count=stats['active_categories']
+        )
+    else:
+        submenu_text = messages.MESSAGE_SUBMENU_NO_STATS
+    
     await update.message.reply_text(
-        messages.MESSAGE_SUBMENU,
+        submenu_text,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboard
     )
