@@ -8,6 +8,8 @@ Module-specific messages should be in their respective module's messages.py file
 """
 # pylint: disable=line-too-long
 
+from src.common.constants.sync import SYNC_INTERVAL_HOURS
+
 # Welcome and authentication messages
 MESSAGE_WELCOME = "👋 *Добро пожаловать в бот\-помощник инженера СберСервис\!*\n\nЭтот бот помогает:\n• ✅ Проверять заявки на соответствие требованиям \(функционал не окончательный, происходит наполнение правилами\)\n• 📸 Обрабатывать скриншоты карты из Спринта\n• 🔢 Искать коды ошибок UPOS с рекомендациями по устранению\n\n🔑 *Для начала работы введите инвайт\-код*\n\nКод можно получить у другого пользователя бота командой /invite\n\n📚 *GitHub:* https://github\.com/sberservice/sbs\_helper\_telegram\_bot"
 MESSAGE_PLEASE_ENTER_INVITE = "Пожалуйста, введите ваш инвайт.\nЕго можно попросить у другого пользователя этого бота, если он введет команду /invite или выберет её из меню."
@@ -22,9 +24,27 @@ MESSAGE_INVITE_ALREADY_USED = "Данный инвайт уже был испо�
 MESSAGE_NO_ADMIN_RIGHTS = "⛔ У вас нет прав администратора\\."
 
 # Invite system disabled message
-MESSAGE_INVITE_SYSTEM_DISABLED = """⚠️ В настоящий момент доступ к боту имеют только участники группы Telegram "Техподдержка POS СБС".
+def get_invite_system_disabled_message() -> str:
+    """
+    Get the invite system disabled message with dynamic sync interval.
+    
+    Returns:
+        Formatted message with the actual sync interval from settings.
+    """
+    if SYNC_INTERVAL_HOURS == 24:
+        interval_text = "ежедневно"
+    elif SYNC_INTERVAL_HOURS < 24:
+        interval_text = f"каждые {SYNC_INTERVAL_HOURS} час(а/ов)"
+    else:
+        days = round(SYNC_INTERVAL_HOURS / 24)
+        interval_text = f"каждые {days} дня/дней"
+    
+    return f"""⚠️ В настоящий момент доступ к боту имеют только участники группы Telegram "Техподдержка POS СБС".
 
-Если стали участником этой группы, ждите, список участников обновляется ежедневно."""
+Если стали участником этой группы, ждите, список участников обновляется {interval_text}."""
+
+# Keep backward compatibility - use function result as constant
+MESSAGE_INVITE_SYSTEM_DISABLED = get_invite_system_disabled_message()
 
 # Bot command descriptions
 COMMAND_DESC_START = "Начать работу с ботом"
