@@ -74,6 +74,7 @@ BUTTON_SCREENSHOT = "📸 Обработать скриншот"
 BUTTON_UPOS_ERRORS = "🔢 UPOS Ошибки"
 BUTTON_CERTIFICATION = "📝 Аттестация"
 BUTTON_KTR = "⏱️ КТР"
+BUTTON_FEEDBACK = "📬 Обратная связь"
 
 
 def get_main_menu_keyboard(is_admin: bool = False):
@@ -141,7 +142,7 @@ def get_modules_menu_keyboard():
     buttons = [
         [BUTTON_VALIDATE_TICKET, BUTTON_SCREENSHOT],
         [BUTTON_UPOS_ERRORS, BUTTON_CERTIFICATION],
-        [BUTTON_KTR],
+        [BUTTON_KTR, BUTTON_FEEDBACK],
         [BUTTON_MAIN_MENU]
     ]
     
