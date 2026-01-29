@@ -11,6 +11,10 @@ venv/
 ENV/
 env/
 
+# Telethon session files
+*.session
+*.session-journal
+
 # IDEs
 .idea/
 .vscode/

@@ -241,3 +241,69 @@ def get_pre_invited_user_count(include_activated=True) -> int:
                 cursor.execute(sql)
             result = cursor.fetchone()
             return result["count"]
+
+
+def get_all_pre_invited_telegram_ids() -> set:
+    """
+    Get all telegram_ids from chat_members table as a set.
+    
+    Optimized for bulk comparison during sync operations.
+    
+    Returns:
+        Set of all telegram_id values in chat_members.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = "SELECT telegram_id FROM chat_members"
+            cursor.execute(sql)
+            results = cursor.fetchall()
+            return {row["telegram_id"] for row in results}
+
+
+def bulk_add_pre_invited_users(telegram_ids: list, notes: str = None) -> int:
+    """
+    Add multiple users to chat_members table in a single transaction.
+    
+    Skips users that already exist (ON DUPLICATE KEY).
+    
+    Args:
+        telegram_ids: List of Telegram user IDs to add.
+        notes: Optional notes to add for all users.
+        
+    Returns:
+        Number of users actually added (excludes duplicates).
+    """
+    if not telegram_ids:
+        return 0
+    
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = """
+                INSERT IGNORE INTO chat_members (telegram_id, added_by_userid, notes, created_timestamp)
+                VALUES (%s, NULL, %s, UNIX_TIMESTAMP())
+            """
+            data = [(tid, notes) for tid in telegram_ids]
+            cursor.executemany(sql, data)
+            return cursor.rowcount
+
+
+def bulk_remove_pre_invited_users(telegram_ids: list) -> int:
+    """
+    Remove multiple users from chat_members table in a single transaction.
+    
+    Args:
+        telegram_ids: List of Telegram user IDs to remove.
+        
+    Returns:
+        Number of users actually removed.
+    """
+    if not telegram_ids:
+        return 0
+    
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            # Use IN clause with parameterized query
+            placeholders = ", ".join(["%s"] * len(telegram_ids))
+            sql = f"DELETE FROM chat_members WHERE telegram_id IN ({placeholders})"
+            cursor.execute(sql, telegram_ids)
+            return cursor.rowcount
