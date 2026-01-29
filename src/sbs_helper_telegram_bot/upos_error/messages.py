@@ -9,10 +9,49 @@ Messages use Telegram MarkdownV2 format where needed.
 
 from typing import Optional
 from datetime import datetime
+import src.common.database as database
 
 # ===== USER MESSAGES =====
 
 MESSAGE_SUBMENU = "🔢 *UPOS Ошибки*\n\nВыберите действие:"
+
+
+def _get_errors_count() -> int:
+    """
+    Get count of active error codes from the database.
+    
+    Returns:
+        Number of active error codes
+    """
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute("""
+                    SELECT COUNT(*) as cnt 
+                    FROM upos_error_codes 
+                    WHERE active = 1
+                """)
+                result = cursor.fetchone()
+                if result:
+                    return result['cnt']
+    except Exception:
+        pass
+    return 0
+
+
+def get_submenu_message() -> str:
+    """
+    Build submenu message with statistics.
+    
+    Returns:
+        Formatted message for MarkdownV2
+    """
+    errors_count = _get_errors_count()
+    return (
+        "🔢 *UPOS Ошибки*\n\n"
+        f"📊 В базе: *{errors_count}* кодов ошибок"
+        "\n\nВыберите действие:"
+    )
 
 MESSAGE_ENTER_ERROR_CODE = "🔍 *Поиск ошибки*\n\nВведите код ошибки UPOS \\(число\\)\\.\n\nДля отмены используйте /cancel или любую кнопку меню\\."
 

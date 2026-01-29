@@ -473,7 +473,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         else:
             keyboard = upos_keyboards.get_submenu_keyboard()
         await update.message.reply_text(
-            upos_messages.MESSAGE_SUBMENU,
+            upos_messages.get_submenu_message(),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
@@ -495,7 +495,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         else:
             keyboard = ktr_keyboards.get_submenu_keyboard()
         await update.message.reply_text(
-            ktr_messages.MESSAGE_SUBMENU,
+            ktr_messages.get_submenu_message(),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
