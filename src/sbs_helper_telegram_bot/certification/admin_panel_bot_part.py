@@ -24,7 +24,7 @@ from telegram.ext import (
 )
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_keyboard
 
 from . import settings
 from . import messages
@@ -110,13 +110,13 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await show_outdated_questions(update, context)
     elif text == "⚙️ Настройки теста":
         return await show_settings(update, context)
-    elif text == "� Все вопросы":
+    elif text == "📋 Все вопросы":
         # Handle from questions submenu
         return await show_questions_list(update, context)
     elif text == "📋 Все категории":
         # Handle from categories submenu
         return await show_categories_list(update, context)
-    elif text == "�🔙 Назад":
+    elif text == "🔙 Назад":
         # Go back to certification submenu
         if check_if_user_admin(update.effective_user.id):
             keyboard = keyboards.get_admin_submenu_keyboard()
@@ -138,6 +138,12 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return ADMIN_MENU
     elif text == "🏠 Главное меню":
+        is_admin = check_if_user_admin(update.effective_user.id)
+        await update.message.reply_text(
+            messages.MESSAGE_CANCELLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+        )
         return ConversationHandler.END
     
     return ADMIN_MENU
@@ -1682,12 +1688,53 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     context.user_data.pop(settings.ADMIN_EDITING_CATEGORY_KEY, None)
     context.user_data.pop('cert_search_mode', None)
     
+    is_admin = check_if_user_admin(update.effective_user.id)
     await update.message.reply_text(
         messages.MESSAGE_CANCELLED,
-        parse_mode=constants.ParseMode.MARKDOWN_V2
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_main_menu_keyboard(is_admin=is_admin)
     )
     
     return ConversationHandler.END
+
+
+async def back_to_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Go back to certification submenu from admin panel."""
+    # Clear admin context
+    context.user_data.pop(settings.ADMIN_NEW_QUESTION_DATA_KEY, None)
+    context.user_data.pop(settings.ADMIN_NEW_CATEGORY_DATA_KEY, None)
+    context.user_data.pop(settings.ADMIN_EDITING_QUESTION_KEY, None)
+    context.user_data.pop(settings.ADMIN_EDITING_CATEGORY_KEY, None)
+    context.user_data.pop('cert_search_mode', None)
+    
+    if check_if_user_admin(update.effective_user.id):
+        keyboard = keyboards.get_admin_submenu_keyboard()
+    else:
+        keyboard = keyboards.get_submenu_keyboard()
+    
+    await update.message.reply_text(
+        messages.MESSAGE_SUBMENU,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboard
+    )
+    return ConversationHandler.END
+
+
+async def back_to_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Go back to admin menu from questions/categories submenu."""
+    # Clear admin context
+    context.user_data.pop(settings.ADMIN_NEW_QUESTION_DATA_KEY, None)
+    context.user_data.pop(settings.ADMIN_NEW_CATEGORY_DATA_KEY, None)
+    context.user_data.pop(settings.ADMIN_EDITING_QUESTION_KEY, None)
+    context.user_data.pop(settings.ADMIN_EDITING_CATEGORY_KEY, None)
+    context.user_data.pop('cert_search_mode', None)
+    
+    await update.message.reply_text(
+        messages.MESSAGE_ADMIN_MENU,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_admin_menu_keyboard()
+    )
+    return ADMIN_MENU
 
 
 # ============================================================================
@@ -1818,6 +1865,8 @@ def get_admin_conversation_handler() -> ConversationHandler:
         fallbacks=[
             CommandHandler("cancel", cancel_admin),
             MessageHandler(filters.Regex("^🏠 Главное меню$"), cancel_admin),
+            MessageHandler(filters.Regex("^🔙 Назад$"), back_to_submenu),
+            MessageHandler(filters.Regex("^🔙 Админ меню$"), back_to_admin_menu),
         ],
         name="certification_admin",
         persistent=False,
