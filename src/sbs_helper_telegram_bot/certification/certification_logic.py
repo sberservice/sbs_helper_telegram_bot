@@ -1273,6 +1273,327 @@ def get_user_monthly_rank(
         return None
 
 
+def get_monthly_ranking_by_category(
+    category_id: Optional[int] = None,
+    year: int = None,
+    month: int = None,
+    limit: int = 10
+) -> List[Dict]:
+    """
+    Get monthly ranking filtered by category.
+    
+    Args:
+        category_id: Category ID to filter by. None for all tests combined (full test).
+                     Use "all" string converted to handle all attempts.
+        year: Year (default: current)
+        month: Month (default: current)
+        limit: Maximum number of users
+        
+    Returns:
+        List of ranking dicts
+    """
+    now = datetime.now()
+    year = year or now.year
+    month = month or now.month
+    
+    # Calculate month start and end timestamps
+    month_start = datetime(year, month, 1)
+    if month == 12:
+        month_end = datetime(year + 1, 1, 1)
+    else:
+        month_end = datetime(year, month + 1, 1)
+    
+    start_ts = int(month_start.timestamp())
+    end_ts = int(month_end.timestamp())
+    
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                if category_id is None:
+                    # Combined top - all tests regardless of category
+                    cursor.execute(
+                        """SELECT 
+                               a.userid,
+                               u.first_name,
+                               u.last_name,
+                               u.username,
+                               MAX(a.score_percent) as best_score,
+                               COUNT(*) as tests_count
+                           FROM certification_attempts a
+                           JOIN users u ON a.userid = u.userid
+                           WHERE a.status = 'completed'
+                             AND a.passed = 1
+                             AND a.completed_timestamp >= %s
+                             AND a.completed_timestamp < %s
+                           GROUP BY a.userid
+                           ORDER BY best_score DESC, tests_count DESC
+                           LIMIT %s""",
+                        (start_ts, end_ts, limit)
+                    )
+                else:
+                    # Filter by specific category
+                    cursor.execute(
+                        """SELECT 
+                               a.userid,
+                               u.first_name,
+                               u.last_name,
+                               u.username,
+                               MAX(a.score_percent) as best_score,
+                               COUNT(*) as tests_count
+                           FROM certification_attempts a
+                           JOIN users u ON a.userid = u.userid
+                           WHERE a.status = 'completed'
+                             AND a.passed = 1
+                             AND a.completed_timestamp >= %s
+                             AND a.completed_timestamp < %s
+                             AND a.category_id = %s
+                           GROUP BY a.userid
+                           ORDER BY best_score DESC, tests_count DESC
+                           LIMIT %s""",
+                        (start_ts, end_ts, category_id, limit)
+                    )
+                
+                results = cursor.fetchall()
+                
+                # Add rank numbers
+                for i, row in enumerate(results, 1):
+                    row['rank'] = i
+                
+                return results
+    except Exception as e:
+        logger.error(f"Error getting monthly ranking by category: {e}")
+        return []
+
+
+def get_user_monthly_rank_by_category(
+    userid: int,
+    category_id: Optional[int] = None,
+    year: int = None,
+    month: int = None
+) -> Optional[Dict]:
+    """
+    Get user's rank in monthly ranking for a specific category.
+    
+    Args:
+        userid: Telegram user ID
+        category_id: Category ID to filter by. None for all tests combined.
+        year: Year (default: current)
+        month: Month (default: current)
+        
+    Returns:
+        Dict with rank info or None if not in ranking
+    """
+    now = datetime.now()
+    year = year or now.year
+    month = month or now.month
+    
+    month_start = datetime(year, month, 1)
+    if month == 12:
+        month_end = datetime(year + 1, 1, 1)
+    else:
+        month_end = datetime(year, month + 1, 1)
+    
+    start_ts = int(month_start.timestamp())
+    end_ts = int(month_end.timestamp())
+    
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                # Get user's best score this month for the category
+                if category_id is None:
+                    cursor.execute(
+                        """SELECT MAX(score_percent) as best_score, COUNT(*) as tests_count
+                           FROM certification_attempts
+                           WHERE userid = %s
+                             AND status = 'completed'
+                             AND passed = 1
+                             AND completed_timestamp >= %s
+                             AND completed_timestamp < %s""",
+                        (userid, start_ts, end_ts)
+                    )
+                else:
+                    cursor.execute(
+                        """SELECT MAX(score_percent) as best_score, COUNT(*) as tests_count
+                           FROM certification_attempts
+                           WHERE userid = %s
+                             AND status = 'completed'
+                             AND passed = 1
+                             AND completed_timestamp >= %s
+                             AND completed_timestamp < %s
+                             AND category_id = %s""",
+                        (userid, start_ts, end_ts, category_id)
+                    )
+                
+                user_result = cursor.fetchone()
+                
+                if not user_result or user_result['best_score'] is None:
+                    return None
+                
+                # Count users with higher score in this category
+                if category_id is None:
+                    cursor.execute(
+                        """SELECT COUNT(DISTINCT userid) as higher_count
+                           FROM certification_attempts
+                           WHERE status = 'completed'
+                             AND passed = 1
+                             AND completed_timestamp >= %s
+                             AND completed_timestamp < %s
+                             AND userid != %s
+                           GROUP BY userid
+                           HAVING MAX(score_percent) > %s""",
+                        (start_ts, end_ts, userid, user_result['best_score'])
+                    )
+                else:
+                    cursor.execute(
+                        """SELECT COUNT(DISTINCT userid) as higher_count
+                           FROM certification_attempts
+                           WHERE status = 'completed'
+                             AND passed = 1
+                             AND completed_timestamp >= %s
+                             AND completed_timestamp < %s
+                             AND userid != %s
+                             AND category_id = %s
+                           GROUP BY userid
+                           HAVING MAX(score_percent) > %s""",
+                        (start_ts, end_ts, userid, category_id, user_result['best_score'])
+                    )
+                
+                higher = cursor.fetchall()
+                rank = len(higher) + 1
+                
+                return {
+                    'rank': rank,
+                    'best_score': float(user_result['best_score']),
+                    'tests_count': user_result['tests_count']
+                }
+    except Exception as e:
+        logger.error(f"Error getting user rank by category: {e}")
+        return None
+
+
+def get_user_categories_this_month(
+    userid: int,
+    year: int = None,
+    month: int = None
+) -> List[Dict]:
+    """
+    Get list of categories where user has completed tests this month.
+    Includes stats for each category.
+    
+    Args:
+        userid: Telegram user ID
+        year: Year (default: current)
+        month: Month (default: current)
+        
+    Returns:
+        List of dicts with category info and user stats
+    """
+    now = datetime.now()
+    year = year or now.year
+    month = month or now.month
+    
+    month_start = datetime(year, month, 1)
+    if month == 12:
+        month_end = datetime(year + 1, 1, 1)
+    else:
+        month_end = datetime(year, month + 1, 1)
+    
+    start_ts = int(month_start.timestamp())
+    end_ts = int(month_end.timestamp())
+    
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                # Get categories where user has attempts this month
+                cursor.execute(
+                    """SELECT 
+                           a.category_id,
+                           c.name as category_name,
+                           MAX(a.score_percent) as best_score,
+                           COUNT(*) as tests_count,
+                           SUM(CASE WHEN a.passed = 1 THEN 1 ELSE 0 END) as passed_count
+                       FROM certification_attempts a
+                       LEFT JOIN certification_categories c ON a.category_id = c.id
+                       WHERE a.userid = %s
+                         AND a.status = 'completed'
+                         AND a.completed_timestamp >= %s
+                         AND a.completed_timestamp < %s
+                       GROUP BY a.category_id
+                       ORDER BY c.display_order, c.name""",
+                    (userid, start_ts, end_ts)
+                )
+                
+                results = cursor.fetchall()
+                
+                # Add rank for each category
+                for row in results:
+                    rank_info = get_user_monthly_rank_by_category(
+                        userid, 
+                        row['category_id'], 
+                        year, 
+                        month
+                    )
+                    row['rank'] = rank_info['rank'] if rank_info else None
+                
+                return results
+    except Exception as e:
+        logger.error(f"Error getting user categories this month: {e}")
+        return []
+
+
+def get_user_stats_by_category(userid: int, category_id: Optional[int] = None) -> Optional[Dict]:
+    """
+    Get user's statistics for a specific category.
+    
+    Args:
+        userid: Telegram user ID
+        category_id: Category ID to filter by. None for all tests combined.
+        
+    Returns:
+        Dict with stats or None
+    """
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                if category_id is None:
+                    cursor.execute(
+                        """SELECT 
+                               COUNT(*) as total_tests,
+                               SUM(CASE WHEN passed = 1 THEN 1 ELSE 0 END) as passed_tests,
+                               MAX(score_percent) as best_score,
+                               MAX(completed_timestamp) as last_test_timestamp
+                           FROM certification_attempts 
+                           WHERE userid = %s AND status IN ('completed', 'expired')""",
+                        (userid,)
+                    )
+                else:
+                    cursor.execute(
+                        """SELECT 
+                               COUNT(*) as total_tests,
+                               SUM(CASE WHEN passed = 1 THEN 1 ELSE 0 END) as passed_tests,
+                               MAX(score_percent) as best_score,
+                               MAX(completed_timestamp) as last_test_timestamp
+                           FROM certification_attempts 
+                           WHERE userid = %s AND status IN ('completed', 'expired')
+                             AND category_id = %s""",
+                        (userid, category_id)
+                    )
+                
+                result = cursor.fetchone()
+                
+                if result and result['total_tests'] > 0:
+                    return {
+                        'total_tests': result['total_tests'],
+                        'passed_tests': result['passed_tests'] or 0,
+                        'best_score': float(result['best_score']) if result['best_score'] else 0,
+                        'last_test_timestamp': result['last_test_timestamp']
+                    }
+                return None
+    except Exception as e:
+        logger.error(f"Error getting user stats by category: {e}")
+        return None
+
+
 # ============================================================================
 # Utility Functions
 # ============================================================================

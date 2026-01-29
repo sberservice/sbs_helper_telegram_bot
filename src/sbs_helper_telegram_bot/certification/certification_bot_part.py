@@ -550,41 +550,65 @@ def clear_test_context(context: ContextTypes.DEFAULT_TYPE) -> None:
 # ============================================================================
 
 async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show user's ranking and statistics."""
+    """Show user's ranking and statistics per category for current month."""
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return
     
-    user_stats = logic.get_user_stats(update.effective_user.id)
+    now = datetime.now()
+    month_name = logic.get_month_name(now.month)
     
-    if not user_stats:
+    # Get categories where user has tests this month
+    user_categories = logic.get_user_categories_this_month(update.effective_user.id)
+    
+    if not user_categories:
         await update.message.reply_text(
-            messages.MESSAGE_NO_TESTS_YET,
+            messages.MESSAGE_NO_TESTS_THIS_MONTH.format(month=logic.escape_markdown(month_name)),
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return
     
-    # Get current month rank
-    user_rank = logic.get_user_monthly_rank(update.effective_user.id)
-    rank_str = str(user_rank['rank']) if user_rank else "—"
+    # Build message with per-category ratings
+    message_parts = [messages.MESSAGE_MY_RANKING_HEADER.format(month=logic.escape_markdown(month_name))]
     
-    # Format last test date
-    if user_stats['last_test_timestamp']:
+    # Get overall stats for last test info
+    user_stats = logic.get_user_stats(update.effective_user.id)
+    
+    # Add combined rating first (if user has any passed tests)
+    combined_rank = logic.get_user_monthly_rank(update.effective_user.id)
+    if combined_rank:
+        message_parts.append(messages.MESSAGE_MY_RANKING_ALL_ITEM.format(
+            rank=combined_rank['rank'],
+            best_score=int(combined_rank['best_score']),
+            tests_count=combined_rank['tests_count']
+        ))
+    
+    # Add each category's rating
+    for cat_info in user_categories:
+        # Skip if this is a "full test" (category_id is None) - already shown in combined
+        if cat_info['category_id'] is None:
+            continue
+        
+        category_name = cat_info['category_name'] or "Все категории"
+        rank = cat_info.get('rank', '—')
+        
+        message_parts.append(messages.MESSAGE_MY_RANKING_CATEGORY_ITEM.format(
+            category=logic.escape_markdown(category_name),
+            rank=rank if rank else '—',
+            best_score=int(cat_info['best_score']) if cat_info['best_score'] else 0,
+            tests_count=cat_info['tests_count']
+        ))
+    
+    # Add footer with last test info
+    if user_stats and user_stats['last_test_timestamp']:
         last_test_date = datetime.fromtimestamp(user_stats['last_test_timestamp']).strftime('%d\\.%m\\.%Y')
-    else:
-        last_test_date = "—"
-    
-    message = messages.MESSAGE_MY_RANKING.format(
-        rank=rank_str,
-        best_score=int(user_stats['best_score']) if user_stats['best_score'] else 0,
-        total_tests=user_stats['total_tests'],
-        passed_tests=user_stats['passed_tests'],
-        last_test_date=last_test_date,
-        last_test_score=int(user_stats['last_test_score']) if user_stats['last_test_score'] else 0
-    )
+        message_parts.append(messages.MESSAGE_MY_RANKING_FOOTER.format(
+            last_test_date=last_test_date,
+            last_test_score=int(user_stats['last_test_score']) if user_stats['last_test_score'] else 0
+        ))
     
     await update.message.reply_text(
-        message,
+        "".join(message_parts),
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
 
@@ -631,7 +655,7 @@ async def show_test_history(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def show_monthly_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show monthly top ranking."""
+    """Show category selector for monthly top ranking."""
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return
@@ -639,13 +663,75 @@ async def show_monthly_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     now = datetime.now()
     month_name = logic.get_month_name(now.month)
     
-    ranking = logic.get_monthly_ranking(limit=10)
+    # Get active categories
+    categories = logic.get_all_categories(active_only=True)
+    
+    await update.message.reply_text(
+        messages.MESSAGE_SELECT_TOP_CATEGORY.format(month=logic.escape_markdown(month_name)),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_top_category_selector_keyboard(categories)
+    )
+
+
+async def handle_top_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle callback for top category selection."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    if data == "cert_top_back":
+        # Just close the message
+        await query.message.delete()
+        return
+    
+    if data == "cert_top_select":
+        # Show category selector again
+        now = datetime.now()
+        month_name = logic.get_month_name(now.month)
+        categories = logic.get_all_categories(active_only=True)
+        
+        await query.edit_message_text(
+            messages.MESSAGE_SELECT_TOP_CATEGORY.format(month=logic.escape_markdown(month_name)),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_top_category_selector_keyboard(categories)
+        )
+        return
+    
+    # Determine category filter
+    category_id = None
+    category_name = None
+    is_combined = False
+    
+    if data == "cert_top_all":
+        category_id = None
+        is_combined = True
+    elif data.startswith("cert_top_cat_"):
+        category_id = int(data.replace("cert_top_cat_", ""))
+        category = logic.get_category_by_id(category_id)
+        category_name = category['name'] if category else "Unknown"
+    else:
+        return
+    
+    now = datetime.now()
+    month_name = logic.get_month_name(now.month)
+    
+    # Get ranking for the selected category
+    ranking = logic.get_monthly_ranking_by_category(category_id=category_id, limit=10)
     
     if not ranking:
-        await update.message.reply_text(
-            messages.MESSAGE_EMPTY_TOP,
-            parse_mode=constants.ParseMode.MARKDOWN_V2
-        )
+        if is_combined:
+            await query.edit_message_text(
+                messages.MESSAGE_EMPTY_TOP_ALL,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=keyboards.get_top_back_keyboard()
+            )
+        else:
+            await query.edit_message_text(
+                messages.MESSAGE_EMPTY_TOP_CATEGORY.format(category=logic.escape_markdown(category_name)),
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=keyboards.get_top_back_keyboard()
+            )
         return
     
     # Check if names should be obfuscated
@@ -672,7 +758,11 @@ async def show_monthly_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         ))
     
     # Get current user's position
-    user_rank = logic.get_user_monthly_rank(update.effective_user.id)
+    user_rank = logic.get_user_monthly_rank_by_category(
+        update.effective_user.id, 
+        category_id=category_id
+    )
+    
     if user_rank and user_rank['rank'] <= 10:
         your_position = ""  # Already in top 10
     elif user_rank:
@@ -683,15 +773,25 @@ async def show_monthly_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     else:
         your_position = messages.MESSAGE_NOT_IN_TOP
     
-    message = messages.MESSAGE_MONTHLY_TOP.format(
-        month=logic.escape_markdown(month_name),
-        top_list="\n".join(top_items),
-        your_position=your_position
-    )
+    # Use appropriate message template
+    if is_combined:
+        message = messages.MESSAGE_MONTHLY_TOP_ALL.format(
+            month=logic.escape_markdown(month_name),
+            top_list="\n".join(top_items),
+            your_position=your_position
+        )
+    else:
+        message = messages.MESSAGE_MONTHLY_TOP_CATEGORY.format(
+            month=logic.escape_markdown(month_name),
+            category=logic.escape_markdown(category_name),
+            top_list="\n".join(top_items),
+            your_position=your_position
+        )
     
-    await update.message.reply_text(
+    await query.edit_message_text(
         message,
-        parse_mode=constants.ParseMode.MARKDOWN_V2
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_top_back_keyboard()
     )
 
 

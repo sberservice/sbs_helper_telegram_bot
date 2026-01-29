@@ -25,7 +25,8 @@ from .certification_bot_part import (
     show_my_ranking,
     show_test_history,
     show_monthly_top,
-    show_help
+    show_help,
+    handle_top_category_selection
 )
 from .admin_panel_bot_part import get_admin_conversation_handler
 
@@ -64,7 +65,7 @@ class CertificationModule(BotModule):
         Returns:
             List of handlers for test taking and viewing results
         """
-        from telegram.ext import MessageHandler, filters
+        from telegram.ext import MessageHandler, CallbackQueryHandler, filters
         
         return [
             # User conversation handler for test taking
@@ -85,6 +86,11 @@ class CertificationModule(BotModule):
             MessageHandler(
                 filters.Regex("^🏆 Топ месяца$"),
                 show_monthly_top
+            ),
+            # Callback handler for top category selection
+            CallbackQueryHandler(
+                handle_top_category_selection,
+                pattern="^cert_top_"
             ),
         ]
     
