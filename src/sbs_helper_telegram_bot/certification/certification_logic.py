@@ -1695,3 +1695,59 @@ def get_questions_count() -> int:
     except Exception as e:
         logger.error(f"Error counting questions: {e}")
         return 0
+
+
+def get_certification_statistics() -> Dict[str, Any]:
+    """
+    Get comprehensive certification statistics.
+    
+    Returns:
+        Dict with total_questions, total_categories, active_categories,
+        and categories_stats (list of category names with question counts)
+    """
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                # Get total active questions count
+                cursor.execute(
+                    """SELECT COUNT(*) as cnt FROM certification_questions 
+                       WHERE active = 1 AND relevance_date >= CURDATE()"""
+                )
+                total_questions = cursor.fetchone()['cnt'] or 0
+                
+                # Get total and active categories count
+                cursor.execute("SELECT COUNT(*) as total FROM certification_categories")
+                total_categories = cursor.fetchone()['total'] or 0
+                
+                cursor.execute("SELECT COUNT(*) as active FROM certification_categories WHERE active = 1")
+                active_categories = cursor.fetchone()['active'] or 0
+                
+                # Get questions per category
+                cursor.execute("""
+                    SELECT c.id, c.name, c.active,
+                           COUNT(DISTINCT CASE 
+                               WHEN q.active = 1 AND q.relevance_date >= CURDATE() 
+                               THEN q.id 
+                           END) as questions_count
+                    FROM certification_categories c
+                    LEFT JOIN certification_question_categories qc ON c.id = qc.category_id
+                    LEFT JOIN certification_questions q ON qc.question_id = q.id
+                    GROUP BY c.id, c.name, c.active
+                    ORDER BY c.display_order, c.name
+                """)
+                categories_stats = cursor.fetchall()
+                
+                return {
+                    'total_questions': total_questions,
+                    'total_categories': total_categories,
+                    'active_categories': active_categories,
+                    'categories_stats': categories_stats
+                }
+    except Exception as e:
+        logger.error(f"Error getting certification statistics: {e}")
+        return {
+            'total_questions': 0,
+            'total_categories': 0,
+            'active_categories': 0,
+            'categories_stats': []
+        }

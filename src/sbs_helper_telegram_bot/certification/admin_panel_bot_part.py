@@ -73,6 +73,22 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# Helper Functions
+# ============================================================================
+
+def get_admin_menu_text() -> str:
+    """Get admin menu text with statistics."""
+    stats = logic.get_certification_statistics()
+    if stats['total_questions'] > 0 or stats['total_categories'] > 0:
+        return messages.MESSAGE_ADMIN_MENU.format(
+            questions_count=stats['total_questions'],
+            categories_count=stats['total_categories'],
+            active_categories=stats['active_categories']
+        )
+    return messages.MESSAGE_ADMIN_MENU_NO_STATS
+
+
+# ============================================================================
 # Entry Point and Main Menu
 # ============================================================================
 
@@ -90,7 +106,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ConversationHandler.END
     
     await update.message.reply_text(
-        messages.MESSAGE_ADMIN_MENU,
+        get_admin_menu_text(),
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.get_admin_menu_keyboard()
     )
@@ -108,6 +124,8 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await show_categories_list(update, context)
     elif text == "⚠️ Устаревшие вопросы":
         return await show_outdated_questions(update, context)
+    elif text == "📊 Статистика":
+        return await show_statistics(update, context)
     elif text == "⚙️ Настройки теста":
         return await show_settings(update, context)
     elif text == "📋 Все вопросы":
@@ -132,7 +150,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == "🔙 Админ меню":
         # Go back to admin menu from questions/categories submenu
         await update.message.reply_text(
-            messages.MESSAGE_ADMIN_MENU,
+            get_admin_menu_text(),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboards.get_admin_menu_keyboard()
         )
@@ -158,7 +176,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     
     if data == "cert_admin_menu":
         await query.message.reply_text(
-            messages.MESSAGE_ADMIN_MENU,
+            get_admin_menu_text(),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboards.get_admin_menu_keyboard()
         )
@@ -1523,6 +1541,43 @@ async def update_all_outdated(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # ============================================================================
+# Statistics
+# ============================================================================
+
+async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show detailed certification statistics by category."""
+    stats = logic.get_certification_statistics()
+    
+    # Build categories statistics text
+    if stats['categories_stats']:
+        categories_lines = []
+        for cat in stats['categories_stats']:
+            status = "✅" if cat['active'] else "❌"
+            name = logic.escape_markdown(cat['name'])
+            categories_lines.append(
+                f"{status} *{name}*: {cat['questions_count']} вопросов"
+            )
+        categories_text = "\n".join(categories_lines)
+    else:
+        categories_text = "Категории не созданы"
+    
+    message = messages.MESSAGE_ADMIN_STATISTICS.format(
+        categories_stats=categories_text,
+        total_questions=stats['total_questions'],
+        total_categories=stats['total_categories'],
+        active_categories=stats['active_categories']
+    )
+    
+    await update.message.reply_text(
+        message,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_admin_menu_keyboard()
+    )
+    
+    return ADMIN_MENU
+
+
+# ============================================================================
 # Settings
 # ============================================================================
 
@@ -1730,7 +1785,7 @@ async def back_to_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.pop('cert_search_mode', None)
     
     await update.message.reply_text(
-        messages.MESSAGE_ADMIN_MENU,
+        get_admin_menu_text(),
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.get_admin_menu_keyboard()
     )
