@@ -183,6 +183,52 @@ def get_confirmation_keyboard(confirm_data: str, cancel_data: str = "cert_cancel
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_top_category_selector_keyboard(categories: List[dict]) -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for selecting category to view monthly top.
+    
+    Args:
+        categories: List of category dicts with 'id' and 'name'
+        
+    Returns:
+        InlineKeyboardMarkup for top category selection
+    """
+    keyboard = []
+    
+    # Combined top option
+    keyboard.append([
+        InlineKeyboardButton("📊 Общий рейтинг", callback_data="cert_top_all")
+    ])
+    
+    # Individual categories
+    for category in categories:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"📁 {category['name']}",
+                callback_data=f"cert_top_cat_{category['id']}"
+            )
+        ])
+    
+    keyboard.append([
+        InlineKeyboardButton("🔙 Назад", callback_data="cert_top_back")
+    ])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_top_back_keyboard() -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard with back button for top view.
+    
+    Returns:
+        InlineKeyboardMarkup with back to category selection
+    """
+    keyboard = [
+        [InlineKeyboardButton("🔙 К выбору категории", callback_data="cert_top_select")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 # ============================================================================
 # Admin Keyboards
 # ============================================================================
