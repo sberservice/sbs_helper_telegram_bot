@@ -413,7 +413,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         else:
             keyboard = validator_keyboards.get_submenu_keyboard()
         await update.message.reply_text(
-            validator_messages.MESSAGE_SUBMENU,
+            validator_messages.get_submenu_message(),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )

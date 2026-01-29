@@ -7,7 +7,7 @@ Messages use Telegram MarkdownV2 format where needed.
 # pylint: disable=line-too-long
 # Note: Double backslashes are intentional for Telegram MarkdownV2 escaping
 
-from typing import List
+from typing import List, Tuple
 import src.common.database as database
 
 # ===== USER MESSAGES =====
@@ -35,6 +35,55 @@ def _escape_markdown_v2(text: str) -> str:
     for char in special_chars:
         text = text.replace(char, f'\\{char}')
     return text
+
+
+def _get_stats() -> Tuple[int, int]:
+    """
+    Get counts of active rules and ticket types from the database.
+    
+    Returns:
+        Tuple of (rules_count, ticket_types_count)
+    """
+    rules_count = 0
+    ticket_types_count = 0
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute("""
+                    SELECT COUNT(*) as cnt 
+                    FROM ticket_validator_validation_rules 
+                    WHERE active = 1
+                """)
+                result = cursor.fetchone()
+                if result:
+                    rules_count = result['cnt']
+                
+                cursor.execute("""
+                    SELECT COUNT(*) as cnt 
+                    FROM ticket_validator_ticket_types 
+                    WHERE active = 1
+                """)
+                result = cursor.fetchone()
+                if result:
+                    ticket_types_count = result['cnt']
+    except Exception:
+        pass
+    return rules_count, ticket_types_count
+
+
+def get_submenu_message() -> str:
+    """
+    Build submenu message with statistics.
+    
+    Returns:
+        Formatted message for MarkdownV2
+    """
+    rules_count, ticket_types_count = _get_stats()
+    return (
+        "✅ *Валидация заявок*\n\n"
+        f"📊 В базе: *{rules_count}* правил для *{ticket_types_count}* типов заявок"
+        "\n\nВыберите действие:"
+    )
 
 
 def _get_ticket_types() -> List[str]:
