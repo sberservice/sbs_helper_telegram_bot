@@ -480,16 +480,8 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     elif text == "📊 Популярные ошибки":
         await show_popular_errors(update, _context)
     elif text == BUTTON_CERTIFICATION:
-        # Show certification module submenu
-        if is_admin:
-            keyboard = certification_keyboards.get_admin_submenu_keyboard()
-        else:
-            keyboard = certification_keyboards.get_submenu_keyboard()
-        await update.message.reply_text(
-            certification_messages.MESSAGE_SUBMENU,
-            parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=keyboard
-        )
+        # Show certification module submenu (delegates to the module handler)
+        await enter_certification_module(update, _context)
     elif text == "📊 Мой рейтинг":
         await show_my_ranking(update, _context)
     elif text == "📜 История тестов":
