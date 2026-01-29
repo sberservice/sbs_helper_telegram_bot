@@ -795,6 +795,28 @@ def search_questions(search_text: str) -> List[Dict]:
         return []
 
 
+def get_uncategorized_questions() -> List[Dict]:
+    """
+    Get all questions that are not assigned to any category.
+    
+    Returns:
+        List of question dicts without category assignments
+    """
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    """SELECT q.* FROM certification_questions q
+                       LEFT JOIN certification_question_categories qc ON q.id = qc.question_id
+                       WHERE qc.question_id IS NULL
+                       ORDER BY q.id DESC"""
+                )
+                return cursor.fetchall()
+    except Exception as e:
+        logger.error(f"Error getting uncategorized questions: {e}")
+        return []
+
+
 # ============================================================================
 # Test Attempt Management
 # ============================================================================

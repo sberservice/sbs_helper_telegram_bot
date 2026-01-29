@@ -328,6 +328,10 @@ MESSAGE_SEARCH_RESULTS = """🔍 *Результаты поиска*
 
 MESSAGE_NO_SEARCH_RESULTS = "🔍 По вашему запросу ничего не найдено\\."
 
+# Uncategorized questions
+MESSAGE_UNCATEGORIZED_QUESTIONS = "📂 *Вопросы без категории* \\({count}\\)"
+MESSAGE_NO_UNCATEGORIZED_QUESTIONS = "✅ Все вопросы привязаны к категориям\\."
+
 # Confirmation dialogs
 MESSAGE_CONFIRM_DELETE = "⚠️ *Вы уверены, что хотите удалить?*\n\nЭто действие нельзя отменить\\."
 MESSAGE_CANCELLED = "❌ Действие отменено\\."

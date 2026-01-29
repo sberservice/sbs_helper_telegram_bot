@@ -1730,6 +1730,27 @@ async def search_question_receive(update: Update, context: ContextTypes.DEFAULT_
     return Q_LIST
 
 
+async def show_uncategorized_questions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show questions that are not assigned to any category."""
+    questions = logic.get_uncategorized_questions()
+    
+    if not questions:
+        await update.message.reply_text(
+            messages.MESSAGE_NO_UNCATEGORIZED_QUESTIONS,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_admin_questions_keyboard()
+        )
+        return Q_LIST
+    
+    await update.message.reply_text(
+        messages.MESSAGE_UNCATEGORIZED_QUESTIONS.format(count=len(questions)),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_questions_list_keyboard(questions)
+    )
+    
+    return Q_LIST
+
+
 # ============================================================================
 # Cancel Handler
 # ============================================================================
@@ -1846,6 +1867,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(admin_callback_handler, pattern="^cert_"),
                 MessageHandler(filters.Regex("^➕ Добавить вопрос$"), create_question_start),
                 MessageHandler(filters.Regex("^🔍 Найти вопрос$"), search_question_start),
+                MessageHandler(filters.Regex("^📂 Без категории$"), show_uncategorized_questions),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
             ],
             Q_VIEW: [

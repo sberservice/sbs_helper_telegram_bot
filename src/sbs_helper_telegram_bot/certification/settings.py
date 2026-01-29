@@ -48,7 +48,7 @@ ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
 # Admin questions management submenu
 ADMIN_QUESTIONS_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все вопросы", "➕ Добавить вопрос"],
-    ["🔍 Найти вопрос"],
+    ["🔍 Найти вопрос", "📂 Без категории"],
     ["🔙 Админ меню", "🏠 Главное меню"]
 ]
 
