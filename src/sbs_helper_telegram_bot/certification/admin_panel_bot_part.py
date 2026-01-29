@@ -142,7 +142,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             keyboard = keyboards.get_submenu_keyboard()
         
         await update.message.reply_text(
-            messages.MESSAGE_SUBMENU,
+            messages.MESSAGE_SUBMENU_NO_STATS,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
@@ -1768,7 +1768,7 @@ async def back_to_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         keyboard = keyboards.get_submenu_keyboard()
     
     await update.message.reply_text(
-        messages.MESSAGE_SUBMENU,
+        messages.MESSAGE_SUBMENU_NO_STATS,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboard
     )
