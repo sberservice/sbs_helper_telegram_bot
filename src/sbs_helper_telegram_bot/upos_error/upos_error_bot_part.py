@@ -1994,5 +1994,6 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CommandHandler("cancel", cancel_search),
             MessageHandler(filters.Regex("^🏠 Главное меню$"), cancel_search_on_menu),
             MessageHandler(filters.Regex("^🔙 Назад в UPOS$"), enter_upos_module),
+            MessageHandler(filters.COMMAND, cancel_search_on_menu),  # Handle /start and other commands
         ]
     )
