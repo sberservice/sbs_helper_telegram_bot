@@ -289,8 +289,23 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     ):
         q_id = int(data.replace("cert_q_edit_", ""))
         context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
+        question = logic.get_question_by_id(q_id)
+        if question:
+            edit_message = (
+                f"✏️ *Редактирование вопроса ID:{q_id}*\n\n"
+                f"📝 *Текст:*\n{logic.escape_markdown(question['question_text'])}\n\n"
+                f"*Варианты ответов:*\n"
+                f"🅰️ {logic.escape_markdown(question['option_a'])}\n"
+                f"🅱️ {logic.escape_markdown(question['option_b'])}\n"
+                f"©️ {logic.escape_markdown(question['option_c'])}\n"
+                f"🇩 {logic.escape_markdown(question['option_d'])}\n\n"
+                f"✅ *Правильный:* {settings.ANSWER_EMOJIS.get(question['correct_option'], question['correct_option'])}\n\n"
+                f"Выберите поле для редактирования:"
+            )
+        else:
+            edit_message = "✏️ *Редактирование вопроса*\n\nВыберите поле для редактирования:"
         await query.edit_message_text(
-            "✏️ *Редактирование вопроса*\n\nВыберите поле для редактирования:",
+            edit_message,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboards.get_question_edit_keyboard(q_id)
         )
@@ -301,8 +316,10 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         q_id = int(data.replace("cert_q_edit_text_", ""))
         context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
         context.user_data["edit_field"] = "question_text"
+        question = logic.get_question_by_id(q_id)
+        old_value = logic.escape_markdown(question['question_text']) if question else "—"
         await query.edit_message_text(
-            "📝 Введите новый текст вопроса:",
+            f"📝 *Текущий текст:*\n{old_value}\n\n📝 Введите новый текст вопроса:",
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return Q_EDIT_FIELD
@@ -311,8 +328,10 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         q_id = int(data.replace("cert_q_edit_opt_a_", ""))
         context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
         context.user_data["edit_field"] = "option_a"
+        question = logic.get_question_by_id(q_id)
+        old_value = logic.escape_markdown(question['option_a']) if question else "—"
         await query.edit_message_text(
-            "🅰️ Введите новый текст варианта A:",
+            f"🅰️ *Текущее значение:*\n{old_value}\n\n🅰️ Введите новый текст варианта A:",
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return Q_EDIT_FIELD
@@ -321,8 +340,10 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         q_id = int(data.replace("cert_q_edit_opt_b_", ""))
         context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
         context.user_data["edit_field"] = "option_b"
+        question = logic.get_question_by_id(q_id)
+        old_value = logic.escape_markdown(question['option_b']) if question else "—"
         await query.edit_message_text(
-            "🅱️ Введите новый текст варианта B:",
+            f"🅱️ *Текущее значение:*\n{old_value}\n\n🅱️ Введите новый текст варианта B:",
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return Q_EDIT_FIELD
@@ -331,8 +352,10 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         q_id = int(data.replace("cert_q_edit_opt_c_", ""))
         context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
         context.user_data["edit_field"] = "option_c"
+        question = logic.get_question_by_id(q_id)
+        old_value = logic.escape_markdown(question['option_c']) if question else "—"
         await query.edit_message_text(
-            "©️ Введите новый текст варианта C:",
+            f"©️ *Текущее значение:*\n{old_value}\n\n©️ Введите новый текст варианта C:",
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return Q_EDIT_FIELD
@@ -341,8 +364,10 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         q_id = int(data.replace("cert_q_edit_opt_d_", ""))
         context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
         context.user_data["edit_field"] = "option_d"
+        question = logic.get_question_by_id(q_id)
+        old_value = logic.escape_markdown(question['option_d']) if question else "—"
         await query.edit_message_text(
-            "🇩 Введите новый текст варианта D:",
+            f"🇩 *Текущее значение:*\n{old_value}\n\n🇩 Введите новый текст варианта D:",
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return Q_EDIT_FIELD
@@ -351,8 +376,10 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         q_id = int(data.replace("cert_q_edit_expl_", ""))
         context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
         context.user_data["edit_field"] = "explanation"
+        question = logic.get_question_by_id(q_id)
+        old_value = logic.escape_markdown(question['explanation'] or "—") if question else "—"
         await query.edit_message_text(
-            "💡 Введите новое пояснение \\(или /skip чтобы очистить\\):",
+            f"💡 *Текущее пояснение:*\n{old_value}\n\n💡 Введите новое пояснение \\(или /skip чтобы очистить\\):",
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return Q_EDIT_FIELD
