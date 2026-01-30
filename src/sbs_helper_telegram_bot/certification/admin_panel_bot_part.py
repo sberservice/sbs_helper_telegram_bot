@@ -62,6 +62,7 @@ logger = logging.getLogger(__name__)
     Q_EDIT_CATEGORIES,
     Q_CONFIRM_DELETE,
     Q_UPDATE_RELEVANCE,
+    Q_SEARCH,
     # Settings
     SETTINGS_MENU,
     SETTINGS_QUESTIONS_COUNT,
@@ -69,7 +70,7 @@ logger = logging.getLogger(__name__)
     SETTINGS_PASSING_SCORE,
     # Outdated questions
     OUTDATED_LIST,
-) = range(30)
+) = range(31)
 
 
 # ============================================================================
@@ -1724,19 +1725,11 @@ async def search_question_start(update: Update, context: ContextTypes.DEFAULT_TY
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     
-    # Store that we're in search mode
-    context.user_data['cert_search_mode'] = True
-    
-    return Q_LIST
+    return Q_SEARCH
 
 
 async def search_question_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive search query and show results."""
-    if not context.user_data.get('cert_search_mode'):
-        return ADMIN_MENU
-    
-    context.user_data.pop('cert_search_mode', None)
-    
     query = update.message.text.strip()
     questions = logic.search_questions(query)
     
@@ -1947,6 +1940,9 @@ def get_admin_conversation_handler() -> ConversationHandler:
             ],
             Q_UPDATE_RELEVANCE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_relevance_update),
+            ],
+            Q_SEARCH: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, search_question_receive),
             ],
             # Settings states
             SETTINGS_MENU: [
