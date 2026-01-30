@@ -855,6 +855,9 @@ async def receive_category_order(update: Update, context: ContextTypes.DEFAULT_T
 
 async def show_questions_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show questions list."""
+    # Clear search query when viewing all questions
+    context.user_data.pop('cert_search_query', None)
+    
     questions = logic.get_all_questions()
     
     if not questions:
@@ -883,6 +886,10 @@ async def show_questions_list(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def show_questions_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show questions list (callback version)."""
     query = update.callback_query
+    
+    # Clear search query when viewing all questions
+    context.user_data.pop('cert_search_query', None)
+    
     questions = logic.get_all_questions()
     
     if not questions:
@@ -915,7 +922,13 @@ async def show_questions_list_callback(update: Update, context: ContextTypes.DEF
 async def show_questions_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int) -> int:
     """Show specific page of questions list."""
     query = update.callback_query
-    questions = logic.get_all_questions()
+    
+    # Check if we're in search mode
+    search_query = context.user_data.get('cert_search_query')
+    if search_query:
+        questions = logic.search_questions(search_query)
+    else:
+        questions = logic.get_all_questions()
     
     await query.edit_message_reply_markup(
         reply_markup=keyboards.get_questions_list_keyboard(questions, page=page)
@@ -1730,8 +1743,8 @@ async def search_question_start(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def search_question_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive search query and show results."""
-    query = update.message.text.strip()
-    questions = logic.search_questions(query)
+    search_query = update.message.text.strip()
+    questions = logic.search_questions(search_query)
     
     if not questions:
         await update.message.reply_text(
@@ -1740,6 +1753,9 @@ async def search_question_receive(update: Update, context: ContextTypes.DEFAULT_
             reply_markup=keyboards.get_admin_questions_keyboard()
         )
         return ADMIN_MENU
+    
+    # Store search query for pagination
+    context.user_data['cert_search_query'] = search_query
     
     await update.message.reply_text(
         f"🔍 *Результаты поиска* \\({len(questions)}\\)",
@@ -1783,6 +1799,7 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     context.user_data.pop(settings.ADMIN_EDITING_QUESTION_KEY, None)
     context.user_data.pop(settings.ADMIN_EDITING_CATEGORY_KEY, None)
     context.user_data.pop('cert_search_mode', None)
+    context.user_data.pop('cert_search_query', None)
     
     is_admin = check_if_user_admin(update.effective_user.id)
     await update.message.reply_text(
@@ -1802,6 +1819,7 @@ async def back_to_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     context.user_data.pop(settings.ADMIN_EDITING_QUESTION_KEY, None)
     context.user_data.pop(settings.ADMIN_EDITING_CATEGORY_KEY, None)
     context.user_data.pop('cert_search_mode', None)
+    context.user_data.pop('cert_search_query', None)
     
     if check_if_user_admin(update.effective_user.id):
         keyboard = keyboards.get_admin_submenu_keyboard()
@@ -1824,6 +1842,7 @@ async def back_to_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.pop(settings.ADMIN_EDITING_QUESTION_KEY, None)
     context.user_data.pop(settings.ADMIN_EDITING_CATEGORY_KEY, None)
     context.user_data.pop('cert_search_mode', None)
+    context.user_data.pop('cert_search_query', None)
     
     await update.message.reply_text(
         get_admin_menu_text(),
