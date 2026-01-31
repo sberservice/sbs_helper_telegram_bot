@@ -447,6 +447,7 @@ def get_gamification_admin_handler() -> ConversationHandler:
             CommandHandler("cancel", return_to_main_menu),
         ],
         map_to_parent={
+            settings.STATE_SUBMENU: ConversationHandler.END,
             ConversationHandler.END: ConversationHandler.END,
         },
         name="gamification_admin_handler",
