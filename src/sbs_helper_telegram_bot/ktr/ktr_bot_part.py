@@ -2165,18 +2165,26 @@ async def admin_cancel_csv_import(update: Update, context: ContextTypes.DEFAULT_
 
 def get_menu_button_regex_pattern() -> str:
     """
-    Get regex pattern matching all KTR module menu buttons.
-    Used for fallback handlers.
+    Get regex pattern matching KTR module-specific buttons for fallback.
+    Excludes main navigation buttons (like Main Menu) to let them pass through.
     """
     buttons = []
+    # Only include KTR-specific buttons, not navigation buttons
     for row in settings.SUBMENU_BUTTONS:
-        buttons.extend(row)
+        for button in row:
+            # Exclude main navigation buttons
+            if button not in ["🏠 Главное меню"]:
+                buttons.append(button)
     for row in settings.ADMIN_SUBMENU_BUTTONS:
-        buttons.extend(row)
+        for button in row:
+            if button not in ["🏠 Главное меню"]:
+                buttons.append(button)
     for row in settings.ADMIN_MENU_BUTTONS:
         buttons.extend(row)
     for row in settings.ADMIN_CATEGORIES_BUTTONS:
-        buttons.extend(row)
+        for button in row:
+            if button not in ["🏠 Главное меню"]:
+                buttons.append(button)
     
     # Remove duplicates and escape for regex
     unique_buttons = list(set(buttons))
