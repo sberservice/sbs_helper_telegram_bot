@@ -923,13 +923,13 @@ async def direct_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     return await process_code_input(update, context)
 
 
-async def show_popular_codes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def show_popular_codes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Show most requested KTR codes.
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
-        return ConversationHandler.END
+        return
     
     popular = get_popular_ktr_codes()
     
@@ -938,7 +938,7 @@ async def show_popular_codes(update: Update, context: ContextTypes.DEFAULT_TYPE)
             messages.MESSAGE_NO_POPULAR_CODES,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
-        return SUBMENU
+        return
     
     text = messages.MESSAGE_POPULAR_CODES_HEADER.format(count=len(popular))
     
@@ -955,10 +955,9 @@ async def show_popular_codes(update: Update, context: ContextTypes.DEFAULT_TYPE)
         text,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
-    return SUBMENU
 
 
-async def show_ktr_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def show_ktr_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Show KTR module achievements for the current user.
     """
@@ -968,7 +967,7 @@ async def show_ktr_achievements(update: Update, context: ContextTypes.DEFAULT_TY
     
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
-        return ConversationHandler.END
+        return
     
     user_id = update.effective_user.id
     
@@ -980,7 +979,7 @@ async def show_ktr_achievements(update: Update, context: ContextTypes.DEFAULT_TY
             "🎖️ *Достижения модуля КТР*\n\nДостижения пока не настроены\\.",
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
-        return SUBMENU
+        return
     
     # Count unlocked
     unlocked = sum(1 for a in achievements if a['unlocked_level'] > 0)
@@ -1009,7 +1008,6 @@ async def show_ktr_achievements(update: Update, context: ContextTypes.DEFAULT_TY
         text,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
-    return SUBMENU
 
 
 async def cancel_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -2223,10 +2221,6 @@ def get_user_conversation_handler() -> ConversationHandler:
             SUBMENU: [
                 # In submenu, accept button to start search
                 MessageHandler(filters.Regex("^🔍 Найти код КТР$"), start_code_search),
-                # Popular codes button
-                MessageHandler(filters.Regex("^📊 Популярные коды$"), show_popular_codes),
-                # Achievements button
-                MessageHandler(filters.Regex("^🎖️ Достижения$"), show_ktr_achievements),
                 # Or accept direct alphanumeric input
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND & filters.Regex(alphanumeric_pattern),
