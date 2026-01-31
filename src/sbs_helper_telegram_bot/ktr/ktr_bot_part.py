@@ -33,9 +33,9 @@ from . import settings
 
 logger = logging.getLogger(__name__)
 
-# Conversation states for user lookup
-SUBMENU = 0  # User is in the module submenu
-WAITING_FOR_CODE = 1
+# Conversation states for user lookup (use unique strings to avoid conflicts with other modules)
+SUBMENU = "ktr_submenu"
+WAITING_FOR_CODE = "ktr_waiting_code"
 
 # Conversation states for admin operations
 (
