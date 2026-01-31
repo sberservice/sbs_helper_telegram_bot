@@ -2210,24 +2210,12 @@ def get_menu_button_regex_pattern() -> str:
     return "^(" + "|".join(escaped) + ")$"
 
 
-def get_alphanumeric_code_pattern() -> str:
-    """
-    Get regex pattern matching alphanumeric KTR codes.
-    KTR codes are typically alphanumeric strings (e.g., POS2421, KTR123).
-    Menu buttons always contain emojis, so we match only alphanumeric text with optional hyphens.
-    """
-    # Match strings that contain only letters, numbers, hyphens, and underscores
-    # This excludes any text with emojis (which all menu buttons have)
-    return r"^[A-Za-z0-9\-_]+$"
-
-
 def get_user_conversation_handler() -> ConversationHandler:
     """
     Get ConversationHandler for user KTR code lookup flow.
-    Allows both button-based and direct code entry.
+    Users must press the search button to enter KTR codes.
     """
     menu_pattern = get_menu_button_regex_pattern()
-    alphanumeric_pattern = get_alphanumeric_code_pattern()
     
     return ConversationHandler(
         entry_points=[
@@ -2242,11 +2230,6 @@ def get_user_conversation_handler() -> ConversationHandler:
                 MessageHandler(filters.Regex("^📊 Популярные коды$"), show_popular_codes),
                 # Achievements button
                 MessageHandler(filters.Regex("^🎖️ Достижения$"), show_ktr_achievements),
-                # Or accept direct alphanumeric input
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND & filters.Regex(alphanumeric_pattern),
-                    direct_code_input
-                ),
             ],
             WAITING_FOR_CODE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_code_input)
