@@ -33,9 +33,9 @@ from . import settings
 
 logger = logging.getLogger(__name__)
 
-# Conversation states for user lookup
-SUBMENU = 0  # User is in the module submenu
-WAITING_FOR_ERROR_CODE = 1
+# Conversation states for user lookup (use unique strings to avoid conflicts with other modules)
+SUBMENU = "upos_submenu"
+WAITING_FOR_ERROR_CODE = "upos_waiting_code"
 
 # Conversation states for admin operations
 (
