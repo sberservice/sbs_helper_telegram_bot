@@ -714,6 +714,19 @@ async def process_error_code_input(update: Update, context: ContextTypes.DEFAULT
     return ConversationHandler.END
 
 
+async def direct_error_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Handle direct error code input from submenu (without pressing search button).
+    This allows users to enter error codes directly.
+    """
+    if not check_if_user_legit(update.effective_user.id):
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        return ConversationHandler.END
+    
+    # Reuse the same processing logic as process_error_code_input
+    return await process_error_code_input(update, context)
+
+
 async def show_popular_errors(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Show most requested error codes.
@@ -1904,12 +1917,19 @@ def get_menu_button_regex_pattern() -> str:
 def get_user_conversation_handler() -> ConversationHandler:
     """
     Get ConversationHandler for user error lookup flow.
+    Allows both button-based and direct error code entry.
     """
     menu_pattern = get_menu_button_regex_pattern()
     
     return ConversationHandler(
         entry_points=[
+            # Button-based entry (backward compatibility)
             MessageHandler(filters.Regex("^🔍 Найти код ошибки$"), start_error_search),
+            # Direct text input entry - filtered to exclude menu buttons
+            MessageHandler(
+                filters.TEXT & ~filters.COMMAND & ~filters.Regex(menu_pattern),
+                direct_error_code_input
+            ),
         ],
         states={
             WAITING_FOR_ERROR_CODE: [

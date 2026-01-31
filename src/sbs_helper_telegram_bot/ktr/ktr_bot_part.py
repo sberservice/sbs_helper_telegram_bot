@@ -844,6 +844,9 @@ async def process_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """
     Process user's KTR code input and return result.
     """
+    # Import gamification events (lazy import to avoid circular deps)
+    from src.sbs_helper_telegram_bot.gamification.events import emit_event
+    
     user_id = update.effective_user.id
     input_text = update.message.text.strip().upper()  # KTR codes are typically uppercase
     
@@ -855,12 +858,18 @@ async def process_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return WAITING_FOR_CODE
     
+    # Emit gamification event for lookup attempt
+    emit_event("ktr.lookup", user_id, {"code": input_text})
+    
     # Look up the KTR code
     code_info = get_ktr_code_by_code(input_text)
     
     if code_info:
         # Found - log and display
         record_ktr_request(user_id, input_text, found=True)
+        
+        # Emit gamification event for successful lookup
+        emit_event("ktr.lookup_found", user_id, {"code": input_text})
         
         response = messages.format_ktr_code_response(
             code=code_info['code'],
@@ -900,6 +909,19 @@ async def process_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 
+async def direct_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Handle direct KTR code input from submenu (without pressing search button).
+    This allows users to enter codes directly.
+    """
+    if not check_if_user_legit(update.effective_user.id):
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        return ConversationHandler.END
+    
+    # Reuse the same processing logic as process_code_input
+    return await process_code_input(update, context)
+
+
 async def show_popular_codes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Show most requested KTR codes.
@@ -927,6 +949,59 @@ async def show_popular_codes(update: Update, context: ContextTypes.DEFAULT_TYPE)
             times_requested=code['request_count']
         )
         text += f"{i}\\. {line}\n"
+    
+    await update.message.reply_text(
+        text,
+        parse_mode=constants.ParseMode.MARKDOWN_V2
+    )
+
+
+async def show_ktr_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Show KTR module achievements for the current user.
+    """
+    from src.sbs_helper_telegram_bot.gamification import gamification_logic
+    from src.sbs_helper_telegram_bot.gamification import messages as gf_messages
+    from src.sbs_helper_telegram_bot.gamification import keyboards as gf_keyboards
+    
+    if not check_if_user_legit(update.effective_user.id):
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        return
+    
+    user_id = update.effective_user.id
+    
+    # Get KTR achievements with progress
+    achievements = gamification_logic.get_user_achievements_with_progress(user_id, 'ktr')
+    
+    if not achievements:
+        await update.message.reply_text(
+            "🎖️ *Достижения модуля КТР*\n\nДостижения пока не настроены\\.",
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return
+    
+    # Count unlocked
+    unlocked = sum(1 for a in achievements if a['unlocked_level'] > 0)
+    total = len(achievements) * 3  # 3 levels per achievement
+    
+    text = gf_messages.MESSAGE_MODULE_ACHIEVEMENTS_HEADER.format(
+        module=gf_messages._escape_md("КТР"),
+        unlocked=unlocked,
+        total=total
+    )
+    
+    for ach in achievements:
+        card = gf_messages.format_achievement_card(
+            name=ach['name'],
+            description=ach['description'],
+            icon=ach['icon'],
+            current_count=ach['current_count'],
+            threshold_bronze=ach['threshold_bronze'],
+            threshold_silver=ach['threshold_silver'],
+            threshold_gold=ach['threshold_gold'],
+            unlocked_level=ach['unlocked_level']
+        )
+        text += card + "\n"
     
     await update.message.reply_text(
         text,
@@ -2122,12 +2197,19 @@ def get_menu_button_regex_pattern() -> str:
 def get_user_conversation_handler() -> ConversationHandler:
     """
     Get ConversationHandler for user KTR code lookup flow.
+    Allows both button-based and direct code entry.
     """
     menu_pattern = get_menu_button_regex_pattern()
     
     return ConversationHandler(
         entry_points=[
+            # Button-based entry (backward compatibility)
             MessageHandler(filters.Regex("^🔍 Найти код КТР$"), start_code_search),
+            # Direct text input entry - filtered to exclude menu buttons
+            MessageHandler(
+                filters.TEXT & ~filters.COMMAND & ~filters.Regex(menu_pattern),
+                direct_code_input
+            ),
         ],
         states={
             WAITING_FOR_CODE: [

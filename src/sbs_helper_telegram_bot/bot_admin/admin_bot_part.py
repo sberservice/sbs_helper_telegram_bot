@@ -62,7 +62,9 @@ logger = logging.getLogger(__name__)
     # Bot settings states
     BOT_SETTINGS_MENU,
     INVITE_SYSTEM_SETTINGS,
-) = range(21)
+    # Modules management states
+    MODULES_MANAGEMENT_MENU,
+) = range(22)
 
 
 # ============================================================================
@@ -324,6 +326,10 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await show_bot_settings_menu(update, context)
     elif text == "🔐 Инвайт-система":
         return await show_invite_system_settings(update, context)
+    elif text == "🧩 Модули":
+        return await show_modules_management_menu(update, context)
+    elif text == "🔙 Настройки бота":
+        return await show_bot_settings_menu(update, context)
     
     return ADMIN_MENU
 
@@ -923,6 +929,61 @@ async def toggle_invite_system(query, context: ContextTypes.DEFAULT_TYPE, enable
 
 
 # ============================================================================
+# Modules Management
+# ============================================================================
+
+def get_modules_status_text() -> str:
+    """Generate a formatted status text for all modules."""
+    from src.common.bot_settings import MODULE_NAMES
+    
+    module_states = bot_settings.get_all_module_states()
+    lines = []
+    for module_key, is_enabled in module_states.items():
+        module_name = MODULE_NAMES.get(module_key, module_key)
+        status = "✅" if is_enabled else "❌"
+        lines.append(f"{status} {escape_markdown(module_name)}")
+    return "\n".join(lines)
+
+
+async def show_modules_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show modules management menu with toggle buttons."""
+    module_states = bot_settings.get_all_module_states()
+    modules_status = get_modules_status_text()
+    
+    await update.message.reply_text(
+        messages.MESSAGE_MODULES_MANAGEMENT_MENU.format(modules_status=modules_status),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_modules_toggle_keyboard(module_states)
+    )
+    return MODULES_MANAGEMENT_MENU
+
+
+async def toggle_module(query, context: ContextTypes.DEFAULT_TYPE, module_key: str, enable: bool) -> int:
+    """Toggle a specific module on or off."""
+    from src.common.bot_settings import MODULE_NAMES
+    
+    admin_id = query.from_user.id
+    bot_settings.set_module_enabled(module_key, enable, admin_id)
+    
+    module_name = MODULE_NAMES.get(module_key, module_key)
+    
+    if enable:
+        message = messages.MESSAGE_MODULE_ENABLED.format(module_name=escape_markdown(module_name))
+    else:
+        message = messages.MESSAGE_MODULE_DISABLED.format(module_name=escape_markdown(module_name))
+    
+    # Update keyboard with new states
+    module_states = bot_settings.get_all_module_states()
+    
+    await query.edit_message_text(
+        message,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_modules_toggle_keyboard(module_states)
+    )
+    return MODULES_MANAGEMENT_MENU
+
+
+# ============================================================================
 # Callback Handler
 # ============================================================================
 
@@ -1136,6 +1197,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data == "bot_admin_invite_system_disable":
         return await toggle_invite_system(query, context, False)
     
+    # Modules management callbacks
+    if data.startswith("bot_admin_module_enable_"):
+        module_key = data.replace("bot_admin_module_enable_", "")
+        return await toggle_module(query, context, module_key, True)
+    
+    if data.startswith("bot_admin_module_disable_"):
+        module_key = data.replace("bot_admin_module_disable_", "")
+        return await toggle_module(query, context, module_key, False)
+    
     return None
 
 
@@ -1254,6 +1324,11 @@ def get_admin_conversation_handler() -> ConversationHandler:
             INVITE_SYSTEM_SETTINGS: [
                 CallbackQueryHandler(handle_callback),
                 menu_buttons_handler
+            ],
+            # Modules management states
+            MODULES_MANAGEMENT_MENU: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
+                CallbackQueryHandler(handle_callback)
             ],
         },
         fallbacks=[

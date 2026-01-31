@@ -65,6 +65,7 @@ from src.common.messages import (
     BUTTON_KTR,
     BUTTON_BOT_ADMIN,
     BUTTON_FEEDBACK,
+    BUTTON_PROFILE,
     get_main_menu_keyboard,
     get_settings_menu_keyboard,
     get_modules_menu_keyboard,
@@ -151,6 +152,17 @@ from src.sbs_helper_telegram_bot.feedback.feedback_bot_part import (
 )
 from src.sbs_helper_telegram_bot.feedback.admin_panel_bot_part import (
     get_feedback_admin_handler,
+)
+
+# Import gamification module handlers
+from src.sbs_helper_telegram_bot.gamification import settings as gamification_settings
+from src.sbs_helper_telegram_bot.gamification import messages as gamification_messages
+from src.sbs_helper_telegram_bot.gamification import keyboards as gamification_keyboards
+from src.sbs_helper_telegram_bot.gamification.gamification_bot_part import (
+    get_gamification_user_handler,
+)
+from src.sbs_helper_telegram_bot.gamification.admin_panel_bot_part import (
+    get_gamification_admin_handler,
 )
 
 from src.common.telegram_user import check_if_user_admin
@@ -534,6 +546,10 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         )
     elif text == "📊 Популярные коды":
         await show_popular_ktr_codes(update, _context)
+    elif text == "🎖️ Достижения":
+        # Show KTR achievements (handled by KTR module)
+        from src.sbs_helper_telegram_bot.ktr.ktr_bot_part import show_ktr_achievements
+        await show_ktr_achievements(update, _context)
     elif text == BUTTON_FEEDBACK:
         # Show feedback module submenu
         if is_admin:
@@ -542,6 +558,23 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             keyboard = feedback_keyboards.get_submenu_keyboard(is_admin=False)
         await update.message.reply_text(
             feedback_messages.MESSAGE_SUBMENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard
+        )
+    elif text == BUTTON_PROFILE:
+        # Show gamification profile submenu
+        if is_admin:
+            keyboard = gamification_keyboards.get_admin_submenu_keyboard()
+        else:
+            keyboard = gamification_keyboards.get_submenu_keyboard()
+        # Ensure user has totals record
+        from src.sbs_helper_telegram_bot.gamification.gamification_logic import ensure_user_totals_exist
+        ensure_user_totals_exist(user_id)
+        await update.message.reply_text(
+            gamification_messages.MESSAGE_SUBMENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard
+        )
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
@@ -665,6 +698,10 @@ def main() -> None:
     feedback_user_handler = get_feedback_user_handler()
     feedback_admin_handler = get_feedback_admin_handler()
 
+    # Create ConversationHandlers for gamification module
+    gamification_user_handler = get_gamification_user_handler()
+    gamification_admin_handler = get_gamification_admin_handler()
+
     # Register all handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
@@ -683,6 +720,8 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(handle_top_category_selection, pattern="^cert_top_"))
     application.add_handler(feedback_admin_handler)
     application.add_handler(feedback_user_handler)
+    application.add_handler(gamification_admin_handler)
+    application.add_handler(gamification_user_handler)
     application.add_handler(screenshot_handler)
     application.add_handler(ticket_validator_handler)
     application.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, text_entered))
