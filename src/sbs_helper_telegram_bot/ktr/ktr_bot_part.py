@@ -2235,7 +2235,9 @@ def get_user_conversation_handler() -> ConversationHandler:
             CommandHandler("cancel", cancel_search),
             MessageHandler(filters.COMMAND, cancel_search_on_menu),
             MessageHandler(filters.Regex(menu_pattern), cancel_search_on_menu)
-        ]
+        ],
+        name="ktr_user_conversation",
+        persistent=False
     )
 
 
