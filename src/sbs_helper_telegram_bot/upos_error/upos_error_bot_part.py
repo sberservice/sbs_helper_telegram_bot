@@ -728,13 +728,13 @@ async def direct_error_code_input(update: Update, context: ContextTypes.DEFAULT_
     return await process_error_code_input(update, context)
 
 
-async def show_popular_errors(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def show_popular_errors(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Show most requested error codes.
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
-        return
+        return ConversationHandler.END
     
     popular = get_popular_error_codes()
     
@@ -743,7 +743,7 @@ async def show_popular_errors(update: Update, context: ContextTypes.DEFAULT_TYPE
             messages.MESSAGE_NO_POPULAR_ERRORS,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
-        return
+        return SUBMENU
     
     text = messages.MESSAGE_POPULAR_ERRORS_HEADER.format(count=len(popular))
     
@@ -759,6 +759,7 @@ async def show_popular_errors(update: Update, context: ContextTypes.DEFAULT_TYPE
         text,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
+    return SUBMENU
 
 
 async def cancel_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1941,6 +1942,8 @@ def get_user_conversation_handler() -> ConversationHandler:
             SUBMENU: [
                 # In submenu, accept button to start search
                 MessageHandler(filters.Regex("^🔍 Найти код ошибки$"), start_error_search),
+                # Popular errors button
+                MessageHandler(filters.Regex("^📊 Популярные ошибки$"), show_popular_errors),
                 # Or accept direct alphanumeric input
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND & filters.Regex(alphanumeric_pattern),
