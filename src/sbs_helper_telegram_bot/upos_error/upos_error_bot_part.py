@@ -777,9 +777,24 @@ async def cancel_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def cancel_search_on_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Cancel search when menu button is pressed.
+    Shows appropriate response based on button pressed.
     """
     # Clear any context data
     context.user_data.pop('upos_temp', None)
+    
+    # Check which button was pressed and respond accordingly
+    text = update.message.text if update.message else None
+    user_id = update.effective_user.id
+    is_admin = check_if_user_admin(user_id)
+    
+    if text == "🏠 Главное меню":
+        from src.common.messages import MESSAGE_MAIN_MENU
+        await update.message.reply_text(
+            MESSAGE_MAIN_MENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+        )
+    
     return ConversationHandler.END
 
 
