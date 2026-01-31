@@ -13,7 +13,7 @@ from . import settings
 
 # ===== SUBMENU =====
 
-MESSAGE_SUBMENU = "🏆 *Геймификация*\n\nВаш цифровой профиль, достижения и рейтинги\\.\n\nВыберите действие:"
+MESSAGE_SUBMENU = "🏆 *Достижения*\n\nВаш цифровой профиль, достижения и рейтинги\\.\n\nВыберите действие:"
 
 
 # ===== PROFILE MESSAGES =====
@@ -410,23 +410,25 @@ def _escape_md(text: str) -> str:
 def _obfuscate_name(first_name: str, last_name: Optional[str]) -> str:
     """
     Obfuscate user name for privacy in rankings.
-    Shows first letter + asterisks.
+    Shows first letter + dots for remaining characters.
     
     Args:
         first_name: User's first name
         last_name: User's last name (optional)
     
     Returns:
-        Obfuscated name like "И*** П."
+        Obfuscated name like "И... П....."
     """
     if not first_name:
-        return "Аноним"
+        return ""
     
-    # First name: first letter + asterisks
-    obfuscated = _escape_md(first_name[0]) + "\\*\\*\\*"
+    # First name: first letter + dots for remaining characters
+    first_dots = "\\." * (len(first_name) - 1)
+    obfuscated = _escape_md(first_name[0]) + first_dots
     
-    # Last name: just first letter with dot
+    # Last name: first letter + dots for remaining characters
     if last_name:
-        obfuscated += f" {_escape_md(last_name[0])}\\."
+        last_dots = "\\." * (len(last_name) - 1)
+        obfuscated += f" {_escape_md(last_name[0])}{last_dots}"
     
     return obfuscated
