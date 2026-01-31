@@ -1887,25 +1887,40 @@ async def admin_cancel_csv_import(update: Update, context: ContextTypes.DEFAULT_
 def get_menu_button_regex_pattern() -> str:
     """
     Get regex pattern matching UPOS module-specific buttons for fallback.
-    Excludes main navigation buttons (like Main Menu) to let them pass through.
+    Also includes buttons from other modules to properly end conversation when switching modules.
     """
     buttons = []
-    # Only include UPOS-specific buttons, not navigation buttons
+    # Include UPOS-specific buttons
     for row in settings.SUBMENU_BUTTONS:
         for button in row:
-            # Exclude main navigation buttons
-            if button not in ["🏠 Главное меню"]:
-                buttons.append(button)
+            buttons.append(button)
     for row in settings.ADMIN_SUBMENU_BUTTONS:
         for button in row:
-            if button not in ["🏠 Главное меню"]:
-                buttons.append(button)
+            buttons.append(button)
     for row in settings.ADMIN_MENU_BUTTONS:
         buttons.extend(row)
     for row in settings.ADMIN_CATEGORIES_BUTTONS:
         for button in row:
-            if button not in ["🏠 Главное меню"]:
-                buttons.append(button)
+            buttons.append(button)
+    
+    # Add main navigation and other module buttons to properly end conversation when switching
+    # These buttons indicate user wants to leave UPOS module
+    other_module_buttons = [
+        "🏠 Главное меню",
+        "📦 Модули",
+        "⚙️ Настройки",
+        "📋 Проверить заявку",  # Ticket validator
+        "✅ Валидация заявок",  # Ticket validator module entry
+        "📸 Обработать скриншот",  # Screenshot module
+        "📝 Аттестация",  # Certification module
+        "⏱️ КТР",  # KTR module
+        "📬 Обратная связь",  # Feedback module
+        "🏆 Профиль",  # Gamification/Profile module
+        "🎫 Мои инвайты",
+        "❓ Помощь",
+        "🛠️ Админ бота",
+    ]
+    buttons.extend(other_module_buttons)
     
     # Remove duplicates and escape for regex
     unique_buttons = list(set(buttons))
