@@ -907,7 +907,7 @@ async def process_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup=keyboard
     )
     
-    return ConversationHandler.END
+    return SUBMENU  # Stay in submenu to allow more lookups
 
 
 async def direct_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

@@ -712,7 +712,7 @@ async def process_error_code_input(update: Update, context: ContextTypes.DEFAULT
         reply_markup=keyboard
     )
     
-    return ConversationHandler.END
+    return SUBMENU  # Stay in submenu to allow more lookups
 
 
 async def direct_error_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
