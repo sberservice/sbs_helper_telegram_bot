@@ -34,6 +34,7 @@ from . import settings
 logger = logging.getLogger(__name__)
 
 # Conversation states for user lookup
+SUBMENU = 0  # User is in the module submenu
 WAITING_FOR_ERROR_CODE = 1
 
 # Conversation states for admin operations
@@ -637,7 +638,7 @@ async def enter_upos_module(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboard
     )
-    return ConversationHandler.END
+    return SUBMENU  # Enter submenu state to accept direct error codes
 
 
 async def start_error_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1925,15 +1926,19 @@ def get_user_conversation_handler() -> ConversationHandler:
     
     return ConversationHandler(
         entry_points=[
-            # Button-based entry (backward compatibility)
-            MessageHandler(filters.Regex("^🔍 Найти код ошибки$"), start_error_search),
-            # Direct text input entry - only alphanumeric codes (no emojis = no menu buttons)
-            MessageHandler(
-                filters.TEXT & ~filters.COMMAND & filters.Regex(alphanumeric_pattern),
-                direct_error_code_input
-            ),
+            # Entry when user clicks on UPOS module button
+            MessageHandler(filters.Regex("^🔢 UPOS Ошибки$"), enter_upos_module),
         ],
         states={
+            SUBMENU: [
+                # In submenu, accept button to start search
+                MessageHandler(filters.Regex("^🔍 Найти код ошибки$"), start_error_search),
+                # Or accept direct alphanumeric input
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND & filters.Regex(alphanumeric_pattern),
+                    direct_error_code_input
+                ),
+            ],
             WAITING_FOR_ERROR_CODE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_error_code_input)
             ]
