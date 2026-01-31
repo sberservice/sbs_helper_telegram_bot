@@ -1929,24 +1929,12 @@ def get_menu_button_regex_pattern() -> str:
     return "^(" + "|".join(escaped) + ")$"
 
 
-def get_alphanumeric_code_pattern() -> str:
-    """
-    Get regex pattern matching alphanumeric error codes.
-    Error codes are typically numbers or alphanumeric strings (e.g., 101, E-001, POS2421).
-    Menu buttons always contain emojis, so we match only alphanumeric text with optional hyphens.
-    """
-    # Match strings that contain only letters, numbers, hyphens, and underscores
-    # This excludes any text with emojis (which all menu buttons have)
-    return r"^[A-Za-z0-9\-_]+$"
-
-
 def get_user_conversation_handler() -> ConversationHandler:
     """
     Get ConversationHandler for user error lookup flow.
-    Allows both button-based and direct error code entry.
+    Users must press the search button to enter error codes.
     """
     menu_pattern = get_menu_button_regex_pattern()
-    alphanumeric_pattern = get_alphanumeric_code_pattern()
     
     return ConversationHandler(
         entry_points=[
@@ -1959,11 +1947,6 @@ def get_user_conversation_handler() -> ConversationHandler:
                 MessageHandler(filters.Regex("^🔍 Найти код ошибки$"), start_error_search),
                 # Popular errors button
                 MessageHandler(filters.Regex("^📊 Популярные ошибки$"), show_popular_errors),
-                # Or accept direct alphanumeric input
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND & filters.Regex(alphanumeric_pattern),
-                    direct_error_code_input
-                ),
             ],
             WAITING_FOR_ERROR_CODE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_error_code_input)
