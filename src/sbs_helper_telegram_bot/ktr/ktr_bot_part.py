@@ -2177,29 +2177,22 @@ def get_menu_button_regex_pattern() -> str:
     for row in settings.ADMIN_CATEGORIES_BUTTONS:
         buttons.extend(row)
     
-    # Add main menu navigation buttons that should also exit the conversation
-    buttons.extend([
-        "📦 Модули",
-        "⚙️ Настройки",
-        "✅ Валидация заявок",
-        "📸 Обработать скриншот",
-        "🎫 Мои инвайты",
-        "❓ Помощь",
-        "⚡ Начать работу",
-        "🏠 Главное меню",
-        "🛠️ Админ бота",
-        "🏆 Профиль",
-        "🔢 UPOS Ошибки",
-        "📝 Аттестация",
-        "⏱️ КТР",
-        "📬 Обратная связь",
-    ])
-    
     # Remove duplicates and escape for regex
     unique_buttons = list(set(buttons))
     escaped = [b.replace("(", "\\(").replace(")", "\\)").replace("+", "\\+") for b in unique_buttons]
     
     return "^(" + "|".join(escaped) + ")$"
+
+
+def get_alphanumeric_code_pattern() -> str:
+    """
+    Get regex pattern matching alphanumeric KTR codes.
+    KTR codes are typically alphanumeric strings (e.g., POS2421, KTR123).
+    Menu buttons always contain emojis, so we match only alphanumeric text with optional hyphens.
+    """
+    # Match strings that contain only letters, numbers, hyphens, and underscores
+    # This excludes any text with emojis (which all menu buttons have)
+    return r"^[A-Za-z0-9\-_]+$"
 
 
 def get_user_conversation_handler() -> ConversationHandler:
@@ -2208,14 +2201,15 @@ def get_user_conversation_handler() -> ConversationHandler:
     Allows both button-based and direct code entry.
     """
     menu_pattern = get_menu_button_regex_pattern()
+    alphanumeric_pattern = get_alphanumeric_code_pattern()
     
     return ConversationHandler(
         entry_points=[
             # Button-based entry (backward compatibility)
             MessageHandler(filters.Regex("^🔍 Найти код КТР$"), start_code_search),
-            # Direct text input entry - filtered to exclude menu buttons
+            # Direct text input entry - only alphanumeric codes (no emojis = no menu buttons)
             MessageHandler(
-                filters.TEXT & ~filters.COMMAND & ~filters.Regex(menu_pattern),
+                filters.TEXT & ~filters.COMMAND & filters.Regex(alphanumeric_pattern),
                 direct_code_input
             ),
         ],
