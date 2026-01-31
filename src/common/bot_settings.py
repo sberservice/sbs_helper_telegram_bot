@@ -8,13 +8,36 @@ Functions:
 - set_setting(key, value, updated_by) -> bool: Sets a setting value.
 - is_invite_system_enabled() -> bool: Checks if invite system is enabled.
 - set_invite_system_enabled(enabled, updated_by) -> bool: Enables/disables invite system.
+- is_module_enabled(module_key) -> bool: Checks if a module is enabled.
+- set_module_enabled(module_key, enabled, updated_by) -> bool: Enables/disables a module.
+- get_all_module_states() -> dict: Gets enabled/disabled state for all modules.
 """
 
-from typing import Optional
+from typing import Optional, Dict, List
 import src.common.database as database
 
 # Setting keys
 SETTING_INVITE_SYSTEM_ENABLED = 'invite_system_enabled'
+
+# Module keys - these correspond to the button labels in the modules menu
+MODULE_KEYS = {
+    'ticket_validator': 'module_ticket_validator_enabled',
+    'screenshot': 'module_screenshot_enabled',
+    'upos_errors': 'module_upos_errors_enabled',
+    'certification': 'module_certification_enabled',
+    'ktr': 'module_ktr_enabled',
+    'feedback': 'module_feedback_enabled',
+}
+
+# Module display names (for admin panel)
+MODULE_NAMES = {
+    'ticket_validator': '✅ Валидация заявок',
+    'screenshot': '📸 Обработка скриншота',
+    'upos_errors': '🔢 UPOS Ошибки',
+    'certification': '📝 Аттестация',
+    'ktr': '⏱️ КТР',
+    'feedback': '📬 Обратная связь',
+}
 
 
 def get_setting(key: str) -> Optional[str]:
@@ -95,6 +118,67 @@ def set_invite_system_enabled(enabled: bool, updated_by: Optional[int] = None) -
         True if successful.
     """
     return set_setting(SETTING_INVITE_SYSTEM_ENABLED, '1' if enabled else '0', updated_by)
+
+
+def is_module_enabled(module_key: str) -> bool:
+    """
+    Check if a specific module is enabled.
+    
+    Args:
+        module_key: The module key (e.g., 'ticket_validator', 'screenshot', etc.)
+        
+    Returns:
+        True if the module is enabled, False otherwise.
+        Defaults to True if setting is not found.
+    """
+    if module_key not in MODULE_KEYS:
+        return True  # Unknown modules are enabled by default
+    
+    setting_key = MODULE_KEYS[module_key]
+    value = get_setting(setting_key)
+    # Default to enabled if not set
+    if value is None:
+        return True
+    return value == '1'
+
+
+def set_module_enabled(module_key: str, enabled: bool, updated_by: Optional[int] = None) -> bool:
+    """
+    Enable or disable a specific module.
+    
+    Args:
+        module_key: The module key (e.g., 'ticket_validator', 'screenshot', etc.)
+        enabled: True to enable, False to disable.
+        updated_by: User ID of admin making the change (optional).
+        
+    Returns:
+        True if successful, False if module key is invalid.
+    """
+    if module_key not in MODULE_KEYS:
+        return False
+    
+    setting_key = MODULE_KEYS[module_key]
+    return set_setting(setting_key, '1' if enabled else '0', updated_by)
+
+
+def get_all_module_states() -> Dict[str, bool]:
+    """
+    Get enabled/disabled state for all modules.
+    
+    Returns:
+        Dictionary mapping module_key to enabled state (True/False).
+    """
+    return {key: is_module_enabled(key) for key in MODULE_KEYS.keys()}
+
+
+def get_enabled_modules() -> List[str]:
+    """
+    Get list of enabled module keys.
+    
+    Returns:
+        List of module keys that are currently enabled.
+    """
+    return [key for key, enabled in get_all_module_states().items() if enabled]
 
 
 def check_if_user_from_invite(telegram_id: int) -> bool:

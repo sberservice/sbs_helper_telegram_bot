@@ -121,6 +121,50 @@ def get_invite_system_toggle_keyboard(is_enabled: bool) -> InlineKeyboardMarkup:
     ])
 
 
+def get_modules_management_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Build modules management submenu keyboard.
+    
+    Returns:
+        ReplyKeyboardMarkup for modules management menu
+    """
+    return ReplyKeyboardMarkup(
+        settings.MODULES_MANAGEMENT_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True
+    )
+
+
+def get_modules_toggle_keyboard(module_states: dict) -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for toggling modules on/off.
+    
+    Args:
+        module_states: Dictionary mapping module_key to enabled state
+        
+    Returns:
+        InlineKeyboardMarkup for module toggles
+    """
+    from src.common.bot_settings import MODULE_NAMES
+    
+    buttons = []
+    for module_key, is_enabled in module_states.items():
+        module_name = MODULE_NAMES.get(module_key, module_key)
+        status = "✅" if is_enabled else "❌"
+        action = "disable" if is_enabled else "enable"
+        buttons.append([
+            InlineKeyboardButton(
+                f"{status} {module_name}",
+                callback_data=f"bot_admin_module_{action}_{module_key}"
+            )
+        ])
+    
+    buttons.append([InlineKeyboardButton("🔙 Назад", callback_data="bot_admin_settings_menu")])
+    
+    return InlineKeyboardMarkup(buttons)
+
+
 def get_user_details_keyboard(user_id: int, is_admin: bool, is_self: bool = False) -> InlineKeyboardMarkup:
     """
     Build inline keyboard for user details view.

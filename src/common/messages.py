@@ -101,6 +101,7 @@ BUTTON_MAIN_MENU = "🏠 Главное меню"
 BUTTON_MY_INVITES = "🎫 Мои инвайты"
 BUTTON_HELP = "❓ Помощь"
 BUTTON_BOT_ADMIN = "🛠️ Админ бота"
+BUTTON_PROFILE = "🏆 Профиль"
 
 # Module buttons
 BUTTON_VALIDATE_TICKET = "✅ Валидация заявок"
@@ -126,12 +127,13 @@ def get_main_menu_keyboard(is_admin: bool = False):
     
     if is_admin:
         buttons = [
-            [BUTTON_MODULES, BUTTON_SETTINGS],
-            [BUTTON_BOT_ADMIN]
+            [BUTTON_MODULES, BUTTON_PROFILE],
+            [BUTTON_SETTINGS, BUTTON_BOT_ADMIN]
         ]
     else:
         buttons = [
-            [BUTTON_MODULES, BUTTON_SETTINGS]
+            [BUTTON_MODULES, BUTTON_PROFILE],
+            [BUTTON_SETTINGS]
         ]
     
     return ReplyKeyboardMarkup(
@@ -167,18 +169,46 @@ def get_settings_menu_keyboard():
 def get_modules_menu_keyboard():
     """
     Build modules menu keyboard with all available bot modules.
+    Only shows enabled modules.
     
     Returns:
         ReplyKeyboardMarkup for modules menu.
     """
     from telegram import ReplyKeyboardMarkup
+    from src.common import bot_settings
     
-    buttons = [
-        [BUTTON_VALIDATE_TICKET, BUTTON_SCREENSHOT],
-        [BUTTON_UPOS_ERRORS, BUTTON_CERTIFICATION],
-        [BUTTON_KTR, BUTTON_FEEDBACK],
-        [BUTTON_MAIN_MENU]
-    ]
+    # Build button rows based on enabled modules
+    buttons = []
+    
+    # Row 1: Ticket Validator and Screenshot
+    row1 = []
+    if bot_settings.is_module_enabled('ticket_validator'):
+        row1.append(BUTTON_VALIDATE_TICKET)
+    if bot_settings.is_module_enabled('screenshot'):
+        row1.append(BUTTON_SCREENSHOT)
+    if row1:
+        buttons.append(row1)
+    
+    # Row 2: UPOS Errors and Certification
+    row2 = []
+    if bot_settings.is_module_enabled('upos_errors'):
+        row2.append(BUTTON_UPOS_ERRORS)
+    if bot_settings.is_module_enabled('certification'):
+        row2.append(BUTTON_CERTIFICATION)
+    if row2:
+        buttons.append(row2)
+    
+    # Row 3: KTR and Feedback
+    row3 = []
+    if bot_settings.is_module_enabled('ktr'):
+        row3.append(BUTTON_KTR)
+    if bot_settings.is_module_enabled('feedback'):
+        row3.append(BUTTON_FEEDBACK)
+    if row3:
+        buttons.append(row3)
+    
+    # Always add main menu button
+    buttons.append([BUTTON_MAIN_MENU])
     
     return ReplyKeyboardMarkup(
         buttons,

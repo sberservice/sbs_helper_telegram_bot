@@ -53,7 +53,13 @@ INVITE_MANAGEMENT_BUTTONS: Final[List[List[str]]] = [
 # Bot settings submenu
 BOT_SETTINGS_BUTTONS: Final[List[List[str]]] = [
     ["🔐 Инвайт-система"],
+    ["🧩 Модули"],
     ["🔙 Админ бота", "🏠 Главное меню"]
+]
+
+# Modules management submenu
+MODULES_MANAGEMENT_BUTTONS: Final[List[List[str]]] = [
+    ["🔙 Настройки бота", "🏠 Главное меню"]
 ]
 
 # Pagination settings
