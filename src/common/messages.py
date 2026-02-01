@@ -103,7 +103,8 @@ BUTTON_HELP = "❓ Помощь"
 BUTTON_BOT_ADMIN = "🛠️ Админ бота"
 BUTTON_PROFILE = "🏆 Профиль"
 
-# Module buttons
+# Module buttons - deprecated, now loaded from bot_settings.MODULE_CONFIG
+# These constants remain for backward compatibility but are not used in keyboard generation
 BUTTON_VALIDATE_TICKET = "✅ Валидация заявок"
 BUTTON_SCREENSHOT = "📸 Обработать скриншот"
 BUTTON_UPOS_ERRORS = "🔢 UPOS Ошибки"
@@ -169,7 +170,11 @@ def get_settings_menu_keyboard():
 def get_modules_menu_keyboard():
     """
     Build modules menu keyboard with all available bot modules.
-    Only shows enabled modules.
+    Only shows enabled modules in configured order.
+    
+    The module configuration (order, labels, columns) is loaded from
+    bot_settings.MODULE_CONFIG. To change module order or add new modules,
+    modify the MODULE_CONFIG list in src/common/bot_settings.py.
     
     Returns:
         ReplyKeyboardMarkup for modules menu.
@@ -177,37 +182,30 @@ def get_modules_menu_keyboard():
     from telegram import ReplyKeyboardMarkup
     from src.common import bot_settings
     
-    # Build button rows based on enabled modules
+    # Get enabled modules in configured order
+    modules = bot_settings.get_modules_config(enabled_only=True)
+    
+    # Build button rows dynamically based on columns setting
     buttons = []
+    current_row = []
     
-    # Row 1: Ticket Validator and Screenshot
-    row1 = []
-    if bot_settings.is_module_enabled('ticket_validator'):
-        row1.append(BUTTON_VALIDATE_TICKET)
-    if bot_settings.is_module_enabled('screenshot'):
-        row1.append(BUTTON_SCREENSHOT)
-    if row1:
-        buttons.append(row1)
+    for module in modules:
+        button_label = module['button_label']
+        columns = module.get('columns', 2)  # Default to 2 columns
+        
+        # Add button to current row
+        current_row.append(button_label)
+        
+        # If row is full (based on columns setting), start a new row
+        if len(current_row) >= columns:
+            buttons.append(current_row)
+            current_row = []
     
-    # Row 2: UPOS Errors and Certification
-    row2 = []
-    if bot_settings.is_module_enabled('upos_errors'):
-        row2.append(BUTTON_UPOS_ERRORS)
-    if bot_settings.is_module_enabled('certification'):
-        row2.append(BUTTON_CERTIFICATION)
-    if row2:
-        buttons.append(row2)
+    # Add any remaining buttons in the last row
+    if current_row:
+        buttons.append(current_row)
     
-    # Row 3: KTR and Feedback
-    row3 = []
-    if bot_settings.is_module_enabled('ktr'):
-        row3.append(BUTTON_KTR)
-    if bot_settings.is_module_enabled('feedback'):
-        row3.append(BUTTON_FEEDBACK)
-    if row3:
-        buttons.append(row3)
-    
-    # Always add main menu button
+    # Always add main menu button at the bottom
     buttons.append([BUTTON_MAIN_MENU])
     
     return ReplyKeyboardMarkup(
