@@ -111,6 +111,7 @@ BUTTON_UPOS_ERRORS = "🔢 UPOS Ошибки"
 BUTTON_CERTIFICATION = "📝 Аттестация"
 BUTTON_KTR = "⏱️ КТР"
 BUTTON_FEEDBACK = "📬 Обратная связь"
+BUTTON_NEWS = "📰 Новости"
 
 
 def get_main_menu_keyboard(is_admin: bool = False):

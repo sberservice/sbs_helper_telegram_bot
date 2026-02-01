@@ -67,6 +67,7 @@ from src.common.messages import (
     BUTTON_BOT_ADMIN,
     BUTTON_FEEDBACK,
     BUTTON_PROFILE,
+    BUTTON_NEWS,
     get_main_menu_keyboard,
     get_settings_menu_keyboard,
     get_modules_menu_keyboard,
@@ -166,6 +167,24 @@ from src.sbs_helper_telegram_bot.gamification.admin_panel_bot_part import (
     get_gamification_admin_handler,
 )
 
+# Import news module handlers
+from src.sbs_helper_telegram_bot.news import settings as news_settings
+from src.sbs_helper_telegram_bot.news import messages as news_messages
+from src.sbs_helper_telegram_bot.news import keyboards as news_keyboards
+from src.sbs_helper_telegram_bot.news import (
+    get_unread_count as get_news_unread_count,
+    get_unacked_mandatory_news,
+    has_unacked_mandatory_news,
+    get_menu_button_with_badge as get_news_button_with_badge,
+)
+from src.sbs_helper_telegram_bot.news.news_bot_part import (
+    get_news_user_handler,
+    get_mandatory_ack_handler,
+)
+from src.sbs_helper_telegram_bot.news.admin_panel_bot_part import (
+    get_news_admin_handler,
+)
+
 from src.common.telegram_user import check_if_user_admin
 
 from config.settings import DEBUG, INVITES_PER_NEW_USER
@@ -224,9 +243,57 @@ def check_if_invite_entered(telegram_id,invite) -> InviteStatus:
             return InviteStatus.SUCCESS
 
 
-
-
-
+async def _show_mandatory_news(update: Update, mandatory_news: dict) -> None:
+    """
+    Show mandatory news article that must be acknowledged before continuing.
+    
+    Args:
+        update: Telegram update object
+        mandatory_news: Dictionary with news article data from get_unacked_mandatory_news()
+    """
+    from datetime import datetime
+    
+    keyboard = news_keyboards.get_mandatory_ack_keyboard(mandatory_news['id'])
+    
+    # Format the date from published_timestamp
+    published_ts = mandatory_news.get('published_timestamp')
+    if published_ts:
+        published_date = datetime.fromtimestamp(published_ts).strftime('%d.%m.%Y')
+    else:
+        published_date = ''
+    
+    formatted_content = news_messages.format_news_article(
+        title=news_messages.escape_markdown_v2(mandatory_news['title']),
+        content=mandatory_news['content'],  # Assume content is already MarkdownV2
+        category_emoji=mandatory_news.get('category_emoji', '📌'),
+        category_name=news_messages.escape_markdown_v2(mandatory_news.get('category_name', '')),
+        published_date=news_messages.escape_markdown_v2(published_date)
+    )
+    
+    text = f"🚨 *ВАЖНОЕ ОБЪЯВЛЕНИЕ*\n\nПрежде чем продолжить, ознакомьтесь с обязательной новостью\\.\n\n{formatted_content}\n\nПосле прочтения нажмите кнопку «✅ Принято» внизу\\."
+    
+    # Send with image if present
+    if mandatory_news.get('image_file_id'):
+        await update.message.reply_photo(
+            photo=mandatory_news['image_file_id'],
+            caption=text,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard
+        )
+    else:
+        await update.message.reply_text(
+            text,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard
+        )
+    
+    # Send attachment if present
+    if mandatory_news.get('attachment_file_id'):
+        await update.message.reply_document(
+            document=mandatory_news['attachment_file_id'],
+            caption=news_messages.escape_markdown_v2("📎 Прикреплённый файл"),
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
 
 
 async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -274,6 +341,13 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     update_user_info_from_telegram(user)
     is_admin = check_if_user_admin(user_id)
+    
+    # Check for unacknowledged mandatory news
+    mandatory_news = get_unacked_mandatory_news(user_id)
+    if mandatory_news:
+        await _show_mandatory_news(update, mandatory_news)
+        return
+    
     await update.message.reply_text(
         MESSAGE_WELCOME,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -331,6 +405,13 @@ async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     
     update_user_info_from_telegram(update.effective_user)
     is_admin = check_if_user_admin(user_id)
+    
+    # Check for unacknowledged mandatory news
+    mandatory_news = get_unacked_mandatory_news(user_id)
+    if mandatory_news:
+        await _show_mandatory_news(update, mandatory_news)
+        return
+    
     await update.message.reply_text(
         MESSAGE_MAIN_MENU,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -576,6 +657,21 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
+    elif text == BUTTON_NEWS or text.startswith("📰 Новости"):
+        # Show news module submenu (with possible unread badge)
+        # Mark all news as read when entering
+        from src.sbs_helper_telegram_bot.news import news_logic
+        news_logic.mark_all_as_read(user_id)
+        
+        if is_admin:
+            keyboard = news_keyboards.get_submenu_keyboard(is_admin=True)
+        else:
+            keyboard = news_keyboards.get_submenu_keyboard(is_admin=False)
+        await update.message.reply_text(
+            news_messages.MESSAGE_SUBMENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard
+        )
     else:
         # Default response for unrecognized text
         await update.message.reply_text(
@@ -700,6 +796,11 @@ def main() -> None:
     gamification_user_handler = get_gamification_user_handler()
     gamification_admin_handler = get_gamification_admin_handler()
 
+    # Create ConversationHandlers for news module
+    news_user_handler = get_news_user_handler()
+    news_admin_handler = get_news_admin_handler()
+    news_mandatory_ack_handler = get_mandatory_ack_handler()
+
     # Register all handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
@@ -720,6 +821,9 @@ def main() -> None:
     application.add_handler(feedback_user_handler)
     application.add_handler(gamification_admin_handler)
     application.add_handler(gamification_user_handler)
+    application.add_handler(news_admin_handler)
+    application.add_handler(news_user_handler)
+    application.add_handler(news_mandatory_ack_handler)  # Global handler for mandatory news acknowledgment
     application.add_handler(screenshot_handler)
     application.add_handler(ticket_validator_handler)
     application.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, text_entered))
