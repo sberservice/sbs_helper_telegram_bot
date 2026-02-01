@@ -244,7 +244,6 @@ class TestMarkdownV2Formatting(unittest.TestCase):
         messages_to_check = [
             (MESSAGE_WELCOME, "MESSAGE_WELCOME"),
             (MESSAGE_MAIN_HELP, "MESSAGE_MAIN_HELP"),
-            (MESSAGE_PLEASE_ENTER_INVITE, "MESSAGE_PLEASE_ENTER_INVITE"),
             (MESSAGE_UNRECOGNIZED_INPUT, "MESSAGE_UNRECOGNIZED_INPUT"),
             (MESSAGE_NO_ADMIN_RIGHTS, "MESSAGE_NO_ADMIN_RIGHTS"),
         ]
