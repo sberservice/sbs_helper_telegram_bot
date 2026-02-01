@@ -8,10 +8,11 @@ def check_if_user_legit(telegram_id) -> bool:
 
         A user is considered legitimate if they have:
         1. Successfully consumed an invite code (only when invite system is enabled), OR
-        2. Are pre-registered in the chat_members table
+        2. Are pre-registered in the chat_members table, OR
+        3. Are in the manual_users table (added by admin)
 
         When the invite system is disabled, users who joined only via invite
-        (not pre-invited) lose access.
+        (not pre-invited or manually added) lose access.
 
         Args:
             telegram_id: Telegram user ID to verify.
@@ -24,7 +25,12 @@ def check_if_user_legit(telegram_id) -> bool:
     if invites_module.check_if_user_pre_invited(telegram_id):
         return True
     
-    # If invite system is disabled, only pre-invited users have access
+    # Check if user is manually added (in manual_users table)
+    # Manually added users always have access regardless of invite system setting
+    if invites_module.check_if_user_manual(telegram_id):
+        return True
+    
+    # If invite system is disabled, only pre-invited and manual users have access
     if not bot_settings.is_invite_system_enabled():
         return False
     
@@ -47,9 +53,10 @@ def check_if_invite_user_blocked(telegram_id) -> bool:
         
         Returns True if:
         1. Invite system is currently disabled, AND
-        2. User is NOT in chat_members (pre-invited)
+        2. User is NOT in chat_members (pre-invited), AND
+        3. User is NOT in manual_users (manually added)
         
-        When invite system is disabled, only chat_members have access.
+        When invite system is disabled, only chat_members and manual_users have access.
         
         Args:
             telegram_id: Telegram user ID to check.
@@ -65,7 +72,11 @@ def check_if_invite_user_blocked(telegram_id) -> bool:
     if invites_module.check_if_user_pre_invited(telegram_id):
         return False
     
-    # When invite system is disabled, any user not in chat_members is blocked
+    # If user is manually added (in manual_users), they're not blocked
+    if invites_module.check_if_user_manual(telegram_id):
+        return False
+    
+    # When invite system is disabled, any user not in chat_members or manual_users is blocked
     return True
 
 

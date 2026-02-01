@@ -307,3 +307,144 @@ def bulk_remove_pre_invited_users(telegram_ids: list) -> int:
             sql = f"DELETE FROM chat_members WHERE telegram_id IN ({placeholders})"
             cursor.execute(sql, telegram_ids)
             return cursor.rowcount
+
+
+# ============================================================================
+# Manual users (manual_users table) functions
+# ============================================================================
+
+def check_if_user_manual(telegram_id) -> bool:
+    """
+    Check if a user exists in the manual_users table.
+    
+    Args:
+        telegram_id: Telegram user ID to check.
+        
+    Returns:
+        True if user is in manual_users table, False otherwise.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql_query = "SELECT COUNT(*) as count FROM manual_users WHERE telegram_id = %s"
+            cursor.execute(sql_query, (telegram_id,))
+            result = cursor.fetchone()
+            return result["count"] > 0
+
+
+def add_manual_user(telegram_id, added_by_userid, notes=None) -> bool:
+    """
+    Add a user to the manual_users table.
+    
+    Args:
+        telegram_id: Telegram user ID to add.
+        added_by_userid: Admin user ID who is adding this user.
+        notes: Optional notes about the user.
+        
+    Returns:
+        True if user was added, False if user already exists.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            try:
+                sql = """
+                    INSERT INTO manual_users (telegram_id, added_by_userid, notes, created_timestamp)
+                    VALUES (%s, %s, %s, UNIX_TIMESTAMP())
+                """
+                cursor.execute(sql, (telegram_id, added_by_userid, notes))
+                return True
+            except Exception:
+                # User already exists (unique constraint violation)
+                return False
+
+
+def remove_manual_user(telegram_id) -> bool:
+    """
+    Remove a user from the manual_users table.
+    
+    Args:
+        telegram_id: Telegram user ID to remove.
+        
+    Returns:
+        True if user was found and removed, False otherwise.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = "DELETE FROM manual_users WHERE telegram_id = %s"
+            cursor.execute(sql, (telegram_id,))
+            return cursor.rowcount > 0
+
+
+def get_manual_users(limit=50, offset=0) -> list:
+    """
+    Get list of all manual users.
+    
+    Args:
+        limit: Maximum number of results to return.
+        offset: Number of results to skip (for pagination).
+        
+    Returns:
+        List of dicts with user info: telegram_id, added_by_userid, notes,
+        created_timestamp, plus user info from users table if available.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = """
+                SELECT 
+                    mu.telegram_id,
+                    mu.added_by_userid,
+                    mu.notes,
+                    mu.created_timestamp,
+                    u.first_name,
+                    u.last_name,
+                    u.username
+                FROM manual_users mu
+                LEFT JOIN users u ON mu.telegram_id = u.userid
+                ORDER BY mu.created_timestamp DESC
+                LIMIT %s OFFSET %s
+            """
+            cursor.execute(sql, (limit, offset))
+            return cursor.fetchall()
+
+
+def get_manual_user_count() -> int:
+    """
+    Get count of manual users.
+    
+    Returns:
+        Total number of manual users.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = "SELECT COUNT(*) as count FROM manual_users"
+            cursor.execute(sql)
+            result = cursor.fetchone()
+            return result["count"]
+
+
+def get_manual_user_details(telegram_id) -> dict:
+    """
+    Get details of a specific manual user.
+    
+    Args:
+        telegram_id: Telegram user ID to look up.
+        
+    Returns:
+        Dict with user info or None if not found.
+    """
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            sql = """
+                SELECT 
+                    mu.telegram_id,
+                    mu.added_by_userid,
+                    mu.notes,
+                    mu.created_timestamp,
+                    u.first_name,
+                    u.last_name,
+                    u.username
+                FROM manual_users mu
+                LEFT JOIN users u ON mu.telegram_id = u.userid
+                WHERE mu.telegram_id = %s
+            """
+            cursor.execute(sql, (telegram_id,))
+            return cursor.fetchone()

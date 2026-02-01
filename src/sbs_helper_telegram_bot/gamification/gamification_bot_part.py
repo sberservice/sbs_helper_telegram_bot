@@ -7,9 +7,9 @@ Handles user profile viewing, achievements display, and rankings navigation.
 
 import logging
 import math
-from typing import Optional
 
 from telegram import Update, constants
+from telegram.error import BadRequest
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -223,11 +223,16 @@ async def _display_achievements(
         )
     
     if edit and hasattr(message_or_query, 'edit_message_text'):
-        await message_or_query.edit_message_text(
-            text,
-            reply_markup=keyboard,
-            parse_mode=constants.ParseMode.MARKDOWN_V2
-        )
+        try:
+            await message_or_query.edit_message_text(
+                text,
+                reply_markup=keyboard,
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+        except BadRequest as e:
+            # Ignore "Message is not modified" error
+            if "Message is not modified" not in str(e):
+                raise
     else:
         await message_or_query.reply_text(
             text,
@@ -415,11 +420,16 @@ async def _display_rankings(
     )
     
     if edit:
-        await query.edit_message_text(
-            text,
-            reply_markup=keyboard,
-            parse_mode=constants.ParseMode.MARKDOWN_V2
-        )
+        try:
+            await query.edit_message_text(
+                text,
+                reply_markup=keyboard,
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+        except BadRequest as e:
+            # Ignore "Message is not modified" error
+            if "Message is not modified" not in str(e):
+                raise
     else:
         await query.message.reply_text(
             text,

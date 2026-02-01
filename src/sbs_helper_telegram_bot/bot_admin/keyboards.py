@@ -98,6 +98,21 @@ def get_bot_settings_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def get_manual_users_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Build manual users management submenu keyboard.
+    
+    Returns:
+        ReplyKeyboardMarkup for manual users management menu
+    """
+    return ReplyKeyboardMarkup(
+        settings.MANUAL_USERS_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True
+    )
+
+
 def get_invite_system_toggle_keyboard(is_enabled: bool) -> InlineKeyboardMarkup:
     """
     Build inline keyboard for invite system toggle.
@@ -230,6 +245,40 @@ def get_confirm_delete_preinvite_keyboard(telegram_id: int) -> InlineKeyboardMar
         [
             InlineKeyboardButton("✅ Да, удалить", callback_data=f"bot_admin_preinvite_confirm_delete_{telegram_id}"),
             InlineKeyboardButton("❌ Отмена", callback_data="bot_admin_preinvite_cancel_delete")
+        ]
+    ])
+
+
+def get_manual_user_details_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for manual user details view.
+    
+    Args:
+        telegram_id: The manual user's Telegram ID
+        
+    Returns:
+        InlineKeyboardMarkup for manual user management actions
+    """
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🗑️ Удалить", callback_data=f"bot_admin_manual_delete_{telegram_id}")],
+        [InlineKeyboardButton("🔙 К списку", callback_data="bot_admin_manual_list")]
+    ])
+
+
+def get_confirm_delete_manual_user_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
+    """
+    Build confirmation keyboard for deleting a manual user.
+    
+    Args:
+        telegram_id: The manual user's Telegram ID
+        
+    Returns:
+        InlineKeyboardMarkup for confirmation
+    """
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Да, удалить", callback_data=f"bot_admin_manual_confirm_delete_{telegram_id}"),
+            InlineKeyboardButton("❌ Отмена", callback_data="bot_admin_manual_cancel_delete")
         ]
     ])
 

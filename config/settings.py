@@ -13,17 +13,6 @@ DEBUG: Final[bool] = os.getenv("DEBUG", "0") == "1"
 INVITES_PER_NEW_USER: Final[int] = int(os.getenv("INVITES_PER_NEW_USER", "2"))
 
 # =============================================
-# MAIN MENU CONFIGURATION
-# These buttons appear in the main menu for all users
-# Module-specific buttons are defined in each module's settings.py
-# =============================================
-
-MAIN_MENU_BUTTONS: Final[List[List[str]]] = [
-    ["✅ Валидация заявок", "📸 Обработать скриншот"],
-    ["🎫 Мои инвайты", "❓ Помощь"]
-]
-
-# =============================================
 # DEPRECATED: Module-specific settings below
 # These are kept for backwards compatibility but
 # should be imported from respective module settings:
