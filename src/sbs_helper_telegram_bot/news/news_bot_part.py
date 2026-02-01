@@ -92,9 +92,16 @@ async def show_latest_news(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         page_prefix=settings.CALLBACK_PAGE_PREFIX
     )
     
+    # First send reply keyboard so user can navigate
     await update.message.reply_text(
         text,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_article_view_keyboard()
+    )
+    
+    # Then send article list with inline keyboard
+    await update.message.reply_text(
+        "👆 Выберите новость для просмотра:",
         reply_markup=keyboard
     )
     
@@ -295,9 +302,16 @@ async def show_archive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         page_prefix=settings.CALLBACK_PAGE_PREFIX
     )
     
+    # First send reply keyboard so user can navigate
     await update.message.reply_text(
         text,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_article_view_keyboard()
+    )
+    
+    # Then send article list with inline keyboard
+    await update.message.reply_text(
+        "👆 Выберите новость для просмотра:",
         reply_markup=keyboard
     )
     
@@ -365,9 +379,16 @@ async def handle_search_query(update: Update, context: ContextTypes.DEFAULT_TYPE
         page_prefix=settings.CALLBACK_SEARCH_PAGE_PREFIX
     )
     
+    # First send reply keyboard so user can navigate
     await update.message.reply_text(
         text,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_article_view_keyboard()
+    )
+    
+    # Then send article list with inline keyboard
+    await update.message.reply_text(
+        "👆 Выберите новость для просмотра:",
         reply_markup=keyboard
     )
     
