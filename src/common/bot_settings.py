@@ -28,9 +28,9 @@ SETTING_INVITE_SYSTEM_ENABLED = 'invite_system_enabled'
 # - columns: number of buttons per row (1 or 2)
 MODULE_CONFIG = [
     {
-        'key': 'ticket_validator',
-        'setting_key': 'module_ticket_validator_enabled',
-        'button_label': '✅ Валидация заявок',
+        'key': 'certification',
+        'setting_key': 'module_certification_enabled',
+        'button_label': '📝 Аттестация',
         'order': 1,
         'columns': 2
     },
@@ -49,9 +49,9 @@ MODULE_CONFIG = [
         'columns': 2
     },
     {
-        'key': 'certification',
-        'setting_key': 'module_certification_enabled',
-        'button_label': '📝 Аттестация',
+        'key': 'ticket_validator',
+        'setting_key': 'module_ticket_validator_enabled',
+        'button_label': '✅ Валидация заявок',
         'order': 4,
         'columns': 2
     },
