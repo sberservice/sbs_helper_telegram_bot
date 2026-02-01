@@ -1966,6 +1966,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             # Settings states
             SETTINGS_MENU: [
                 CallbackQueryHandler(admin_callback_handler, pattern="^cert_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
             ],
             SETTINGS_QUESTIONS_COUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_questions_count),
