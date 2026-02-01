@@ -9,8 +9,6 @@ Admin handlers for the gamification system:
 """
 
 import logging
-import math
-from typing import Optional
 
 from telegram import Update, constants
 from telegram.ext import (

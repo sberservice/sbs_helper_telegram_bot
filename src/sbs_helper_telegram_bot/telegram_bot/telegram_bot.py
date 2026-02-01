@@ -23,6 +23,7 @@ Non-legitimate users are prompted to enter an invite code via text message.
 import logging
 
 from telegram import Update, constants, BotCommand
+from telegram.error import TimedOut, NetworkError, BadRequest
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters, ConversationHandler
 
 import src.common.database as database
@@ -723,7 +724,41 @@ def main() -> None:
     application.add_handler(ticket_validator_handler)
     application.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, text_entered))
     
+    # Add error handler
+    application.add_error_handler(error_handler)
+    
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Handle errors that occur during bot operation.
+    
+    Logs the error and silently ignores recoverable errors like
+    TimedOut and NetworkError to prevent spam in logs.
+    """
+    error = context.error
+    
+    # Silently ignore TimedOut errors - these are usually transient
+    if isinstance(error, TimedOut):
+        logger.warning(f"Telegram API timed out: {error}")
+        return
+    
+    # Silently ignore NetworkError - these are usually transient
+    if isinstance(error, NetworkError):
+        logger.warning(f"Network error occurred: {error}")
+        return
+    
+    # Handle BadRequest with "Message is not modified" - common and harmless
+    if isinstance(error, BadRequest):
+        if "Message is not modified" in str(error):
+            # Silently ignore this error - it's harmless
+            return
+        logger.warning(f"BadRequest error: {error}")
+        return
+    
+    # Log other errors
+    logger.error(f"Exception while handling an update: {error}", exc_info=context.error)
 
 
 if __name__ == "__main__":

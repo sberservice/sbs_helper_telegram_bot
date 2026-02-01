@@ -16,6 +16,7 @@ BUTTON_BOT_ADMIN: Final[str] = "🛠️ Админ бота"
 # Bot admin main menu buttons
 ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     ["👥 Пользователи", "👤 Пре-инвайты"],
+    ["➕ Ручные пользователи"],
     ["📊 Статистика", "🎫 Инвайты"],
     ["⚙️ Настройки бота"],
     ["🏠 Главное меню"]
@@ -33,6 +34,13 @@ USER_MANAGEMENT_BUTTONS: Final[List[List[str]]] = [
 PREINVITE_BUTTONS: Final[List[List[str]]] = [
     ["📋 Список пре-инвайтов"],
     ["➕ Добавить пользователя"],
+    ["🔙 Админ бота", "🏠 Главное меню"]
+]
+
+# Manual users management submenu
+MANUAL_USERS_BUTTONS: Final[List[List[str]]] = [
+    ["📋 Список ручных пользователей"],
+    ["➕ Добавить ручного пользователя"],
     ["🔙 Админ бота", "🏠 Главное меню"]
 ]
 

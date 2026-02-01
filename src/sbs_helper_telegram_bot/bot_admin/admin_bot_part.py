@@ -52,6 +52,13 @@ logger = logging.getLogger(__name__)
     PREINVITE_ADD_ID,
     PREINVITE_ADD_NOTES,
     PREINVITE_CONFIRM_DELETE,
+    # Manual users states
+    MANUAL_USERS_MENU,
+    MANUAL_USERS_LIST,
+    MANUAL_USER_VIEW,
+    MANUAL_USER_ADD_ID,
+    MANUAL_USER_ADD_NOTES,
+    MANUAL_USER_CONFIRM_DELETE,
     # Statistics states
     STATISTICS_MENU,
     # Invite management states
@@ -64,7 +71,7 @@ logger = logging.getLogger(__name__)
     INVITE_SYSTEM_SETTINGS,
     # Modules management states
     MODULES_MANAGEMENT_MENU,
-) = range(22)
+) = range(28)
 
 
 # ============================================================================
@@ -276,6 +283,8 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await show_user_management_menu(update, context)
     elif text == "👤 Пре-инвайты":
         return await show_preinvite_menu(update, context)
+    elif text == "➕ Ручные пользователи":
+        return await show_manual_users_menu(update, context)
     elif text == "📊 Статистика":
         return await show_statistics_menu(update, context)
     elif text == "🎫 Инвайты":
@@ -308,6 +317,12 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await show_preinvite_list(update, context)
     elif text == "➕ Добавить пользователя":
         return await start_add_preinvite(update, context)
+    
+    # Manual users menu handlers
+    elif text == "📋 Список ручных пользователей":
+        return await show_manual_users_list(update, context)
+    elif text == "➕ Добавить ручного пользователя":
+        return await start_add_manual_user(update, context)
     
     # Statistics handlers
     elif text == "📈 Общая статистика":
@@ -364,11 +379,21 @@ async def show_user_list(update: Update, context: ContextTypes.DEFAULT_TYPE, pag
     keyboard = []
     for user in users:
         status = "👑" if user['is_admin'] else "👤"
-        name = user['first_name'] or "Без имени"
+        # Build full name: first_name + last_name
+        name_parts = []
+        if user['first_name']:
+            name_parts.append(user['first_name'])
+        if user['last_name']:
+            name_parts.append(user['last_name'])
+        full_name = " ".join(name_parts) if name_parts else "Без имени"
         username = f"@{user['username']}" if user['username'] else ""
+        # Format: status + full_name + (username if exists)
+        display_text = f"{status} {full_name}"
+        if username:
+            display_text += f" {username}"
         keyboard.append([
             InlineKeyboardButton(
-                f"{status} {name} {username}",
+                display_text,
                 callback_data=f"bot_admin_user_view_{user['userid']}"
             )
         ])
@@ -419,10 +444,20 @@ async def receive_user_search(update: Update, context: ContextTypes.DEFAULT_TYPE
     keyboard = []
     for user in users:
         status = "👑" if user['is_admin'] else "👤"
-        name = user['first_name'] or "Без имени"
+        # Build full name: first_name + last_name
+        name_parts = []
+        if user['first_name']:
+            name_parts.append(user['first_name'])
+        if user.get('last_name'):
+            name_parts.append(user['last_name'])
+        full_name = " ".join(name_parts) if name_parts else "Без имени"
+        username = f"@{user['username']}" if user.get('username') else ""
+        display_text = f"{status} {full_name}"
+        if username:
+            display_text += f" {username}"
         keyboard.append([
             InlineKeyboardButton(
-                f"{status} {name} ({user['userid']})",
+                display_text,
                 callback_data=f"bot_admin_user_view_{user['userid']}"
             )
         ])
@@ -452,11 +487,20 @@ async def show_admin_list(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Build inline keyboard with admins
     keyboard = []
     for admin in admins:
-        name = admin['first_name'] or "Без имени"
-        username = f"@{admin['username']}" if admin['username'] else ""
+        # Build full name: first_name + last_name
+        name_parts = []
+        if admin['first_name']:
+            name_parts.append(admin['first_name'])
+        if admin.get('last_name'):
+            name_parts.append(admin['last_name'])
+        full_name = " ".join(name_parts) if name_parts else "Без имени"
+        username = f"@{admin['username']}" if admin.get('username') else ""
+        display_text = f"👑 {full_name}"
+        if username:
+            display_text += f" {username}"
         keyboard.append([
             InlineKeyboardButton(
-                f"👑 {name} {username}",
+                display_text,
                 callback_data=f"bot_admin_user_view_{admin['userid']}"
             )
         ])
@@ -486,13 +530,16 @@ async def show_user_details_callback(query, context: ContextTypes.DEFAULT_TYPE, 
     registered = datetime.fromtimestamp(user['timestamp']).strftime("%Y-%m-%d %H:%M")
     
     # Check if user has pre-invite
-    is_preinvited = invites_module.check_if_user_pre_invited(user_id)
     status_parts = []
     if invites_module.check_if_user_pre_invited(user_id):
         if invites_module.is_pre_invited_user_activated(user_id):
             status_parts.append("Пре-инвайт (активирован)")
         else:
             status_parts.append("Пре-инвайт (ожидает)")
+    
+    # Check if user is manually added
+    if invites_module.check_if_user_manual(user_id):
+        status_parts.append("Ручной пользователь")
     
     # Check if has consumed invite
     with database.get_db_connection() as conn:
@@ -720,6 +767,197 @@ async def show_preinvite_details_callback(query, context: ContextTypes.DEFAULT_T
         reply_markup=keyboards.get_preinvite_details_keyboard(telegram_id)
     )
     return PREINVITE_VIEW
+
+
+# ============================================================================
+# Manual Users Management
+# ============================================================================
+
+async def show_manual_users_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show manual users management menu."""
+    await update.message.reply_text(
+        messages.MESSAGE_MANUAL_USERS_MENU,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_manual_users_keyboard()
+    )
+    return MANUAL_USERS_MENU
+
+
+async def show_manual_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show list of manual users."""
+    users = invites_module.get_manual_users(limit=50)
+    total = invites_module.get_manual_user_count()
+    
+    if not users:
+        await update.message.reply_text(
+            messages.MESSAGE_MANUAL_USERS_NO_USERS,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_manual_users_keyboard()
+        )
+        return MANUAL_USERS_MENU
+    
+    # Build inline keyboard with users
+    keyboard = []
+    for user in users:
+        # Build display name
+        name_parts = []
+        if user.get('first_name'):
+            name_parts.append(user['first_name'])
+        if user.get('last_name'):
+            name_parts.append(user['last_name'])
+        display_name = " ".join(name_parts) if name_parts else f"ID: {user['telegram_id']}"
+        
+        keyboard.append([
+            InlineKeyboardButton(
+                f"👤 {display_name}",
+                callback_data=f"bot_admin_manual_view_{user['telegram_id']}"
+            )
+        ])
+    
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="bot_admin_manual_menu")])
+    
+    await update.message.reply_text(
+        messages.MESSAGE_MANUAL_USERS_LIST.format(total=total),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return MANUAL_USERS_LIST
+
+
+async def start_add_manual_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start adding a new manual user."""
+    context.user_data['new_manual_user'] = {}
+    
+    await update.message.reply_text(
+        messages.MESSAGE_MANUAL_USER_ADD,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_manual_users_keyboard()
+    )
+    return MANUAL_USER_ADD_ID
+
+
+async def receive_manual_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive Telegram ID for new manual user."""
+    text = update.message.text.strip()
+    
+    # Handle menu buttons
+    if text in ["🔙 Админ бота", "🏠 Главное меню", "📋 Список ручных пользователей"]:
+        context.user_data.pop('new_manual_user', None)
+        return await admin_menu_handler(update, context)
+    
+    try:
+        telegram_id = int(text)
+    except ValueError:
+        await update.message.reply_text(
+            messages.MESSAGE_MANUAL_USER_INVALID_ID,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return MANUAL_USER_ADD_ID
+    
+    if invites_module.check_if_user_manual(telegram_id):
+        await update.message.reply_text(
+            messages.MESSAGE_MANUAL_USER_EXISTS.format(telegram_id=telegram_id),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_manual_users_keyboard()
+        )
+        context.user_data.pop('new_manual_user', None)
+        return MANUAL_USERS_MENU
+    
+    context.user_data['new_manual_user']['telegram_id'] = telegram_id
+    
+    await update.message.reply_text(
+        messages.MESSAGE_MANUAL_USER_ADD_NOTES,
+        parse_mode=constants.ParseMode.MARKDOWN_V2
+    )
+    return MANUAL_USER_ADD_NOTES
+
+
+async def receive_manual_user_notes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive notes and complete manual user addition."""
+    text = update.message.text.strip()
+    
+    # Handle menu buttons
+    if text in ["🔙 Админ бота", "🏠 Главное меню", "📋 Список ручных пользователей"]:
+        context.user_data.pop('new_manual_user', None)
+        return await admin_menu_handler(update, context)
+    
+    user_data = context.user_data.get('new_manual_user', {})
+    telegram_id = user_data.get('telegram_id')
+    
+    if not telegram_id:
+        await update.message.reply_text(
+            messages.MESSAGE_ERROR,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_manual_users_keyboard()
+        )
+        return MANUAL_USERS_MENU
+    
+    notes = None if text == "-" else text
+    
+    try:
+        success = invites_module.add_manual_user(
+            telegram_id=telegram_id,
+            added_by_userid=update.effective_user.id,
+            notes=notes
+        )
+        
+        if success:
+            await update.message.reply_text(
+                messages.MESSAGE_MANUAL_USER_ADDED.format(telegram_id=telegram_id),
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=keyboards.get_manual_users_keyboard()
+            )
+        else:
+            await update.message.reply_text(
+                messages.MESSAGE_MANUAL_USER_EXISTS.format(telegram_id=telegram_id),
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=keyboards.get_manual_users_keyboard()
+            )
+    except Exception as e:
+        logger.error(f"Error adding manual user: {e}", exc_info=True)
+        await update.message.reply_text(
+            messages.MESSAGE_ERROR,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_manual_users_keyboard()
+        )
+    
+    context.user_data.pop('new_manual_user', None)
+    return MANUAL_USERS_MENU
+
+
+async def show_manual_user_details_callback(query, context: ContextTypes.DEFAULT_TYPE, telegram_id: int) -> int:
+    """Show manual user details."""
+    user = invites_module.get_manual_user_details(telegram_id)
+    
+    if not user:
+        await query.edit_message_text(
+            messages.MESSAGE_USER_NOT_FOUND,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return MANUAL_USERS_LIST
+    
+    # Format details
+    first_name = escape_markdown(user['first_name']) if user.get('first_name') else "Не указано"
+    last_name = escape_markdown(user['last_name']) if user.get('last_name') else "Не указана"
+    username = f"@{user['username']}" if user.get('username') else "Не указан"
+    added_by = f"#{user['added_by_userid']}" if user['added_by_userid'] else "Неизвестно"
+    notes = escape_markdown(user['notes']) if user.get('notes') else "Нет"
+    created = datetime.fromtimestamp(user['created_timestamp']).strftime("%Y-%m-%d %H:%M")
+    
+    await query.edit_message_text(
+        messages.MESSAGE_MANUAL_USER_DETAILS.format(
+            telegram_id=telegram_id,
+            first_name=first_name,
+            last_name=last_name,
+            username=username,
+            added_by=escape_markdown(added_by),
+            notes=notes,
+            created=escape_markdown(created)
+        ),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_manual_user_details_keyboard(telegram_id)
+    )
+    return MANUAL_USER_VIEW
 
 
 # ============================================================================
@@ -1182,6 +1420,81 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return PREINVITE_MENU
     
+    # Manual users callbacks
+    if data == "bot_admin_manual_menu":
+        await query.message.reply_text(
+            messages.MESSAGE_MANUAL_USERS_MENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_manual_users_keyboard()
+        )
+        return MANUAL_USERS_MENU
+    
+    if data == "bot_admin_manual_list":
+        # Refresh list via callback
+        users = invites_module.get_manual_users(limit=50)
+        total = invites_module.get_manual_user_count()
+        
+        if not users:
+            await query.edit_message_text(
+                messages.MESSAGE_MANUAL_USERS_NO_USERS,
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+            return MANUAL_USERS_MENU
+        
+        keyboard = []
+        for user in users:
+            # Build display name
+            name_parts = []
+            if user.get('first_name'):
+                name_parts.append(user['first_name'])
+            if user.get('last_name'):
+                name_parts.append(user['last_name'])
+            display_name = " ".join(name_parts) if name_parts else f"ID: {user['telegram_id']}"
+            
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"👤 {display_name}",
+                    callback_data=f"bot_admin_manual_view_{user['telegram_id']}"
+                )
+            ])
+        keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="bot_admin_manual_menu")])
+        
+        await query.edit_message_text(
+            messages.MESSAGE_MANUAL_USERS_LIST.format(total=total),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return MANUAL_USERS_LIST
+    
+    if data.startswith("bot_admin_manual_view_"):
+        telegram_id = int(data.replace("bot_admin_manual_view_", ""))
+        return await show_manual_user_details_callback(query, context, telegram_id)
+    
+    if data.startswith("bot_admin_manual_delete_"):
+        telegram_id = int(data.replace("bot_admin_manual_delete_", ""))
+        await query.edit_message_text(
+            messages.MESSAGE_MANUAL_USER_CONFIRM_DELETE.format(telegram_id=telegram_id),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_confirm_delete_manual_user_keyboard(telegram_id)
+        )
+        return MANUAL_USER_CONFIRM_DELETE
+    
+    if data.startswith("bot_admin_manual_confirm_delete_"):
+        telegram_id = int(data.replace("bot_admin_manual_confirm_delete_", ""))
+        invites_module.remove_manual_user(telegram_id)
+        await query.edit_message_text(
+            messages.MESSAGE_MANUAL_USER_DELETED.format(telegram_id=telegram_id),
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return MANUAL_USERS_MENU
+    
+    if data == "bot_admin_manual_cancel_delete":
+        await query.edit_message_text(
+            messages.MESSAGE_OPERATION_CANCELLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return MANUAL_USERS_MENU
+    
     # Bot settings callbacks
     if data == "bot_admin_settings_menu":
         await query.message.reply_text(
@@ -1293,6 +1606,29 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_preinvite_notes)
             ],
             PREINVITE_CONFIRM_DELETE: [
+                CallbackQueryHandler(handle_callback),
+                menu_buttons_handler
+            ],
+            # Manual users states
+            MANUAL_USERS_MENU: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
+                CallbackQueryHandler(handle_callback)
+            ],
+            MANUAL_USERS_LIST: [
+                CallbackQueryHandler(handle_callback),
+                menu_buttons_handler
+            ],
+            MANUAL_USER_VIEW: [
+                CallbackQueryHandler(handle_callback),
+                menu_buttons_handler
+            ],
+            MANUAL_USER_ADD_ID: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_manual_user_id)
+            ],
+            MANUAL_USER_ADD_NOTES: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_manual_user_notes)
+            ],
+            MANUAL_USER_CONFIRM_DELETE: [
                 CallbackQueryHandler(handle_callback),
                 menu_buttons_handler
             ],
