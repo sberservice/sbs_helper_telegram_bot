@@ -2211,7 +2211,7 @@ def get_menu_button_regex_pattern() -> str:
         "🔢 UPOS Ошибки",  # UPOS module
         "📝 Аттестация",  # Certification module
         "📬 Обратная связь",  # Feedback module
-        "🏆 Профиль",  # Gamification/Profile module
+        "🏆 Достижения",  # Gamification/Profile module
         "🎫 Мои инвайты",
         "❓ Помощь",
         "🛠️ Админ бота",

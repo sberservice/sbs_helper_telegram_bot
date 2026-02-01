@@ -339,6 +339,29 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     return settings.STATE_ADMIN_MENU
 
 
+# ===== OBFUSCATION SETTINGS =====
+
+async def admin_obfuscate_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Toggle name obfuscation setting in rankings."""
+    current_value = gamification_logic.get_obfuscate_names()
+    new_value = not current_value
+    
+    gamification_logic.set_setting(
+        settings.DB_SETTING_OBFUSCATE_NAMES,
+        str(new_value).lower(),
+        "Скрывать имена в рейтинге"
+    )
+    
+    status = "✅ включено" if new_value else "❌ выключено"
+    await update.message.reply_text(
+        f"🔒 *Скрытие имён в рейтинге:* {status}",
+        reply_markup=keyboards.get_admin_menu_keyboard(),
+        parse_mode=constants.ParseMode.MARKDOWN_V2
+    )
+    
+    return settings.STATE_ADMIN_MENU
+
+
 # ===== NAVIGATION =====
 
 async def admin_back_to_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -374,6 +397,10 @@ def get_gamification_admin_handler() -> ConversationHandler:
                 MessageHandler(
                     filters.Regex(f"^{settings.BUTTON_ADMIN_STATS}$"),
                     admin_stats
+                ),
+                MessageHandler(
+                    filters.Regex(f"^{settings.BUTTON_ADMIN_OBFUSCATE}$"),
+                    admin_obfuscate_toggle
                 ),
                 MessageHandler(
                     filters.Regex(f"^{settings.BUTTON_BACK_TO_PROFILE}$"),
