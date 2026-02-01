@@ -13,7 +13,7 @@ MODULE_VERSION: Final[str] = "1.0.0"
 MODULE_AUTHOR: Final[str] = "SberService"
 
 # Main menu button for this module
-MENU_BUTTON_TEXT: Final[str] = "🏆 Профиль"
+MENU_BUTTON_TEXT: Final[str] = "🏆 Достижения"
 
 # Submenu button configuration (regular users)
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
@@ -33,7 +33,7 @@ ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
 ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     ["🔍 Найти профиль"],
     ["⚙️ Настройки очков", "📋 Все достижения"],
-    ["📈 Статистика системы"],
+    ["📈 Статистика системы", "🔒 Скрытие имён"],
     ["🔙 Назад в профиль"]
 ]
 
@@ -56,6 +56,7 @@ BUTTON_ADMIN_FIND_PROFILE: Final[str] = "🔍 Найти профиль"
 BUTTON_ADMIN_SCORE_SETTINGS: Final[str] = "⚙️ Настройки очков"
 BUTTON_ADMIN_ALL_ACHIEVEMENTS: Final[str] = "📋 Все достижения"
 BUTTON_ADMIN_STATS: Final[str] = "📈 Статистика системы"
+BUTTON_ADMIN_OBFUSCATE: Final[str] = "🔒 Скрытие имён"
 
 # Pagination settings
 RANKINGS_PER_PAGE: Final[int] = 10
@@ -132,6 +133,7 @@ CALLBACK_PREFIX_ACHIEVEMENT: Final[str] = "gf_achv"
 CALLBACK_PREFIX_PAGE: Final[str] = "gf_page"
 CALLBACK_PREFIX_PERIOD: Final[str] = "gf_period"
 CALLBACK_PREFIX_ADMIN: Final[str] = "gf_admin"
+CALLBACK_PREFIX_OBFUSCATE: Final[str] = "gf_obfuscate"
 
 # Module achievement button text (for integration into other modules)
 MODULE_ACHIEVEMENTS_BUTTON: Final[str] = "🎖️ Достижения модуля"

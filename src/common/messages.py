@@ -101,7 +101,7 @@ BUTTON_MAIN_MENU = "🏠 Главное меню"
 BUTTON_MY_INVITES = "🎫 Мои инвайты"
 BUTTON_HELP = "❓ Помощь"
 BUTTON_BOT_ADMIN = "🛠️ Админ бота"
-BUTTON_PROFILE = "🏆 Профиль"
+BUTTON_PROFILE = "🏆 Достижения"
 
 # Module buttons - deprecated, now loaded from bot_settings.MODULE_CONFIG
 # These constants remain for backward compatibility but are not used in keyboard generation

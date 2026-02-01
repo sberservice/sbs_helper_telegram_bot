@@ -1930,7 +1930,7 @@ def get_menu_button_regex_pattern() -> str:
         "📝 Аттестация",  # Certification module
         "⏱️ КТР",  # KTR module
         "📬 Обратная связь",  # Feedback module
-        "🏆 Профиль",  # Gamification/Profile module
+        "🏆 Достижения",  # Gamification/Profile module
         "🎫 Мои инвайты",
         "❓ Помощь",
         "🛠️ Админ бота",
