@@ -149,7 +149,16 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         # Send response to user
         if result.is_valid:
-            response = f"✅ *Заявка прошла валидацию\\!*\n\n🎫 Тип заявки: _{_escape_md(detected_type.type_name)}_\n\nВсе обязательные поля заполнены корректно\\."
+            # Format list of passed rules
+            passed_rules_text = ""
+            if result.passed_rules:
+                passed_rules_formatted = "\n".join([
+                    f"  ✓ {_escape_md(rule_name)}"
+                    for rule_name in result.passed_rules
+                ])
+                passed_rules_text = f"\n\n📋 *Пройденные проверки:*\n{passed_rules_formatted}"
+            
+            response = f"✅ *Заявка прошла валидацию\\!*\n\n🎫 Тип заявки: _{_escape_md(detected_type.type_name)}_{passed_rules_text}"
             await update.message.reply_text(
                 response,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
