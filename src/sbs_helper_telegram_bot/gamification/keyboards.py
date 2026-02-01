@@ -128,12 +128,40 @@ def get_rankings_period_keyboard(ranking_type: str) -> InlineKeyboardMarkup:
     ])
 
 
+def _obfuscate_name_for_button(first_name: str, last_name: Optional[str]) -> str:
+    """
+    Obfuscate user name for button display.
+    Shows first letter + dots for remaining characters.
+    
+    Args:
+        first_name: User's first name
+        last_name: User's last name (optional)
+    
+    Returns:
+        Obfuscated name like "И... Г..."
+    """
+    if not first_name:
+        return "???"
+    
+    # First name: first letter + dots for remaining characters
+    first_dots = "." * min(len(first_name) - 1, 3)
+    obfuscated = first_name[0] + first_dots
+    
+    # Last name: first letter + dots for remaining characters
+    if last_name:
+        last_dots = "." * min(len(last_name) - 1, 3)
+        obfuscated += f" {last_name[0]}{last_dots}"
+    
+    return obfuscated
+
+
 def get_ranking_list_keyboard(
     ranking_type: str,
     period: str,
     page: int,
     total_pages: int,
-    entries: List[Dict]
+    entries: List[Dict],
+    obfuscate: bool = False
 ) -> InlineKeyboardMarkup:
     """
     Build inline keyboard for ranking list with pagination and user selection.
@@ -144,6 +172,7 @@ def get_ranking_list_keyboard(
         page: Current page number
         total_pages: Total pages
         entries: List of ranking entries (for user buttons)
+        obfuscate: Whether to obfuscate names in buttons
     
     Returns:
         InlineKeyboardMarkup with pagination and user buttons
@@ -155,10 +184,14 @@ def get_ranking_list_keyboard(
     for entry in entries:
         userid = entry.get('userid')
         first_name = entry.get('first_name', 'User')
+        last_name = entry.get('last_name')
         rank = entry.get('rank', 0)
         
-        # Truncate name if too long
-        display_name = first_name[:15] + "..." if len(first_name) > 15 else first_name
+        # Get display name (obfuscated or normal)
+        if obfuscate:
+            display_name = _obfuscate_name_for_button(first_name, last_name)
+        else:
+            display_name = first_name[:15] + "..." if len(first_name) > 15 else first_name
         
         user_buttons.append(
             InlineKeyboardButton(

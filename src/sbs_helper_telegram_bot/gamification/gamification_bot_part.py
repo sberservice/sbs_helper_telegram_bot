@@ -416,7 +416,8 @@ async def _display_rankings(
         period=period,
         page=page,
         total_pages=total_pages,
-        entries=entries
+        entries=entries,
+        obfuscate=obfuscate
     )
     
     if edit:
