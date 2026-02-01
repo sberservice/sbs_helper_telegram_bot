@@ -104,6 +104,21 @@ def get_back_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def get_article_view_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Get a keyboard for viewing articles with Back and Main Menu buttons.
+    
+    Returns:
+        Reply keyboard markup
+    """
+    return ReplyKeyboardMarkup(
+        [[settings.BUTTON_BACK, settings.BUTTON_MAIN_MENU]],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True
+    )
+
+
 # ===== INLINE KEYBOARDS =====
 
 

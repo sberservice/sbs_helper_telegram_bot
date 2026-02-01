@@ -180,6 +180,7 @@ async def handle_article_view(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_reaction = news_logic.get_user_reaction(article_id, user_id)
     
     keyboard = keyboards.get_reaction_keyboard(article_id, reactions, user_reaction)
+    reply_keyboard = keyboards.get_article_view_keyboard()
     
     # Send article (with image if present)
     if article.get('image_file_id'):
@@ -189,11 +190,21 @@ async def handle_article_view(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
+        # Send a separate message to update reply keyboard
+        await query.message.reply_text(
+            "↑ Используйте кнопки под статьёй для реакций",
+            reply_markup=reply_keyboard
+        )
     else:
         await query.message.reply_text(
             text,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
+        )
+        # Send a separate message to update reply keyboard
+        await query.message.reply_text(
+            "↑ Используйте кнопки под статьёй для реакций",
+            reply_markup=reply_keyboard
         )
     
     # Send attachment if present
