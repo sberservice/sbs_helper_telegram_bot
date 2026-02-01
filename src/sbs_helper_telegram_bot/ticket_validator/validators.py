@@ -156,6 +156,7 @@ class ValidationResult:
     """Result of ticket validation"""
     is_valid: bool
     failed_rules: List[str] = field(default_factory=list)
+    passed_rules: List[str] = field(default_factory=list)
     error_messages: List[str] = field(default_factory=list)
     validation_details: Dict[str, Any] = field(default_factory=dict)
     detected_ticket_type: Optional[TicketType] = None
@@ -418,6 +419,7 @@ def validate_ticket(ticket_text: str, rules: List[ValidationRule],
         ValidationResult with validation status and details
     """
     failed_rules = []
+    passed_rules = []
     error_messages = []
     validation_details = {}
     
@@ -456,13 +458,16 @@ def validate_ticket(ticket_text: str, rules: List[ValidationRule],
         
         validation_details[rule.rule_name] = is_valid
         
-        if not is_valid:
+        if is_valid:
+            passed_rules.append(rule.rule_name)
+        else:
             failed_rules.append(rule.rule_name)
             error_messages.append(rule.error_message)
     
     return ValidationResult(
         is_valid=len(failed_rules) == 0,
         failed_rules=failed_rules,
+        passed_rules=passed_rules,
         error_messages=error_messages,
         validation_details=validation_details,
         detected_ticket_type=detected_ticket_type
