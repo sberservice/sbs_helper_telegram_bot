@@ -19,25 +19,63 @@ import src.common.database as database
 # Setting keys
 SETTING_INVITE_SYSTEM_ENABLED = 'invite_system_enabled'
 
-# Module keys - these correspond to the button labels in the modules menu
-MODULE_KEYS = {
-    'ticket_validator': 'module_ticket_validator_enabled',
-    'screenshot': 'module_screenshot_enabled',
-    'upos_errors': 'module_upos_errors_enabled',
-    'certification': 'module_certification_enabled',
-    'ktr': 'module_ktr_enabled',
-    'feedback': 'module_feedback_enabled',
-}
+# Module configuration
+# Each module has:
+# - key: unique identifier for the module
+# - setting_key: database setting key for enable/disable
+# - button_label: text displayed on the module button
+# - order: display order (lower numbers appear first)
+# - columns: number of buttons per row (1 or 2)
+MODULE_CONFIG = [
+    {
+        'key': 'ticket_validator',
+        'setting_key': 'module_ticket_validator_enabled',
+        'button_label': '✅ Валидация заявок',
+        'order': 1,
+        'columns': 2
+    },
+    {
+        'key': 'screenshot',
+        'setting_key': 'module_screenshot_enabled',
+        'button_label': '📸 Обработать скриншот',
+        'order': 2,
+        'columns': 2
+    },
+    {
+        'key': 'upos_errors',
+        'setting_key': 'module_upos_errors_enabled',
+        'button_label': '🔢 UPOS Ошибки',
+        'order': 3,
+        'columns': 2
+    },
+    {
+        'key': 'certification',
+        'setting_key': 'module_certification_enabled',
+        'button_label': '📝 Аттестация',
+        'order': 4,
+        'columns': 2
+    },
+    {
+        'key': 'ktr',
+        'setting_key': 'module_ktr_enabled',
+        'button_label': '⏱️ КТР',
+        'order': 5,
+        'columns': 2
+    },
+    {
+        'key': 'feedback',
+        'setting_key': 'module_feedback_enabled',
+        'button_label': '📬 Обратная связь',
+        'order': 6,
+        'columns': 2
+    },
+]
 
-# Module display names (for admin panel)
-MODULE_NAMES = {
-    'ticket_validator': '✅ Валидация заявок',
-    'screenshot': '📸 Обработка скриншота',
-    'upos_errors': '🔢 UPOS Ошибки',
-    'certification': '📝 Аттестация',
-    'ktr': '⏱️ КТР',
-    'feedback': '📬 Обратная связь',
-}
+# Build MODULE_KEYS from MODULE_CONFIG for backward compatibility
+MODULE_KEYS = {module['key']: module['setting_key'] for module in MODULE_CONFIG}
+
+# Build MODULE_NAMES from MODULE_CONFIG for backward compatibility
+MODULE_NAMES = {module['key']: module['button_label'] for module in MODULE_CONFIG}
 
 
 def get_setting(key: str) -> Optional[str]:
@@ -179,6 +217,27 @@ def get_enabled_modules() -> List[str]:
         List of module keys that are currently enabled.
     """
     return [key for key, enabled in get_all_module_states().items() if enabled]
+
+
+def get_modules_config(enabled_only: bool = True) -> List[Dict[str, any]]:
+    """
+    Get module configuration in display order.
+    
+    Args:
+        enabled_only: If True, return only enabled modules. If False, return all modules.
+    
+    Returns:
+        List of module configuration dictionaries, sorted by order field.
+        Each dictionary contains: key, setting_key, button_label, order, columns.
+    """
+    # Sort modules by order field
+    sorted_modules = sorted(MODULE_CONFIG, key=lambda x: x['order'])
+    
+    if enabled_only:
+        # Filter to only enabled modules
+        return [module for module in sorted_modules if is_module_enabled(module['key'])]
+    
+    return sorted_modules
 
 
 def check_if_user_from_invite(telegram_id: int) -> bool:
