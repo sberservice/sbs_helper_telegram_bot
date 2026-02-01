@@ -69,13 +69,6 @@ MODULE_CONFIG = [
         'order': 6,
         'columns': 2
     },
-    {
-        'key': 'news',
-        'setting_key': 'module_news_enabled',
-        'button_label': '📰 Новости',
-        'order': 7,
-        'columns': 2
-    },
 ]
 
 # Build MODULE_KEYS from MODULE_CONFIG for backward compatibility

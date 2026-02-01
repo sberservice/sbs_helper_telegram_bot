@@ -130,12 +130,13 @@ def get_main_menu_keyboard(is_admin: bool = False):
     if is_admin:
         buttons = [
             [BUTTON_MODULES, BUTTON_PROFILE],
-            [BUTTON_SETTINGS, BUTTON_BOT_ADMIN]
+            [BUTTON_NEWS, BUTTON_SETTINGS],
+            [BUTTON_BOT_ADMIN]
         ]
     else:
         buttons = [
             [BUTTON_MODULES, BUTTON_PROFILE],
-            [BUTTON_SETTINGS]
+            [BUTTON_NEWS, BUTTON_SETTINGS]
         ]
     
     return ReplyKeyboardMarkup(
