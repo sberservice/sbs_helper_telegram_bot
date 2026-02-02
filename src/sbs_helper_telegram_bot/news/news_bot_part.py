@@ -520,7 +520,10 @@ def _format_article_preview(article: dict) -> str:
     # Truncate content for preview
     content = article.get('content', '')
     if len(content) > 200:
-        content = content[:197] + "\\.\\.\\."
+        content = content[:197] + "..."
+    
+    # Escape content for MarkdownV2
+    content = messages.escape_markdown_v2(content)
     
     text = f"{category_emoji} *{title}*\n"
     text += f"_{category_name} • {published_date}_\n\n"
