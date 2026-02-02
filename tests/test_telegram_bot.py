@@ -139,6 +139,8 @@ class TestCheckIfUserLegit(unittest.TestCase):
         
         # User is not pre-invited
         mock_invites.check_if_user_pre_invited.return_value = False
+        # User is not manually added
+        mock_invites.check_if_user_manual.return_value = False
         # Invite system is enabled
         mock_bot_settings.is_invite_system_enabled.return_value = True
         # User has not consumed an invite
@@ -161,6 +163,8 @@ class TestCheckIfUserLegit(unittest.TestCase):
         
         # User is not pre-invited
         mock_invites.check_if_user_pre_invited.return_value = False
+        # User is not manually added
+        mock_invites.check_if_user_manual.return_value = False
         # Invite system is enabled
         mock_bot_settings.is_invite_system_enabled.return_value = True
         # User has not consumed an invite
@@ -181,6 +185,8 @@ class TestCheckIfUserLegit(unittest.TestCase):
         """Test that invite users are blocked when invite system is disabled."""
         # User is not pre-invited
         mock_invites.check_if_user_pre_invited.return_value = False
+        # User is not manually added
+        mock_invites.check_if_user_manual.return_value = False
         # Invite system is disabled
         mock_bot_settings.is_invite_system_enabled.return_value = False
         
