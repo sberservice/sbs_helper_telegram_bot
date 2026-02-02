@@ -248,7 +248,7 @@ async def _send_preview(query, context: ContextTypes.DEFAULT_TYPE, article: dict
     
     # Format article as users would see it
     title = messages.escape_markdown_v2(article['title'])
-    content = article['content']
+    content = messages.escape_markdown_v2(article['content'])
     category_emoji = article.get('category_emoji', '📰')
     category_name = messages.escape_markdown_v2(article.get('category_name', ''))
     
@@ -1117,7 +1117,10 @@ def _format_admin_article_detail(article: dict) -> str:
     
     # Truncate content if too long
     if len(content) > 500:
-        content = content[:497] + "\\.\\.\\."
+        content = content[:497] + "..."
+    
+    # Escape content for MarkdownV2
+    content = messages.escape_markdown_v2(content)
     
     status_map = {
         'draft': '📝 Черновик',
