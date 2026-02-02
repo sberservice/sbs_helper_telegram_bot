@@ -1281,6 +1281,8 @@ def get_news_admin_handler() -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel_admin),
+            CommandHandler("reset", back_to_main_menu),
+            CommandHandler("menu", back_to_main_menu),
             MessageHandler(filters.Regex(f"^{BUTTON_MAIN_MENU}$"), back_to_main_menu),
         ],
         name="news_admin_handler",

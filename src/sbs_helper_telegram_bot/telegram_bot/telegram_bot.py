@@ -200,6 +200,88 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
+
+def clear_all_states(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Clear all conversation states from all modules.
+    
+    This function clears context.user_data keys used by all modules
+    for conversation state management. It does NOT affect user data
+    stored in the database - only in-memory conversation states.
+    
+    Use this when implementing /reset or /menu to return to main menu
+    from any stuck conversation state.
+    """
+    # Import module-specific context clearing functions
+    from src.sbs_helper_telegram_bot.certification.certification_bot_part import clear_test_context
+    from src.sbs_helper_telegram_bot.certification import settings as cert_settings
+    from src.sbs_helper_telegram_bot.feedback import settings as feedback_settings
+    from src.sbs_helper_telegram_bot.news import settings as news_settings
+    from src.sbs_helper_telegram_bot.bot_admin import settings as admin_settings
+    
+    # Clear certification module states
+    clear_test_context(context)
+    # Clear certification admin states
+    context.user_data.pop(cert_settings.ADMIN_NEW_QUESTION_DATA_KEY, None)
+    context.user_data.pop(cert_settings.ADMIN_NEW_CATEGORY_DATA_KEY, None)
+    context.user_data.pop(cert_settings.ADMIN_EDITING_QUESTION_KEY, None)
+    context.user_data.pop(cert_settings.ADMIN_EDITING_CATEGORY_KEY, None)
+    context.user_data.pop('cert_search_mode', None)
+    context.user_data.pop('cert_search_query', None)
+    context.user_data.pop('editing_question_categories', None)
+    context.user_data.pop('edit_field', None)
+    
+    # Clear feedback module states
+    feedback_keys = [
+        feedback_settings.CURRENT_CATEGORY_KEY,
+        feedback_settings.CURRENT_MESSAGE_KEY,
+        feedback_settings.CURRENT_ENTRY_ID_KEY,
+        feedback_settings.MY_FEEDBACK_PAGE_KEY,
+        feedback_settings.ADMIN_CURRENT_ENTRY_KEY,
+        feedback_settings.ADMIN_REPLY_TEXT_KEY,
+        feedback_settings.ADMIN_LIST_PAGE_KEY,
+        feedback_settings.ADMIN_FILTER_STATUS_KEY,
+        feedback_settings.ADMIN_FILTER_CATEGORY_KEY,
+    ]
+    for key in feedback_keys:
+        context.user_data.pop(key, None)
+    
+    # Clear ticket validator states
+    context.user_data.pop('new_rule', None)
+    context.user_data.pop('test_pattern', None)
+    context.user_data.pop('pending_rule_id', None)
+    context.user_data.pop('new_template', None)
+    context.user_data.pop('manage_type_id', None)
+    context.user_data.pop('manage_template_id', None)
+    
+    # Clear UPOS error module states
+    context.user_data.pop('upos_temp', None)
+    
+    # Clear KTR module states
+    context.user_data.pop('ktr_temp', None)
+    
+    # Clear news module states
+    news_keys = [
+        news_settings.CURRENT_PAGE_KEY,
+        news_settings.SEARCH_QUERY_KEY,
+        news_settings.VIEW_MODE_KEY,
+        news_settings.ADMIN_DRAFT_DATA_KEY,
+        news_settings.ADMIN_EDIT_FIELD_KEY,
+    ]
+    for key in news_keys:
+        context.user_data.pop(key, None)
+    
+    # Clear bot admin module states
+    context.user_data.pop('new_preinvite', None)
+    context.user_data.pop('new_manual_user', None)
+    context.user_data.pop('issue_invites_user', None)
+    
+    # Clear gamification states (if any specific ones exist)
+    # Gamification mainly uses database, but clear any temp context
+    
+    # Clear screenshot/vyezd_byl module states (if any)
+    # This module primarily uses ConversationHandler states
+
 def check_if_invite_entered(telegram_id,invite) -> InviteStatus:
     """
         Validates and consumes an invite code for a user.
@@ -390,7 +472,8 @@ async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     """
         Handles the /menu command.
 
-        Shows the main menu keyboard to authorized users.
+        Clears all conversation states from all modules and shows the main menu.
+        This helps users recover from stuck conversation states.
     """
     user_id = update.effective_user.id
     
@@ -402,6 +485,10 @@ async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     if not check_if_user_legit(user_id):
         await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return
+    
+    # Clear all module conversation states
+    clear_all_states(_context)
+    logger.info(f"User {user_id} used /menu - cleared all conversation states")
     
     update_user_info_from_telegram(update.effective_user)
     is_admin = check_if_user_admin(user_id)
@@ -417,6 +504,48 @@ async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=get_main_menu_keyboard(is_admin=is_admin)
     )
+
+
+async def reset_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+        Handles the /reset command.
+
+        Clears all conversation states from all modules and returns to main menu.
+        This is useful when navigation buttons stop working or users get stuck.
+        Returns ConversationHandler.END to terminate any active conversations.
+    """
+    user_id = update.effective_user.id
+    
+    # Check if user is blocked due to invite system being disabled
+    if check_if_invite_user_blocked(user_id):
+        await update.message.reply_text(MESSAGE_INVITE_SYSTEM_DISABLED)
+        return ConversationHandler.END
+    
+    if not check_if_user_legit(user_id):
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        return ConversationHandler.END
+    
+    # Clear all module conversation states
+    clear_all_states(_context)
+    logger.info(f"User {user_id} used /reset - cleared all conversation states")
+    
+    update_user_info_from_telegram(update.effective_user)
+    is_admin = check_if_user_admin(user_id)
+    
+    # Check for unacknowledged mandatory news
+    mandatory_news = get_unacked_mandatory_news(user_id)
+    if mandatory_news:
+        await _show_mandatory_news(update, mandatory_news)
+        return ConversationHandler.END
+    
+    # Silently show main menu (no confirmation message)
+    await update.message.reply_text(
+        MESSAGE_MAIN_MENU,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+    )
+    
+    return ConversationHandler.END
 
 
 async def help_main_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -695,6 +824,7 @@ async def post_init(application: Application) -> None:
     await application.bot.set_my_commands([
         BotCommand("start", COMMAND_DESC_START),
         BotCommand("menu", COMMAND_DESC_MENU),
+        BotCommand("reset", "Сбросить состояние и вернуться в главное меню"),
         BotCommand("help", COMMAND_DESC_HELP),
     ])
 
@@ -738,6 +868,8 @@ def main() -> None:
         },
         fallbacks=[
             CommandHandler("cancel", cancel_validation),
+            CommandHandler("reset", reset_command),
+            CommandHandler("menu", menu_command),
             # Any other command cancels validation mode
             MessageHandler(filters.COMMAND, cancel_validation_on_menu),
             # Menu buttons from ticket_validator module cancel validation mode
@@ -772,6 +904,8 @@ def main() -> None:
             ]
         },
         fallbacks=[
+            CommandHandler("reset", reset_command),
+            CommandHandler("menu", menu_command),
             # Any command exits the module
             MessageHandler(filters.COMMAND, cancel_screenshot_module),
         ]
@@ -804,6 +938,7 @@ def main() -> None:
     # Register all handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
+    application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("help", help_main_command))
     application.add_handler(CommandHandler("invite", invite_command))
     application.add_handler(CommandHandler("help_validate", help_command))

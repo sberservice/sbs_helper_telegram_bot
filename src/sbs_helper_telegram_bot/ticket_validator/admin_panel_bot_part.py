@@ -1757,6 +1757,8 @@ def get_admin_conversation_handler() -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel_admin),
+            CommandHandler("reset", cancel_admin),
+            CommandHandler("menu", cancel_admin),
             MessageHandler(filters.Regex("^🏠 Главное меню$"), cancel_admin),
             MessageHandler(filters.COMMAND, cancel_admin),  # Handle /start and other commands
         ],

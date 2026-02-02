@@ -1984,6 +1984,8 @@ def get_admin_conversation_handler() -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel_admin),
+            CommandHandler("reset", cancel_admin),
+            CommandHandler("menu", cancel_admin),
             MessageHandler(filters.Regex("^🏠 Главное меню$"), cancel_admin),
             MessageHandler(filters.Regex("^🔙 Назад$"), back_to_submenu),
             MessageHandler(filters.Regex("^🔙 Админ меню$"), back_to_admin_menu),

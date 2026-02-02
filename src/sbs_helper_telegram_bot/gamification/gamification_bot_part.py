@@ -643,6 +643,8 @@ def get_gamification_user_handler() -> ConversationHandler:
                 return_to_main_menu
             ),
             CommandHandler("cancel", cancel_handler),
+            CommandHandler("reset", return_to_main_menu),
+            CommandHandler("menu", return_to_main_menu),
         ],
         map_to_parent={
             ConversationHandler.END: ConversationHandler.END,
