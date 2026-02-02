@@ -63,7 +63,8 @@ def set_setting(key: str, value: str, description: Optional[str] = None) -> bool
 
 def get_obfuscate_names() -> bool:
     """Check if name obfuscation is enabled."""
-    return get_setting(settings.DB_SETTING_OBFUSCATE_NAMES, 'false').lower() == 'true'
+    value = get_setting(settings.DB_SETTING_OBFUSCATE_NAMES, 'false')
+    return value in (True, 'True', 'true', '1', 1)
 
 
 # ===== RANK HELPERS =====
