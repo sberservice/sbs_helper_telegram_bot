@@ -1105,6 +1105,14 @@ async def back_to_news_submenu(update: Update, context: ContextTypes.DEFAULT_TYP
     return await news_bot_part.back_to_submenu(update, context)
 
 
+async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Return to main menu from admin.
+    """
+    from . import news_bot_part
+    return await news_bot_part.back_to_main_menu(update, context)
+
+
 # ===== HELPER FUNCTIONS =====
 
 
@@ -1271,7 +1279,7 @@ def get_news_admin_handler() -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel_admin),
-            MessageHandler(filters.Regex(f"^{BUTTON_MAIN_MENU}$"), back_to_news_submenu),
+            MessageHandler(filters.Regex(f"^{BUTTON_MAIN_MENU}$"), back_to_main_menu),
         ],
         name="news_admin_handler",
         persistent=False
