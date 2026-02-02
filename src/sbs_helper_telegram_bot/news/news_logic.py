@@ -847,7 +847,7 @@ async def broadcast_news(
     
     # Format the article text
     title = messages.escape_markdown_v2(article['title'])
-    content = article['content']  # Already formatted
+    content = messages.escape_markdown_v2(article['content'])
     category_emoji = article.get('category_emoji', '📰')
     category_name = messages.escape_markdown_v2(article.get('category_name', ''))
     

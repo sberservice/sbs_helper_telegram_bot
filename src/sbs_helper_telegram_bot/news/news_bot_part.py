@@ -534,7 +534,7 @@ def _format_full_article(article: dict) -> str:
     Format full article for viewing.
     """
     title = messages.escape_markdown_v2(article.get('title', 'Без названия'))
-    content = article.get('content', '')
+    content = messages.escape_markdown_v2(article.get('content', ''))
     category_emoji = article.get('category_emoji', '📰')
     category_name = messages.escape_markdown_v2(article.get('category_name', ''))
     
