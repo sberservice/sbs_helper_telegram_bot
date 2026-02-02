@@ -559,6 +559,8 @@ def get_feedback_user_handler() -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel_command),
+            CommandHandler("reset", back_to_main_menu),
+            CommandHandler("menu", back_to_main_menu),
             MessageHandler(
                 filters.Regex(f"^{settings.BUTTON_MAIN_MENU}$"),
                 back_to_main_menu

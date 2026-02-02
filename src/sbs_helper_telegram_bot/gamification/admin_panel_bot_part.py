@@ -470,6 +470,8 @@ def get_gamification_admin_handler() -> ConversationHandler:
                 return_to_main_menu
             ),
             CommandHandler("cancel", return_to_main_menu),
+            CommandHandler("reset", return_to_main_menu),
+            CommandHandler("menu", return_to_main_menu),
         ],
         map_to_parent={
             settings.STATE_SUBMENU: ConversationHandler.END,

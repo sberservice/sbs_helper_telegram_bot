@@ -879,6 +879,8 @@ def get_user_conversation_handler() -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel_test),
+            CommandHandler("reset", cancel_on_menu),
+            CommandHandler("menu", cancel_on_menu),
             MessageHandler(filters.Regex("^🏠 Главное меню$"), cancel_on_menu),
             MessageHandler(filters.COMMAND, cancel_on_menu),
         ],
