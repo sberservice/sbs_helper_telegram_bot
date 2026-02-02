@@ -673,12 +673,19 @@ async def receive_mandatory(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if article:
             context.user_data[settings.ADMIN_CURRENT_ARTICLE_KEY] = article_id
             text = _format_admin_article_detail(article)
-            keyboard = keyboards.get_admin_article_actions_keyboard(article_id, article['status'])
+            inline_keyboard = keyboards.get_admin_article_actions_keyboard(article_id, article['status'])
             
+            # Update reply keyboard to show Back button
+            await query.message.reply_text(
+                "👇 Используйте кнопки ниже для действий с черновиком",
+                reply_markup=keyboards.get_back_keyboard()
+            )
+            
+            # Send article detail with inline actions keyboard
             await query.message.reply_text(
                 text,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=keyboard
+                reply_markup=inline_keyboard
             )
             return settings.STATE_ADMIN_VIEW_ARTICLE
     else:
