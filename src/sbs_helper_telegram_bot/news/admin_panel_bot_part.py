@@ -1102,7 +1102,9 @@ async def back_to_news_submenu(update: Update, context: ContextTypes.DEFAULT_TYP
     Return to news submenu from admin.
     """
     from . import news_bot_part
-    return await news_bot_part.back_to_submenu(update, context)
+    # Call the submenu display but return END to exit admin handler
+    await news_bot_part.back_to_submenu(update, context)
+    return ConversationHandler.END
 
 
 async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
