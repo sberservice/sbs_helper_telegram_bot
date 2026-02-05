@@ -348,9 +348,9 @@ async def process_column_selection(update: Update, context: ContextTypes.DEFAULT
             messages.MESSAGE_PROCESSING_COMPLETE.format(
                 total=result.total_tickets,
                 valid=result.valid_tickets,
-                percent_valid=f"{percent_valid:.1f}",
+                percent_valid=_escape_md(f"{percent_valid:.1f}"),
                 invalid=result.invalid_tickets,
-                percent_invalid=f"{percent_invalid:.1f}",
+                percent_invalid=_escape_md(f"{percent_invalid:.1f}"),
                 skipped=result.skipped_tickets
             ),
             parse_mode=constants.ParseMode.MARKDOWN_V2
