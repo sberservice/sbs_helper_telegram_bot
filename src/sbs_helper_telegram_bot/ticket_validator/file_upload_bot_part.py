@@ -280,44 +280,53 @@ async def process_column_selection(update: Update, context: ContextTypes.DEFAULT
         # Create processor
         processor = ExcelFileProcessor()
         
-        # Track progress
-        last_update_time = 0
+        # Track progress with a shared dict (thread-safe for simple updates)
+        progress_data = {'current': 0, 'total': 0, 'running': True}
         
-        async def update_progress(current: int, total: int):
-            """Update progress message"""
-            nonlocal last_update_time
+        def sync_progress_callback(current: int, total: int):
+            """Sync callback that updates progress data"""
+            progress_data['current'] = current
+            progress_data['total'] = total
+        
+        # Start background task to update progress message
+        async def progress_updater():
+            """Periodically update the progress message"""
             import time
+            last_current = 0
             
-            current_time = time.time()
-            # Update every 2 seconds or at the end
-            if current_time - last_update_time < 2 and current != total:
-                return
-            
-            last_update_time = current_time
-            
-            percent = (current / total * 100) if total > 0 else 0
-            bar_length = 10
-            filled = int(bar_length * current / total) if total > 0 else 0
-            bar = '▓' * filled + '░' * (bar_length - filled)
-            
-            try:
-                await progress_message.edit_text(
-                    messages.MESSAGE_PROCESSING_PROGRESS.format(
-                        current=current,
-                        total=total,
-                        bar=bar,
-                        percent=f"{percent:.0f}"
-                    ),
-                    parse_mode=constants.ParseMode.MARKDOWN_V2
-                )
-            except Exception as e:
-                # Ignore edit errors (rate limiting, message not modified, etc.)
-                pass
+            while progress_data['running']:
+                await asyncio.sleep(2)  # Update every 2 seconds
+                
+                current = progress_data['current']
+                total = progress_data['total']
+                
+                # Only update if values changed
+                if total > 0 and current != last_current:
+                    percent = (current / total * 100)
+                    bar_length = 10
+                    filled = int(bar_length * current / total)
+                    bar = '▓' * filled + '░' * (bar_length - filled)
+                    
+                    try:
+                        await progress_message.edit_text(
+                            messages.MESSAGE_PROCESSING_PROGRESS.format(
+                                current=current,
+                                total=total,
+                                bar=bar,
+                                percent=_escape_md(f"{percent:.0f}")
+                            ),
+                            parse_mode=constants.ParseMode.MARKDOWN_V2
+                        )
+                        last_current = current
+                    except Exception:
+                        # Ignore edit errors (rate limiting, message not modified, etc.)
+                        pass
         
-        # Run validation in executor to avoid blocking
+        # Start the progress updater task
         loop = asyncio.get_event_loop()
+        progress_task = loop.create_task(progress_updater())
         
-        # Simple progress tracking (can't use async callback in sync function)
+        # Run validation in executor with sync callback
         result: FileValidationResult = await loop.run_in_executor(
             None,
             lambda: processor.validate_file(
@@ -325,9 +334,19 @@ async def process_column_selection(update: Update, context: ContextTypes.DEFAULT
                 ticket_column=col_idx,
                 output_path=None,  # Auto-generate
                 ticket_type_id=None,  # Auto-detect
-                progress_callback=None  # Sync callbacks not supported well with async
+                progress_callback=sync_progress_callback
             )
         )
+        
+        # Stop progress updater and wait for it to finish
+        progress_data['running'] = False
+        try:
+            await asyncio.wait_for(progress_task, timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("Progress updater task didn't finish in time")
+            progress_task.cancel()
+        except Exception as e:
+            logger.error(f"Error stopping progress updater: {e}")
         
         # Check for errors
         if result.error_message:
