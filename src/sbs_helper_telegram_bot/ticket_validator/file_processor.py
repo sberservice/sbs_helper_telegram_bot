@@ -18,12 +18,16 @@ ILLEGAL_XML_CHARS_RE = re.compile(
     '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\ud800-\udfff\ufffe\uffff]'
 )
 
+# Characters that Excel interprets as formula start
+FORMULA_START_CHARS = ('=', '+', '-', '@', '\t', '\r', '\n')
+
 
 def sanitize_for_excel(value: Any) -> Any:
     """
     Sanitize a value for writing to Excel.
     
     Removes illegal XML characters that cause Excel file corruption.
+    Escapes formula-like strings to prevent Excel from interpreting them as formulas.
     
     Args:
         value: The value to sanitize
@@ -37,6 +41,11 @@ def sanitize_for_excel(value: Any) -> Any:
     if isinstance(value, str):
         # Remove illegal XML characters
         sanitized = ILLEGAL_XML_CHARS_RE.sub('', value)
+        
+        # Escape strings that look like formulas by prefixing with single quote
+        # Excel will display the value as text (without the quote visible)
+        if sanitized and sanitized[0] in FORMULA_START_CHARS:
+            sanitized = "'" + sanitized
         
         # Also limit string length to avoid issues (Excel cell limit is 32767 chars)
         if len(sanitized) > 32000:
