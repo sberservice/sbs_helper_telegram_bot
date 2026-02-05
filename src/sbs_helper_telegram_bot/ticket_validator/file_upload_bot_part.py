@@ -189,7 +189,7 @@ async def process_uploaded_file(update: Update, context: ContextTypes.DEFAULT_TY
         
         message = messages.MESSAGE_SELECT_COLUMN.format(
             filename=_escape_md(filename),
-            file_size=f"{file_size_kb:.1f}",
+            file_size=_escape_md(f"{file_size_kb:.1f}"),
             columns=column_list
         )
         
