@@ -348,8 +348,8 @@ def detect_ticket_type(
             keyword_to_match = keyword[1:] if is_negative else keyword
             keyword_lower = keyword_to_match.lower()
             
-            # Count occurrences of each keyword
-            count = ticket_text_lower.count(keyword_lower)
+            # Check if keyword is present (count as 1 if present, 0 if not)
+            count = 1 if keyword_lower in ticket_text_lower else 0
             
             # Get weight for this keyword (default 1.0)
             # Priority: 1) keyword_weights parameter, 2) ticket_type.keyword_weights, 3) default 1.0
