@@ -17,15 +17,15 @@ MENU_BUTTON_TEXT: Final[str] = "✅ Валидация заявок"
 
 # Submenu button configuration
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    ["📋 Проверить заявку"],
+    ["📋 Проверить заявку", "📁 Валидация файла"],
     ["ℹ️ Помощь по валидации"],
     ["🏠 Главное меню"]
 ]
 
 # Admin submenu (includes admin panel and test templates buttons)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    ["📋 Проверить заявку", "🧪 Тест шаблонов"],
-    ["ℹ️ Помощь по валидации"],
+    ["📋 Проверить заявку", "📁 Валидация файла"],
+    ["🧪 Тест шаблонов", "ℹ️ Помощь по валидации"],
     ["🔐 Админ панель", "🏠 Главное меню"]
 ]
 
@@ -57,3 +57,12 @@ DEBUG_MODE_KEY: Final[str] = 'validator_debug_mode'
 # Validation settings
 MAX_TICKET_LENGTH: Final[int] = 10000  # Maximum characters in ticket text
 MIN_TICKET_LENGTH: Final[int] = 20     # Minimum characters for valid ticket
+
+# File upload settings
+MAX_FILE_SIZE_MB: Final[int] = 20  # Maximum file size in MB
+SUPPORTED_FILE_EXTENSIONS: Final[List[str]] = ['.xls', '.xlsx']
+
+# File upload keyboard
+FILE_UPLOAD_BUTTONS: Final[List[List[str]]] = [
+    ["❌ Отмена"]
+]

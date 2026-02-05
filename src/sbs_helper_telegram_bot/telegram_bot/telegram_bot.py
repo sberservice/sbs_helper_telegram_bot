@@ -105,6 +105,11 @@ from src.sbs_helper_telegram_bot.ticket_validator.ticket_validator_bot_part impo
     WAITING_FOR_TICKET
 )
 
+# Import file upload handler for batch validation
+from src.sbs_helper_telegram_bot.ticket_validator.file_upload_bot_part import (
+    get_file_validation_handler
+)
+
 # Import admin panel handlers
 from src.sbs_helper_telegram_bot.ticket_validator.admin_panel_bot_part import (
     get_admin_conversation_handler
@@ -960,6 +965,11 @@ def main() -> None:
     application.add_handler(news_user_handler)
     application.add_handler(news_mandatory_ack_handler)  # Global handler for mandatory news acknowledgment
     application.add_handler(screenshot_handler)
+    
+    # Create ConversationHandler for file upload validation
+    file_validation_handler = get_file_validation_handler()
+    application.add_handler(file_validation_handler)
+    
     application.add_handler(ticket_validator_handler)
     application.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, text_entered))
     
