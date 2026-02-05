@@ -857,15 +857,7 @@ def main() -> None:
         Runs indefinitely, processing all update types.
     """
 
-    application = (
-        Application.builder()
-        .token(TELEGRAM_TOKEN)
-        .post_init(post_init)
-        .read_timeout(30)
-        .write_timeout(30)
-        .connect_timeout(15)
-        .build()
-    )
+    application = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
 
     # Create ConversationHandler for ticket validation
     # Entry points include both /validate command and the menu button

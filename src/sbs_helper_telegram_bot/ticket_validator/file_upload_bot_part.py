@@ -20,7 +20,6 @@ from telegram.ext import (
     filters
 )
 from telegram import constants
-from telegram.error import TimedOut
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
 from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
@@ -296,7 +295,7 @@ async def process_column_selection(update: Update, context: ContextTypes.DEFAULT
             last_current = 0
             
             while progress_data['running']:
-                await asyncio.sleep(3)  # Update every 3 seconds
+                await asyncio.sleep(2)  # Update every 2 seconds
                 
                 current = progress_data['current']
                 total = progress_data['total']
@@ -363,100 +362,51 @@ async def process_column_selection(update: Update, context: ContextTypes.DEFAULT
         percent_valid = (result.valid_tickets / processed * 100) if processed > 0 else 0
         percent_invalid = (result.invalid_tickets / processed * 100) if processed > 0 else 0
         
-        stats_message = messages.MESSAGE_PROCESSING_COMPLETE.format(
-            total=result.total_tickets,
-            valid=result.valid_tickets,
-            percent_valid=_escape_md(f"{percent_valid:.1f}"),
-            invalid=result.invalid_tickets,
-            percent_invalid=_escape_md(f"{percent_invalid:.1f}"),
-            skipped=result.skipped_tickets
+        # Send results summary
+        await progress_message.edit_text(
+            messages.MESSAGE_PROCESSING_COMPLETE.format(
+                total=result.total_tickets,
+                valid=result.valid_tickets,
+                percent_valid=_escape_md(f"{percent_valid:.1f}"),
+                invalid=result.invalid_tickets,
+                percent_invalid=_escape_md(f"{percent_invalid:.1f}"),
+                skipped=result.skipped_tickets
+            ),
+            parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         
-        # Send results summary (isolated from file send)
-        try:
-            await progress_message.edit_text(
-                stats_message,
-                parse_mode=constants.ParseMode.MARKDOWN_V2
-            )
-        except TimedOut:
-            logger.warning("Timed out editing stats message, sending as new message")
-            try:
-                await update.message.reply_text(
-                    stats_message,
-                    parse_mode=constants.ParseMode.MARKDOWN_V2
-                )
-            except Exception as e2:
-                logger.error(f"Failed to send stats as new message: {e2}")
-        except Exception as e:
-            logger.error(f"Error sending stats: {e}")
-        
-        # Send result file (isolated, with extended timeout)
+        # Send result file
         if result.output_file_path and os.path.exists(result.output_file_path):
             # Generate output filename
             base_name = os.path.splitext(original_filename)[0]
             output_filename = f"{base_name}_validated.xlsx"
             
+            with open(result.output_file_path, 'rb') as f:
+                await update.message.reply_document(
+                    document=f,
+                    filename=output_filename,
+                    caption="📊 Результаты валидации"
+                )
+            
+            # Clean up output file
             try:
-                with open(result.output_file_path, 'rb') as f:
-                    await update.message.reply_document(
-                        document=f,
-                        filename=output_filename,
-                        caption="📊 Результаты валидации",
-                        write_timeout=60,
-                        read_timeout=60
-                    )
-            except TimedOut:
-                logger.warning("Timed out sending file, retrying with longer timeout")
-                try:
-                    with open(result.output_file_path, 'rb') as f:
-                        await update.message.reply_document(
-                            document=f,
-                            filename=output_filename,
-                            caption="📊 Результаты валидации",
-                            write_timeout=120,
-                            read_timeout=120
-                        )
-                except Exception as e2:
-                    logger.error(f"Retry also failed: {e2}")
-                    await update.message.reply_text(
-                        "⚠️ Не удалось отправить файл из\\-за таймаута\\. Попробуйте загрузить файл ещё раз\\.",
-                        parse_mode=constants.ParseMode.MARKDOWN_V2
-                    )
-            except Exception as e:
-                logger.error(f"Error sending validated file: {e}")
-            finally:
-                # Clean up output file
-                try:
-                    os.remove(result.output_file_path)
-                except Exception:
-                    pass
+                os.remove(result.output_file_path)
+            except Exception:
+                pass
         
-        # Show keyboard (isolated)
+        # Show keyboard
         reply_keyboard = get_admin_submenu_keyboard() if is_admin else get_submenu_keyboard()
-        try:
-            await update.message.reply_text(
-                "Выберите действие:",
-                reply_markup=reply_keyboard
-            )
-        except Exception as e:
-            logger.error(f"Error sending keyboard: {e}")
+        await update.message.reply_text(
+            "Выберите действие:",
+            reply_markup=reply_keyboard
+        )
         
     except Exception as e:
         logger.error(f"Error during file validation: {e}", exc_info=True)
-        try:
-            await progress_message.edit_text(
-                messages.MESSAGE_PROCESSING_ERROR.format(error=_escape_md(str(e))),
-                parse_mode=constants.ParseMode.MARKDOWN_V2
-            )
-        except Exception:
-            # If even the error message fails, try a simple reply
-            try:
-                await update.message.reply_text(
-                    "❌ Ошибка обработки файла\\. Попробуйте ещё раз\\.",
-                    parse_mode=constants.ParseMode.MARKDOWN_V2
-                )
-            except Exception:
-                pass
+        await progress_message.edit_text(
+            messages.MESSAGE_PROCESSING_ERROR.format(error=_escape_md(str(e))),
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
     
     finally:
         # Clean up temp files
