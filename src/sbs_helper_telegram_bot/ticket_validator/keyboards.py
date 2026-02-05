@@ -82,3 +82,18 @@ def get_admin_templates_keyboard() -> ReplyKeyboardMarkup:
         is_persistent=True
     )
 
+
+def get_file_upload_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Build file upload keyboard with cancel button.
+    
+    Returns:
+        ReplyKeyboardMarkup for file upload process
+    """
+    return ReplyKeyboardMarkup(
+        settings.FILE_UPLOAD_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True
+    )
+
