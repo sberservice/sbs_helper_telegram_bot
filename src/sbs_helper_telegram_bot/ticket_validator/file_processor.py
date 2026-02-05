@@ -6,11 +6,45 @@ Supports both .xlsx and legacy .xls file formats.
 """
 
 import os
+import re
 import logging
 from typing import List, Dict, Any, Optional, Callable, Tuple
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+# Regex to match illegal XML characters (control characters except tab, newline, carriage return)
+ILLEGAL_XML_CHARS_RE = re.compile(
+    '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\ud800-\udfff\ufffe\uffff]'
+)
+
+
+def sanitize_for_excel(value: Any) -> Any:
+    """
+    Sanitize a value for writing to Excel.
+    
+    Removes illegal XML characters that cause Excel file corruption.
+    
+    Args:
+        value: The value to sanitize
+        
+    Returns:
+        Sanitized value safe for Excel
+    """
+    if value is None:
+        return value
+    
+    if isinstance(value, str):
+        # Remove illegal XML characters
+        sanitized = ILLEGAL_XML_CHARS_RE.sub('', value)
+        
+        # Also limit string length to avoid issues (Excel cell limit is 32767 chars)
+        if len(sanitized) > 32000:
+            sanitized = sanitized[:32000] + "... [ОБРЕЗАНО]"
+        
+        return sanitized
+    
+    return value
 
 
 @dataclass
@@ -411,9 +445,9 @@ class ExcelFileProcessor:
         
         # Write data
         for row_idx, result in enumerate(results, start=2):
-            # Write original columns
+            # Write original columns (sanitize all values)
             for col_idx, value in enumerate(result.original_row, start=1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell = ws.cell(row=row_idx, column=col_idx, value=sanitize_for_excel(value))
                 cell.border = thin_border
                 cell.alignment = Alignment(vertical='top', wrap_text=True)
             
@@ -445,12 +479,12 @@ class ExcelFileProcessor:
             status_cell.border = thin_border
             
             # Ticket type column
-            type_cell = ws.cell(row=row_idx, column=status_col + 1, value=result.ticket_type)
+            type_cell = ws.cell(row=row_idx, column=status_col + 1, value=sanitize_for_excel(result.ticket_type))
             type_cell.border = thin_border
             type_cell.alignment = Alignment(vertical='top')
             
             # Errors column
-            errors_cell = ws.cell(row=row_idx, column=status_col + 2, value=result.errors)
+            errors_cell = ws.cell(row=row_idx, column=status_col + 2, value=sanitize_for_excel(result.errors))
             errors_cell.border = thin_border
             errors_cell.alignment = Alignment(vertical='top', wrap_text=True)
             if result.errors:
@@ -458,7 +492,7 @@ class ExcelFileProcessor:
             
             # Passed rules column
             passed_text = "; ".join(result.passed_rules) if result.passed_rules else ""
-            passed_cell = ws.cell(row=row_idx, column=status_col + 3, value=passed_text)
+            passed_cell = ws.cell(row=row_idx, column=status_col + 3, value=sanitize_for_excel(passed_text))
             passed_cell.border = thin_border
             passed_cell.alignment = Alignment(vertical='top', wrap_text=True)
         
@@ -533,7 +567,7 @@ class ExcelFileProcessor:
             ws.cell(row=10, column=1, value="Распространённые ошибки:").font = header_font
             row = 12
             for error, count in sorted(error_counts.items(), key=lambda x: -x[1])[:10]:
-                ws.cell(row=row, column=1, value=error)
+                ws.cell(row=row, column=1, value=sanitize_for_excel(error))
                 ws.cell(row=row, column=2, value=count)
                 row += 1
         
@@ -547,7 +581,7 @@ class ExcelFileProcessor:
             ws.cell(row=row + 2, column=1, value="Типы заявок:").font = header_font
             row += 4
             for ticket_type, count in sorted(type_counts.items(), key=lambda x: -x[1]):
-                ws.cell(row=row, column=1, value=ticket_type)
+                ws.cell(row=row, column=1, value=sanitize_for_excel(ticket_type))
                 ws.cell(row=row, column=2, value=count)
                 row += 1
         
