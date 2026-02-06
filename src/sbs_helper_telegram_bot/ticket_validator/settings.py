@@ -4,6 +4,7 @@ Ticket Validator Module Settings
 Module-specific configuration settings for ticket validation.
 """
 
+import os
 from typing import Final, List
 
 # Module metadata
@@ -66,3 +67,31 @@ SUPPORTED_FILE_EXTENSIONS: Final[List[str]] = ['.xls', '.xlsx']
 FILE_UPLOAD_BUTTONS: Final[List[List[str]]] = [
     ["❌ Отмена"]
 ]
+
+# ===== FIAS VALIDATION SETTINGS =====
+
+# Provider selection (pluggable for future APIs)
+FIAS_PROVIDER: Final[str] = os.getenv("FIAS_PROVIDER", "dadata")
+
+# Address extraction regex (first capture group contains address)
+FIAS_ADDRESS_REGEX: Final[str] = os.getenv(
+    "FIAS_ADDRESS_REGEX",
+    r"Адрес установки POS-терминала:\s*([\s\S]*?)(?=Тип пакета:|$)",
+)
+
+# DaData FIAS provider settings
+FIAS_DADATA_API_KEY: Final[str] = os.getenv("FIAS_DADATA_API_KEY", "")
+FIAS_DADATA_BASE_URL: Final[str] = os.getenv(
+    "FIAS_DADATA_BASE_URL",
+    "https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/fias",
+)
+FIAS_DADATA_TIMEOUT_SECONDS: Final[float] = float(
+    os.getenv("FIAS_DADATA_TIMEOUT_SECONDS", "6")
+)
+FIAS_DADATA_DAILY_LIMIT: Final[int] = int(os.getenv("FIAS_DADATA_DAILY_LIMIT", "10000"))
+FIAS_DADATA_SUGGESTIONS_COUNT: Final[int] = int(
+    os.getenv("FIAS_DADATA_SUGGESTIONS_COUNT", "5")
+)
+
+# API constraint for query length
+FIAS_MAX_QUERY_LENGTH: Final[int] = int(os.getenv("FIAS_MAX_QUERY_LENGTH", "300"))

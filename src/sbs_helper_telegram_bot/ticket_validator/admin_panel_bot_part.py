@@ -94,7 +94,8 @@ RULE_TYPES = [
     'required_field',
     'format',
     'length',
-    'custom'
+    'custom',
+    'fias'
 ]
 
 
