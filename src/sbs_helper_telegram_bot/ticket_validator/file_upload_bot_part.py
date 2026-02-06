@@ -533,6 +533,9 @@ def get_file_validation_handler() -> ConversationHandler:
     ]
     exit_pattern = "^(" + "|".join([b.replace("(", "\\(").replace(")", "\\)") for b in exit_buttons]) + ")$"
     
+    # Build filter for exit buttons to exclude from WAITING_FOR_COLUMN state
+    exit_filter = filters.Regex(exit_pattern)
+    
     return ConversationHandler(
         entry_points=[
             CommandHandler("validate_file", validate_file_command),
@@ -545,7 +548,8 @@ def get_file_validation_handler() -> ConversationHandler:
                 MessageHandler(filters.Regex("^❌ Отмена$"), cancel_file_validation),
             ],
             WAITING_FOR_COLUMN: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, process_column_selection),
+                # Exclude menu buttons so they fall through to fallbacks
+                MessageHandler(filters.TEXT & ~filters.COMMAND & ~exit_filter, process_column_selection),
             ],
         },
         fallbacks=[
@@ -553,7 +557,7 @@ def get_file_validation_handler() -> ConversationHandler:
             # Any other command cancels
             MessageHandler(filters.COMMAND, cancel_on_menu_button),
             # Menu buttons cancel
-            MessageHandler(filters.Regex(exit_pattern), cancel_on_menu_button),
+            MessageHandler(exit_filter, cancel_on_menu_button),
         ],
         name="file_validation",
         persistent=False,
