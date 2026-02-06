@@ -871,13 +871,15 @@ def main() -> None:
     # Entry points include both /validate command and the menu button
     # Fallbacks include /cancel, any command, and menu buttons from the validator module
     menu_button_pattern = get_menu_button_regex_pattern()
+    # Exclude menu buttons from WAITING_FOR_TICKET state so they fall through to fallbacks
+    menu_button_filter = filters.Regex(menu_button_pattern)
     ticket_validator_handler = ConversationHandler(
         entry_points=[
             CommandHandler("validate", validate_ticket_command),
             MessageHandler(filters.Regex("^📋 Проверить заявку$"), validate_ticket_command)
         ],
         states={
-            WAITING_FOR_TICKET: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_ticket_text)]
+            WAITING_FOR_TICKET: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~menu_button_filter, process_ticket_text)]
         },
         fallbacks=[
             CommandHandler("cancel", cancel_validation),
@@ -886,7 +888,7 @@ def main() -> None:
             # Any other command cancels validation mode
             MessageHandler(filters.COMMAND, cancel_validation_on_menu),
             # Menu buttons from ticket_validator module cancel validation mode
-            MessageHandler(filters.Regex(menu_button_pattern), cancel_validation_on_menu)
+            MessageHandler(menu_button_filter, cancel_validation_on_menu)
         ]
     )
 
