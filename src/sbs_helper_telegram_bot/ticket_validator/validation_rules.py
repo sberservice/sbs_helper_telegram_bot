@@ -391,7 +391,7 @@ def create_validation_rule(rule_name: str, pattern: str, rule_type: str,
     Args:
         rule_name: Name of the rule
         pattern: Regex pattern or format specification
-        rule_type: Type of rule (regex, required_field, format, length, custom)
+        rule_type: Type of rule (regex, required_field, format, length, custom, fias)
         error_message: Error message to show when validation fails
         priority: Rule priority (higher = checked first)
         

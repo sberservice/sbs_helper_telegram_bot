@@ -4,10 +4,20 @@ Validation Logic Module
 Contains validation rules, validators, and result classes for ticket validation.
 """
 
+import logging
 import re
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from enum import Enum
+
+from . import settings
+from .fias_providers import (
+    get_fias_provider,
+    FiasProviderError,
+    FiasProviderRateLimitError,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class RuleType(Enum):
@@ -20,6 +30,7 @@ class RuleType(Enum):
     FORMAT = "format"
     LENGTH = "length"
     CUSTOM = "custom"
+    FIAS = "fias"
 
 
 @dataclass
@@ -314,6 +325,69 @@ def validate_length(ticket_text: str, length_spec: str) -> bool:
     return True
 
 
+def _extract_address_from_ticket(ticket_text: str, pattern: str) -> Optional[str]:
+    """
+    Extract address from ticket text using a regex pattern.
+
+    Args:
+        ticket_text: Full ticket text
+        pattern: Regex pattern with first capture group as address
+
+    Returns:
+        Extracted address or None
+    """
+    try:
+        match = re.search(
+            pattern,
+            ticket_text,
+            re.IGNORECASE | re.MULTILINE | re.UNICODE | re.DOTALL,
+        )
+    except re.error:
+        return None
+
+    if not match:
+        return None
+
+    address = (match.group(1) or "").strip()
+    return address or None
+
+
+def validate_fias(
+    ticket_text: str,
+    pattern: str,
+    provider_name: Optional[str] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validate address against a FIAS suggestions provider.
+
+    Args:
+        ticket_text: Full ticket text
+        pattern: Address extraction regex (first capture group). If empty, default is used.
+        provider_name: Optional provider override
+
+    Returns:
+        Tuple of (is_valid, detail)
+    """
+    address_pattern = pattern.strip() if pattern else ""
+    if not address_pattern:
+        address_pattern = settings.FIAS_ADDRESS_REGEX
+
+    address = _extract_address_from_ticket(ticket_text, address_pattern)
+    if not address:
+        return False, "address_not_found"
+
+    try:
+        provider = get_fias_provider(provider_name)
+        has_suggestions = provider.has_suggestions(address)
+        return has_suggestions, ("suggestions_found" if has_suggestions else "no_suggestions")
+    except FiasProviderRateLimitError as exc:
+        logger.warning("FIAS provider rate limit: %s", exc)
+        return False, f"rate_limited: {exc}"
+    except FiasProviderError as exc:
+        logger.error("FIAS provider error: %s", exc)
+        return False, f"provider_error: {exc}"
+
+
 def detect_ticket_type(
     ticket_text: str, 
     ticket_types: List[TicketType],
@@ -367,8 +441,8 @@ def detect_ticket_type(
             keyword_to_match = keyword[1:] if is_negative else keyword
             keyword_lower = keyword_to_match.lower()
             
-            # Check if keyword is present (count as 1 if present, 0 if not)
-            count = 1 if keyword_lower in ticket_text_lower else 0
+            # Count keyword occurrences for scoring and debug output
+            count = ticket_text_lower.count(keyword_lower)
             
             # Get weight for this keyword (default 1.0)
             # Priority: 1) keyword_weights parameter, 2) ticket_type.keyword_weights, 3) default 1.0
@@ -489,6 +563,10 @@ def validate_ticket(ticket_text: str, rules: List[ValidationRule],
             elif rule_type_value == 'custom':
                 # Custom validation could be extended in the future
                 is_valid = True
+            elif rule_type_value == 'fias':
+                is_valid, detail = validate_fias(ticket_text, rule.pattern)
+                if detail:
+                    validation_details[f"{rule.rule_name}_detail"] = detail
             else:
                 # Unknown rule type, skip it
                 continue
