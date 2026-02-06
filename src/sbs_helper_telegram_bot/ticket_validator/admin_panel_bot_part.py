@@ -86,7 +86,16 @@ logger = logging.getLogger(__name__)
 ) = range(24)
 
 # Rule types for selection
-RULE_TYPES = ['regex', 'regex_not_match', 'required_field', 'format', 'length', 'custom']
+RULE_TYPES = [
+    'regex',
+    'regex_not_match',
+    'regex_fullmatch',
+    'regex_not_fullmatch',
+    'required_field',
+    'format',
+    'length',
+    'custom'
+]
 
 
 def escape_markdown(text: str) -> str:
@@ -515,7 +524,7 @@ async def receive_rule_pattern(update: Update, context: ContextTypes.DEFAULT_TYP
     rule_type = context.user_data['new_rule'].get('type', 'regex')
     
     # Validate pattern if it's a regex
-    if rule_type == 'regex':
+    if rule_type in ['regex', 'regex_not_match', 'regex_fullmatch', 'regex_not_fullmatch']:
         is_valid, message = test_regex_pattern(text)
         if not is_valid:
             await update.message.reply_text(

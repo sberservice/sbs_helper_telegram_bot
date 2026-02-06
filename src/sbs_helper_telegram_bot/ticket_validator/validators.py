@@ -15,6 +15,7 @@ class RuleType(Enum):
     REGEX = "regex"
     REGEX_NOT_MATCH = "regex_not_match"
     REGEX_FULLMATCH = "regex_fullmatch"
+    REGEX_NOT_FULLMATCH = "regex_not_fullmatch"
     REQUIRED_FIELD = "required_field"
     FORMAT = "format"
     LENGTH = "length"
@@ -215,6 +216,24 @@ def validate_regex_fullmatch(ticket_text: str, pattern: str) -> bool:
     except re.error:
         # Invalid regex pattern
         return False
+
+
+def validate_regex_not_fullmatch(ticket_text: str, pattern: str) -> bool:
+    """
+    Validate ticket text against a regex pattern using fullmatch (negated).
+    
+    Args:
+        ticket_text: The ticket text to validate
+        pattern: Regex pattern that must NOT fully match the entire text
+        
+    Returns:
+        True if pattern does NOT match the entire text, False otherwise
+    """
+    try:
+        return not bool(re.fullmatch(pattern, ticket_text, re.IGNORECASE | re.MULTILINE | re.UNICODE | re.DOTALL))
+    except re.error:
+        # Invalid regex pattern - treat as not matching
+        return True
 
 
 def validate_required_field(ticket_text: str, field_name: str) -> bool:
@@ -459,6 +478,8 @@ def validate_ticket(ticket_text: str, rules: List[ValidationRule],
                 is_valid = validate_regex_not_match(ticket_text, rule.pattern)
             elif rule_type_value == 'regex_fullmatch':
                 is_valid = validate_regex_fullmatch(ticket_text, rule.pattern)
+            elif rule_type_value == 'regex_not_fullmatch':
+                is_valid = validate_regex_not_fullmatch(ticket_text, rule.pattern)
             elif rule_type_value == 'required_field':
                 is_valid = validate_required_field(ticket_text, rule.pattern)
             elif rule_type_value == 'format':

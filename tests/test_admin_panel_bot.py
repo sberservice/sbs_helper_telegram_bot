@@ -97,7 +97,16 @@ class TestRuleTypes(unittest.TestCase):
         """Test that all expected rule types are defined."""
         from src.sbs_helper_telegram_bot.ticket_validator.admin_panel_bot_part import RULE_TYPES
         
-        expected_types = ['regex', 'required_field', 'format', 'length', 'custom']
+        expected_types = [
+            'regex',
+            'regex_not_match',
+            'regex_fullmatch',
+            'regex_not_fullmatch',
+            'required_field',
+            'format',
+            'length',
+            'custom'
+        ]
         
         for rule_type in expected_types:
             self.assertIn(rule_type, RULE_TYPES)
@@ -106,7 +115,7 @@ class TestRuleTypes(unittest.TestCase):
         """Test that RULE_TYPES has correct number of types."""
         from src.sbs_helper_telegram_bot.ticket_validator.admin_panel_bot_part import RULE_TYPES
         
-        self.assertEqual(len(RULE_TYPES), 6)
+        self.assertEqual(len(RULE_TYPES), 8)
 
 
 class TestConversationStates(unittest.TestCase):
