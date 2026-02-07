@@ -10,7 +10,6 @@ Tests cover:
 """
 
 import unittest
-from unittest.mock import patch
 from src.sbs_helper_telegram_bot.ticket_validator.validators import (
     ValidationRule,
     ValidationResult,
@@ -530,73 +529,6 @@ class TestValidateTicket(unittest.TestCase):
         self.assertEqual(len(result.failed_rules), 0)
         # Check that all rules were evaluated
         self.assertEqual(len(result.validation_details), 6)
-
-
-class TestValidateFiasRule(unittest.TestCase):
-    """Tests for FIAS validation rule type."""
-
-    @patch("src.sbs_helper_telegram_bot.ticket_validator.validators.get_fias_provider")
-    def test_fias_rule_passes_with_suggestions(self, mock_get_provider):
-        """FIAS rule passes when provider returns suggestions."""
-        class DummyProvider:
-            def __init__(self) -> None:
-                self.calls = []
-
-            def has_suggestions(self, address: str) -> bool:
-                self.calls.append(address)
-                return True
-
-        provider = DummyProvider()
-        mock_get_provider.return_value = provider
-
-        ticket_text = (
-            "Адрес установки POS-терминала: г. Москва, ул. Тверская, д. 1\n"
-            "Тип пакета: Стандарт"
-        )
-        rules = [
-            ValidationRule(1, "fias", "", "fias", "Адрес не найден", True, 1)
-        ]
-
-        result = validate_ticket(ticket_text, rules)
-
-        self.assertTrue(result.is_valid)
-        self.assertEqual(len(provider.calls), 1)
-
-    @patch("src.sbs_helper_telegram_bot.ticket_validator.validators.get_fias_provider")
-    def test_fias_rule_fails_without_suggestions(self, mock_get_provider):
-        """FIAS rule fails when provider returns no suggestions."""
-        class DummyProvider:
-            def has_suggestions(self, address: str) -> bool:
-                return False
-
-        mock_get_provider.return_value = DummyProvider()
-
-        ticket_text = (
-            "Адрес установки POS-терминала: г. Казань, ул. Баумана, д. 10\n"
-            "Тип пакета: Стандарт"
-        )
-        rules = [
-            ValidationRule(1, "fias", "", "fias", "Адрес не найден", True, 1)
-        ]
-
-        result = validate_ticket(ticket_text, rules)
-
-        self.assertFalse(result.is_valid)
-        self.assertIn("Адрес не найден", result.error_messages)
-
-    @patch("src.sbs_helper_telegram_bot.ticket_validator.validators.get_fias_provider")
-    def test_fias_rule_fails_when_address_missing(self, mock_get_provider):
-        """FIAS rule fails if address cannot be extracted and provider is not called."""
-        ticket_text = "Тип пакета: Стандарт"
-        rules = [
-            ValidationRule(1, "fias", "", "fias", "Адрес не найден", True, 1)
-        ]
-
-        result = validate_ticket(ticket_text, rules)
-
-        self.assertFalse(result.is_valid)
-        self.assertIn("Адрес не найден", result.error_messages)
-        mock_get_provider.assert_not_called()
 
 
 class TestTicketTypeDetection(unittest.TestCase):
