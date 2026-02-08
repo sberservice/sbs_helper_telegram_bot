@@ -218,7 +218,10 @@ def clear_all_states(context: ContextTypes.DEFAULT_TYPE) -> None:
     from any stuck conversation state.
     """
     # Import module-specific context clearing functions
-    from src.sbs_helper_telegram_bot.certification.certification_bot_part import clear_test_context
+    from src.sbs_helper_telegram_bot.certification.certification_bot_part import (
+        clear_test_context,
+        clear_learning_context,
+    )
     from src.sbs_helper_telegram_bot.certification import settings as cert_settings
     from src.sbs_helper_telegram_bot.feedback import settings as feedback_settings
     from src.sbs_helper_telegram_bot.news import settings as news_settings
@@ -226,6 +229,7 @@ def clear_all_states(context: ContextTypes.DEFAULT_TYPE) -> None:
     
     # Clear certification module states
     clear_test_context(context)
+    clear_learning_context(context)
     # Clear certification admin states
     context.user_data.pop(cert_settings.ADMIN_NEW_QUESTION_DATA_KEY, None)
     context.user_data.pop(cert_settings.ADMIN_NEW_CATEGORY_DATA_KEY, None)

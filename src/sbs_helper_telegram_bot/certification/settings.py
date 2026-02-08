@@ -24,6 +24,7 @@ DEFAULT_RELEVANCE_MONTHS: Final[int] = 6  # Questions become outdated after this
 # Submenu button configuration for regular users
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["📝 Начать тест"],
+    ["🎓 Режим обучения"],
     ["📊 Мой рейтинг", "📜 История тестов"],
     ["🏆 Топ месяца"],
     ["🏠 Главное меню"]
@@ -32,6 +33,7 @@ SUBMENU_BUTTONS: Final[List[List[str]]] = [
 # Admin submenu (includes admin panel button)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["📝 Начать тест"],
+    ["🎓 Режим обучения"],
     ["📊 Мой рейтинг", "📜 История тестов"],
     ["🏆 Топ месяца"],
     ["⚙️ Управление", "🏠 Главное меню"]
@@ -65,6 +67,13 @@ CURRENT_QUESTION_INDEX_KEY: Final[str] = 'certification_current_question_index'
 TEST_QUESTIONS_KEY: Final[str] = 'certification_test_questions'
 TEST_START_TIME_KEY: Final[str] = 'certification_test_start_time'
 SELECTED_CATEGORY_KEY: Final[str] = 'certification_selected_category'
+
+# Learning mode user data keys
+LEARNING_IN_PROGRESS_KEY: Final[str] = 'certification_learning_in_progress'
+LEARNING_QUESTIONS_KEY: Final[str] = 'certification_learning_questions'
+LEARNING_CURRENT_QUESTION_INDEX_KEY: Final[str] = 'certification_learning_current_question_index'
+LEARNING_SELECTED_CATEGORY_KEY: Final[str] = 'certification_learning_selected_category'
+LEARNING_CORRECT_COUNT_KEY: Final[str] = 'certification_learning_correct_count'
 
 # Admin context keys
 ADMIN_EDITING_QUESTION_KEY: Final[str] = 'certification_admin_editing_question'
