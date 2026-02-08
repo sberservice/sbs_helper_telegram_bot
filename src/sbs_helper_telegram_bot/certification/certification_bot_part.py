@@ -1200,7 +1200,7 @@ def get_user_conversation_handler() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[
             MessageHandler(filters.Regex("^📝 Начать тест$"), start_test_command),
-            MessageHandler(filters.Regex("^🎓 Режим обучения$"), start_learning_command),
+            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_LEARNING_MODE)}$"), start_learning_command),
         ],
         states={
             SELECTING_CATEGORY: [
@@ -1245,11 +1245,11 @@ def get_menu_button_regex_pattern() -> str:
     """
     buttons = [
         BUTTON_MAIN_MENU,
-        "📊 Мой рейтинг",
-        "📜 История тестов",
-        "🏆 Топ месяца",
-        "🎓 Режим обучения",
-        "⚙️ Управление",
+        settings.BUTTON_MY_RANKING,
+        settings.BUTTON_TEST_HISTORY,
+        settings.BUTTON_MONTHLY_TOP,
+        settings.BUTTON_LEARNING_MODE,
+        settings.BUTTON_ADMIN_PANEL,
     ]
-    escaped_buttons = [b.replace("(", "\\(").replace(")", "\\)") for b in buttons]
+    escaped_buttons = [re.escape(b) for b in buttons]
     return "^(" + "|".join(escaped_buttons) + ")$"

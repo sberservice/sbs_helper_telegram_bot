@@ -9,6 +9,7 @@ import os
 import tempfile
 import asyncio
 import logging
+import re
 from typing import Optional
 
 from telegram import Update, Message
@@ -526,12 +527,12 @@ def get_file_validation_handler() -> ConversationHandler:
     # Build pattern for menu buttons that should exit the conversation
     exit_buttons = [
         BUTTON_MAIN_MENU,
-        "📋 Проверить заявку",
-        "ℹ️ Помощь по валидации",
-        "🔐 Админ панель",
-        "🧪 Тест шаблонов",
+        settings.BUTTON_VALIDATE_TICKET,
+        settings.BUTTON_HELP_VALIDATION,
+        settings.BUTTON_ADMIN_PANEL,
+        settings.BUTTON_TEST_TEMPLATES,
     ]
-    exit_pattern = "^(" + "|".join([b.replace("(", "\\(").replace(")", "\\)") for b in exit_buttons]) + ")$"
+    exit_pattern = "^(" + "|".join([re.escape(b) for b in exit_buttons]) + ")$"
     
     # Build filter for exit buttons to exclude from WAITING_FOR_COLUMN state
     exit_filter = filters.Regex(exit_pattern)
@@ -539,7 +540,7 @@ def get_file_validation_handler() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[
             CommandHandler("validate_file", validate_file_command),
-            MessageHandler(filters.Regex("^📁 Валидация файла$"), validate_file_command),
+            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_FILE_VALIDATION)}$"), validate_file_command),
         ],
         states={
             WAITING_FOR_FILE: [

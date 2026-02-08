@@ -21,6 +21,7 @@ Non-legitimate users are prompted to enter an invite code via text message.
 # pylint: disable=line-too-long
 
 import logging
+import re
 
 from telegram import Update, constants, BotCommand
 from telegram.error import TimedOut, NetworkError, BadRequest
@@ -76,10 +77,13 @@ from src.common.messages import (
 # Import module-specific messages, settings, and keyboards
 from src.sbs_helper_telegram_bot.ticket_validator import messages as validator_messages
 from src.sbs_helper_telegram_bot.ticket_validator import keyboards as validator_keyboards
+from src.sbs_helper_telegram_bot.ticket_validator import settings as validator_settings
 from src.sbs_helper_telegram_bot.vyezd_byl import messages as image_messages
 from src.sbs_helper_telegram_bot.vyezd_byl import keyboards as image_keyboards
+from src.sbs_helper_telegram_bot.vyezd_byl import settings as vyezd_settings
 from src.sbs_helper_telegram_bot.upos_error import messages as upos_messages
 from src.sbs_helper_telegram_bot.upos_error import keyboards as upos_keyboards
+from src.sbs_helper_telegram_bot.upos_error import settings as upos_settings
 
 from src.common.telegram_user import check_if_user_legit, check_if_invite_user_blocked, update_user_info_from_telegram
 from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import (
@@ -125,6 +129,7 @@ from src.sbs_helper_telegram_bot.upos_error.upos_error_bot_part import (
 # Import KTR module handlers
 from src.sbs_helper_telegram_bot.ktr import keyboards as ktr_keyboards
 from src.sbs_helper_telegram_bot.ktr import messages as ktr_messages
+from src.sbs_helper_telegram_bot.ktr import settings as ktr_settings
 from src.sbs_helper_telegram_bot.ktr.ktr_bot_part import (
     show_popular_codes as show_popular_ktr_codes,
     get_user_conversation_handler as get_ktr_user_handler,
@@ -134,6 +139,7 @@ from src.sbs_helper_telegram_bot.ktr.ktr_bot_part import (
 # Import certification module handlers
 from src.sbs_helper_telegram_bot.certification import keyboards as certification_keyboards
 from src.sbs_helper_telegram_bot.certification import messages as certification_messages
+from src.sbs_helper_telegram_bot.certification import settings as certification_settings
 from src.sbs_helper_telegram_bot.certification.certification_bot_part import (
     get_user_conversation_handler as get_certification_user_handler,
     certification_submenu as enter_certification_module,
@@ -682,12 +688,12 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
-    elif text == "📋 Проверить заявку":
+    elif text == validator_settings.BUTTON_VALIDATE_TICKET:
         await validate_ticket_command(update, _context)
-    elif text == "🧪 Тест шаблонов":
+    elif text == validator_settings.BUTTON_TEST_TEMPLATES:
         # Admin-only button for quick test template access
         await run_test_templates_command(update, _context)
-    elif text == "ℹ️ Помощь по валидации":
+    elif text == validator_settings.BUTTON_HELP_VALIDATION:
         await help_command(update, _context)
     elif text == BUTTON_MY_INVITES:
         await invite_command(update, _context)
@@ -697,18 +703,18 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_settings_menu_keyboard()
         )
-    elif text == BUTTON_SCREENSHOT or text == "📸 Отправить скриншот":
+    elif text == BUTTON_SCREENSHOT or text == vyezd_settings.BUTTON_SEND_SCREENSHOT:
         # These buttons are now handled by the screenshot ConversationHandler
         # This fallback is for safety, but normally the ConversationHandler will catch them
         return await enter_screenshot_module(update, _context)
-    elif text == "❓ Помощь по скриншотам":
+    elif text == vyezd_settings.BUTTON_SCREENSHOT_HELP:
         await update.message.reply_photo(
             ASSETS_DIR / "promo3.jpg",
             caption=image_messages.MESSAGE_INSTRUCTIONS,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=image_keyboards.get_submenu_keyboard()
         )
-    elif text == "🔐 Админ панель":
+    elif text == validator_settings.BUTTON_ADMIN_PANEL:
         # Show admin panel if user is admin
         if is_admin:
             await update.message.reply_text(
@@ -742,16 +748,16 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
-    elif text == "📊 Популярные ошибки":
+    elif text == upos_settings.BUTTON_POPULAR_ERRORS:
         await show_popular_errors(update, _context)
     elif text == BUTTON_CERTIFICATION:
         # Show certification module submenu (delegates to the module handler)
         await enter_certification_module(update, _context)
-    elif text == "📊 Мой рейтинг":
+    elif text == certification_settings.BUTTON_MY_RANKING:
         await show_my_ranking(update, _context)
-    elif text == "📜 История тестов":
+    elif text == certification_settings.BUTTON_TEST_HISTORY:
         await show_test_history(update, _context)
-    elif text == "🏆 Топ месяца":
+    elif text == certification_settings.BUTTON_MONTHLY_TOP:
         await show_monthly_top(update, _context)
     elif text == BUTTON_KTR:
         # Show KTR module submenu
@@ -764,9 +770,9 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
-    elif text == "📊 Популярные коды":
+    elif text == ktr_settings.BUTTON_POPULAR_CODES:
         await show_popular_ktr_codes(update, _context)
-    elif text == "🎖️ Достижения":
+    elif text == ktr_settings.BUTTON_ACHIEVEMENTS:
         # Show KTR achievements (handled by KTR module)
         from src.sbs_helper_telegram_bot.ktr.ktr_bot_part import show_ktr_achievements
         await show_ktr_achievements(update, _context)
@@ -880,7 +886,7 @@ def main() -> None:
     ticket_validator_handler = ConversationHandler(
         entry_points=[
             CommandHandler("validate", validate_ticket_command),
-            MessageHandler(filters.Regex("^📋 Проверить заявку$"), validate_ticket_command)
+            MessageHandler(filters.Regex(f"^{re.escape(validator_settings.BUTTON_VALIDATE_TICKET)}$"), validate_ticket_command)
         ],
         states={
             WAITING_FOR_TICKET: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~menu_button_filter, process_ticket_text)]
@@ -907,14 +913,14 @@ def main() -> None:
     screenshot_exit_pattern = get_menu_button_exit_pattern()
     screenshot_handler = ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex("^📸 Обработать скриншот$"), enter_screenshot_module),
-            MessageHandler(filters.Regex("^📸 Отправить скриншот$"), enter_screenshot_module)
+            MessageHandler(filters.Regex(f"^{re.escape(vyezd_settings.MENU_BUTTON_TEXT)}$"), enter_screenshot_module),
+            MessageHandler(filters.Regex(f"^{re.escape(vyezd_settings.BUTTON_SEND_SCREENSHOT)}$"), enter_screenshot_module)
         ],
         states={
             WAITING_FOR_SCREENSHOT: [
                 MessageHandler(filters.Document.IMAGE, handle_incoming_document),
                 # Help button shows help with photo
-                MessageHandler(filters.Regex("^❓ Помощь по скриншотам$"), show_screenshot_help),
+                MessageHandler(filters.Regex(f"^{re.escape(vyezd_settings.BUTTON_SCREENSHOT_HELP)}$"), show_screenshot_help),
                 # Menu buttons that should exit the module (must be before generic text handler)
                 MessageHandler(filters.Regex(screenshot_exit_pattern), cancel_screenshot_module),
                 # Handle wrong input: photo instead of document, or text

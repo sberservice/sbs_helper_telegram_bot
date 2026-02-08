@@ -17,39 +17,60 @@ MODULE_AUTHOR: Final[str] = "SberService"
 # Main menu button for this module
 MENU_BUTTON_TEXT: Final[str] = "🔢 UPOS Ошибки"
 
+# Submenu button texts
+BUTTON_FIND_ERROR: Final[str] = "🔍 Найти код ошибки"
+BUTTON_POPULAR_ERRORS: Final[str] = "📊 Популярные ошибки"
+BUTTON_ADMIN_PANEL: Final[str] = "🔐 Админ UPOS"
+BUTTON_ADMIN_BACK: Final[str] = "🔙 Админ UPOS"
+
+# Admin menu button texts
+BUTTON_ADMIN_LIST_ERRORS: Final[str] = "📋 Список ошибок"
+BUTTON_ADMIN_FIND_ERROR: Final[str] = "🔍 Найти ошибку"
+BUTTON_ADMIN_ADD_ERROR: Final[str] = "➕ Добавить ошибку"
+BUTTON_ADMIN_CATEGORIES: Final[str] = "📁 Категории"
+BUTTON_ADMIN_UNKNOWN: Final[str] = "❓ Неизвестные коды"
+BUTTON_ADMIN_STATS: Final[str] = "📈 Статистика"
+BUTTON_ADMIN_IMPORT_CSV: Final[str] = "📥 Импорт CSV"
+BUTTON_ADMIN_BACK_TO_UPOS: Final[str] = "🔙 Назад в UPOS"
+
+# Admin categories/errors management button texts
+BUTTON_ADMIN_ALL_CATEGORIES: Final[str] = "📋 Все категории"
+BUTTON_ADMIN_ADD_CATEGORY: Final[str] = "➕ Добавить категорию"
+BUTTON_ADMIN_ALL_ERRORS: Final[str] = "📋 Все ошибки"
+
 # Submenu button configuration (regular users)
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    ["🔍 Найти код ошибки"],
-    ["📊 Популярные ошибки"],
+    [BUTTON_FIND_ERROR],
+    [BUTTON_POPULAR_ERRORS],
     [BUTTON_MAIN_MENU]
 ]
 
 # Admin submenu (includes admin panel button)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    ["🔍 Найти код ошибки"],
-    ["📊 Популярные ошибки"],
-    ["🔐 Админ UPOS", BUTTON_MAIN_MENU]
+    [BUTTON_FIND_ERROR],
+    [BUTTON_POPULAR_ERRORS],
+    [BUTTON_ADMIN_PANEL, BUTTON_MAIN_MENU]
 ]
 
 # Admin panel menu buttons
 ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
-    ["📋 Список ошибок", "🔍 Найти ошибку"],
-    ["➕ Добавить ошибку", "📁 Категории"],
-    ["❓ Неизвестные коды", "📈 Статистика"],
-    ["📥 Импорт CSV", "🔙 Назад в UPOS"]
+    [BUTTON_ADMIN_LIST_ERRORS, BUTTON_ADMIN_FIND_ERROR],
+    [BUTTON_ADMIN_ADD_ERROR, BUTTON_ADMIN_CATEGORIES],
+    [BUTTON_ADMIN_UNKNOWN, BUTTON_ADMIN_STATS],
+    [BUTTON_ADMIN_IMPORT_CSV, BUTTON_ADMIN_BACK_TO_UPOS]
 ]
 
 # Admin categories management submenu
 ADMIN_CATEGORIES_BUTTONS: Final[List[List[str]]] = [
-    ["📋 Все категории", "➕ Добавить категорию"],
-    ["🔙 Админ UPOS", BUTTON_MAIN_MENU]
+    [BUTTON_ADMIN_ALL_CATEGORIES, BUTTON_ADMIN_ADD_CATEGORY],
+    [BUTTON_ADMIN_BACK, BUTTON_MAIN_MENU]
 ]
 
 # Admin error codes management submenu
 ADMIN_ERRORS_BUTTONS: Final[List[List[str]]] = [
-    ["📋 Все ошибки", "🔍 Найти ошибку"],
-    ["➕ Добавить ошибку"],
-    ["🔙 Админ UPOS", BUTTON_MAIN_MENU]
+    [BUTTON_ADMIN_ALL_ERRORS, BUTTON_ADMIN_FIND_ERROR],
+    [BUTTON_ADMIN_ADD_ERROR],
+    [BUTTON_ADMIN_BACK, BUTTON_MAIN_MENU]
 ]
 
 # Pagination settings

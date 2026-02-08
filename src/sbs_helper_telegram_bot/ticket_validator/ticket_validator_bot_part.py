@@ -10,7 +10,15 @@ from telegram import constants
 import logging
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
+from src.common.messages import (
+    MESSAGE_PLEASE_ENTER_INVITE,
+    BUTTON_MODULES,
+    BUTTON_SETTINGS,
+    BUTTON_UPOS_ERRORS,
+    BUTTON_SCREENSHOT,
+    BUTTON_MY_INVITES,
+    BUTTON_HELP,
+)
 
 # Import module-specific messages, settings, and keyboards
 from . import messages
@@ -476,15 +484,15 @@ def get_menu_button_regex_pattern() -> str:
         all_buttons.update(button_row)
     
     # Add main menu navigation buttons that should also exit the conversation
-    all_buttons.add("📦 Модули")
-    all_buttons.add("⚙️ Настройки")
-    all_buttons.add("🔢 UPOS Ошибки")
-    all_buttons.add("📸 Обработать скриншот")
-    all_buttons.add("🎫 Мои инвайты")
-    all_buttons.add("❓ Помощь")
+    all_buttons.add(BUTTON_MODULES)
+    all_buttons.add(BUTTON_SETTINGS)
+    all_buttons.add(BUTTON_UPOS_ERRORS)
+    all_buttons.add(BUTTON_SCREENSHOT)
+    all_buttons.add(BUTTON_MY_INVITES)
+    all_buttons.add(BUTTON_HELP)
     
     # Remove the validation button itself as it shouldn't cancel itself
-    all_buttons.discard("📋 Проверить заявку")
+    all_buttons.discard(validator_settings.BUTTON_VALIDATE_TICKET)
     
     # Escape special regex characters in button texts
     escaped_buttons = [re.escape(btn) for btn in all_buttons]

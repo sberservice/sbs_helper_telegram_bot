@@ -125,23 +125,23 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Handle admin menu button presses."""
     text = update.message.text
     
-    if text == "❓ Вопросы":
+    if text == settings.BUTTON_ADMIN_QUESTIONS:
         return await show_questions_list(update, context)
-    elif text == "📁 Категории":
+    elif text == settings.BUTTON_ADMIN_CATEGORIES:
         return await show_categories_list(update, context)
-    elif text == "⚠️ Устаревшие вопросы":
+    elif text == settings.BUTTON_ADMIN_OUTDATED:
         return await show_outdated_questions(update, context)
-    elif text == "📊 Статистика":
+    elif text == settings.BUTTON_ADMIN_STATS:
         return await show_statistics(update, context)
-    elif text == "⚙️ Настройки теста":
+    elif text == settings.BUTTON_ADMIN_SETTINGS:
         return await show_settings(update, context)
-    elif text == "📋 Все вопросы":
+    elif text == settings.BUTTON_ADMIN_ALL_QUESTIONS:
         # Handle from questions submenu
         return await show_questions_list(update, context)
-    elif text == "📋 Все категории":
+    elif text == settings.BUTTON_ADMIN_ALL_CATEGORIES:
         # Handle from categories submenu
         return await show_categories_list(update, context)
-    elif text == "🔙 Назад":
+    elif text == settings.BUTTON_ADMIN_BACK:
         # Go back to certification submenu
         if check_if_user_admin(update.effective_user.id):
             keyboard = keyboards.get_admin_submenu_keyboard()
@@ -154,7 +154,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=keyboard
         )
         return ConversationHandler.END
-    elif text == "🔙 Админ меню":
+    elif text == settings.BUTTON_ADMIN_MENU:
         # Go back to admin menu from questions/categories submenu
         await update.message.reply_text(
             get_admin_menu_text(),
@@ -1878,7 +1878,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
     """
     return ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex("^⚙️ Управление$"), admin_command),
+            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_PANEL)}$"), admin_command),
         ],
         states={
             ADMIN_MENU: [
@@ -1888,7 +1888,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             # Category states
             CAT_LIST: [
                 CallbackQueryHandler(admin_callback_handler, pattern="^cert_"),
-                MessageHandler(filters.Regex("^➕ Добавить категорию$"), create_category_start),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_ADD_CATEGORY)}$"), create_category_start),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
             ],
             CAT_VIEW: [
@@ -1917,9 +1917,9 @@ def get_admin_conversation_handler() -> ConversationHandler:
             # Question states
             Q_LIST: [
                 CallbackQueryHandler(admin_callback_handler, pattern="^cert_"),
-                MessageHandler(filters.Regex("^➕ Добавить вопрос$"), create_question_start),
-                MessageHandler(filters.Regex("^🔍 Найти вопрос$"), search_question_start),
-                MessageHandler(filters.Regex("^📂 Без категории$"), show_uncategorized_questions),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_ADD_QUESTION)}$"), create_question_start),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_SEARCH_QUESTION)}$"), search_question_start),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_NO_CATEGORY)}$"), show_uncategorized_questions),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
             ],
             Q_VIEW: [
@@ -2000,8 +2000,8 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CommandHandler("reset", cancel_admin),
             CommandHandler("menu", cancel_admin),
             MessageHandler(filters.Regex(f"^{re.escape(BUTTON_MAIN_MENU)}$"), cancel_admin),
-            MessageHandler(filters.Regex("^🔙 Назад$"), back_to_submenu),
-            MessageHandler(filters.Regex("^🔙 Админ меню$"), back_to_admin_menu),
+            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_BACK)}$"), back_to_submenu),
+            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_MENU)}$"), back_to_admin_menu),
             MessageHandler(filters.COMMAND, cancel_admin),  # Handle /start and other commands
         ],
         name="certification_admin",

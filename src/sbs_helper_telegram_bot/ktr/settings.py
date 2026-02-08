@@ -17,39 +17,61 @@ MODULE_AUTHOR: Final[str] = "SberService"
 # Main menu button for this module
 MENU_BUTTON_TEXT: Final[str] = "⏱️ КТР"
 
+# Submenu button texts
+BUTTON_FIND_CODE: Final[str] = "🔍 Найти код КТР"
+BUTTON_POPULAR_CODES: Final[str] = "📊 Популярные коды"
+BUTTON_ACHIEVEMENTS: Final[str] = "🎖️ Достижения"
+BUTTON_ADMIN_PANEL: Final[str] = "🔐 Админ КТР"
+BUTTON_ADMIN_BACK: Final[str] = "🔙 Админ КТР"
+
+# Admin menu button texts
+BUTTON_ADMIN_LIST_CODES: Final[str] = "📋 Список кодов"
+BUTTON_ADMIN_ADD_CODE: Final[str] = "➕ Добавить код"
+BUTTON_ADMIN_SEARCH_CODE: Final[str] = "🔍 Найти код"
+BUTTON_ADMIN_CATEGORIES: Final[str] = "📁 Категории"
+BUTTON_ADMIN_UNKNOWN_CODES: Final[str] = "❓ Неизвестные коды"
+BUTTON_ADMIN_STATS: Final[str] = "📈 Статистика"
+BUTTON_ADMIN_IMPORT_CSV: Final[str] = "📥 Импорт CSV"
+BUTTON_ADMIN_BACK_TO_KTR: Final[str] = "🔙 Назад в КТР"
+
+# Admin categories/codes submenu button texts
+BUTTON_ADMIN_ALL_CATEGORIES: Final[str] = "📋 Все категории"
+BUTTON_ADMIN_ADD_CATEGORY: Final[str] = "➕ Добавить категорию"
+BUTTON_ADMIN_ALL_CODES: Final[str] = "📋 Все коды"
+
 # Submenu button configuration (regular users)
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    ["🔍 Найти код КТР"],
-    ["📊 Популярные коды", "🎖️ Достижения"],
+    [BUTTON_FIND_CODE],
+    [BUTTON_POPULAR_CODES, BUTTON_ACHIEVEMENTS],
     [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin submenu (includes admin panel button)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    ["🔍 Найти код КТР"],
-    ["📊 Популярные коды", "🎖️ Достижения"],
-    ["🔐 Админ КТР", COMMON_BUTTON_MAIN_MENU]
+    [BUTTON_FIND_CODE],
+    [BUTTON_POPULAR_CODES, BUTTON_ACHIEVEMENTS],
+    [BUTTON_ADMIN_PANEL, COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin panel menu buttons
 ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
-    ["📋 Список кодов", "🔍 Найти код"],
-    ["➕ Добавить код", "📁 Категории"],
-    ["❓ Неизвестные коды", "📈 Статистика"],
-    ["📥 Импорт CSV", "🔙 Назад в КТР"]
+    [BUTTON_ADMIN_LIST_CODES, BUTTON_ADMIN_SEARCH_CODE],
+    [BUTTON_ADMIN_ADD_CODE, BUTTON_ADMIN_CATEGORIES],
+    [BUTTON_ADMIN_UNKNOWN_CODES, BUTTON_ADMIN_STATS],
+    [BUTTON_ADMIN_IMPORT_CSV, BUTTON_ADMIN_BACK_TO_KTR]
 ]
 
 # Admin categories management submenu
 ADMIN_CATEGORIES_BUTTONS: Final[List[List[str]]] = [
-    ["📋 Все категории", "➕ Добавить категорию"],
-    ["🔙 Админ КТР", COMMON_BUTTON_MAIN_MENU]
+    [BUTTON_ADMIN_ALL_CATEGORIES, BUTTON_ADMIN_ADD_CATEGORY],
+    [BUTTON_ADMIN_BACK, COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin KTR codes management submenu
 ADMIN_CODES_BUTTONS: Final[List[List[str]]] = [
-    ["📋 Все коды", "🔍 Найти код"],
-    ["➕ Добавить код"],
-    ["🔙 Админ КТР", COMMON_BUTTON_MAIN_MENU]
+    [BUTTON_ADMIN_ALL_CODES, BUTTON_ADMIN_SEARCH_CODE],
+    [BUTTON_ADMIN_ADD_CODE],
+    [BUTTON_ADMIN_BACK, COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Pagination settings

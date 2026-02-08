@@ -375,7 +375,7 @@ def get_csv_import_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
             ["❌ Отмена"],
-            ["🔙 Админ UPOS"]
+            [settings.BUTTON_ADMIN_BACK]
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
