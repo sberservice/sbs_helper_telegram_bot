@@ -9,6 +9,7 @@ Telegram handlers for admin functionality:
 
 import logging
 import time
+import re
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 from typing import Optional
@@ -24,7 +25,12 @@ from telegram.ext import (
 )
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_keyboard
+from src.common.messages import (
+    MESSAGE_PLEASE_ENTER_INVITE,
+    get_main_menu_keyboard,
+    get_main_menu_message,
+    BUTTON_MAIN_MENU,
+)
 
 from . import settings
 from . import messages
@@ -156,10 +162,10 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=keyboards.get_admin_menu_keyboard()
         )
         return ADMIN_MENU
-    elif text == "🏠 Главное меню":
+    elif text == BUTTON_MAIN_MENU:
         is_admin = check_if_user_admin(update.effective_user.id)
         await update.message.reply_text(
-            messages.MESSAGE_CANCELLED,
+            get_main_menu_message(update.effective_user.id, update.effective_user.first_name),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_main_menu_keyboard(is_admin=is_admin)
         )
@@ -1802,11 +1808,18 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     context.user_data.pop('cert_search_query', None)
     
     is_admin = check_if_user_admin(update.effective_user.id)
-    await update.message.reply_text(
-        messages.MESSAGE_CANCELLED,
-        parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=get_main_menu_keyboard(is_admin=is_admin)
-    )
+    if update.message and update.message.text == BUTTON_MAIN_MENU:
+        await update.message.reply_text(
+            get_main_menu_message(update.effective_user.id, update.effective_user.first_name),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+        )
+    else:
+        await update.message.reply_text(
+            messages.MESSAGE_CANCELLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+        )
     
     return ConversationHandler.END
 
@@ -1986,7 +1999,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CommandHandler("cancel", cancel_admin),
             CommandHandler("reset", cancel_admin),
             CommandHandler("menu", cancel_admin),
-            MessageHandler(filters.Regex("^🏠 Главное меню$"), cancel_admin),
+            MessageHandler(filters.Regex(f"^{re.escape(BUTTON_MAIN_MENU)}$"), cancel_admin),
             MessageHandler(filters.Regex("^🔙 Назад$"), back_to_submenu),
             MessageHandler(filters.Regex("^🔙 Админ меню$"), back_to_admin_menu),
             MessageHandler(filters.COMMAND, cancel_admin),  # Handle /start and other commands

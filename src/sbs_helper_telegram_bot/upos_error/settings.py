@@ -6,6 +6,8 @@ Module-specific configuration settings for UPOS error code lookup.
 
 from typing import Final, List
 
+from src.common.messages import BUTTON_MAIN_MENU
+
 # Module metadata
 MODULE_NAME: Final[str] = "UPOS Ошибки"
 MODULE_DESCRIPTION: Final[str] = "Поиск кодов ошибок UPOS и рекомендаций по их устранению"
@@ -19,14 +21,14 @@ MENU_BUTTON_TEXT: Final[str] = "🔢 UPOS Ошибки"
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["🔍 Найти код ошибки"],
     ["📊 Популярные ошибки"],
-    ["🏠 Главное меню"]
+    [BUTTON_MAIN_MENU]
 ]
 
 # Admin submenu (includes admin panel button)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["🔍 Найти код ошибки"],
     ["📊 Популярные ошибки"],
-    ["🔐 Админ UPOS", "🏠 Главное меню"]
+    ["🔐 Админ UPOS", BUTTON_MAIN_MENU]
 ]
 
 # Admin panel menu buttons
@@ -40,14 +42,14 @@ ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
 # Admin categories management submenu
 ADMIN_CATEGORIES_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все категории", "➕ Добавить категорию"],
-    ["🔙 Админ UPOS", "🏠 Главное меню"]
+    ["🔙 Админ UPOS", BUTTON_MAIN_MENU]
 ]
 
 # Admin error codes management submenu
 ADMIN_ERRORS_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все ошибки", "🔍 Найти ошибку"],
     ["➕ Добавить ошибку"],
-    ["🔙 Админ UPOS", "🏠 Главное меню"]
+    ["🔙 Админ UPOS", BUTTON_MAIN_MENU]
 ]
 
 # Pagination settings

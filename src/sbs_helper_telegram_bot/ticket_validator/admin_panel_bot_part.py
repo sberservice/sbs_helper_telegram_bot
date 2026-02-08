@@ -6,6 +6,7 @@ ticket types, rule-type associations, and test templates.
 """
 
 import logging
+import re
 from telegram import Update, constants, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes, 
@@ -17,7 +18,12 @@ from telegram.ext import (
 )
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_message, get_main_menu_keyboard
+from src.common.messages import (
+    MESSAGE_PLEASE_ENTER_INVITE,
+    get_main_menu_message,
+    get_main_menu_keyboard,
+    BUTTON_MAIN_MENU,
+)
 
 # Import module-specific messages and keyboards
 from . import messages
@@ -169,7 +175,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=get_admin_menu_keyboard()
         )
         return ADMIN_MENU
-    elif text == "🏠 Главное меню":
+    elif text == BUTTON_MAIN_MENU:
         await update.message.reply_text(
             get_main_menu_message(update.effective_user.id, update.effective_user.first_name),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -459,7 +465,7 @@ async def receive_rule_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Receive rule name from user."""
     text = update.message.text
     
-    if text in ["🏠 Главное меню", "🔙 Админ меню"]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     if len(text) < 3:
@@ -516,7 +522,7 @@ async def receive_rule_pattern(update: Update, context: ContextTypes.DEFAULT_TYP
     """Receive rule pattern from user."""
     text = update.message.text
     
-    if text in ["🏠 Главное меню", "🔙 Админ меню"]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     rule_type = context.user_data['new_rule'].get('type', 'regex')
@@ -544,7 +550,7 @@ async def receive_rule_error_msg(update: Update, context: ContextTypes.DEFAULT_T
     """Receive error message from user."""
     text = update.message.text
     
-    if text in ["🏠 Главное меню", "🔙 Админ меню"]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     if len(text) < 5:
@@ -567,7 +573,7 @@ async def receive_rule_priority(update: Update, context: ContextTypes.DEFAULT_TY
     """Receive priority and create the rule."""
     text = update.message.text
     
-    if text in ["🏠 Главное меню", "🔙 Админ меню"]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     try:
@@ -891,7 +897,7 @@ async def receive_test_pattern(update: Update, context: ContextTypes.DEFAULT_TYP
     """Receive regex pattern for testing."""
     text = update.message.text
     
-    if text in ["🏠 Главное меню", "🔙 Админ меню"]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     # Validate the pattern first
@@ -917,7 +923,7 @@ async def receive_test_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Receive test text and show results."""
     text = update.message.text
     
-    if text in ["🏠 Главное меню", "🔙 Админ меню"]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     pattern = context.user_data.get('test_pattern', '')
@@ -1533,7 +1539,7 @@ async def receive_template_name(update: Update, context: ContextTypes.DEFAULT_TY
     """Receive template name."""
     text = update.message.text
     
-    if text in ["🏠 Главное меню", "🔙 Админ меню"]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     context.user_data['new_template']['name'] = text
@@ -1549,7 +1555,7 @@ async def receive_template_text(update: Update, context: ContextTypes.DEFAULT_TY
     """Receive template text (sample ticket)."""
     text = update.message.text
     
-    if text in ["🏠 Главное меню", "🔙 Админ меню"]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     context.user_data['new_template']['text'] = text
@@ -1565,7 +1571,7 @@ async def receive_template_desc(update: Update, context: ContextTypes.DEFAULT_TY
     """Receive template description."""
     text = update.message.text
     
-    if text in ["🏠 Главное меню", "🔙 Админ меню"]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     context.user_data['new_template']['description'] = text
@@ -1633,7 +1639,7 @@ async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, text
     context.user_data.pop('new_template', None)
     context.user_data.pop('manage_template_id', None)
     
-    if text == "🏠 Главное меню":
+    if text == BUTTON_MAIN_MENU:
         await update.message.reply_text(
             get_main_menu_message(update.effective_user.id, update.effective_user.first_name),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -1659,11 +1665,18 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     context.user_data.pop('new_template', None)
     context.user_data.pop('manage_template_id', None)
     
-    await update.message.reply_text(
-        messages.MESSAGE_ADMIN_OPERATION_CANCELLED,
-        parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=get_main_menu_keyboard()
-    )
+    if update.message and update.message.text == BUTTON_MAIN_MENU:
+        await update.message.reply_text(
+            get_main_menu_message(update.effective_user.id, update.effective_user.first_name),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_main_menu_keyboard(is_admin=check_if_user_admin(update.effective_user.id))
+        )
+    else:
+        await update.message.reply_text(
+            messages.MESSAGE_ADMIN_OPERATION_CANCELLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_main_menu_keyboard(is_admin=check_if_user_admin(update.effective_user.id))
+        )
     return ConversationHandler.END
 
 
@@ -1766,7 +1779,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CommandHandler("cancel", cancel_admin),
             CommandHandler("reset", cancel_admin),
             CommandHandler("menu", cancel_admin),
-            MessageHandler(filters.Regex("^🏠 Главное меню$"), cancel_admin),
+            MessageHandler(filters.Regex(f"^{re.escape(BUTTON_MAIN_MENU)}$"), cancel_admin),
             MessageHandler(filters.COMMAND, cancel_admin),  # Handle /start and other commands
         ],
         name="admin_panel",

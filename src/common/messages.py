@@ -53,8 +53,13 @@ COMMAND_DESC_START = "Начать работу с ботом"
 COMMAND_DESC_MENU = "Показать главное меню"
 COMMAND_DESC_HELP = "Показать справку"
 
+# Main menu labels
+BUTTON_MAIN_MENU_TEXT = "Главное меню"
+BUTTON_MAIN_MENU_ICON = "🏠"
+BUTTON_MAIN_MENU = f"{BUTTON_MAIN_MENU_ICON} {BUTTON_MAIN_MENU_TEXT}"
+
 # Main menu messages
-MESSAGE_MAIN_MENU = "🏠 *Главное меню*\n\nВыберите действие из меню:"
+MESSAGE_MAIN_MENU = f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\nВыберите действие из меню:"
 MESSAGE_UNRECOGNIZED_INPUT = "🤔 Не понял вашу команду\\.\n\n*Используйте:*\n• Кнопки меню ниже\n• Команды бота \\(/menu, /validate\\)\n• Или /help для справки"
 
 
@@ -91,7 +96,7 @@ def _format_main_menu_message(
     safe_next = _escape_markdown_v2(next_rank_name) if next_rank_name else None
 
     message = (
-        "🏠 *Главное меню*\n\n"
+        f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\n"
         f"С возвращением, *{safe_name}*\\!\n\n"
         f"{rank_icon} *Ранг:* *{safe_rank}*\n"
         f"⭐ *Очки:* *{total_score}*\n"
@@ -139,7 +144,7 @@ def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str
         profile = gamification_logic.get_user_profile(user_id)
         if not profile:
             safe_name = _escape_markdown_v2(display_name)
-            base = f"🏠 *Главное меню*\n\nС возвращением, *{safe_name}*\\!"
+            base = f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\nС возвращением, *{safe_name}*\\!"
             if cert_stats and cert_stats.get('total_tests'):
                 last_score = cert_stats.get('last_test_score')
                 if last_score is not None:
@@ -214,7 +219,6 @@ MESSAGE_MODULES_MENU = "⚡ *Функции бота*\n\nВыберите мод
 # Button labels for main menu
 BUTTON_MODULES = "⚡ Начать работу"
 BUTTON_SETTINGS = "⚙️ Настройки"
-BUTTON_MAIN_MENU = "🏠 Главное меню"
 BUTTON_MY_INVITES = "🎫 Мои инвайты"
 BUTTON_HELP = "❓ Помощь"
 BUTTON_BOT_ADMIN = "🛠️ Админ бота"

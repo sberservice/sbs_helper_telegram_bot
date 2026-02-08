@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from src.common.telegram_user import check_if_user_legit, update_user_info_from_telegram
 
 import src.common.database as database
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_keyboard
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_keyboard, BUTTON_MAIN_MENU
 from src.common.constants.os import IMAGES_DIR
 import logging
 from pathlib import Path  
@@ -246,7 +246,7 @@ def get_menu_button_exit_pattern() -> str:
     import re
     # Buttons that should exit the screenshot module
     exit_buttons = [
-        "🏠 Главное меню",
+        BUTTON_MAIN_MENU,
         "📦 Модули",
         "⚙️ Настройки",
         "✅ Валидация заявок",

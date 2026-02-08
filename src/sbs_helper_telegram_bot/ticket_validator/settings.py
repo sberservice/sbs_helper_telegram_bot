@@ -6,6 +6,8 @@ Module-specific configuration settings for ticket validation.
 
 from typing import Final, List
 
+from src.common.messages import BUTTON_MAIN_MENU as COMMON_BUTTON_MAIN_MENU
+
 # Module metadata
 MODULE_NAME: Final[str] = "Валидация заявок"
 MODULE_DESCRIPTION: Final[str] = "Проверка заявок на соответствие требованиям"
@@ -19,14 +21,14 @@ MENU_BUTTON_TEXT: Final[str] = "✅ Валидация заявок"
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["📋 Проверить заявку", "📁 Валидация файла"],
     ["ℹ️ Помощь по валидации"],
-    ["🏠 Главное меню"]
+    [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin submenu (includes admin panel and test templates buttons)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["📋 Проверить заявку", "📁 Валидация файла"],
     ["🧪 Тест шаблонов", "ℹ️ Помощь по валидации"],
-    ["🔐 Админ панель", "🏠 Главное меню"]
+    ["🔐 Админ панель", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin panel menu buttons
@@ -34,21 +36,21 @@ ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     ["📋 Список правил", "➕ Создать правило"],
     ["📁 Типы заявок", "🧪 Тест шаблоны"],
     [" Тест regex"],
-    ["🏠 Главное меню"]
+    [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin rules management submenu
 ADMIN_RULES_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все правила", "🔍 Найти правило"],
     ["➕ Создать правило", "🔬 Тест regex"],
-    ["🔙 Админ меню", "🏠 Главное меню"]
+    ["🔙 Админ меню", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin test templates management submenu
 ADMIN_TEMPLATES_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все шаблоны", "➕ Создать шаблон"],
     ["▶️ Запустить все тесты"],
-    ["🔙 Админ меню", "🏠 Главное меню"]
+    ["🔙 Админ меню", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # User data keys

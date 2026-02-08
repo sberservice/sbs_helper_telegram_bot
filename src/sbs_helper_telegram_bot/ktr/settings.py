@@ -6,6 +6,8 @@ Module-specific configuration settings for KTR (Коэффициент Труд�
 
 from typing import Final, List
 
+from src.common.messages import BUTTON_MAIN_MENU as COMMON_BUTTON_MAIN_MENU
+
 # Module metadata
 MODULE_NAME: Final[str] = "КТР"
 MODULE_DESCRIPTION: Final[str] = "Поиск кодов КТР и значений трудозатрат в минутах"
@@ -19,14 +21,14 @@ MENU_BUTTON_TEXT: Final[str] = "⏱️ КТР"
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["🔍 Найти код КТР"],
     ["📊 Популярные коды", "🎖️ Достижения"],
-    ["🏠 Главное меню"]
+    [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin submenu (includes admin panel button)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["🔍 Найти код КТР"],
     ["📊 Популярные коды", "🎖️ Достижения"],
-    ["🔐 Админ КТР", "🏠 Главное меню"]
+    ["🔐 Админ КТР", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin panel menu buttons
@@ -40,14 +42,14 @@ ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
 # Admin categories management submenu
 ADMIN_CATEGORIES_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все категории", "➕ Добавить категорию"],
-    ["🔙 Админ КТР", "🏠 Главное меню"]
+    ["🔙 Админ КТР", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin KTR codes management submenu
 ADMIN_CODES_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все коды", "🔍 Найти код"],
     ["➕ Добавить код"],
-    ["🔙 Админ КТР", "🏠 Главное меню"]
+    ["🔙 Админ КТР", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Pagination settings

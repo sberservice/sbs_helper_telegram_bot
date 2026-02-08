@@ -6,6 +6,8 @@ Configuration settings for bot-wide administration.
 
 from typing import Final, List
 
+from src.common.messages import BUTTON_MAIN_MENU as COMMON_BUTTON_MAIN_MENU
+
 # Module metadata
 MODULE_NAME: Final[str] = "Администрирование бота"
 MODULE_DESCRIPTION: Final[str] = "Управление пользователями и настройками бота"
@@ -19,7 +21,7 @@ ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     ["➕ Ручные пользователи"],
     ["📊 Статистика", "🎫 Инвайты"],
     ["⚙️ Настройки бота"],
-    ["🏠 Главное меню"]
+    [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # User management submenu
@@ -27,47 +29,47 @@ USER_MANAGEMENT_BUTTONS: Final[List[List[str]]] = [
     ["📋 Список пользователей"],
     ["🔍 Поиск пользователя"],
     ["👑 Список админов"],
-    ["🔙 Админ бота", "🏠 Главное меню"]
+    ["🔙 Админ бота", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Pre-invite management submenu
 PREINVITE_BUTTONS: Final[List[List[str]]] = [
     ["📋 Список пре-инвайтов"],
     ["➕ Добавить пользователя"],
-    ["🔙 Админ бота", "🏠 Главное меню"]
+    ["🔙 Админ бота", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Manual users management submenu
 MANUAL_USERS_BUTTONS: Final[List[List[str]]] = [
     ["📋 Список ручных пользователей"],
     ["➕ Добавить ручного пользователя"],
-    ["🔙 Админ бота", "🏠 Главное меню"]
+    ["🔙 Админ бота", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Statistics submenu
 STATISTICS_BUTTONS: Final[List[List[str]]] = [
     ["📈 Общая статистика"],
     ["📅 Статистика за период"],
-    ["🔙 Админ бота", "🏠 Главное меню"]
+    ["🔙 Админ бота", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Invite management submenu
 INVITE_MANAGEMENT_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все инвайты"],
     ["🎁 Выдать инвайты"],
-    ["🔙 Админ бота", "🏠 Главное меню"]
+    ["🔙 Админ бота", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Bot settings submenu
 BOT_SETTINGS_BUTTONS: Final[List[List[str]]] = [
     ["🔐 Инвайт-система"],
     ["🧩 Модули"],
-    ["🔙 Админ бота", "🏠 Главное меню"]
+    ["🔙 Админ бота", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Modules management submenu
 MODULES_MANAGEMENT_BUTTONS: Final[List[List[str]]] = [
-    ["🔙 Настройки бота", "🏠 Главное меню"]
+    ["🔙 Настройки бота", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Pagination settings

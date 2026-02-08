@@ -10,6 +10,7 @@ import csv
 import io
 import logging
 import math
+import re
 from typing import Optional, List, Tuple
 from dataclasses import dataclass
 
@@ -25,7 +26,12 @@ from telegram.ext import (
 
 import src.common.database as database
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_message, get_main_menu_keyboard
+from src.common.messages import (
+    MESSAGE_PLEASE_ENTER_INVITE,
+    get_main_menu_message,
+    get_main_menu_keyboard,
+    BUTTON_MAIN_MENU,
+)
 
 from . import messages
 from . import keyboards
@@ -787,7 +793,7 @@ async def cancel_search_on_menu(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = update.effective_user.id
     is_admin = check_if_user_admin(user_id)
     
-    if text == "🏠 Главное меню":
+    if text == BUTTON_MAIN_MENU:
         await update.message.reply_text(
             get_main_menu_message(user_id, update.effective_user.first_name),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -849,7 +855,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=keyboard
         )
         return ConversationHandler.END
-    elif text == "🏠 Главное меню":
+    elif text == BUTTON_MAIN_MENU:
         await update.message.reply_text(
             get_main_menu_message(update.effective_user.id, update.effective_user.first_name),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -1920,7 +1926,7 @@ def get_menu_button_regex_pattern() -> str:
     # Add main navigation and other module buttons to properly end conversation when switching
     # These buttons indicate user wants to leave UPOS module
     other_module_buttons = [
-        "🏠 Главное меню",
+        BUTTON_MAIN_MENU,
         "📦 Модули",
         "⚙️ Настройки",
         "📋 Проверить заявку",  # Ticket validator
@@ -2048,7 +2054,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CommandHandler("cancel", cancel_search),
             CommandHandler("reset", cancel_search_on_menu),
             CommandHandler("menu", cancel_search_on_menu),
-            MessageHandler(filters.Regex("^🏠 Главное меню$"), cancel_search_on_menu),
+            MessageHandler(filters.Regex(f"^{re.escape(BUTTON_MAIN_MENU)}$"), cancel_search_on_menu),
             MessageHandler(filters.Regex("^🔙 Назад в UPOS$"), enter_upos_module),
             MessageHandler(filters.COMMAND, cancel_search_on_menu),  # Handle /start and other commands
         ]

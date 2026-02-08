@@ -6,6 +6,8 @@ Module-specific configuration settings for the gamification/achievement system.
 
 from typing import Final, List, Dict
 
+from src.common.messages import BUTTON_MAIN_MENU as COMMON_BUTTON_MAIN_MENU
+
 # Module metadata
 MODULE_NAME: Final[str] = "Геймификация"
 MODULE_DESCRIPTION: Final[str] = "Система достижений, рейтингов и цифровых профилей пользователей"
@@ -19,14 +21,14 @@ MENU_BUTTON_TEXT: Final[str] = "🏆 Достижения"
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["👤 Мой профиль"],
     ["🎖️ Мои достижения", "📊 Рейтинги"],
-    ["🏠 Главное меню"]
+    [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin submenu (includes admin panel button)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["👤 Мой профиль"],
     ["🎖️ Мои достижения", "📊 Рейтинги"],
-    ["🔐 Админ профилей", "🏠 Главное меню"]
+    ["🔐 Админ профилей", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin panel menu buttons
@@ -49,7 +51,7 @@ BUTTON_RANKINGS: Final[str] = "📊 Рейтинги"
 BUTTON_ADMIN_PANEL: Final[str] = "🔐 Админ профилей"
 BUTTON_BACK_TO_PROFILE: Final[str] = "🔙 Назад в профиль"
 BUTTON_BACK_TO_RANKING: Final[str] = "🔙 Назад к рейтингу"
-BUTTON_MAIN_MENU: Final[str] = "🏠 Главное меню"
+BUTTON_MAIN_MENU: Final[str] = COMMON_BUTTON_MAIN_MENU
 
 # Admin buttons
 BUTTON_ADMIN_FIND_PROFILE: Final[str] = "🔍 Найти профиль"
