@@ -727,6 +727,10 @@ async def handle_learning_next_question(update: Update, context: ContextTypes.DE
         return ConversationHandler.END
 
     await send_learning_question(update, context, is_callback=True)
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
     return LEARNING_ANSWERING_QUESTION
 
 
