@@ -139,9 +139,8 @@ def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str
         from src.sbs_helper_telegram_bot.gamification import gamification_logic
         from src.sbs_helper_telegram_bot.certification import certification_logic
 
-        gamification_logic.ensure_user_totals_exist(user_id)
-        cert_stats = certification_logic.get_user_stats(user_id)
-        profile = gamification_logic.get_user_profile(user_id)
+        cert_stats = certification_logic.get_user_stats_light(user_id)
+        profile = gamification_logic.get_user_main_menu_profile(user_id)
         if not profile:
             safe_name = _escape_markdown_v2(display_name)
             base = f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\nС возвращением, *{safe_name}*\\!"

@@ -1155,6 +1155,54 @@ def get_user_stats(userid: int) -> Optional[Dict]:
         return None
 
 
+def get_user_stats_light(userid: int) -> Optional[Dict]:
+    """
+    Get lightweight user stats for main menu (single query).
+
+    Args:
+        userid: Telegram user ID
+
+    Returns:
+        Dict with stats or None
+    """
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        COUNT(*) as total_tests,
+                        SUM(CASE WHEN passed = 1 THEN 1 ELSE 0 END) as passed_tests,
+                        MAX(score_percent) as best_score,
+                        MAX(completed_timestamp) as last_test_timestamp,
+                        (
+                            SELECT a2.score_percent
+                            FROM certification_attempts a2
+                            WHERE a2.userid = %s AND a2.status IN ('completed', 'expired')
+                            ORDER BY a2.completed_timestamp DESC
+                            LIMIT 1
+                        ) as last_test_score
+                    FROM certification_attempts a
+                    WHERE a.userid = %s AND a.status IN ('completed', 'expired')
+                    """,
+                    (userid, userid)
+                )
+                result = cursor.fetchone()
+
+                if result and result['total_tests'] > 0:
+                    return {
+                        'total_tests': result['total_tests'],
+                        'passed_tests': result['passed_tests'] or 0,
+                        'best_score': float(result['best_score']) if result['best_score'] else 0,
+                        'last_test_timestamp': result['last_test_timestamp'],
+                        'last_test_score': float(result['last_test_score']) if result['last_test_score'] else None
+                    }
+                return None
+    except Exception as e:
+        logger.error(f"Error getting lightweight user stats: {e}")
+        return None
+
+
 def get_monthly_ranking(
     year: int = None,
     month: int = None,
