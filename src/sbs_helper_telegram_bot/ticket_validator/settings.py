@@ -66,3 +66,9 @@ SUPPORTED_FILE_EXTENSIONS: Final[List[str]] = ['.xls', '.xlsx']
 FILE_UPLOAD_BUTTONS: Final[List[List[str]]] = [
     ["❌ Отмена"]
 ]
+
+# FIAS address validation settings
+# Provider to use for FIAS checks: "dadata" (default) or a custom provider
+FIAS_PROVIDER: Final[str] = "dadata"
+# Default regex pattern to extract the address from ticket text
+FIAS_DEFAULT_ADDRESS_PATTERN: Final[str] = r"Адрес установки POS-терминала:\s*([\s\S]*?)(?=Тип пакета:|$)"
