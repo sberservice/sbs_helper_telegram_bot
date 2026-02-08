@@ -31,11 +31,23 @@ from src.common.messages import (
     get_main_menu_message,
     get_main_menu_keyboard,
     BUTTON_MAIN_MENU,
+    BUTTON_MODULES,
+    BUTTON_SETTINGS,
+    BUTTON_VALIDATE_TICKET,
+    BUTTON_SCREENSHOT,
+    BUTTON_CERTIFICATION,
+    BUTTON_KTR,
+    BUTTON_FEEDBACK,
+    BUTTON_PROFILE,
+    BUTTON_MY_INVITES,
+    BUTTON_HELP,
+    BUTTON_BOT_ADMIN,
 )
 
 from . import messages
 from . import keyboards
 from . import settings
+from src.sbs_helper_telegram_bot.ticket_validator import settings as validator_settings
 
 logger = logging.getLogger(__name__)
 
@@ -830,21 +842,21 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """
     text = update.message.text
     
-    if text == "📋 Список ошибок":
+    if text == settings.BUTTON_ADMIN_LIST_ERRORS:
         return await admin_show_errors_list(update, context)
-    elif text == "➕ Добавить ошибку":
+    elif text == settings.BUTTON_ADMIN_ADD_ERROR:
         return await admin_start_add_error(update, context)
-    elif text == "🔍 Найти ошибку":
+    elif text == settings.BUTTON_ADMIN_FIND_ERROR:
         return await admin_start_search_error(update, context)
-    elif text == "📁 Категории":
+    elif text == settings.BUTTON_ADMIN_CATEGORIES:
         return await admin_show_categories(update, context)
-    elif text == "❓ Неизвестные коды":
+    elif text == settings.BUTTON_ADMIN_UNKNOWN:
         return await admin_show_unknown_codes(update, context)
-    elif text == "📈 Статистика":
+    elif text == settings.BUTTON_ADMIN_STATS:
         return await admin_show_statistics(update, context)
-    elif text == "📥 Импорт CSV":
+    elif text == settings.BUTTON_ADMIN_IMPORT_CSV:
         return await admin_start_csv_import(update, context)
-    elif text == "🔙 Назад в UPOS":
+    elif text == settings.BUTTON_ADMIN_BACK_TO_UPOS:
         if check_if_user_admin(update.effective_user.id):
             keyboard = keyboards.get_admin_submenu_keyboard()
         else:
@@ -1927,18 +1939,18 @@ def get_menu_button_regex_pattern() -> str:
     # These buttons indicate user wants to leave UPOS module
     other_module_buttons = [
         BUTTON_MAIN_MENU,
-        "📦 Модули",
-        "⚙️ Настройки",
-        "📋 Проверить заявку",  # Ticket validator
-        "✅ Валидация заявок",  # Ticket validator module entry
-        "📸 Обработать скриншот",  # Screenshot module
-        "📝 Аттестация",  # Certification module
-        "⏱️ КТР",  # KTR module
-        "📬 Обратная связь",  # Feedback module
-        "🏆 Достижения",  # Gamification/Profile module
-        "🎫 Мои инвайты",
-        "❓ Помощь",
-        "🛠️ Админ бота",
+        BUTTON_MODULES,
+        BUTTON_SETTINGS,
+        BUTTON_VALIDATE_TICKET,
+        BUTTON_SCREENSHOT,
+        BUTTON_CERTIFICATION,
+        BUTTON_KTR,
+        BUTTON_FEEDBACK,
+        BUTTON_PROFILE,
+        BUTTON_MY_INVITES,
+        BUTTON_HELP,
+        BUTTON_BOT_ADMIN,
+        validator_settings.BUTTON_VALIDATE_TICKET,
     ]
     buttons.extend(other_module_buttons)
     
@@ -1959,14 +1971,14 @@ def get_user_conversation_handler() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[
             # Entry when user clicks on UPOS module button
-            MessageHandler(filters.Regex("^🔢 UPOS Ошибки$"), enter_upos_module),
+            MessageHandler(filters.Regex(f"^{re.escape(settings.MENU_BUTTON_TEXT)}$"), enter_upos_module),
         ],
         states={
             SUBMENU: [
                 # In submenu, accept button to start search
-                MessageHandler(filters.Regex("^🔍 Найти код ошибки$"), start_error_search),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_FIND_ERROR)}$"), start_error_search),
                 # Popular errors button
-                MessageHandler(filters.Regex("^📊 Популярные ошибки$"), show_popular_errors),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_POPULAR_ERRORS)}$"), show_popular_errors),
             ],
             WAITING_FOR_ERROR_CODE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_error_code_input)
@@ -1992,20 +2004,20 @@ def get_admin_conversation_handler() -> ConversationHandler:
     
     return ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex("^🔐 Админ UPOS$"), admin_menu),
+            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_PANEL)}$"), admin_menu),
         ],
         states={
             ADMIN_MENU: [
                 CallbackQueryHandler(admin_callback_handler, pattern="^upos_"),
-                MessageHandler(filters.Regex("^📋 Список ошибок$"), admin_show_errors_list),
-                MessageHandler(filters.Regex("^➕ Добавить ошибку$"), admin_start_add_error),
-                MessageHandler(filters.Regex("^🔍 Найти ошибку$"), admin_start_search_error),
-                MessageHandler(filters.Regex("^📁 Категории$"), admin_show_categories),
-                MessageHandler(filters.Regex("^❓ Неизвестные коды$"), admin_show_unknown_codes),
-                MessageHandler(filters.Regex("^📈 Статистика$"), admin_show_statistics),
-                MessageHandler(filters.Regex("^📋 Все категории$"), admin_show_categories),
-                MessageHandler(filters.Regex("^➕ Добавить категорию$"), admin_start_add_category),
-                MessageHandler(filters.Regex("^📥 Импорт CSV$"), admin_start_csv_import),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_LIST_ERRORS)}$"), admin_show_errors_list),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_ADD_ERROR)}$"), admin_start_add_error),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_FIND_ERROR)}$"), admin_start_search_error),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_CATEGORIES)}$"), admin_show_categories),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_UNKNOWN)}$"), admin_show_unknown_codes),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_STATS)}$"), admin_show_statistics),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_ALL_CATEGORIES)}$"), admin_show_categories),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_ADD_CATEGORY)}$"), admin_start_add_category),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_IMPORT_CSV)}$"), admin_start_csv_import),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
             ],
             ADMIN_ADD_ERROR_CODE: [
@@ -2041,7 +2053,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             ADMIN_IMPORT_CSV_WAITING: [
                 MessageHandler(filters.Document.FileExtension("csv"), admin_receive_csv_file),
                 MessageHandler(filters.Regex("^❌ Отмена$"), admin_cancel_csv_import),
-                MessageHandler(filters.Regex("^🔙 Админ UPOS$"), admin_menu),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_BACK)}$"), admin_menu),
             ],
             ADMIN_IMPORT_CSV_CONFIRM: [
                 CallbackQueryHandler(admin_csv_import_callback, pattern="^upos_csv_"),
@@ -2055,7 +2067,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CommandHandler("reset", cancel_search_on_menu),
             CommandHandler("menu", cancel_search_on_menu),
             MessageHandler(filters.Regex(f"^{re.escape(BUTTON_MAIN_MENU)}$"), cancel_search_on_menu),
-            MessageHandler(filters.Regex("^🔙 Назад в UPOS$"), enter_upos_module),
+            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_BACK_TO_UPOS)}$"), enter_upos_module),
             MessageHandler(filters.COMMAND, cancel_search_on_menu),  # Handle /start and other commands
         ]
     )

@@ -3,7 +3,22 @@ from telegram.ext import ContextTypes, ConversationHandler
 from src.common.telegram_user import check_if_user_legit, update_user_info_from_telegram
 
 import src.common.database as database
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_keyboard, BUTTON_MAIN_MENU
+from src.common.messages import (
+    MESSAGE_PLEASE_ENTER_INVITE,
+    get_main_menu_keyboard,
+    BUTTON_MAIN_MENU,
+    BUTTON_MODULES,
+    BUTTON_SETTINGS,
+    BUTTON_VALIDATE_TICKET,
+    BUTTON_UPOS_ERRORS,
+    BUTTON_CERTIFICATION,
+    BUTTON_KTR,
+    BUTTON_FEEDBACK,
+    BUTTON_PROFILE,
+    BUTTON_MY_INVITES,
+    BUTTON_HELP,
+    BUTTON_BOT_ADMIN,
+)
 from src.common.constants.os import IMAGES_DIR
 import logging
 from pathlib import Path  
@@ -11,6 +26,7 @@ from pathlib import Path
 # Import module-specific messages, settings, and keyboards
 from . import messages
 from . import settings
+from src.sbs_helper_telegram_bot.ticket_validator import settings as validator_settings
 from .keyboards import get_submenu_keyboard
 from config.settings import DEBUG
 
@@ -247,14 +263,19 @@ def get_menu_button_exit_pattern() -> str:
     # Buttons that should exit the screenshot module
     exit_buttons = [
         BUTTON_MAIN_MENU,
-        "📦 Модули",
-        "⚙️ Настройки",
-        "✅ Валидация заявок",
-        "🎫 Мои инвайты",
-        "❓ Помощь",
-        "🔐 Админ панель",
-        "📋 Проверить заявку",
-        "🔢 UPOS Ошибки",
+        BUTTON_MODULES,
+        BUTTON_SETTINGS,
+        BUTTON_VALIDATE_TICKET,
+        BUTTON_UPOS_ERRORS,
+        BUTTON_CERTIFICATION,
+        BUTTON_KTR,
+        BUTTON_FEEDBACK,
+        BUTTON_PROFILE,
+        BUTTON_MY_INVITES,
+        BUTTON_HELP,
+        BUTTON_BOT_ADMIN,
+        validator_settings.BUTTON_VALIDATE_TICKET,
+        validator_settings.BUTTON_ADMIN_PANEL,
     ]
     escaped_buttons = [re.escape(btn) for btn in exit_buttons]
     return "^(" + "|".join(escaped_buttons) + ")$"

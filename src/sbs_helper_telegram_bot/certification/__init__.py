@@ -65,6 +65,7 @@ class CertificationModule(BotModule):
         Returns:
             List of handlers for test taking and viewing results
         """
+        import re
         from telegram.ext import MessageHandler, CallbackQueryHandler, filters
         
         return [
@@ -72,19 +73,19 @@ class CertificationModule(BotModule):
             get_user_conversation_handler(),
             # Direct menu button handlers
             MessageHandler(
-                filters.Regex("^📝 Аттестация$"),
+                filters.Regex(f"^{re.escape(settings.MENU_BUTTON_TEXT)}$"),
                 certification_submenu
             ),
             MessageHandler(
-                filters.Regex("^📊 Мой рейтинг$"),
+                filters.Regex(f"^{re.escape(settings.BUTTON_MY_RANKING)}$"),
                 show_my_ranking
             ),
             MessageHandler(
-                filters.Regex("^📜 История тестов$"),
+                filters.Regex(f"^{re.escape(settings.BUTTON_TEST_HISTORY)}$"),
                 show_test_history
             ),
             MessageHandler(
-                filters.Regex("^🏆 Топ месяца$"),
+                filters.Regex(f"^{re.escape(settings.BUTTON_MONTHLY_TOP)}$"),
                 show_monthly_top
             ),
             # Callback handler for top category selection

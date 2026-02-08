@@ -17,18 +17,28 @@ MODULE_AUTHOR: Final[str] = "SberService"
 # Main menu button for this module
 MENU_BUTTON_TEXT: Final[str] = "✅ Валидация заявок"
 
+# Submenu button texts
+BUTTON_VALIDATE_TICKET: Final[str] = "📋 Проверить заявку"
+BUTTON_FILE_VALIDATION: Final[str] = "📁 Валидация файла"
+BUTTON_HELP_VALIDATION: Final[str] = "ℹ️ Помощь по валидации"
+
+# Admin submenu button texts
+BUTTON_TEST_TEMPLATES: Final[str] = "🧪 Тест шаблонов"
+BUTTON_ADMIN_PANEL: Final[str] = "🔐 Админ панель"
+BUTTON_ADMIN_MENU: Final[str] = "🔙 Админ меню"
+
 # Submenu button configuration
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    ["📋 Проверить заявку", "📁 Валидация файла"],
-    ["ℹ️ Помощь по валидации"],
+    [BUTTON_VALIDATE_TICKET, BUTTON_FILE_VALIDATION],
+    [BUTTON_HELP_VALIDATION],
     [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin submenu (includes admin panel and test templates buttons)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    ["📋 Проверить заявку", "📁 Валидация файла"],
-    ["🧪 Тест шаблонов", "ℹ️ Помощь по валидации"],
-    ["🔐 Админ панель", COMMON_BUTTON_MAIN_MENU]
+    [BUTTON_VALIDATE_TICKET, BUTTON_FILE_VALIDATION],
+    [BUTTON_TEST_TEMPLATES, BUTTON_HELP_VALIDATION],
+    [BUTTON_ADMIN_PANEL, COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin panel menu buttons
@@ -43,14 +53,14 @@ ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
 ADMIN_RULES_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все правила", "🔍 Найти правило"],
     ["➕ Создать правило", "🔬 Тест regex"],
-    ["🔙 Админ меню", COMMON_BUTTON_MAIN_MENU]
+    [BUTTON_ADMIN_MENU, COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin test templates management submenu
 ADMIN_TEMPLATES_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все шаблоны", "➕ Создать шаблон"],
     ["▶️ Запустить все тесты"],
-    ["🔙 Админ меню", COMMON_BUTTON_MAIN_MENU]
+    [BUTTON_ADMIN_MENU, COMMON_BUTTON_MAIN_MENU]
 ]
 
 # User data keys

@@ -21,10 +21,14 @@ MODULE_AUTHOR: Final[str] = "SberService"
 # Main menu button for this module
 MENU_BUTTON_TEXT: Final[str] = "📸 Обработать скриншот"
 
+# Submenu button texts
+BUTTON_SEND_SCREENSHOT: Final[str] = "📸 Отправить скриншот"
+BUTTON_SCREENSHOT_HELP: Final[str] = "❓ Помощь по скриншотам"
+
 # Submenu button configuration
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    ["📸 Отправить скриншот"],
-    ["❓ Помощь по скриншотам"],
+    [BUTTON_SEND_SCREENSHOT],
+    [BUTTON_SCREENSHOT_HELP],
     [COMMON_BUTTON_MAIN_MENU]
 ]
 

@@ -285,17 +285,17 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return ConversationHandler.END
     
-    if text == "👥 Пользователи":
+    if text == settings.BUTTON_USERS:
         return await show_user_management_menu(update, context)
-    elif text == "👤 Пре-инвайты":
+    elif text == settings.BUTTON_PREINVITES:
         return await show_preinvite_menu(update, context)
-    elif text == "➕ Ручные пользователи":
+    elif text == settings.BUTTON_MANUAL_USERS:
         return await show_manual_users_menu(update, context)
-    elif text == "📊 Статистика":
+    elif text == settings.BUTTON_STATS:
         return await show_statistics_menu(update, context)
-    elif text == "🎫 Инвайты":
+    elif text == settings.BUTTON_INVITES:
         return await show_invite_management_menu(update, context)
-    elif text == "🔙 Админ бота":
+    elif text == settings.BUTTON_BACK_ADMIN:
         await update.message.reply_text(
             messages.MESSAGE_BOT_ADMIN_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -311,45 +311,45 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
     
     # User management menu handlers
-    elif text == "📋 Список пользователей":
+    elif text == settings.BUTTON_USER_LIST:
         return await show_user_list(update, context)
-    elif text == "🔍 Поиск пользователя":
+    elif text == settings.BUTTON_USER_SEARCH:
         return await start_user_search(update, context)
-    elif text == "👑 Список админов":
+    elif text == settings.BUTTON_ADMINS_LIST:
         return await show_admin_list(update, context)
     
     # Pre-invite menu handlers
-    elif text == "📋 Список пре-инвайтов":
+    elif text == settings.BUTTON_PREINVITE_LIST:
         return await show_preinvite_list(update, context)
-    elif text == "➕ Добавить пользователя":
+    elif text == settings.BUTTON_PREINVITE_ADD:
         return await start_add_preinvite(update, context)
     
     # Manual users menu handlers
-    elif text == "📋 Список ручных пользователей":
+    elif text == settings.BUTTON_MANUAL_LIST:
         return await show_manual_users_list(update, context)
-    elif text == "➕ Добавить ручного пользователя":
+    elif text == settings.BUTTON_MANUAL_ADD:
         return await start_add_manual_user(update, context)
     
     # Statistics handlers
-    elif text == "📈 Общая статистика":
+    elif text == settings.BUTTON_STATS_TOTAL:
         return await show_general_statistics(update, context)
-    elif text == "📅 Статистика за период":
+    elif text == settings.BUTTON_STATS_PERIOD:
         return await show_general_statistics(update, context)  # Same for now
     
     # Invite management handlers
-    elif text == "📋 Все инвайты":
+    elif text == settings.BUTTON_INVITES_ALL:
         return await show_invite_list(update, context)
-    elif text == "🎁 Выдать инвайты":
+    elif text == settings.BUTTON_INVITES_ISSUE:
         return await start_issue_invites(update, context)
     
     # Bot settings handlers
-    elif text == "⚙️ Настройки бота":
+    elif text == settings.BUTTON_BOT_SETTINGS:
         return await show_bot_settings_menu(update, context)
-    elif text == "🔐 Инвайт-система":
+    elif text == settings.BUTTON_INVITE_SYSTEM:
         return await show_invite_system_settings(update, context)
-    elif text == "🧩 Модули":
+    elif text == settings.BUTTON_MODULES:
         return await show_modules_management_menu(update, context)
-    elif text == "🔙 Настройки бота":
+    elif text == settings.BUTTON_BACK_SETTINGS:
         return await show_bot_settings_menu(update, context)
     
     return ADMIN_MENU
@@ -433,7 +433,7 @@ async def receive_user_search(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.message.text.strip()
     
     # Handle menu buttons
-    if query in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список пользователей", "👑 Список админов"]:
+    if query in [settings.BUTTON_BACK_ADMIN, BUTTON_MAIN_MENU, settings.BUTTON_USER_LIST, settings.BUTTON_ADMINS_LIST]:
         return await admin_menu_handler(update, context)
     
     users = search_users(query)
@@ -650,7 +650,7 @@ async def receive_preinvite_id(update: Update, context: ContextTypes.DEFAULT_TYP
     text = update.message.text.strip()
     
     # Handle menu buttons
-    if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список пре-инвайтов"]:
+    if text in [settings.BUTTON_BACK_ADMIN, BUTTON_MAIN_MENU, settings.BUTTON_PREINVITE_LIST]:
         context.user_data.pop('new_preinvite', None)
         return await admin_menu_handler(update, context)
     
@@ -686,7 +686,7 @@ async def receive_preinvite_notes(update: Update, context: ContextTypes.DEFAULT_
     text = update.message.text.strip()
     
     # Handle menu buttons
-    if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список пре-инвайтов"]:
+    if text in [settings.BUTTON_BACK_ADMIN, BUTTON_MAIN_MENU, settings.BUTTON_PREINVITE_LIST]:
         context.user_data.pop('new_preinvite', None)
         return await admin_menu_handler(update, context)
     
@@ -847,7 +847,7 @@ async def receive_manual_user_id(update: Update, context: ContextTypes.DEFAULT_T
     text = update.message.text.strip()
     
     # Handle menu buttons
-    if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список ручных пользователей"]:
+    if text in [settings.BUTTON_BACK_ADMIN, BUTTON_MAIN_MENU, settings.BUTTON_MANUAL_LIST]:
         context.user_data.pop('new_manual_user', None)
         return await admin_menu_handler(update, context)
     
@@ -883,7 +883,7 @@ async def receive_manual_user_notes(update: Update, context: ContextTypes.DEFAUL
     text = update.message.text.strip()
     
     # Handle menu buttons
-    if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список ручных пользователей"]:
+    if text in [settings.BUTTON_BACK_ADMIN, BUTTON_MAIN_MENU, settings.BUTTON_MANUAL_LIST]:
         context.user_data.pop('new_manual_user', None)
         return await admin_menu_handler(update, context)
     
@@ -1054,7 +1054,7 @@ async def receive_invite_user_id(update: Update, context: ContextTypes.DEFAULT_T
     text = update.message.text.strip()
     
     # Handle menu buttons
-    if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Все инвайты"]:
+    if text in [settings.BUTTON_BACK_ADMIN, BUTTON_MAIN_MENU, settings.BUTTON_INVITES_ALL]:
         return await admin_menu_handler(update, context)
     
     try:
@@ -1089,7 +1089,7 @@ async def receive_invite_count(update: Update, context: ContextTypes.DEFAULT_TYP
     text = update.message.text.strip()
     
     # Handle menu buttons
-    if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Все инвайты"]:
+    if text in [settings.BUTTON_BACK_ADMIN, BUTTON_MAIN_MENU, settings.BUTTON_INVITES_ALL]:
         context.user_data.pop('issue_invites_user', None)
         return await admin_menu_handler(update, context)
     
@@ -1564,7 +1564,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[
             CommandHandler("botadmin", bot_admin_command),
-            MessageHandler(filters.Regex("^🛠️ Админ бота$"), bot_admin_command),
+            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_BOT_ADMIN)}$"), bot_admin_command),
         ],
         states={
             ADMIN_MENU: [
