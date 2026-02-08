@@ -108,9 +108,9 @@ def _format_main_menu_message(
                 score_str = str(int(cert_last_score))
             else:
                 score_str = str(cert_last_score).replace('.', '\\.')
-            message += f"\n📝 *Аттестация:* *{cert_total_tests}* тест(ов), последний результат *{score_str}%*"
+            message += f"\n📝 *Аттестация:* *{cert_total_tests}* тест\(ов\), последний результат *{score_str}%*"
         else:
-            message += f"\n📝 *Аттестация:* *{cert_total_tests}* тест(ов)"
+            message += f"\n📝 *Аттестация:* *{cert_total_tests}* тест\(ов\)"
     else:
         message += "\n📝 *Аттестация:* начните тест, чтобы попасть в рейтинг"
 
@@ -147,9 +147,9 @@ def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str
                         score_str = str(int(last_score))
                     else:
                         score_str = str(last_score).replace('.', '\\.')
-                    cert_line = f"\n\n📝 *Аттестация:* *{cert_stats['total_tests']}* тест(ов), последний результат *{score_str}%*"
+                    cert_line = f"\n\n📝 *Аттестация:* *{cert_stats['total_tests']}* тест\(ов\), последний результат *{score_str}%*"
                 else:
-                    cert_line = f"\n\n📝 *Аттестация:* *{cert_stats['total_tests']}* тест(ов)"
+                    cert_line = f"\n\n📝 *Аттестация:* *{cert_stats['total_tests']}* тест\(ов\)"
             else:
                 cert_line = "\n\n📝 *Аттестация:* начните тест, чтобы попасть в рейтинг"
             return base + cert_line + "\n\nВыберите действие из меню:"
