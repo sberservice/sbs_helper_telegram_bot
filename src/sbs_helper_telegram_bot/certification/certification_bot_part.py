@@ -24,8 +24,8 @@ from telegram.ext import (
     filters
 )
 
-from src.common.telegram_user import check_if_user_legit, check_if_user_admin
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, BUTTON_MAIN_MENU
+from src.common.telegram_user import check_if_user_legit, check_if_user_admin, get_unauthorized_message
+from src.common.messages import BUTTON_MAIN_MENU
 from src.sbs_helper_telegram_bot.gamification.events import emit_event
 
 from . import settings
@@ -106,7 +106,7 @@ def shuffle_question_options(question: dict) -> dict:
 async def certification_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show certification submenu."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
     if check_if_user_admin(update.effective_user.id):
@@ -135,7 +135,7 @@ async def certification_submenu(update: Update, context: ContextTypes.DEFAULT_TY
 async def start_test_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle 'Start Test' button - show category selection."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
     # Cancel any existing in-progress attempts
@@ -176,7 +176,7 @@ async def start_test_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def start_learning_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle 'Learning Mode' button - show category selection."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
 
     # Cancel any existing in-progress attempts
@@ -900,7 +900,7 @@ def clear_learning_context(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show user's ranking and statistics per category for current month."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return
     
     now = datetime.now()
@@ -964,7 +964,7 @@ async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def show_test_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show user's test history."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return
     
     history = logic.get_user_test_history(update.effective_user.id, limit=10)
@@ -1005,7 +1005,7 @@ async def show_test_history(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def show_monthly_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show category selector for monthly top ranking."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return
     
     now = datetime.now()

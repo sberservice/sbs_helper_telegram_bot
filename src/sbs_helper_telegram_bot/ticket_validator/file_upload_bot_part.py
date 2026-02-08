@@ -23,8 +23,13 @@ from telegram.ext import (
 from telegram import constants
 from telegram.error import TimedOut
 
-from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, BUTTON_MAIN_MENU
+from src.common.telegram_user import (
+    check_if_user_legit,
+    check_if_user_admin,
+    update_user_info_from_telegram,
+    get_unauthorized_message,
+)
+from src.common.messages import BUTTON_MAIN_MENU
 
 from . import messages
 from .keyboards import get_file_upload_keyboard, get_submenu_keyboard, get_admin_submenu_keyboard
@@ -87,11 +92,9 @@ async def validate_file_command(update: Update, context: ContextTypes.DEFAULT_TY
         Next conversation state
     """
     # Check if user is authorized
-    if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(
-            MESSAGE_PLEASE_ENTER_INVITE,
-            parse_mode=constants.ParseMode.MARKDOWN_V2
-        )
+    user_id = update.effective_user.id
+    if not check_if_user_legit(user_id):
+        await update.message.reply_text(get_unauthorized_message(user_id))
         return ConversationHandler.END
     
     # Update user info

@@ -17,9 +17,13 @@ from telegram.ext import (
     filters
 )
 
-from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
+from src.common.telegram_user import (
+    check_if_user_legit,
+    check_if_user_admin,
+    update_user_info_from_telegram,
+    get_unauthorized_message,
+)
 from src.common.messages import (
-    MESSAGE_PLEASE_ENTER_INVITE,
     get_main_menu_message,
     get_main_menu_keyboard,
     BUTTON_MAIN_MENU,
@@ -119,8 +123,9 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     Shows admin menu if user is authorized admin.
     """
     # Check if user is legitimate
-    if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+    user_id = update.effective_user.id
+    if not check_if_user_legit(user_id):
+        await update.message.reply_text(get_unauthorized_message(user_id))
         return ConversationHandler.END
     
     update_user_info_from_telegram(update.effective_user)

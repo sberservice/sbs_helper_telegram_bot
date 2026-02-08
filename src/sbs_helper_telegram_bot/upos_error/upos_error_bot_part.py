@@ -25,9 +25,8 @@ from telegram.ext import (
 )
 
 import src.common.database as database
-from src.common.telegram_user import check_if_user_legit, check_if_user_admin
+from src.common.telegram_user import check_if_user_legit, check_if_user_admin, get_unauthorized_message
 from src.common.messages import (
-    MESSAGE_PLEASE_ENTER_INVITE,
     get_main_menu_message,
     get_main_menu_keyboard,
     BUTTON_MAIN_MENU,
@@ -643,7 +642,7 @@ async def enter_upos_module(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     Shows the submenu.
     """
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
     if check_if_user_admin(update.effective_user.id):
@@ -664,7 +663,7 @@ async def start_error_search(update: Update, context: ContextTypes.DEFAULT_TYPE)
     Start error code search flow.
     """
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
     await update.message.reply_text(
@@ -739,7 +738,7 @@ async def direct_error_code_input(update: Update, context: ContextTypes.DEFAULT_
     This allows users to enter error codes directly.
     """
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
     # Reuse the same processing logic as process_error_code_input
@@ -751,7 +750,7 @@ async def show_popular_errors(update: Update, context: ContextTypes.DEFAULT_TYPE
     Show most requested error codes.
     """
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
     popular = get_popular_error_codes()

@@ -24,9 +24,8 @@ from telegram.ext import (
     filters
 )
 
-from src.common.telegram_user import check_if_user_legit, check_if_user_admin
+from src.common.telegram_user import check_if_user_legit, check_if_user_admin, get_unauthorized_message
 from src.common.messages import (
-    MESSAGE_PLEASE_ENTER_INVITE,
     get_main_menu_keyboard,
     get_main_menu_message,
     BUTTON_MAIN_MENU,
@@ -102,7 +101,7 @@ def get_admin_menu_text() -> str:
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle admin panel entry."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
     if not check_if_user_admin(update.effective_user.id):
