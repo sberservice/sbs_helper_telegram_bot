@@ -39,7 +39,9 @@ logger = logging.getLogger(__name__)
     SELECTING_CATEGORY,
     ANSWERING_QUESTION,
     VIEWING_RESULT,
-) = range(3)
+    SELECTING_LEARNING_CATEGORY,
+    LEARNING_ANSWERING_QUESTION,
+) = range(5)
 
 
 def obfuscate_name(name: str) -> str:
@@ -137,6 +139,7 @@ async def start_test_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     # Cancel any existing in-progress attempts
     logic.cancel_user_attempts(update.effective_user.id)
+    clear_learning_context(context)
     
     # Check if there are any questions
     questions_count = logic.get_questions_count()
@@ -167,6 +170,46 @@ async def start_test_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     
     return SELECTING_CATEGORY
+
+
+async def start_learning_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'Learning Mode' button - show category selection."""
+    if not check_if_user_legit(update.effective_user.id):
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        return ConversationHandler.END
+
+    # Cancel any existing in-progress attempts
+    logic.cancel_user_attempts(update.effective_user.id)
+    clear_test_context(context)
+    clear_learning_context(context)
+
+    # Check if there are any questions
+    questions_count = logic.get_questions_count()
+    if questions_count == 0:
+        await update.message.reply_text(
+            messages.MESSAGE_NO_QUESTIONS,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ConversationHandler.END
+
+    # Get test settings for question count
+    test_settings = logic.get_test_settings()
+
+    # Get active categories
+    categories = logic.get_all_categories(active_only=True)
+
+    # Show learning intro with category selection
+    intro_text = messages.MESSAGE_LEARNING_INTRO.format(
+        questions_count=test_settings['questions_count']
+    )
+
+    await update.message.reply_text(
+        intro_text,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_learning_category_selection_keyboard(categories)
+    )
+
+    return SELECTING_LEARNING_CATEGORY
 
 
 async def handle_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -249,6 +292,58 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
     return ANSWERING_QUESTION
 
 
+async def handle_learning_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle learning category selection callback."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+
+    if data == "cert_learn_cancel":
+        await query.edit_message_text(
+            messages.MESSAGE_LEARNING_CANCELLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ConversationHandler.END
+
+    category_id = None
+    if data == "cert_learn_all":
+        category_id = None
+    elif data.startswith("cert_learn_cat_"):
+        category_id = int(data.replace("cert_learn_cat_", ""))
+    else:
+        return SELECTING_LEARNING_CATEGORY
+
+    test_settings = logic.get_test_settings()
+    questions_count = test_settings['questions_count']
+
+    questions = logic.get_random_questions(questions_count, category_id)
+
+    if not questions:
+        await query.edit_message_text(
+            messages.MESSAGE_NO_QUESTIONS_IN_CATEGORY,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ConversationHandler.END
+
+    # Store learning data in context
+    shuffled_questions = [shuffle_question_options(q) for q in questions]
+    context.user_data[settings.LEARNING_QUESTIONS_KEY] = shuffled_questions
+    context.user_data[settings.LEARNING_CURRENT_QUESTION_INDEX_KEY] = 0
+    context.user_data[settings.LEARNING_SELECTED_CATEGORY_KEY] = category_id
+    context.user_data[settings.LEARNING_IN_PROGRESS_KEY] = True
+    context.user_data[settings.LEARNING_CORRECT_COUNT_KEY] = 0
+
+    await query.edit_message_text(
+        messages.MESSAGE_LEARNING_STARTED.format(total_questions=len(questions)),
+        parse_mode=constants.ParseMode.MARKDOWN_V2
+    )
+
+    await send_learning_question(update, context, is_callback=True)
+
+    return LEARNING_ANSWERING_QUESTION
+
+
 async def send_question(
     update: Update, 
     context: ContextTypes.DEFAULT_TYPE,
@@ -324,6 +419,56 @@ async def send_question(
         )
 
 
+async def send_learning_question(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    is_callback: bool = False
+) -> None:
+    """Send current learning question to user."""
+    questions = context.user_data.get(settings.LEARNING_QUESTIONS_KEY, [])
+    current_index = context.user_data.get(settings.LEARNING_CURRENT_QUESTION_INDEX_KEY, 0)
+
+    if current_index >= len(questions):
+        await finish_learning(update, context, is_callback=is_callback)
+        return
+
+    question = questions[current_index]
+
+    question_text = logic.escape_markdown(question['question_text'])
+
+    shuffled = question.get('shuffled_options', [
+        question['option_a'], question['option_b'],
+        question['option_c'], question['option_d']
+    ])
+    options_text = f"""🅰️ {logic.escape_markdown(shuffled[0])}
+
+🅱️ {logic.escape_markdown(shuffled[1])}
+
+©️ {logic.escape_markdown(shuffled[2])}
+
+🇩 {logic.escape_markdown(shuffled[3])}"""
+
+    full_message = messages.MESSAGE_LEARNING_QUESTION_TEMPLATE.format(
+        current=current_index + 1,
+        total=len(questions),
+        question_text=question_text,
+        options=options_text
+    )
+
+    if is_callback:
+        await update.effective_chat.send_message(
+            full_message,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_learning_answer_keyboard()
+        )
+    else:
+        await update.message.reply_text(
+            full_message,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_learning_answer_keyboard()
+        )
+
+
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle user's answer to a question."""
     query = update.callback_query
@@ -348,7 +493,8 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     
     if not data.startswith("cert_answer_"):
         return ANSWERING_QUESTION
-    
+
+
     user_answer = data.replace("cert_answer_", "")
     
     # Check time first
@@ -449,6 +595,96 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ANSWERING_QUESTION
 
 
+async def handle_learning_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle user's answer to a learning question."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+
+    if data == "cert_learn_cancel_session":
+        clear_learning_context(context)
+        await query.edit_message_text(
+            messages.MESSAGE_LEARNING_CANCELLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ConversationHandler.END
+
+    if not data.startswith("cert_learn_answer_"):
+        return LEARNING_ANSWERING_QUESTION
+
+    user_answer = data.replace("cert_learn_answer_", "")
+
+    questions = context.user_data.get(settings.LEARNING_QUESTIONS_KEY, [])
+    current_index = context.user_data.get(settings.LEARNING_CURRENT_QUESTION_INDEX_KEY, 0)
+
+    if current_index >= len(questions):
+        await finish_learning(update, context, is_callback=True)
+        return ConversationHandler.END
+
+    question = questions[current_index]
+    correct_option = question['correct_option']
+
+    option_mapping = question.get('option_mapping', {'A': 'A', 'B': 'B', 'C': 'C', 'D': 'D'})
+    original_answer = option_mapping.get(user_answer.upper(), user_answer.upper())
+    is_correct = original_answer == correct_option.upper()
+
+    displayed_correct = user_answer.upper()
+    for displayed, original in option_mapping.items():
+        if original == correct_option.upper():
+            displayed_correct = displayed
+            break
+
+    if is_correct:
+        result_text = messages.MESSAGE_LEARNING_ANSWER_CORRECT
+    else:
+        result_text = messages.MESSAGE_LEARNING_ANSWER_INCORRECT
+
+    display_letters = ['A', 'B', 'C', 'D']
+    correct_index = display_letters.index(displayed_correct) if displayed_correct in display_letters else 0
+    shuffled = question.get('shuffled_options', [
+        question['option_a'], question['option_b'],
+        question['option_c'], question['option_d']
+    ])
+    correct_text = logic.escape_markdown(shuffled[correct_index])
+    correct_answer = (
+        f"{settings.ANSWER_EMOJIS.get(displayed_correct, displayed_correct)} {correct_text}"
+    )
+
+    comment = question.get('explanation')
+    comment_text = logic.escape_markdown(comment) if comment else "—"
+
+    feedback_text = messages.MESSAGE_LEARNING_ANSWER_FEEDBACK.format(
+        result=result_text,
+        correct_answer=correct_answer,
+        comment=comment_text
+    )
+
+    context.user_data[settings.LEARNING_CURRENT_QUESTION_INDEX_KEY] = current_index + 1
+    if is_correct:
+        context.user_data[settings.LEARNING_CORRECT_COUNT_KEY] = (
+            context.user_data.get(settings.LEARNING_CORRECT_COUNT_KEY, 0) + 1
+        )
+
+    emit_event(
+        "certification.learning_answered",
+        update.effective_user.id,
+        data={
+            'question_id': question['id'],
+            'is_correct': is_correct,
+            'category_id': context.user_data.get(settings.LEARNING_SELECTED_CATEGORY_KEY),
+        }
+    )
+
+    await query.edit_message_text(
+        feedback_text,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_learning_next_question_keyboard()
+    )
+
+    return LEARNING_ANSWERING_QUESTION
+
+
 async def handle_next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle 'Next question' button."""
     query = update.callback_query
@@ -470,6 +706,28 @@ async def handle_next_question(update: Update, context: ContextTypes.DEFAULT_TYP
     
     await send_question(update, context, is_callback=True)
     return ANSWERING_QUESTION
+
+
+async def handle_learning_next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'Next question' button in learning mode."""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data != "cert_learn_next_question":
+        return LEARNING_ANSWERING_QUESTION
+
+    if not context.user_data.get(settings.LEARNING_IN_PROGRESS_KEY):
+        return ConversationHandler.END
+
+    questions = context.user_data.get(settings.LEARNING_QUESTIONS_KEY, [])
+    current_index = context.user_data.get(settings.LEARNING_CURRENT_QUESTION_INDEX_KEY, 0)
+
+    if current_index >= len(questions):
+        await finish_learning(update, context, is_callback=True)
+        return ConversationHandler.END
+
+    await send_learning_question(update, context, is_callback=True)
+    return LEARNING_ANSWERING_QUESTION
 
 
 async def finish_test(
@@ -562,6 +820,47 @@ async def finish_test(
     return ConversationHandler.END
 
 
+async def finish_learning(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    is_callback: bool = False
+) -> int:
+    """Finish learning session and show summary."""
+    questions = context.user_data.get(settings.LEARNING_QUESTIONS_KEY, [])
+    correct_count = context.user_data.get(settings.LEARNING_CORRECT_COUNT_KEY, 0)
+    total_count = len(questions)
+
+    emit_event(
+        "certification.learning_completed",
+        update.effective_user.id,
+        data={
+            'total_questions': total_count,
+            'correct_answers': correct_count,
+            'category_id': context.user_data.get(settings.LEARNING_SELECTED_CATEGORY_KEY),
+        }
+    )
+
+    message_text = messages.MESSAGE_LEARNING_COMPLETED.format(
+        total=total_count,
+        correct=correct_count
+    )
+
+    clear_learning_context(context)
+
+    if is_callback:
+        await update.effective_chat.send_message(
+            message_text,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+    else:
+        await update.message.reply_text(
+            message_text,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+
+    return ConversationHandler.END
+
+
 def clear_test_context(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Clear test-related data from context."""
     keys_to_clear = [
@@ -571,6 +870,19 @@ def clear_test_context(context: ContextTypes.DEFAULT_TYPE) -> None:
         settings.TEST_START_TIME_KEY,
         settings.SELECTED_CATEGORY_KEY,
         settings.TEST_IN_PROGRESS_KEY,
+    ]
+    for key in keys_to_clear:
+        context.user_data.pop(key, None)
+
+
+def clear_learning_context(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Clear learning-related data from context."""
+    keys_to_clear = [
+        settings.LEARNING_QUESTIONS_KEY,
+        settings.LEARNING_CURRENT_QUESTION_INDEX_KEY,
+        settings.LEARNING_SELECTED_CATEGORY_KEY,
+        settings.LEARNING_IN_PROGRESS_KEY,
+        settings.LEARNING_CORRECT_COUNT_KEY,
     ]
     for key in keys_to_clear:
         context.user_data.pop(key, None)
@@ -846,6 +1158,7 @@ async def cancel_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         logic.complete_test_attempt(attempt_id, status='cancelled')
     
     clear_test_context(context)
+    clear_learning_context(context)
     
     await update.message.reply_text(
         messages.MESSAGE_TEST_CANCELLED,
@@ -863,6 +1176,7 @@ async def cancel_on_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logic.complete_test_attempt(attempt_id, status='cancelled')
     
     clear_test_context(context)
+    clear_learning_context(context)
     
     return ConversationHandler.END
 
@@ -881,6 +1195,7 @@ def get_user_conversation_handler() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[
             MessageHandler(filters.Regex("^📝 Начать тест$"), start_test_command),
+            MessageHandler(filters.Regex("^🎓 Режим обучения$"), start_learning_command),
         ],
         states={
             SELECTING_CATEGORY: [
@@ -890,6 +1205,14 @@ def get_user_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(handle_answer, pattern="^cert_answer_"),
                 CallbackQueryHandler(handle_answer, pattern="^cert_cancel_test$"),
                 CallbackQueryHandler(handle_next_question, pattern="^cert_next_question$"),
+            ],
+            SELECTING_LEARNING_CATEGORY: [
+                CallbackQueryHandler(handle_learning_category_selection, pattern="^cert_learn_|^cert_learn_cancel$"),
+            ],
+            LEARNING_ANSWERING_QUESTION: [
+                CallbackQueryHandler(handle_learning_answer, pattern="^cert_learn_answer_"),
+                CallbackQueryHandler(handle_learning_answer, pattern="^cert_learn_cancel_session$"),
+                CallbackQueryHandler(handle_learning_next_question, pattern="^cert_learn_next_question$"),
             ],
             VIEWING_RESULT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, certification_submenu),
@@ -920,6 +1243,7 @@ def get_menu_button_regex_pattern() -> str:
         "📊 Мой рейтинг",
         "📜 История тестов",
         "🏆 Топ месяца",
+        "🎓 Режим обучения",
         "⚙️ Управление",
     ]
     escaped_buttons = [b.replace("(", "\\(").replace(")", "\\)") for b in buttons]

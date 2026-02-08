@@ -304,6 +304,16 @@ def _init_certification_events():
         score_action="test_passed"
     )
 
+    register_event(
+        event_type="certification.learning_answered",
+        achievement_codes=["cert_learning_answered"],
+    )
+
+    register_event(
+        event_type="certification.learning_completed",
+        achievement_codes=["cert_learning_completed"],
+    )
+
     def handle_cert_daily(event_data: Dict[str, Any]):
         """Custom handler for certification daily user achievement."""
         from . import gamification_logic

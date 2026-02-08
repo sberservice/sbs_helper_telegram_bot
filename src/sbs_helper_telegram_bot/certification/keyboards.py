@@ -117,6 +117,42 @@ def get_category_selection_keyboard(categories: List[dict], include_all: bool = 
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_learning_category_selection_keyboard(
+    categories: List[dict],
+    include_all: bool = True
+) -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for category selection before starting learning mode.
+    
+    Args:
+        categories: List of category dicts with 'id' and 'name'
+        include_all: Whether to include "All categories" option
+        
+    Returns:
+        InlineKeyboardMarkup for learning category selection
+    """
+    keyboard = []
+    
+    if include_all:
+        keyboard.append([
+            InlineKeyboardButton("📚 Все категории", callback_data="cert_learn_all")
+        ])
+    
+    for category in categories:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"📁 {category['name']}",
+                callback_data=f"cert_learn_cat_{category['id']}"
+            )
+        ])
+    
+    keyboard.append([
+        InlineKeyboardButton("❌ Отмена", callback_data="cert_learn_cancel")
+    ])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_answer_keyboard() -> InlineKeyboardMarkup:
     """
     Build inline keyboard for answering a question.
@@ -132,6 +168,29 @@ def get_answer_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("©️ C", callback_data="cert_answer_C"),
             InlineKeyboardButton("🇩 D", callback_data="cert_answer_D"),
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_learning_answer_keyboard() -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for answering a learning question.
+    
+    Returns:
+        InlineKeyboardMarkup with answer options A, B, C, D and cancel button
+    """
+    keyboard = [
+        [
+            InlineKeyboardButton("🅰️ A", callback_data="cert_learn_answer_A"),
+            InlineKeyboardButton("🅱️ B", callback_data="cert_learn_answer_B"),
+        ],
+        [
+            InlineKeyboardButton("©️ C", callback_data="cert_learn_answer_C"),
+            InlineKeyboardButton("🇩 D", callback_data="cert_learn_answer_D"),
+        ],
+        [
+            InlineKeyboardButton("❌ Завершить обучение", callback_data="cert_learn_cancel_session")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -159,6 +218,19 @@ def get_next_question_keyboard() -> InlineKeyboardMarkup:
     """
     keyboard = [
         [InlineKeyboardButton("➡️ Следующий вопрос", callback_data="cert_next_question")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_learning_next_question_keyboard() -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard to proceed to next learning question.
+    
+    Returns:
+        InlineKeyboardMarkup with next question button
+    """
+    keyboard = [
+        [InlineKeyboardButton("➡️ Следующий вопрос", callback_data="cert_learn_next_question")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
