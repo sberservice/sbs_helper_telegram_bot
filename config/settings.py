@@ -1,5 +1,6 @@
 from typing import Final, List
 import os
+from src.common.messages import BUTTON_MAIN_MENU as COMMON_BUTTON_MAIN_MENU
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -47,35 +48,35 @@ COLUMN_TO_SCAN_FOR_TASKS_BORDER_COLOR = 1
 VALIDATOR_SUBMENU_BUTTONS = [
     ["📋 Проверить заявку", "📜 История проверок"],
     ["ℹ️ Помощь по валидации"],
-    ["🏠 Главное меню"]
+    [COMMON_BUTTON_MAIN_MENU]
 ]
 
 ADMIN_VALIDATOR_SUBMENU_BUTTONS = [
     ["📋 Проверить заявку", "📜 История проверок"],
     ["🧪 Тест шаблонов", "ℹ️ Помощь по валидации"],
-    ["🔐 Админ панель", "🏠 Главное меню"]
+    ["🔐 Админ панель", COMMON_BUTTON_MAIN_MENU]
 ]
 
 IMAGE_MENU_BUTTONS = [
     ["📸 Отправить скриншот"],
     ["❓ Помощь по скриншотам"],
-    ["🏠 Главное меню"]
+    [COMMON_BUTTON_MAIN_MENU]
 ]
 
 ADMIN_MENU_BUTTONS = [
     ["📋 Список правил", "➕ Создать правило"],
     ["📁 Типы заявок", "🧪 Тест шаблоны"],
-    ["🔬 Тест regex", "🏠 Главное меню"]
+    ["🔬 Тест regex", COMMON_BUTTON_MAIN_MENU]
 ]
 
 ADMIN_RULES_BUTTONS = [
     ["📋 Все правила", "🔍 Найти правило"],
     ["➕ Создать правило", "🔬 Тест regex"],
-    ["🔙 Админ меню", "🏠 Главное меню"]
+    ["🔙 Админ меню", COMMON_BUTTON_MAIN_MENU]
 ]
 
 ADMIN_TEMPLATES_BUTTONS = [
     ["📋 Все шаблоны", "➕ Создать шаблон"],
     ["▶️ Запустить все тесты"],
-    ["🔙 Админ меню", "🏠 Главное меню"]
+    ["🔙 Админ меню", COMMON_BUTTON_MAIN_MENU]
 ]

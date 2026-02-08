@@ -23,7 +23,7 @@ from telegram import constants
 from telegram.error import TimedOut
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, BUTTON_MAIN_MENU
 
 from . import messages
 from .keyboards import get_file_upload_keyboard, get_submenu_keyboard, get_admin_submenu_keyboard
@@ -525,7 +525,7 @@ def get_file_validation_handler() -> ConversationHandler:
     
     # Build pattern for menu buttons that should exit the conversation
     exit_buttons = [
-        "🏠 Главное меню",
+        BUTTON_MAIN_MENU,
         "📋 Проверить заявку",
         "ℹ️ Помощь по валидации",
         "🔐 Админ панель",

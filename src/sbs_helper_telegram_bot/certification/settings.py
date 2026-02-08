@@ -6,6 +6,8 @@ Module-specific configuration settings for employee certification and testing.
 
 from typing import Final, List
 
+from src.common.messages import BUTTON_MAIN_MENU as COMMON_BUTTON_MAIN_MENU
+
 # Module metadata
 MODULE_NAME: Final[str] = "Аттестация сотрудников"
 MODULE_DESCRIPTION: Final[str] = "Тестирование знаний сотрудников с рейтингом и историей"
@@ -27,7 +29,7 @@ SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["🎓 Режим обучения"],
     ["📊 Мой рейтинг", "📜 История тестов"],
     ["🏆 Топ месяца"],
-    ["🏠 Главное меню"]
+    [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin submenu (includes admin panel button)
@@ -36,7 +38,7 @@ ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["🎓 Режим обучения"],
     ["📊 Мой рейтинг", "📜 История тестов"],
     ["🏆 Топ месяца"],
-    ["⚙️ Управление", "🏠 Главное меню"]
+    ["⚙️ Управление", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin panel menu buttons
@@ -44,20 +46,20 @@ ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     ["❓ Вопросы", "📁 Категории"],
     ["⚠️ Устаревшие вопросы", "📊 Статистика"],
     ["⚙️ Настройки теста"],
-    ["🔙 Назад", "🏠 Главное меню"]
+    ["🔙 Назад", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin questions management submenu
 ADMIN_QUESTIONS_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все вопросы", "➕ Добавить вопрос"],
     ["🔍 Найти вопрос", "📂 Без категории"],
-    ["🔙 Админ меню", "🏠 Главное меню"]
+    ["🔙 Админ меню", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin categories management submenu
 ADMIN_CATEGORIES_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все категории", "➕ Добавить категорию"],
-    ["🔙 Админ меню", "🏠 Главное меню"]
+    ["🔙 Админ меню", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # User data keys for context storage

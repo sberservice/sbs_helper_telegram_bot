@@ -9,6 +9,7 @@ Telegram handlers for bot-wide administration:
 """
 
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -23,7 +24,12 @@ from telegram.ext import (
 )
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin, set_user_admin
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_message, get_main_menu_keyboard
+from src.common.messages import (
+    MESSAGE_PLEASE_ENTER_INVITE,
+    get_main_menu_message,
+    get_main_menu_keyboard,
+    BUTTON_MAIN_MENU,
+)
 from src.common import invites as invites_module
 from src.common import database
 from src.common import bot_settings
@@ -296,7 +302,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=keyboards.get_admin_menu_keyboard()
         )
         return ADMIN_MENU
-    elif text == "🏠 Главное меню":
+    elif text == BUTTON_MAIN_MENU:
         await update.message.reply_text(
             get_main_menu_message(update.effective_user.id, update.effective_user.first_name),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -427,7 +433,7 @@ async def receive_user_search(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.message.text.strip()
     
     # Handle menu buttons
-    if query in ["🔙 Админ бота", "🏠 Главное меню", "📋 Список пользователей", "👑 Список админов"]:
+    if query in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список пользователей", "👑 Список админов"]:
         return await admin_menu_handler(update, context)
     
     users = search_users(query)
@@ -644,7 +650,7 @@ async def receive_preinvite_id(update: Update, context: ContextTypes.DEFAULT_TYP
     text = update.message.text.strip()
     
     # Handle menu buttons
-    if text in ["🔙 Админ бота", "🏠 Главное меню", "📋 Список пре-инвайтов"]:
+    if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список пре-инвайтов"]:
         context.user_data.pop('new_preinvite', None)
         return await admin_menu_handler(update, context)
     
@@ -680,7 +686,7 @@ async def receive_preinvite_notes(update: Update, context: ContextTypes.DEFAULT_
     text = update.message.text.strip()
     
     # Handle menu buttons
-    if text in ["🔙 Админ бота", "🏠 Главное меню", "📋 Список пре-инвайтов"]:
+    if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список пре-инвайтов"]:
         context.user_data.pop('new_preinvite', None)
         return await admin_menu_handler(update, context)
     
@@ -841,7 +847,7 @@ async def receive_manual_user_id(update: Update, context: ContextTypes.DEFAULT_T
     text = update.message.text.strip()
     
     # Handle menu buttons
-    if text in ["🔙 Админ бота", "🏠 Главное меню", "📋 Список ручных пользователей"]:
+    if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список ручных пользователей"]:
         context.user_data.pop('new_manual_user', None)
         return await admin_menu_handler(update, context)
     
@@ -877,7 +883,7 @@ async def receive_manual_user_notes(update: Update, context: ContextTypes.DEFAUL
     text = update.message.text.strip()
     
     # Handle menu buttons
-    if text in ["🔙 Админ бота", "🏠 Главное меню", "📋 Список ручных пользователей"]:
+    if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список ручных пользователей"]:
         context.user_data.pop('new_manual_user', None)
         return await admin_menu_handler(update, context)
     
@@ -1048,7 +1054,7 @@ async def receive_invite_user_id(update: Update, context: ContextTypes.DEFAULT_T
     text = update.message.text.strip()
     
     # Handle menu buttons
-    if text in ["🔙 Админ бота", "🏠 Главное меню", "📋 Все инвайты"]:
+    if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Все инвайты"]:
         return await admin_menu_handler(update, context)
     
     try:
@@ -1083,7 +1089,7 @@ async def receive_invite_count(update: Update, context: ContextTypes.DEFAULT_TYP
     text = update.message.text.strip()
     
     # Handle menu buttons
-    if text in ["🔙 Админ бота", "🏠 Главное меню", "📋 Все инвайты"]:
+    if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Все инвайты"]:
         context.user_data.pop('issue_invites_user', None)
         return await admin_menu_handler(update, context)
     
@@ -1531,11 +1537,18 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     context.user_data.pop('new_preinvite', None)
     context.user_data.pop('issue_invites_user', None)
     
-    await update.message.reply_text(
-        messages.MESSAGE_OPERATION_CANCELLED,
-        parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=get_main_menu_keyboard()
-    )
+    if update.message and update.message.text == BUTTON_MAIN_MENU:
+        await update.message.reply_text(
+            get_main_menu_message(update.effective_user.id, update.effective_user.first_name),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_main_menu_keyboard(is_admin=check_if_user_admin(update.effective_user.id))
+        )
+    else:
+        await update.message.reply_text(
+            messages.MESSAGE_OPERATION_CANCELLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=get_main_menu_keyboard(is_admin=check_if_user_admin(update.effective_user.id))
+        )
     return ConversationHandler.END
 
 
@@ -1671,7 +1684,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CommandHandler("cancel", cancel_admin),
             CommandHandler("reset", cancel_admin),
             CommandHandler("menu", cancel_admin),
-            MessageHandler(filters.Regex("^🏠 Главное меню$"), cancel_admin),
+            MessageHandler(filters.Regex(f"^{re.escape(BUTTON_MAIN_MENU)}$"), cancel_admin),
             MessageHandler(filters.COMMAND, cancel_admin),  # Handle /start and other commands
         ],
         name="bot_admin_panel",

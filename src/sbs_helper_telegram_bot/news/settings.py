@@ -6,6 +6,8 @@ Configuration constants, context keys, callback prefixes, and menu definitions.
 
 from typing import Final, List
 
+from src.common.messages import BUTTON_MAIN_MENU as COMMON_BUTTON_MAIN_MENU
+
 # ===== MODULE METADATA =====
 
 MODULE_NAME: Final[str] = "Новости"
@@ -21,14 +23,14 @@ MENU_BUTTON_TEXT: Final[str] = "📰 Новости"
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["📋 Последние новости"],
     ["📂 Архив", "🔍 Поиск"],
-    ["🏠 Главное меню"]
+    [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin submenu buttons (includes admin panel)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["📋 Последние новости"],
     ["📂 Архив", "🔍 Поиск"],
-    ["⚙️ Управление новостями", "🏠 Главное меню"]
+    ["⚙️ Управление новостями", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Button texts
@@ -36,7 +38,7 @@ BUTTON_LATEST_NEWS: Final[str] = "📋 Последние новости"
 BUTTON_ARCHIVE: Final[str] = "📂 Архив"
 BUTTON_SEARCH: Final[str] = "🔍 Поиск"
 BUTTON_ADMIN_PANEL: Final[str] = "⚙️ Управление новостями"
-BUTTON_MAIN_MENU: Final[str] = "🏠 Главное меню"
+BUTTON_MAIN_MENU: Final[str] = COMMON_BUTTON_MAIN_MENU
 BUTTON_BACK: Final[str] = "◀️ Назад"
 BUTTON_CANCEL: Final[str] = "❌ Отмена"
 

@@ -5,6 +5,8 @@ Module-specific configuration settings for image processing.
 """
 
 from typing import Final, List
+
+from src.common.messages import BUTTON_MAIN_MENU as COMMON_BUTTON_MAIN_MENU
 import os
 from dotenv import load_dotenv
 
@@ -23,7 +25,7 @@ MENU_BUTTON_TEXT: Final[str] = "📸 Обработать скриншот"
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["📸 Отправить скриншот"],
     ["❓ Помощь по скриншотам"],
-    ["🏠 Главное меню"]
+    [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Image processing settings

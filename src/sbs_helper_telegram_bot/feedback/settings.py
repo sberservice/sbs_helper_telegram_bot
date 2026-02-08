@@ -6,6 +6,8 @@ Configuration constants, context keys, and menu definitions.
 
 from typing import Final, List
 
+from src.common.messages import BUTTON_MAIN_MENU as COMMON_BUTTON_MAIN_MENU
+
 # ===== MODULE METADATA =====
 
 MODULE_NAME: Final[str] = "Обратная связь"
@@ -21,21 +23,21 @@ MENU_BUTTON_TEXT: Final[str] = "📬 Обратная связь"
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["📝 Отправить отзыв"],
     ["📋 Мои обращения"],
-    ["🏠 Главное меню"]
+    [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Admin submenu buttons (includes admin panel)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["📝 Отправить отзыв"],
     ["📋 Мои обращения"],
-    ["⚙️ Управление отзывами", "🏠 Главное меню"]
+    ["⚙️ Управление отзывами", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Button texts
 BUTTON_SUBMIT_FEEDBACK: Final[str] = "📝 Отправить отзыв"
 BUTTON_MY_FEEDBACK: Final[str] = "📋 Мои обращения"
 BUTTON_ADMIN_PANEL: Final[str] = "⚙️ Управление отзывами"
-BUTTON_MAIN_MENU: Final[str] = "🏠 Главное меню"
+BUTTON_MAIN_MENU: Final[str] = COMMON_BUTTON_MAIN_MENU
 BUTTON_BACK: Final[str] = "◀️ Назад"
 BUTTON_CANCEL: Final[str] = "❌ Отмена"
 

@@ -10,6 +10,7 @@ Telegram handlers for the user-facing certification functionality:
 import logging
 import random
 import time
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -24,7 +25,7 @@ from telegram.ext import (
 )
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, BUTTON_MAIN_MENU
 from src.sbs_helper_telegram_bot.gamification.events import emit_event
 
 from . import settings
@@ -1226,7 +1227,7 @@ def get_user_conversation_handler() -> ConversationHandler:
             CommandHandler("cancel", cancel_test),
             CommandHandler("reset", cancel_on_menu),
             CommandHandler("menu", cancel_on_menu),
-            MessageHandler(filters.Regex("^🏠 Главное меню$"), cancel_on_menu),
+            MessageHandler(filters.Regex(f"^{re.escape(BUTTON_MAIN_MENU)}$"), cancel_on_menu),
             MessageHandler(filters.COMMAND, cancel_on_menu),
         ],
         name="certification_test",
@@ -1243,7 +1244,7 @@ def get_menu_button_regex_pattern() -> str:
         Regex pattern string
     """
     buttons = [
-        "🏠 Главное меню",
+        BUTTON_MAIN_MENU,
         "📊 Мой рейтинг",
         "📜 История тестов",
         "🏆 Топ месяца",
