@@ -19,6 +19,16 @@ from . import settings
 
 logger = logging.getLogger(__name__)
 
+# ===== SIMPLE IN-MEMORY CACHES =====
+
+_RANKS_CACHE: Optional[List[Dict]] = None
+_RANKS_CACHE_TS: float = 0.0
+_RANKS_CACHE_TTL_SECONDS = 300
+
+_TOTAL_ACHIEVEMENTS_CACHE: Optional[int] = None
+_TOTAL_ACHIEVEMENTS_CACHE_TS: float = 0.0
+_TOTAL_ACHIEVEMENTS_CACHE_TTL_SECONDS = 300
+
 
 # ===== SETTINGS HELPERS =====
 
@@ -71,6 +81,11 @@ def get_obfuscate_names() -> bool:
 
 def get_ranks_config() -> List[Dict]:
     """Get rank configuration from database or defaults."""
+    global _RANKS_CACHE, _RANKS_CACHE_TS
+    now = time.time()
+    if _RANKS_CACHE is not None and (now - _RANKS_CACHE_TS) < _RANKS_CACHE_TTL_SECONDS:
+        return _RANKS_CACHE
+
     ranks = []
     for i in range(1, 6):
         name = get_setting(f'rank_{i}_name')
@@ -85,7 +100,9 @@ def get_ranks_config() -> List[Dict]:
                 'threshold': int(threshold)
             })
     
-    return ranks if ranks else settings.DEFAULT_RANKS
+    _RANKS_CACHE = ranks if ranks else settings.DEFAULT_RANKS
+    _RANKS_CACHE_TS = now
+    return _RANKS_CACHE
 
 
 def get_rank_for_score(score: int) -> Dict:
@@ -297,6 +314,14 @@ def get_achievement_modules() -> List[str]:
 
 def get_total_achievements_count() -> int:
     """Get total number of achievement levels (achievements * 3)."""
+    global _TOTAL_ACHIEVEMENTS_CACHE, _TOTAL_ACHIEVEMENTS_CACHE_TS
+    now = time.time()
+    if (
+        _TOTAL_ACHIEVEMENTS_CACHE is not None
+        and (now - _TOTAL_ACHIEVEMENTS_CACHE_TS) < _TOTAL_ACHIEVEMENTS_CACHE_TTL_SECONDS
+    ):
+        return _TOTAL_ACHIEVEMENTS_CACHE
+
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -304,10 +329,69 @@ def get_total_achievements_count() -> int:
                     SELECT COUNT(*) * 3 as cnt FROM gamification_achievements WHERE active = 1
                 """)
                 result = cursor.fetchone()
-                return result['cnt'] if result else 0
+                _TOTAL_ACHIEVEMENTS_CACHE = result['cnt'] if result else 0
+                _TOTAL_ACHIEVEMENTS_CACHE_TS = now
+                return _TOTAL_ACHIEVEMENTS_CACHE
     except Exception as e:
         logger.error(f"Error getting total achievements count: {e}")
         return 0
+
+
+def get_user_main_menu_profile(userid: int) -> Optional[Dict]:
+    """
+    Get lightweight user profile for main menu.
+
+    Returns:
+        Dict with profile data or None if user not found
+    """
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT total_score, total_achievements
+                    FROM gamification_user_totals
+                    WHERE userid = %s
+                    """,
+                    (userid,)
+                )
+                totals = cursor.fetchone()
+
+                if not totals:
+                    ensure_user_totals_exist(userid)
+                    cursor.execute(
+                        """
+                        SELECT total_score, total_achievements
+                        FROM gamification_user_totals
+                        WHERE userid = %s
+                        """,
+                        (userid,)
+                    )
+                    totals = cursor.fetchone()
+
+                if not totals:
+                    return None
+
+                total_score = totals['total_score'] if totals else 0
+                total_achievements = totals['total_achievements'] if totals else 0
+
+                rank = get_rank_for_score(total_score)
+                next_rank = get_next_rank(rank['level'])
+                max_achievements = get_total_achievements_count()
+
+                return {
+                    'total_score': total_score,
+                    'rank_name': rank['name'],
+                    'rank_icon': rank['icon'],
+                    'rank_level': rank['level'],
+                    'next_rank_name': next_rank['name'] if next_rank else None,
+                    'next_rank_threshold': next_rank['threshold'] if next_rank else None,
+                    'total_achievements': total_achievements,
+                    'max_achievements': max_achievements,
+                }
+    except Exception as e:
+        logger.error(f"Error getting main menu profile: {e}")
+        return None
 
 
 def increment_achievement_progress(userid: int, achievement_code: str) -> Optional[int]:
