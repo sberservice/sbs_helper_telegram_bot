@@ -19,6 +19,7 @@ class RuleType(Enum):
     REQUIRED_FIELD = "required_field"
     FORMAT = "format"
     LENGTH = "length"
+    FIAS_CHECK = "fias_check"
     CUSTOM = "custom"
 
 
@@ -314,6 +315,49 @@ def validate_length(ticket_text: str, length_spec: str) -> bool:
     return True
 
 
+def validate_fias_address(ticket_text: str, pattern: str) -> bool:
+    """Validate an address extracted from ticket text against the FIAS database.
+
+    The *pattern* is a regex whose **first capture group** contains the address
+    to check.  For example::
+
+        Адрес установки POS-терминала:\\s*([\\s\\S]*?)(?=Тип пакета:|$)
+
+    The extracted address is sent to the currently configured FIAS provider
+    (see :mod:`fias_providers`).  The rule **passes** when the provider
+    returns at least one suggestion.
+
+    If the address cannot be extracted from the text the rule is considered
+    **failed** (returns ``False``).
+
+    Args:
+        ticket_text: Full ticket text.
+        pattern: Regex with a capture group that extracts the address.
+
+    Returns:
+        ``True`` if the address is found in FIAS, ``False`` otherwise.
+    """
+    try:
+        match = re.search(pattern, ticket_text, re.IGNORECASE | re.MULTILINE | re.UNICODE | re.DOTALL)
+        if not match or not match.group(1):
+            return False
+
+        address = match.group(1).strip()
+        if not address:
+            return False
+
+        from .fias_providers import get_fias_provider
+
+        provider = get_fias_provider()
+        result = provider.validate_address(address)
+        return result.is_valid
+
+    except re.error:
+        return False
+    except Exception:  # noqa: BLE001 – fail-open for unexpected errors
+        return True
+
+
 def detect_ticket_type(
     ticket_text: str, 
     ticket_types: List[TicketType],
@@ -486,6 +530,8 @@ def validate_ticket(ticket_text: str, rules: List[ValidationRule],
                 is_valid = validate_format(ticket_text, rule.pattern)
             elif rule_type_value == 'length':
                 is_valid = validate_length(ticket_text, rule.pattern)
+            elif rule_type_value == 'fias_check':
+                is_valid = validate_fias_address(ticket_text, rule.pattern)
             elif rule_type_value == 'custom':
                 # Custom validation could be extended in the future
                 is_valid = True

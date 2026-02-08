@@ -7,9 +7,11 @@ Tests cover:
 - Ticket type detection
 - Edge cases and error handling
 - All validator functions
+- FIAS address validation (fias_check rule type)
 """
 
 import unittest
+from unittest.mock import patch, MagicMock
 from src.sbs_helper_telegram_bot.ticket_validator.validators import (
     ValidationRule,
     ValidationResult,
@@ -22,8 +24,16 @@ from src.sbs_helper_telegram_bot.ticket_validator.validators import (
     validate_required_field,
     validate_format,
     validate_length,
+    validate_fias_address,
     validate_ticket,
     detect_ticket_type
+)
+from src.sbs_helper_telegram_bot.ticket_validator.fias_providers import (
+    BaseFIASProvider,
+    FIASValidationResult,
+    DaDataFIASProvider,
+    get_fias_provider,
+    reset_fias_provider,
 )
 
 
@@ -918,6 +928,304 @@ class TestDetectionDebugMode(unittest.TestCase):
         
         self.assertIsNotNone(detected)
         self.assertIsNone(debug_info)
+
+
+# ===== FIAS VALIDATION TESTS =====
+
+
+class TestFIASValidationResult(unittest.TestCase):
+    """Tests for FIASValidationResult data class."""
+
+    def test_valid_result(self):
+        result = FIASValidationResult(
+            is_valid=True,
+            address_query="Москва, ул Льва Толстого 16",
+            suggested_address="г Москва, ул Льва Толстого, д 16",
+            suggestions_count=1,
+            provider_name="dadata",
+            fias_id="abc-123",
+        )
+        self.assertTrue(result.is_valid)
+        self.assertEqual(result.suggestions_count, 1)
+        self.assertIsNotNone(result.suggested_address)
+
+    def test_invalid_result(self):
+        result = FIASValidationResult(
+            is_valid=False,
+            address_query="абракадабра 999",
+            error_message="Адрес не найден",
+            provider_name="dadata",
+        )
+        self.assertFalse(result.is_valid)
+        self.assertIsNotNone(result.error_message)
+
+
+class TestDaDataFIASProvider(unittest.TestCase):
+    """Tests for DaDataFIASProvider."""
+
+    def test_is_configured_with_key(self):
+        provider = DaDataFIASProvider(api_key="test-key")
+        self.assertTrue(provider.is_configured())
+
+    def test_is_not_configured_without_key(self):
+        provider = DaDataFIASProvider(api_key="")
+        self.assertFalse(provider.is_configured())
+
+    def test_provider_name(self):
+        provider = DaDataFIASProvider(api_key="x")
+        self.assertEqual(provider.provider_name, "dadata")
+
+    def test_validate_address_no_key_returns_valid(self):
+        """When API key is missing, fail-open: result should be valid."""
+        provider = DaDataFIASProvider(api_key="")
+        result = provider.validate_address("Москва")
+        self.assertTrue(result.is_valid)
+        self.assertIn("не настроен", result.error_message)
+
+    @patch("src.sbs_helper_telegram_bot.ticket_validator.fias_providers.requests.post")
+    def test_validate_address_success_with_suggestions(self, mock_post):
+        """API returns suggestions → valid."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "suggestions": [
+                {
+                    "value": "г Москва, ул Льва Толстого, д 16",
+                    "data": {"fias_id": "abc", "fias_level": "8"},
+                }
+            ]
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        provider = DaDataFIASProvider(api_key="test-key")
+        result = provider.validate_address("Москва Льва Толстого 16")
+
+        self.assertTrue(result.is_valid)
+        self.assertEqual(result.suggestions_count, 1)
+        self.assertEqual(result.suggested_address, "г Москва, ул Льва Толстого, д 16")
+        self.assertEqual(result.fias_id, "abc")
+
+    @patch("src.sbs_helper_telegram_bot.ticket_validator.fias_providers.requests.post")
+    def test_validate_address_empty_suggestions(self, mock_post):
+        """API returns empty suggestions → invalid."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"suggestions": []}
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        provider = DaDataFIASProvider(api_key="test-key")
+        result = provider.validate_address("абракадабра 999")
+
+        self.assertFalse(result.is_valid)
+        self.assertEqual(result.suggestions_count, 0)
+
+    @patch("src.sbs_helper_telegram_bot.ticket_validator.fias_providers.requests.post")
+    def test_validate_address_403_fail_open(self, mock_post):
+        """403 → fail-open (valid=True)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_post.return_value = mock_response
+
+        provider = DaDataFIASProvider(api_key="test-key")
+        result = provider.validate_address("Москва")
+
+        self.assertTrue(result.is_valid)
+        self.assertIn("403", result.error_message)
+
+    @patch("src.sbs_helper_telegram_bot.ticket_validator.fias_providers.requests.post")
+    def test_validate_address_429_fail_open(self, mock_post):
+        """429 → fail-open (valid=True)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_post.return_value = mock_response
+
+        provider = DaDataFIASProvider(api_key="test-key")
+        result = provider.validate_address("Москва")
+
+        self.assertTrue(result.is_valid)
+        self.assertIn("429", result.error_message)
+
+    @patch("src.sbs_helper_telegram_bot.ticket_validator.fias_providers.requests.post")
+    def test_validate_address_timeout_fail_open(self, mock_post):
+        """Timeout → fail-open."""
+        import requests as req
+        mock_post.side_effect = req.exceptions.Timeout("timeout")
+
+        provider = DaDataFIASProvider(api_key="test-key")
+        result = provider.validate_address("Москва")
+
+        self.assertTrue(result.is_valid)
+        self.assertIn("Таймаут", result.error_message)
+
+    @patch("src.sbs_helper_telegram_bot.ticket_validator.fias_providers.requests.post")
+    def test_validate_address_network_error_fail_open(self, mock_post):
+        """Network error → fail-open."""
+        import requests as req
+        mock_post.side_effect = req.exceptions.ConnectionError("refused")
+
+        provider = DaDataFIASProvider(api_key="test-key")
+        result = provider.validate_address("Москва")
+
+        self.assertTrue(result.is_valid)
+        self.assertIn("Ошибка запроса", result.error_message)
+
+
+class TestGetFIASProvider(unittest.TestCase):
+    """Tests for get_fias_provider factory function."""
+
+    def setUp(self):
+        reset_fias_provider()
+
+    def tearDown(self):
+        reset_fias_provider()
+
+    def test_default_provider_is_dadata(self):
+        provider = get_fias_provider()
+        self.assertIsInstance(provider, DaDataFIASProvider)
+
+    def test_explicit_provider_name(self):
+        provider = get_fias_provider("dadata")
+        self.assertIsInstance(provider, DaDataFIASProvider)
+
+    def test_unknown_provider_raises(self):
+        with self.assertRaises(ValueError):
+            get_fias_provider("unknown_provider")
+
+    def test_singleton_caching(self):
+        p1 = get_fias_provider("dadata")
+        p2 = get_fias_provider("dadata")
+        self.assertIs(p1, p2)
+
+
+class TestValidateFIASAddress(unittest.TestCase):
+    """Tests for validate_fias_address function in validators.py."""
+
+    SAMPLE_TICKET = (
+        "Заявка на установку POS-терминала\n"
+        "Адрес установки POS-терминала: г Москва, ул Льва Толстого, д 16\n"
+        "Тип пакета: Стандарт"
+    )
+    PATTERN = r"Адрес установки POS-терминала:\s*([\s\S]*?)(?=Тип пакета:|$)"
+
+    def setUp(self):
+        reset_fias_provider()
+
+    def tearDown(self):
+        reset_fias_provider()
+
+    @patch("src.sbs_helper_telegram_bot.ticket_validator.fias_providers.requests.post")
+    def test_fias_check_passes_when_address_found(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "suggestions": [{"value": "г Москва, ул Льва Толстого, д 16", "data": {}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        # Force provider to have a key
+        with patch.dict("os.environ", {"DADATA_API_KEY": "test-key"}):
+            reset_fias_provider()
+            result = validate_fias_address(self.SAMPLE_TICKET, self.PATTERN)
+        self.assertTrue(result)
+
+    @patch("src.sbs_helper_telegram_bot.ticket_validator.fias_providers.requests.post")
+    def test_fias_check_fails_when_address_not_found(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"suggestions": []}
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        with patch.dict("os.environ", {"DADATA_API_KEY": "test-key"}):
+            reset_fias_provider()
+            result = validate_fias_address(self.SAMPLE_TICKET, self.PATTERN)
+        self.assertFalse(result)
+
+    def test_fias_check_fails_when_address_not_in_text(self):
+        """If the pattern doesn't match, the rule fails."""
+        ticket_without_address = "Заявка без адреса\nТип пакета: Стандарт"
+        result = validate_fias_address(ticket_without_address, self.PATTERN)
+        self.assertFalse(result)
+
+    def test_fias_check_fails_on_empty_address(self):
+        """If the capture group is empty/whitespace, the rule fails."""
+        ticket_empty_address = (
+            "Адрес установки POS-терминала:   \n"
+            "Тип пакета: Стандарт"
+        )
+        result = validate_fias_address(ticket_empty_address, self.PATTERN)
+        self.assertFalse(result)
+
+    def test_fias_check_with_invalid_regex(self):
+        """Invalid regex → fails (returns False)."""
+        result = validate_fias_address(self.SAMPLE_TICKET, "[invalid(")
+        self.assertFalse(result)
+
+
+class TestFIASCheckRuleType(unittest.TestCase):
+    """Test that fias_check integrates correctly with validate_ticket."""
+
+    def setUp(self):
+        reset_fias_provider()
+
+    def tearDown(self):
+        reset_fias_provider()
+
+    def test_rule_type_enum_has_fias_check(self):
+        self.assertEqual(RuleType.FIAS_CHECK.value, "fias_check")
+
+    def test_validation_rule_accepts_fias_check(self):
+        rule = ValidationRule(
+            id=99,
+            rule_name="FIAS Address Check",
+            pattern=r"Адрес установки POS-терминала:\s*([\s\S]*?)(?=Тип пакета:|$)",
+            rule_type="fias_check",
+            error_message="Адрес не найден в ФИАС",
+        )
+        self.assertEqual(rule.rule_type, RuleType.FIAS_CHECK)
+
+    @patch("src.sbs_helper_telegram_bot.ticket_validator.validators.validate_fias_address")
+    def test_validate_ticket_dispatches_fias_check(self, mock_fias):
+        """validate_ticket should call validate_fias_address for fias_check rules."""
+        mock_fias.return_value = True
+
+        rules = [
+            ValidationRule(
+                id=99,
+                rule_name="FIAS check",
+                pattern=r"Адрес:\s*(.*)",
+                rule_type="fias_check",
+                error_message="Адрес не найден",
+            )
+        ]
+        ticket = "Адрес: Москва"
+        result = validate_ticket(ticket, rules)
+
+        mock_fias.assert_called_once_with(ticket, r"Адрес:\s*(.*)")
+        self.assertTrue(result.is_valid)
+
+    @patch("src.sbs_helper_telegram_bot.ticket_validator.validators.validate_fias_address")
+    def test_validate_ticket_fias_check_failure(self, mock_fias):
+        """When fias_check fails, it should appear in failed_rules."""
+        mock_fias.return_value = False
+
+        rules = [
+            ValidationRule(
+                id=99,
+                rule_name="FIAS check",
+                pattern=r"Адрес:\s*(.*)",
+                rule_type="fias_check",
+                error_message="Адрес не найден в ФИАС",
+            )
+        ]
+        result = validate_ticket("Адрес: xyzxyz", rules)
+
+        self.assertFalse(result.is_valid)
+        self.assertIn("FIAS check", result.failed_rules)
+        self.assertIn("Адрес не найден в ФИАС", result.error_messages)
 
 
 if __name__ == '__main__':

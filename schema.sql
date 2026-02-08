@@ -115,7 +115,7 @@ CREATE TABLE `ticket_validator_validation_rules` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `rule_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `pattern` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `rule_type` enum('regex','required_field','format','length','custom') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `rule_type` enum('regex','regex_not_match','regex_fullmatch','regex_not_fullmatch','required_field','format','length','fias_check','custom') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `error_message` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `active` tinyint(1) NOT NULL DEFAULT '1',
   `priority` int(11) NOT NULL DEFAULT '0',
