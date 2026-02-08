@@ -946,7 +946,7 @@ async def handle_category_action(update: Update, context: ContextTypes.DEFAULT_T
             keyboard = keyboards.get_admin_category_edit_keyboard(category_id, category.get('active', True))
             
             text = f"📂 *Категория:* {category.get('emoji', '📰')} {messages.escape_markdown_v2(category.get('name', ''))}\n\n"
-            text += "Выберите действие:"
+            text += "Выберите действие из меню:"
             
             await query.edit_message_text(
                 text,

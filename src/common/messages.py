@@ -52,7 +52,7 @@ COMMAND_DESC_MENU = "Показать главное меню"
 COMMAND_DESC_HELP = "Показать справку"
 
 # Main menu messages
-MESSAGE_MAIN_MENU = "🏠 *Главное меню*\n\nВыберите действие:"
+MESSAGE_MAIN_MENU = "🏠 *Главное меню*\n\nВыберите действие из меню:"
 MESSAGE_UNRECOGNIZED_INPUT = "🤔 Не понял вашу команду\\.\n\n*Используйте:*\n• Кнопки меню ниже\n• Команды бота \\(/menu, /validate\\)\n• Или /help для справки"
 
 # Help message - overview of all modules
@@ -92,7 +92,7 @@ MESSAGE_MAIN_HELP = """❓ *Помощь*
 📚 *GitHub:* https://github\\.com/sberservice/sbs\\_helper\\_telegram\\_bot"""
 
 # Settings menu message
-MESSAGE_SETTINGS_MENU = "⚙️ *Настройки*\n\nВыберите действие:"
+MESSAGE_SETTINGS_MENU = "⚙️ *Настройки*\n\nВыберите действие из меню:"
 
 # Modules menu message
 MESSAGE_MODULES_MENU = "⚡ *Функции бота*\n\nВыберите модуль:"
