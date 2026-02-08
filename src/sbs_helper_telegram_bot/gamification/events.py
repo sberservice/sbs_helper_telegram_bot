@@ -287,5 +287,37 @@ def _init_ktr_events():
     register_custom_handler("ktr.lookup", handle_ktr_daily)
 
 
+# ===== CERTIFICATION EVENT REGISTRATION =====
+# Register certification module events
+
+def _init_certification_events():
+    """Initialize certification module event handlers."""
+    register_event(
+        event_type="certification.test_completed",
+        achievement_codes=["cert_test_completed"],
+        score_action="test_completed"
+    )
+
+    register_event(
+        event_type="certification.test_passed",
+        achievement_codes=["cert_test_passed"],
+        score_action="test_passed"
+    )
+
+    def handle_cert_daily(event_data: Dict[str, Any]):
+        """Custom handler for certification daily user achievement."""
+        from . import gamification_logic
+
+        userid = event_data.get('userid')
+        if not userid:
+            return
+
+        unique_days = get_unique_days_count(userid, "certification.test_completed")
+        gamification_logic.set_achievement_progress(userid, "cert_daily_user", unique_days)
+
+    register_custom_handler("certification.test_completed", handle_cert_daily)
+
+
 # Initialize events on module load
 _init_ktr_events()
+_init_certification_events()

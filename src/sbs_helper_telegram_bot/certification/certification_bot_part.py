@@ -25,6 +25,7 @@ from telegram.ext import (
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin
 from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
+from src.sbs_helper_telegram_bot.gamification.events import emit_event
 
 from . import settings
 from . import messages
@@ -483,6 +484,8 @@ async def finish_test(
     if not attempt_id:
         return ConversationHandler.END
     
+    user_id = update.effective_user.id
+
     # Complete the attempt
     result = logic.complete_test_attempt(attempt_id, status=status)
     
@@ -527,6 +530,21 @@ async def finish_test(
         rank_info=rank_info
     )
     
+    # Emit gamification events
+    attempt = logic.get_attempt_by_id(attempt_id)
+    event_data = {
+        'attempt_id': attempt_id,
+        'status': status,
+        'passed': result['passed'],
+        'score_percent': result['score_percent'],
+        'correct_answers': result['correct_answers'],
+        'total_questions': result['total_questions'],
+        'category_id': attempt.get('category_id') if attempt else None,
+    }
+    emit_event("certification.test_completed", user_id, data=event_data)
+    if result['passed'] and status == 'completed':
+        emit_event("certification.test_passed", user_id, data=event_data)
+
     # Clear context
     clear_test_context(context)
     

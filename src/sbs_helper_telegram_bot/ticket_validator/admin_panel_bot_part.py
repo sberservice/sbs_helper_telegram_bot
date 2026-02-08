@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, MESSAGE_MAIN_MENU, get_main_menu_keyboard
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_message, get_main_menu_keyboard
 
 # Import module-specific messages and keyboards
 from . import messages
@@ -171,9 +171,9 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ADMIN_MENU
     elif text == "🏠 Главное меню":
         await update.message.reply_text(
-            MESSAGE_MAIN_MENU,
+            get_main_menu_message(update.effective_user.id, update.effective_user.first_name),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=get_main_menu_keyboard(is_admin=check_if_user_admin(update.effective_user.id))
         )
         return ConversationHandler.END
     else:
@@ -1635,9 +1635,9 @@ async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, text
     
     if text == "🏠 Главное меню":
         await update.message.reply_text(
-            MESSAGE_MAIN_MENU,
+            get_main_menu_message(update.effective_user.id, update.effective_user.first_name),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=get_main_menu_keyboard(is_admin=check_if_user_admin(update.effective_user.id))
         )
         return ConversationHandler.END
     elif text == "🔙 Админ меню":

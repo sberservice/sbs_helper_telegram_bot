@@ -179,9 +179,26 @@ INSERT INTO `gamification_achievements` (`code`, `module`, `name`, `description`
 ON DUPLICATE KEY UPDATE `code` = VALUES(`code`);
 
 -- =====================================================
+-- SAMPLE CERTIFICATION ACHIEVEMENTS
+-- =====================================================
+INSERT INTO `gamification_achievements` (`code`, `module`, `name`, `description`, `icon`, `threshold_bronze`, `threshold_silver`, `threshold_gold`, `display_order`, `created_timestamp`) VALUES
+('cert_test_completed', 'certification', 'Экзаменатор', 'Пройти тест аттестации', '📝', 1, 5, 20, 1, UNIX_TIMESTAMP()),
+('cert_test_passed', 'certification', 'Отличник', 'Успешно пройти тест аттестации', '✅', 1, 5, 15, 2, UNIX_TIMESTAMP()),
+('cert_daily_user', 'certification', 'Регулярная аттестация', 'Проходить тесты в разные дни', '📅', 1, 7, 30, 3, UNIX_TIMESTAMP())
+ON DUPLICATE KEY UPDATE `code` = VALUES(`code`);
+
+-- =====================================================
 -- SAMPLE KTR SCORE CONFIGURATION
 -- =====================================================
 INSERT INTO `gamification_score_config` (`module`, `action`, `points`, `description`, `created_timestamp`) VALUES
 ('ktr', 'lookup', 1, 'Поиск кода КТР', UNIX_TIMESTAMP()),
 ('ktr', 'lookup_found', 2, 'Успешный поиск кода КТР', UNIX_TIMESTAMP())
+ON DUPLICATE KEY UPDATE `module` = VALUES(`module`);
+
+-- =====================================================
+-- SAMPLE CERTIFICATION SCORE CONFIGURATION
+-- =====================================================
+INSERT INTO `gamification_score_config` (`module`, `action`, `points`, `description`, `created_timestamp`) VALUES
+('certification', 'test_completed', 3, 'Прохождение теста аттестации', UNIX_TIMESTAMP()),
+('certification', 'test_passed', 5, 'Успешное прохождение теста аттестации', UNIX_TIMESTAMP())
 ON DUPLICATE KEY UPDATE `module` = VALUES(`module`);

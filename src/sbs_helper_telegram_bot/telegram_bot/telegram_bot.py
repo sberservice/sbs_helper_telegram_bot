@@ -39,7 +39,6 @@ from src.common.messages import (
     MESSAGE_PLEASE_ENTER_INVITE,
     MESSAGE_INVITE_SYSTEM_DISABLED,
     MESSAGE_WELCOME,
-    MESSAGE_MAIN_MENU,
     MESSAGE_MAIN_HELP,
     MESSAGE_UNRECOGNIZED_INPUT,
     MESSAGE_SETTINGS_MENU,
@@ -68,6 +67,7 @@ from src.common.messages import (
     BUTTON_FEEDBACK,
     BUTTON_PROFILE,
     BUTTON_NEWS,
+    get_main_menu_message,
     get_main_menu_keyboard,
     get_settings_menu_keyboard,
     get_modules_menu_keyboard,
@@ -410,7 +410,7 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         # Show main menu
         is_admin = check_if_user_admin(user_id)
         await update.message.reply_text(
-            MESSAGE_MAIN_MENU,
+            get_main_menu_message(user_id, update.effective_user.first_name),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_main_menu_keyboard(is_admin=is_admin)
         )
@@ -505,7 +505,7 @@ async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         return
     
     await update.message.reply_text(
-        MESSAGE_MAIN_MENU,
+        get_main_menu_message(user_id, update.effective_user.first_name),
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=get_main_menu_keyboard(is_admin=is_admin)
     )
@@ -545,7 +545,7 @@ async def reset_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> 
     
     # Silently show main menu (no confirmation message)
     await update.message.reply_text(
-        MESSAGE_MAIN_MENU,
+        get_main_menu_message(user_id, update.effective_user.first_name),
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=get_main_menu_keyboard(is_admin=is_admin)
     )
@@ -612,7 +612,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         # Show main menu
         is_admin = check_if_user_admin(user_id)
         await update.message.reply_text(
-            MESSAGE_MAIN_MENU,
+            get_main_menu_message(user_id, update.effective_user.first_name),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_main_menu_keyboard(is_admin=is_admin)
         )
@@ -633,7 +633,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             # Show main menu after successful registration
             is_admin = check_if_user_admin(user_id)
             await update.message.reply_text(
-                MESSAGE_MAIN_MENU,
+                get_main_menu_message(user_id, update.effective_user.first_name),
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
                 reply_markup=get_main_menu_keyboard(is_admin=is_admin)
             )
@@ -649,7 +649,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     is_admin = check_if_user_admin(user_id)
     if text == BUTTON_MAIN_MENU:
         await update.message.reply_text(
-            MESSAGE_MAIN_MENU,
+            get_main_menu_message(user_id, update.effective_user.first_name),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_main_menu_keyboard(is_admin=is_admin)
         )
