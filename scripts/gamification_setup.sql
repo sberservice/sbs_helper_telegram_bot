@@ -184,7 +184,9 @@ ON DUPLICATE KEY UPDATE `code` = VALUES(`code`);
 INSERT INTO `gamification_achievements` (`code`, `module`, `name`, `description`, `icon`, `threshold_bronze`, `threshold_silver`, `threshold_gold`, `display_order`, `created_timestamp`) VALUES
 ('cert_test_completed', 'certification', 'Экзаменатор', 'Пройти тест аттестации', '📝', 1, 5, 20, 1, UNIX_TIMESTAMP()),
 ('cert_test_passed', 'certification', 'Отличник', 'Успешно пройти тест аттестации', '✅', 1, 5, 15, 2, UNIX_TIMESTAMP()),
-('cert_daily_user', 'certification', 'Регулярная аттестация', 'Проходить тесты в разные дни', '📅', 1, 7, 30, 3, UNIX_TIMESTAMP())
+('cert_daily_user', 'certification', 'Регулярная аттестация', 'Проходить тесты в разные дни', '📅', 1, 7, 30, 3, UNIX_TIMESTAMP()),
+('cert_learning_answered', 'certification', 'Учусь на практике', 'Ответить на вопросы в режиме обучения', '🎓', 5, 25, 100, 4, UNIX_TIMESTAMP()),
+('cert_learning_completed', 'certification', 'Учебная сессия', 'Завершить обучение', '📚', 1, 5, 20, 5, UNIX_TIMESTAMP())
 ON DUPLICATE KEY UPDATE `code` = VALUES(`code`);
 
 -- =====================================================
