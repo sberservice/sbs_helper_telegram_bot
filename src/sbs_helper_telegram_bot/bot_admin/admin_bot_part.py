@@ -23,9 +23,8 @@ from telegram.ext import (
     filters
 )
 
-from src.common.telegram_user import check_if_user_legit, check_if_user_admin, set_user_admin
+from src.common.telegram_user import check_if_user_legit, check_if_user_admin, set_user_admin, get_unauthorized_message
 from src.common.messages import (
-    MESSAGE_PLEASE_ENTER_INVITE,
     get_main_menu_message,
     get_main_menu_keyboard,
     BUTTON_MAIN_MENU,
@@ -254,7 +253,7 @@ def get_bot_statistics() -> dict:
 async def bot_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle /botadmin command or 🛠️ Админ бота button."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
     if not check_if_user_admin(update.effective_user.id):

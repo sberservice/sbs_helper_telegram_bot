@@ -37,7 +37,6 @@ from src.common.constants.telegram import TELEGRAM_TOKEN
 
 # Common messages (only global/shared messages)
 from src.common.messages import (
-    MESSAGE_PLEASE_ENTER_INVITE,
     MESSAGE_INVITE_SYSTEM_DISABLED,
     MESSAGE_WELCOME,
     MESSAGE_MAIN_HELP,
@@ -85,7 +84,12 @@ from src.sbs_helper_telegram_bot.upos_error import messages as upos_messages
 from src.sbs_helper_telegram_bot.upos_error import keyboards as upos_keyboards
 from src.sbs_helper_telegram_bot.upos_error import settings as upos_settings
 
-from src.common.telegram_user import check_if_user_legit, check_if_invite_user_blocked, update_user_info_from_telegram
+from src.common.telegram_user import (
+    check_if_user_legit,
+    check_if_invite_user_blocked,
+    update_user_info_from_telegram,
+    get_unauthorized_message,
+)
 from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import (
     handle_incoming_document,
     handle_wrong_input_in_screenshot_mode,
@@ -432,7 +436,7 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     
     if not check_if_user_legit(user_id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(user_id))
         return
 
     user = update.effective_user
@@ -466,7 +470,7 @@ async def invite_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) ->
         return
     
     if not check_if_user_legit(user_id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(user_id))
         return
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -498,7 +502,7 @@ async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         return
     
     if not check_if_user_legit(user_id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(user_id))
         return
     
     # Clear all module conversation states
@@ -537,7 +541,7 @@ async def reset_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> 
         return ConversationHandler.END
     
     if not check_if_user_legit(user_id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(user_id))
         return ConversationHandler.END
     
     # Clear all module conversation states
@@ -577,7 +581,7 @@ async def help_main_command(update: Update, _context: ContextTypes.DEFAULT_TYPE)
         return
     
     if not check_if_user_legit(user_id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(user_id))
         return
     
     await update.message.reply_text(
@@ -648,7 +652,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
                 reply_markup=get_main_menu_keyboard(is_admin=is_admin)
             )
         elif check_if_invite_entered(user_id, text) == InviteStatus.NOT_EXISTS:
-            await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+            await update.message.reply_text(get_unauthorized_message(user_id))
             return
         else:
             await update.message.reply_text(MESSAGE_INVITE_ALREADY_USED)

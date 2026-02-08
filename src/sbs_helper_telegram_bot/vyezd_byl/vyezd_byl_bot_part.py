@@ -1,10 +1,9 @@
 from telegram import Update, constants
 from telegram.ext import ContextTypes, ConversationHandler
-from src.common.telegram_user import check_if_user_legit, update_user_info_from_telegram
+from src.common.telegram_user import check_if_user_legit, update_user_info_from_telegram, get_unauthorized_message
 
 import src.common.database as database
 from src.common.messages import (
-    MESSAGE_PLEASE_ENTER_INVITE,
     get_main_menu_keyboard,
     BUTTON_MAIN_MENU,
     BUTTON_MODULES,
@@ -119,8 +118,9 @@ async def handle_incoming_document(update: Update, context: ContextTypes.DEFAULT
             WAITING_FOR_SCREENSHOT to continue waiting for more screenshots,
             or ConversationHandler.END if user is not authorized
     """
-    if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+    user_id = update.effective_user.id
+    if not check_if_user_legit(user_id):
+        await update.message.reply_text(get_unauthorized_message(user_id))
         return ConversationHandler.END
 
     update_user_info_from_telegram(update.effective_user)
@@ -192,7 +192,7 @@ async def enter_screenshot_module(update: Update, context: ContextTypes.DEFAULT_
         WAITING_FOR_SCREENSHOT state to wait for document
     """
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
     update_user_info_from_telegram(update.effective_user)
@@ -220,7 +220,7 @@ async def show_screenshot_help(update: Update, context: ContextTypes.DEFAULT_TYP
     from src.common.constants.os import ASSETS_DIR
     
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
+        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
     await update.message.reply_photo(

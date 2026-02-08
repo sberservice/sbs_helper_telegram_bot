@@ -19,8 +19,8 @@ from telegram.ext import (
     filters
 )
 
-from src.common.telegram_user import check_if_user_legit, check_if_user_admin
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_message, get_main_menu_keyboard
+from src.common.telegram_user import check_if_user_legit, check_if_user_admin, get_unauthorized_message
+from src.common.messages import get_main_menu_message, get_main_menu_keyboard
 
 from . import settings
 from . import messages
@@ -37,10 +37,7 @@ async def gamification_entry(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user = update.effective_user
     
     if not check_if_user_legit(user.id):
-        await update.message.reply_text(
-            MESSAGE_PLEASE_ENTER_INVITE,
-            parse_mode=constants.ParseMode.MARKDOWN_V2
-        )
+        await update.message.reply_text(get_unauthorized_message(user.id))
         return ConversationHandler.END
     
     # Ensure user has totals record

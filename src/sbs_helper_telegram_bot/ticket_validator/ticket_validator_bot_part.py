@@ -9,9 +9,13 @@ from telegram.ext import ContextTypes, ConversationHandler
 from telegram import constants
 import logging
 
-from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
+from src.common.telegram_user import (
+    check_if_user_legit,
+    check_if_user_admin,
+    update_user_info_from_telegram,
+    get_unauthorized_message,
+)
 from src.common.messages import (
-    MESSAGE_PLEASE_ENTER_INVITE,
     BUTTON_MODULES,
     BUTTON_SETTINGS,
     BUTTON_UPOS_ERRORS,
@@ -57,11 +61,9 @@ async def validate_ticket_command(update: Update, context: ContextTypes.DEFAULT_
         Next conversation state
     """
     # Check if user is authorized
-    if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(
-            MESSAGE_PLEASE_ENTER_INVITE,
-            parse_mode=constants.ParseMode.MARKDOWN_V2
-        )
+    user_id = update.effective_user.id
+    if not check_if_user_legit(user_id):
+        await update.message.reply_text(get_unauthorized_message(user_id))
         return ConversationHandler.END
     
     # Update user info
@@ -212,10 +214,7 @@ async def run_test_templates_command(update: Update, context: ContextTypes.DEFAU
     
     # Check if user is authorized
     if not check_if_user_legit(user_id):
-        await update.message.reply_text(
-            MESSAGE_PLEASE_ENTER_INVITE,
-            parse_mode=constants.ParseMode.MARKDOWN_V2
-        )
+        await update.message.reply_text(get_unauthorized_message(user_id))
         return
     
     # Check if user is admin
@@ -300,11 +299,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context: Telegram context
     """
     # Check if user is authorized
-    if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(
-            MESSAGE_PLEASE_ENTER_INVITE,
-            parse_mode=constants.ParseMode.MARKDOWN_V2
-        )
+    user_id = update.effective_user.id
+    if not check_if_user_legit(user_id):
+        await update.message.reply_text(get_unauthorized_message(user_id))
         return
     
     # Update user info
@@ -368,7 +365,7 @@ async def toggle_debug_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if user is authorized
     if not check_if_user_legit(user_id):
         await update.message.reply_text(
-            MESSAGE_PLEASE_ENTER_INVITE,
+            get_unauthorized_message(user_id),
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return

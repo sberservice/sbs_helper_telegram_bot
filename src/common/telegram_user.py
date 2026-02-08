@@ -1,6 +1,7 @@
 from src.common import database
 from src.common import invites as invites_module
 from src.common import bot_settings
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, MESSAGE_INVITE_SYSTEM_DISABLED
 
 def check_if_user_legit(telegram_id) -> bool:
     """
@@ -78,6 +79,24 @@ def check_if_invite_user_blocked(telegram_id) -> bool:
     
     # When invite system is disabled, any user not in chat_members or manual_users is blocked
     return True
+
+
+def get_unauthorized_message(telegram_id) -> str:
+    """
+        Returns the appropriate message when a user is not authorized.
+
+        If the invite system is disabled and the user is blocked, returns
+        the invite-system-disabled message. Otherwise, returns the invite prompt.
+
+        Args:
+            telegram_id: Telegram user ID to check.
+
+        Returns:
+            Message string suitable for reply_text.
+    """
+    if check_if_invite_user_blocked(telegram_id):
+        return MESSAGE_INVITE_SYSTEM_DISABLED
+    return MESSAGE_PLEASE_ENTER_INVITE
 
 
 def check_if_user_admin(telegram_id) -> bool:
