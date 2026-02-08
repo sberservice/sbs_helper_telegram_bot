@@ -481,10 +481,10 @@ async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     for key in [settings.CURRENT_PAGE_KEY, settings.SEARCH_QUERY_KEY, settings.VIEW_MODE_KEY]:
         context.user_data.pop(key, None)
     
-    from src.common.messages import MESSAGE_MAIN_MENU
+    from src.common.messages import get_main_menu_message
     
     await update.message.reply_text(
-        MESSAGE_MAIN_MENU,
+        get_main_menu_message(user_id, update.effective_user.first_name),
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=get_main_menu_keyboard(is_admin=is_admin)
     )

@@ -20,7 +20,7 @@ from telegram.ext import (
 )
 
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_keyboard
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_message, get_main_menu_keyboard
 
 from . import settings
 from . import messages
@@ -512,9 +512,11 @@ async def return_to_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def return_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Return to main bot menu."""
+    user = update.effective_user
+    is_admin = check_if_user_admin(user.id)
     await update.message.reply_text(
-        "🏠 Главное меню",
-        reply_markup=get_main_menu_keyboard(update.effective_user.id),
+        get_main_menu_message(user.id, user.first_name),
+        reply_markup=get_main_menu_keyboard(is_admin=is_admin),
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     

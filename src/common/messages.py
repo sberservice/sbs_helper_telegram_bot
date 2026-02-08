@@ -8,6 +8,8 @@ Module-specific messages should be in their respective module's messages.py file
 """
 # pylint: disable=line-too-long
 
+from typing import Optional
+
 from src.common.constants.sync import SYNC_INTERVAL_HOURS
 
 # Welcome and authentication messages
@@ -54,6 +56,118 @@ COMMAND_DESC_HELP = "Показать справку"
 # Main menu messages
 MESSAGE_MAIN_MENU = "🏠 *Главное меню*\n\nВыберите действие из меню:"
 MESSAGE_UNRECOGNIZED_INPUT = "🤔 Не понял вашу команду\\.\n\n*Используйте:*\n• Кнопки меню ниже\n• Команды бота \\(/menu, /validate\\)\n• Или /help для справки"
+
+
+def _escape_markdown_v2(text: str) -> str:
+    """
+    Escape special characters for Telegram MarkdownV2.
+
+    Args:
+        text: Text to escape
+
+    Returns:
+        Escaped text
+    """
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
+
+
+def _format_main_menu_message(
+    display_name: str,
+    total_score: int,
+    rank_name: str,
+    rank_icon: str,
+    total_achievements: int,
+    max_achievements: int,
+    next_rank_name: Optional[str],
+    next_rank_threshold: Optional[int],
+    cert_total_tests: Optional[int],
+    cert_last_score: Optional[float],
+) -> str:
+    safe_name = _escape_markdown_v2(display_name)
+    safe_rank = _escape_markdown_v2(rank_name)
+    safe_next = _escape_markdown_v2(next_rank_name) if next_rank_name else None
+
+    message = (
+        "🏠 *Главное меню*\n\n"
+        f"С возвращением, *{safe_name}*\\!\n\n"
+        f"{rank_icon} *Ранг:* *{safe_rank}*\n"
+        f"⭐ *Очки:* *{total_score}*\n"
+        f"🎖️ *Достижения:* *{total_achievements}* из *{max_achievements}*"
+    )
+
+    if next_rank_threshold is not None and safe_next:
+        remaining = max(next_rank_threshold - total_score, 0)
+        message += f"\n🎯 *До ранга* *{safe_next}*: ещё *{remaining}* очков"
+
+    if cert_total_tests:
+        if cert_last_score is not None:
+            if cert_last_score == int(cert_last_score):
+                score_str = str(int(cert_last_score))
+            else:
+                score_str = str(cert_last_score).replace('.', '\\.')
+            message += f"\n📝 *Аттестация:* *{cert_total_tests}* тест(ов), последний результат *{score_str}%*"
+        else:
+            message += f"\n📝 *Аттестация:* *{cert_total_tests}* тест(ов)"
+    else:
+        message += "\n📝 *Аттестация:* начните тест, чтобы попасть в рейтинг"
+
+    message += "\n\nВыберите действие из меню:"
+    return message
+
+
+def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str:
+    """
+    Build personalized main menu message using gamification profile data.
+
+    Args:
+        user_id: Telegram user ID
+        first_name: User's first name for greeting fallback
+
+    Returns:
+        Personalized main menu message (MarkdownV2) or default message on failure.
+    """
+    display_name = first_name or "коллега"
+    try:
+        from src.sbs_helper_telegram_bot.gamification import gamification_logic
+        from src.sbs_helper_telegram_bot.certification import certification_logic
+
+        gamification_logic.ensure_user_totals_exist(user_id)
+        cert_stats = certification_logic.get_user_stats(user_id)
+        profile = gamification_logic.get_user_profile(user_id)
+        if not profile:
+            safe_name = _escape_markdown_v2(display_name)
+            base = f"🏠 *Главное меню*\n\nС возвращением, *{safe_name}*\\!"
+            if cert_stats and cert_stats.get('total_tests'):
+                last_score = cert_stats.get('last_test_score')
+                if last_score is not None:
+                    if last_score == int(last_score):
+                        score_str = str(int(last_score))
+                    else:
+                        score_str = str(last_score).replace('.', '\\.')
+                    cert_line = f"\n\n📝 *Аттестация:* *{cert_stats['total_tests']}* тест(ов), последний результат *{score_str}%*"
+                else:
+                    cert_line = f"\n\n📝 *Аттестация:* *{cert_stats['total_tests']}* тест(ов)"
+            else:
+                cert_line = "\n\n📝 *Аттестация:* начните тест, чтобы попасть в рейтинг"
+            return base + cert_line + "\n\nВыберите действие из меню:"
+
+        return _format_main_menu_message(
+            display_name=display_name,
+            total_score=profile.get('total_score', 0),
+            rank_name=profile.get('rank_name', 'Без ранга'),
+            rank_icon=profile.get('rank_icon', '🏅'),
+            total_achievements=profile.get('total_achievements', 0),
+            max_achievements=profile.get('max_achievements', 0),
+            next_rank_name=profile.get('next_rank_name'),
+            next_rank_threshold=profile.get('next_rank_threshold'),
+            cert_total_tests=cert_stats.get('total_tests') if cert_stats else None,
+            cert_last_score=cert_stats.get('last_test_score') if cert_stats else None,
+        )
+    except Exception:
+        return MESSAGE_MAIN_MENU
 
 # Help message - overview of all modules
 MESSAGE_MAIN_HELP = """❓ *Помощь*

@@ -5,7 +5,7 @@ User-facing conversation handlers for submitting and viewing feedback.
 """
 
 import logging
-from telegram import Update
+from telegram import Update, constants
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -461,13 +461,16 @@ async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     Return to main menu and end conversation.
     """
     # Import here to avoid circular import
-    from src.common.messages import get_main_menu_keyboard
+    from src.common.messages import get_main_menu_message, get_main_menu_keyboard
     
     _clear_user_context(context)
     
+    user = update.effective_user
+    is_admin = check_if_user_admin(user.id)
     await update.message.reply_text(
-        "🏠 Главное меню",
-        reply_markup=get_main_menu_keyboard(update.effective_user.id)
+        get_main_menu_message(user.id, user.first_name),
+        reply_markup=get_main_menu_keyboard(is_admin=is_admin),
+        parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     
     return ConversationHandler.END
