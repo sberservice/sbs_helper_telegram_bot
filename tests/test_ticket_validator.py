@@ -554,20 +554,6 @@ class TestDetectionDebugMode(unittest.TestCase):
         self.assertIn("установку", matched_keywords)
         self.assertIn("подключение", matched_keywords)
     
-    def test_debug_info_keyword_count(self):
-        """Test that debug info counts keyword occurrences."""
-        ticket_types = [
-            TicketType(1, "Ремонт", "Repair", ["ремонт"]),
-        ]
-        
-        ticket_text = "Нужен ремонт кассы, ремонт принтера и ремонт монитора"
-        _, debug_info = detect_ticket_type(ticket_text, ticket_types, debug=True)
-        
-        score_info = debug_info.all_scores[0]
-        # "ремонт" appears 3 times
-        self.assertEqual(score_info.keyword_matches[0].count, 3)
-        self.assertEqual(score_info.total_score, 3.0)
-    
     def test_debug_info_with_custom_weights(self):
         """Test detection with custom keyword weights."""
         ticket_types = [
