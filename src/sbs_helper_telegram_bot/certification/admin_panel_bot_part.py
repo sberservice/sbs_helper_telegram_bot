@@ -566,7 +566,7 @@ async def show_categories_list(update: Update, context: ContextTypes.DEFAULT_TYP
     
     # Also show reply keyboard for add button
     await update.message.reply_text(
-        "Выберите действие:",
+        "Выберите действие из меню:",
         reply_markup=keyboards.get_admin_categories_keyboard()
     )
     
@@ -585,7 +585,7 @@ async def show_categories_list_callback(update: Update, context: ContextTypes.DE
         )
         # Send reply keyboard
         await query.message.reply_text(
-            "Выберите действие:",
+            "Выберите действие из меню:",
             reply_markup=keyboards.get_admin_categories_keyboard()
         )
         return CAT_LIST  # Changed from ADMIN_MENU
@@ -598,7 +598,7 @@ async def show_categories_list_callback(update: Update, context: ContextTypes.DE
     
     # Send reply keyboard
     await query.message.reply_text(
-        "Выберите действие:",
+        "Выберите действие из меню:",
         reply_markup=keyboards.get_admin_categories_keyboard()
     )
     
@@ -876,7 +876,7 @@ async def show_questions_list(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # Also show reply keyboard for add/search buttons
     await update.message.reply_text(
-        "Выберите действие:",
+        "Выберите действие из меню:",
         reply_markup=keyboards.get_admin_questions_keyboard()
     )
     
@@ -899,7 +899,7 @@ async def show_questions_list_callback(update: Update, context: ContextTypes.DEF
         )
         # Send reply keyboard
         await query.message.reply_text(
-            "Выберите действие:",
+            "Выберите действие из меню:",
             reply_markup=keyboards.get_admin_questions_keyboard()
         )
         return Q_LIST  # Already was correct, but ensure consistency
@@ -912,7 +912,7 @@ async def show_questions_list_callback(update: Update, context: ContextTypes.DEF
     
     # Send reply keyboard
     await query.message.reply_text(
-        "Выберите действие:",
+        "Выберите действие из меню:",
         reply_markup=keyboards.get_admin_questions_keyboard()
     )
     

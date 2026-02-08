@@ -14,7 +14,7 @@ Messages are formatted for Telegram's MarkdownV2 parse mode.
 # Submenu and navigation
 MESSAGE_SUBMENU_BASE = "📝 *Аттестация сотрудников*\n\nПроверьте свои знания и получите место в рейтинге\\!"
 
-MESSAGE_SUBMENU_NO_STATS = MESSAGE_SUBMENU_BASE + "\n\nВыберите действие:"
+MESSAGE_SUBMENU_NO_STATS = MESSAGE_SUBMENU_BASE + "\n\nВыберите действие из меню:"
 
 
 def get_submenu_message(questions_count: int, categories_count: int) -> str:
@@ -31,7 +31,7 @@ def get_submenu_message(questions_count: int, categories_count: int) -> str:
     return (
         MESSAGE_SUBMENU_BASE + 
         f"\n\n📊 В базе: *{questions_count}* вопросов в *{categories_count}* категориях" +
-        "\n\nВыберите действие:"
+        "\n\nВыберите действие из меню:"
     )
 
 MESSAGE_TEST_INTRO = """📝 *Начать тест*
@@ -191,7 +191,7 @@ MESSAGE_ADMIN_MENU = """⚙️ *Управление аттестацией*
 ❓ Вопросов: *{questions_count}*
 📁 Категорий: *{categories_count}* \\(активных: {active_categories}\\)
 
-Выберите действие:"""
+Выберите действие из меню:"""
 
 MESSAGE_ADMIN_MENU_NO_STATS = """⚙️ *Управление аттестацией*
 
