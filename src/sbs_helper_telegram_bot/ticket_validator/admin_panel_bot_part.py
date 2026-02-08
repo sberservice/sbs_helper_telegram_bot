@@ -91,9 +91,7 @@ RULE_TYPES = [
     'regex_not_match',
     'regex_fullmatch',
     'regex_not_fullmatch',
-    'required_field',
-    'format',
-    'length',
+    'fias_check',
     'custom'
 ]
 

@@ -2,7 +2,7 @@
 Unit tests for ticket validator module.
 
 Tests cover:
-- Validation rule types (regex, required_field, format, length)
+- Validation rule types (regex and fias_check)
 - ValidationRule and ValidationResult classes
 - Ticket type detection
 - Edge cases and error handling
@@ -21,9 +21,6 @@ from src.sbs_helper_telegram_bot.ticket_validator.validators import (
     TicketTypeScore,
     DetectionDebugInfo,
     validate_regex,
-    validate_required_field,
-    validate_format,
-    validate_length,
     validate_fias_address,
     validate_ticket,
     detect_ticket_type
@@ -65,13 +62,13 @@ class TestValidationRule(unittest.TestCase):
             id=2,
             rule_name="enum_rule",
             pattern="pattern",
-            rule_type=RuleType.REQUIRED_FIELD,
+            rule_type=RuleType.REGEX,
             error_message="Error",
             active=False,
             priority=0
         )
         
-        self.assertEqual(rule.rule_type, RuleType.REQUIRED_FIELD)
+        self.assertEqual(rule.rule_type, RuleType.REGEX)
         self.assertFalse(rule.active)
 
 
@@ -149,208 +146,6 @@ class TestValidateRegex(unittest.TestCase):
         
         result = validate_regex(text, pattern)
         self.assertFalse(result)  # Should return False on error
-
-
-class TestValidateRequiredField(unittest.TestCase):
-    """Tests for validate_required_field function."""
-
-    def test_required_field_with_colon(self):
-        """Test required field validation with colon separator."""
-        text = "Система налогообложения: УСН"
-        field_name = "Система налогообложения"
-        
-        result = validate_required_field(text, field_name)
-        self.assertTrue(result)
-
-    def test_required_field_with_dash(self):
-        """Test required field validation with dash separator."""
-        text = "Контактное лицо - Иванов Иван"
-        field_name = "Контактное лицо"
-        
-        result = validate_required_field(text, field_name)
-        self.assertTrue(result)
-
-    def test_required_field_case_insensitive(self):
-        """Test required field validation is case insensitive."""
-        text = "система налогообложения: осно"
-        field_name = "Система Налогообложения"
-        
-        result = validate_required_field(text, field_name)
-        self.assertTrue(result)
-
-    def test_required_field_not_found(self):
-        """Test required field validation when field is missing."""
-        text = "ИНН: 1234567890"
-        field_name = "Система налогообложения"
-        
-        result = validate_required_field(text, field_name)
-        self.assertFalse(result)
-
-    def test_required_field_with_special_chars(self):
-        """Test required field with special characters in name."""
-        text = "E-mail: test@example.com"
-        field_name = "E-mail"
-        
-        result = validate_required_field(text, field_name)
-        self.assertTrue(result)
-
-
-class TestValidateFormat(unittest.TestCase):
-    """Tests for validate_format function."""
-
-    def test_format_phone_valid(self):
-        """Test phone format validation with valid number."""
-        text = "Телефон: +7 (999) 123-45-67"
-        
-        result = validate_format(text, "phone")
-        self.assertTrue(result)
-
-    def test_format_phone_alternative(self):
-        """Test phone format with alternative format."""
-        text = "Контакт: 8 495 123 45 67"
-        
-        result = validate_format(text, "phone")
-        self.assertTrue(result)
-
-    def test_format_phone_invalid(self):
-        """Test phone format with invalid number."""
-        text = "Телефон: 123"
-        
-        result = validate_format(text, "phone")
-        self.assertFalse(result)
-
-    def test_format_email_valid(self):
-        """Test email format validation with valid email."""
-        text = "Email: test@example.com"
-        
-        result = validate_format(text, "email")
-        self.assertTrue(result)
-
-    def test_format_email_invalid(self):
-        """Test email format with invalid email."""
-        text = "Email: invalid-email"
-        
-        result = validate_format(text, "email")
-        self.assertFalse(result)
-
-    def test_format_date_valid(self):
-        """Test date format validation with valid date."""
-        text = "Дата: 20.01.2026"
-        
-        result = validate_format(text, "date")
-        self.assertTrue(result)
-
-    def test_format_date_alternative_separators(self):
-        """Test date format with different separators."""
-        text1 = "Дата: 20/01/2026"
-        text2 = "Дата: 20-01-2026"
-        
-        self.assertTrue(validate_format(text1, "date"))
-        self.assertTrue(validate_format(text2, "date"))
-
-    def test_format_inn_10_digits(self):
-        """Test INN format with 10 digits."""
-        text = "ИНН: 1234567890"
-        
-        result = validate_format(text, "inn_10")
-        self.assertTrue(result)
-
-    def test_format_inn_12_digits(self):
-        """Test INN format with 12 digits."""
-        text = "ИНН: 123456789012"
-        
-        result = validate_format(text, "inn_12")
-        self.assertTrue(result)
-
-    def test_format_inn_any(self):
-        """Test INN format accepting both 10 and 12 digits."""
-        text1 = "ИНН: 1234567890"
-        text2 = "ИНН: 123456789012"
-        
-        self.assertTrue(validate_format(text1, "inn"))
-        self.assertTrue(validate_format(text2, "inn"))
-
-    def test_format_inn_invalid(self):
-        """Test INN format with invalid digit count."""
-        text = "ИНН: 12345"
-        
-        result = validate_format(text, "inn")
-        self.assertFalse(result)
-
-    def test_format_unknown_type(self):
-        """Test format validation with unknown type."""
-        text = "Some text"
-        
-        result = validate_format(text, "unknown_format")
-        self.assertFalse(result)
-
-
-class TestValidateLength(unittest.TestCase):
-    """Tests for validate_length function."""
-
-    def test_length_minimum_valid(self):
-        """Test minimum length validation when valid."""
-        text = "This is a test text with more than 10 characters"
-        
-        result = validate_length(text, "min:10")
-        self.assertTrue(result)
-
-    def test_length_minimum_invalid(self):
-        """Test minimum length validation when too short."""
-        text = "Short"
-        
-        result = validate_length(text, "min:10")
-        self.assertFalse(result)
-
-    def test_length_maximum_valid(self):
-        """Test maximum length validation when valid."""
-        text = "Short text"
-        
-        result = validate_length(text, "max:100")
-        self.assertTrue(result)
-
-    def test_length_maximum_invalid(self):
-        """Test maximum length validation when too long."""
-        text = "A" * 200
-        
-        result = validate_length(text, "max:100")
-        self.assertFalse(result)
-
-    def test_length_min_and_max_valid(self):
-        """Test combined min and max length validation when valid."""
-        text = "This text is just right"
-        
-        result = validate_length(text, "min:10,max:50")
-        self.assertTrue(result)
-
-    def test_length_min_and_max_too_short(self):
-        """Test combined validation when too short."""
-        text = "Short"
-        
-        result = validate_length(text, "min:10,max:50")
-        self.assertFalse(result)
-
-    def test_length_min_and_max_too_long(self):
-        """Test combined validation when too long."""
-        text = "A" * 100
-        
-        result = validate_length(text, "min:10,max:50")
-        self.assertFalse(result)
-
-    def test_length_exact_boundary(self):
-        """Test length validation at exact boundary."""
-        text = "A" * 10
-        
-        self.assertTrue(validate_length(text, "min:10"))
-        self.assertTrue(validate_length(text, "max:10"))
-
-    def test_length_invalid_spec(self):
-        """Test length validation with invalid specification."""
-        text = "Some text"
-        
-        # Invalid spec should not crash, just return True (no constraints applied)
-        result = validate_length(text, "invalid:spec")
-        self.assertTrue(result)
 
 
 class TestValidateTicket(unittest.TestCase):
@@ -446,39 +241,6 @@ class TestValidateTicket(unittest.TestCase):
         self.assertEqual(result.error_messages[1], "Medium priority error")  # Priority 5
         self.assertEqual(result.error_messages[2], "Low priority error")  # Priority 1
 
-    def test_validate_ticket_required_field_type(self):
-        """Test validation with required_field rule type."""
-        ticket_text = "Система налогообложения: УСН"
-        
-        rules = [
-            ValidationRule(1, "tax_field", "Система налогообложения", "required_field", "Поле не найдено", True, 1),
-        ]
-        
-        result = validate_ticket(ticket_text, rules)
-        self.assertTrue(result.is_valid)
-
-    def test_validate_ticket_format_type(self):
-        """Test validation with format rule type."""
-        ticket_text = "Email: test@example.com"
-        
-        rules = [
-            ValidationRule(1, "email_format", "email", "format", "Неверный формат email", True, 1),
-        ]
-        
-        result = validate_ticket(ticket_text, rules)
-        self.assertTrue(result.is_valid)
-
-    def test_validate_ticket_length_type(self):
-        """Test validation with length rule type."""
-        ticket_text = "This is a ticket with sufficient length for testing"
-        
-        rules = [
-            ValidationRule(1, "min_length", "min:10", "length", "Слишком короткая заявка", True, 1),
-        ]
-        
-        result = validate_ticket(ticket_text, rules)
-        self.assertTrue(result.is_valid)
-
     def test_validate_ticket_empty_rules(self):
         """Test validation with empty rules list."""
         ticket_text = "Any text"
@@ -530,7 +292,6 @@ class TestValidateTicket(unittest.TestCase):
             ValidationRule(3, "phone", r'\+?[78][\s\-]?\(?\d{3}\)?', "regex", "Телефон не указан", True, 8),
             ValidationRule(4, "address", r'(?i)адрес.*установки', "regex", "Адрес не указан", True, 7),
             ValidationRule(5, "activation", r'(?i)код\s+активации', "regex", "Код активации не указан", True, 6),
-            ValidationRule(6, "min_len", "min:50", "length", "Заявка слишком короткая", True, 5),
         ]
         
         result = validate_ticket(ticket_text, rules)
@@ -538,7 +299,7 @@ class TestValidateTicket(unittest.TestCase):
         self.assertTrue(result.is_valid)
         self.assertEqual(len(result.failed_rules), 0)
         # Check that all rules were evaluated
-        self.assertEqual(len(result.validation_details), 6)
+        self.assertEqual(len(result.validation_details), 5)
 
 
 class TestTicketTypeDetection(unittest.TestCase):

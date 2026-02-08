@@ -110,14 +110,3 @@ VALUES
  2,
  UNIX_TIMESTAMP());
 
--- Minimum Length Check (Общая проверка длины заявки)
-INSERT INTO ticket_validator_validation_rules 
-(rule_name, pattern, rule_type, error_message, active, priority, created_timestamp)
-VALUES 
-('minimum_length', 
- 'min:50', 
- 'length', 
- 'Заявка слишком короткая. Минимальная длина - 50 символов',
- 1,
- 1,
- UNIX_TIMESTAMP());

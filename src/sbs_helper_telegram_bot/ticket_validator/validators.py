@@ -16,9 +16,6 @@ class RuleType(Enum):
     REGEX_NOT_MATCH = "regex_not_match"
     REGEX_FULLMATCH = "regex_fullmatch"
     REGEX_NOT_FULLMATCH = "regex_not_fullmatch"
-    REQUIRED_FIELD = "required_field"
-    FORMAT = "format"
-    LENGTH = "length"
     FIAS_CHECK = "fias_check"
     CUSTOM = "custom"
 
@@ -237,84 +234,6 @@ def validate_regex_not_fullmatch(ticket_text: str, pattern: str) -> bool:
         return True
 
 
-def validate_required_field(ticket_text: str, field_name: str) -> bool:
-    """
-    Check if a required field is present in the ticket.
-    
-    Args:
-        ticket_text: The ticket text to validate
-        field_name: Name of the required field
-        
-    Returns:
-        True if field is found, False otherwise
-    """
-    # Search for "field_name:" or "field_name -" patterns
-    pattern = rf"(?i){re.escape(field_name)}\s*[:\-]"
-    return bool(re.search(pattern, ticket_text))
-
-
-def validate_format(ticket_text: str, format_type: str) -> bool:
-    """
-    Validate specific format types (phone, email, date, etc.)
-    
-    Args:
-        ticket_text: The ticket text to validate
-        format_type: Type of format to validate (phone, email, date, inn)
-        
-    Returns:
-        True if format is valid, False otherwise
-    """
-    format_patterns = {
-        'phone': r'\+?[78][\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',
-        'email': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
-        'date': r'\d{2}[./\-]\d{2}[./\-]\d{4}',
-        'inn_10': r'\b\d{10}\b',
-        'inn_12': r'\b\d{12}\b',
-        'inn': r'\b\d{10,12}\b',
-    }
-    
-    pattern = format_patterns.get(format_type.lower())
-    if not pattern:
-        return False
-        
-    return bool(re.search(pattern, ticket_text))
-
-
-def validate_length(ticket_text: str, length_spec: str) -> bool:
-    """
-    Validate text length against specification.
-    
-    Args:
-        ticket_text: The ticket text to validate
-        length_spec: Length specification like "min:10", "max:1000", or "min:10,max:1000"
-        
-    Returns:
-        True if length is valid, False otherwise
-    """
-    text_length = len(ticket_text)
-    
-    # Parse length specification
-    specs = {}
-    for spec in length_spec.split(','):
-        spec = spec.strip()
-        if ':' in spec:
-            key, value = spec.split(':', 1)
-            try:
-                specs[key.strip().lower()] = int(value.strip())
-            except ValueError:
-                continue
-    
-    # Check min length
-    if 'min' in specs and text_length < specs['min']:
-        return False
-    
-    # Check max length
-    if 'max' in specs and text_length > specs['max']:
-        return False
-    
-    return True
-
-
 def validate_fias_address(ticket_text: str, pattern: str) -> bool:
     """Validate an address extracted from ticket text against the FIAS database.
 
@@ -524,12 +443,6 @@ def validate_ticket(ticket_text: str, rules: List[ValidationRule],
                 is_valid = validate_regex_fullmatch(ticket_text, rule.pattern)
             elif rule_type_value == 'regex_not_fullmatch':
                 is_valid = validate_regex_not_fullmatch(ticket_text, rule.pattern)
-            elif rule_type_value == 'required_field':
-                is_valid = validate_required_field(ticket_text, rule.pattern)
-            elif rule_type_value == 'format':
-                is_valid = validate_format(ticket_text, rule.pattern)
-            elif rule_type_value == 'length':
-                is_valid = validate_length(ticket_text, rule.pattern)
             elif rule_type_value == 'fias_check':
                 is_valid = validate_fias_address(ticket_text, rule.pattern)
             elif rule_type_value == 'custom':
