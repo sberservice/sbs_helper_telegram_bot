@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -21,7 +21,10 @@ SETTING_TAX_HEALTH_LAST_BROKEN_AT = "tax_health_last_broken_at"
 HEALTH_STATUS_HEALTHY = "healthy"
 HEALTH_STATUS_BROKEN = "broken"
 
-MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+try:
+    MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+except Exception:  # noqa: BLE001
+    MOSCOW_TZ = timezone(timedelta(hours=3))
 
 
 @dataclass(frozen=True)
