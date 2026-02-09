@@ -50,6 +50,17 @@ def start_queue_processor():
     )
 
 
+def start_health_check_daemon():
+    """Запустить подпроцесс проверки доступности сервиса налоговой."""
+    return subprocess.Popen(
+        [sys.executable, "-m", "src.sbs_helper_telegram_bot.health_check.health_check_daemon"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1
+    )
+
+
 def start_output_thread(process, prefix, stop_event):
     """Запустить поток для чтения вывода процесса."""
     thread = threading.Thread(target=output_reader, args=(process, prefix, stop_event), daemon=True)
@@ -65,10 +76,12 @@ def run_bot():
     # Отслеживаем попытки перезапуска для каждого процесса
     telegram_restart_count = 0
     queue_restart_count = 0
+    health_restart_count = 0
     
     # События остановки для потоков чтения вывода
     telegram_stop_event = threading.Event()
     queue_stop_event = threading.Event()
+    health_stop_event = threading.Event()
     
     # Запускаем Telegram-бота в подпроцессе
     print("📱 Starting Telegram Bot...")
@@ -77,10 +90,15 @@ def run_bot():
     # Запускаем обработчик очереди изображений в подпроцессе
     print("🖼️  Starting Image Queue Processor...")
     queue_process = start_queue_processor()
+
+    # Запускаем проверку доступности сервиса налоговой
+    print("🩺 Starting Tax Service Health Check...")
+    health_process = start_health_check_daemon()
     
     # Запускаем потоки чтения вывода для обоих процессов
     telegram_thread = start_output_thread(telegram_process, "BOT", telegram_stop_event)
     queue_thread = start_output_thread(queue_process, "QUEUE", queue_stop_event)
+    health_thread = start_output_thread(health_process, "HEALTH", health_stop_event)
     
     print("✅ Both services started!\n")
     print("Press Ctrl+C to stop all services.\n")
@@ -90,12 +108,15 @@ def run_bot():
         print("\n\n🛑 Stopping services...")
         telegram_process.terminate()
         queue_process.terminate()
+        health_process.terminate()
         try:
             telegram_process.wait(timeout=5)
             queue_process.wait(timeout=5)
+            health_process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             telegram_process.kill()
             queue_process.kill()
+            health_process.kill()
         print("✅ All services stopped.")
         sys.exit(0)
     
@@ -105,17 +126,24 @@ def run_bot():
     while True:
         telegram_poll = telegram_process.poll()
         queue_poll = queue_process.poll()
+        health_poll = health_process.poll()
         
-        if telegram_poll is not None and queue_poll is not None:
-            # Оба процесса остановились — пробуем перезапустить оба
-            if telegram_restart_count < MAX_RESTART_ATTEMPTS and queue_restart_count < MAX_RESTART_ATTEMPTS:
-                print(f"⚠️  Both services stopped. Restarting in {RESTART_DELAY_SECONDS} seconds...")
+        if telegram_poll is not None and queue_poll is not None and health_poll is not None:
+            # Все процессы остановились — пробуем перезапустить
+            if (
+                telegram_restart_count < MAX_RESTART_ATTEMPTS
+                and queue_restart_count < MAX_RESTART_ATTEMPTS
+                and health_restart_count < MAX_RESTART_ATTEMPTS
+            ):
+                print(f"⚠️  All services stopped. Restarting in {RESTART_DELAY_SECONDS} seconds...")
                 time.sleep(RESTART_DELAY_SECONDS)
                 
                 telegram_stop_event.set()
                 queue_stop_event.set()
+                health_stop_event.set()
                 telegram_stop_event = threading.Event()
                 queue_stop_event = threading.Event()
+                health_stop_event = threading.Event()
                 
                 print(f"🔄 Restarting Telegram Bot (attempt {telegram_restart_count + 1}/{MAX_RESTART_ATTEMPTS})...")
                 telegram_process = start_telegram_bot()
@@ -126,6 +154,11 @@ def run_bot():
                 queue_process = start_queue_processor()
                 queue_thread = start_output_thread(queue_process, "QUEUE", queue_stop_event)
                 queue_restart_count += 1
+
+                print(f"🔄 Restarting Health Check (attempt {health_restart_count + 1}/{MAX_RESTART_ATTEMPTS})...")
+                health_process = start_health_check_daemon()
+                health_thread = start_output_thread(health_process, "HEALTH", health_stop_event)
+                health_restart_count += 1
             else:
                 print("❌ All services have stopped and max restart attempts reached.")
                 sys.exit(1)
@@ -162,6 +195,25 @@ def run_bot():
             else:
                 print(f"❌ Image queue processor stopped unexpectedly. Max restart attempts ({MAX_RESTART_ATTEMPTS}) reached.")
                 telegram_process.terminate()
+                health_process.terminate()
+                sys.exit(1)
+
+        elif health_poll is not None:
+            if health_restart_count < MAX_RESTART_ATTEMPTS:
+                health_restart_count += 1
+                print(f"⚠️  Health check stopped unexpectedly. Restarting in {RESTART_DELAY_SECONDS} seconds... (attempt {health_restart_count}/{MAX_RESTART_ATTEMPTS})")
+                time.sleep(RESTART_DELAY_SECONDS)
+
+                health_stop_event.set()
+                health_stop_event = threading.Event()
+
+                print("🔄 Restarting Health Check...")
+                health_process = start_health_check_daemon()
+                health_thread = start_output_thread(health_process, "HEALTH", health_stop_event)
+            else:
+                print(f"❌ Health check stopped unexpectedly. Max restart attempts ({MAX_RESTART_ATTEMPTS}) reached.")
+                telegram_process.terminate()
+                queue_process.terminate()
                 sys.exit(1)
         
         time.sleep(0.5)  # Небольшая пауза, чтобы избежать активного ожидания
