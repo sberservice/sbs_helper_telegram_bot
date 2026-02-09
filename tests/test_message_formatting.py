@@ -58,6 +58,25 @@ from src.sbs_helper_telegram_bot.vyezd_byl.messages import (
     MESSAGE_HELP as VYEZD_MESSAGE_HELP,
     MESSAGE_PROCESSING_DONE,
 )
+from src.sbs_helper_telegram_bot.news.messages import (
+    MESSAGE_SUBMENU as NEWS_MESSAGE_SUBMENU,
+    MESSAGE_SUBMENU_UNREAD as NEWS_MESSAGE_SUBMENU_UNREAD,
+    MESSAGE_NO_NEWS as NEWS_MESSAGE_NO_NEWS,
+    MESSAGE_ARCHIVE_EMPTY as NEWS_MESSAGE_ARCHIVE_EMPTY,
+    MESSAGE_SEARCH_PROMPT as NEWS_MESSAGE_SEARCH_PROMPT,
+    MESSAGE_SEARCH_NO_RESULTS as NEWS_MESSAGE_SEARCH_NO_RESULTS,
+    MESSAGE_NEWS_MARKED_READ as NEWS_MESSAGE_NEWS_MARKED_READ,
+    MESSAGE_MANDATORY_NEWS as NEWS_MESSAGE_MANDATORY_NEWS,
+    MESSAGE_MANDATORY_BLOCKING as NEWS_MESSAGE_MANDATORY_BLOCKING,
+    MESSAGE_MANDATORY_ACKNOWLEDGED as NEWS_MESSAGE_MANDATORY_ACKNOWLEDGED,
+    MESSAGE_ADMIN_NOT_AUTHORIZED as NEWS_MESSAGE_ADMIN_NOT_AUTHORIZED,
+    MESSAGE_ADMIN_MENU as NEWS_MESSAGE_ADMIN_MENU,
+    MESSAGE_ADMIN_DRAFTS_EMPTY as NEWS_MESSAGE_ADMIN_DRAFTS_EMPTY,
+    MESSAGE_ADMIN_PUBLISHED_EMPTY as NEWS_MESSAGE_ADMIN_PUBLISHED_EMPTY,
+    MESSAGE_ADMIN_DRAFT_SAVED as NEWS_MESSAGE_ADMIN_DRAFT_SAVED,
+    MESSAGE_ADMIN_PREVIEW_SENT as NEWS_MESSAGE_ADMIN_PREVIEW_SENT,
+    MESSAGE_ADMIN_PUBLISHED as NEWS_MESSAGE_ADMIN_PUBLISHED,
+)
 from src.sbs_helper_telegram_bot.ticket_validator.messages import (
     MESSAGE_SEND_TICKET,
     MESSAGE_VALIDATION_CANCELLED,
@@ -328,6 +347,38 @@ class TestMarkdownV2Formatting(unittest.TestCase):
         
         if all_errors:
             self.fail("Ticket Validator MarkdownV2 formatting errors found:\n" + "\n".join(all_errors))
+
+    def test_news_messages_markdown_v2_formatting(self):
+        """Test News module messages used with MARKDOWN_V2."""
+
+        messages_to_check = [
+            (NEWS_MESSAGE_SUBMENU, "NEWS_MESSAGE_SUBMENU"),
+            (NEWS_MESSAGE_SUBMENU_UNREAD, "NEWS_MESSAGE_SUBMENU_UNREAD"),
+            (NEWS_MESSAGE_NO_NEWS, "NEWS_MESSAGE_NO_NEWS"),
+            (NEWS_MESSAGE_ARCHIVE_EMPTY, "NEWS_MESSAGE_ARCHIVE_EMPTY"),
+            (NEWS_MESSAGE_SEARCH_PROMPT, "NEWS_MESSAGE_SEARCH_PROMPT"),
+            (NEWS_MESSAGE_SEARCH_NO_RESULTS, "NEWS_MESSAGE_SEARCH_NO_RESULTS"),
+            (NEWS_MESSAGE_NEWS_MARKED_READ, "NEWS_MESSAGE_NEWS_MARKED_READ"),
+            (NEWS_MESSAGE_MANDATORY_NEWS, "NEWS_MESSAGE_MANDATORY_NEWS"),
+            (NEWS_MESSAGE_MANDATORY_BLOCKING, "NEWS_MESSAGE_MANDATORY_BLOCKING"),
+            (NEWS_MESSAGE_MANDATORY_ACKNOWLEDGED, "NEWS_MESSAGE_MANDATORY_ACKNOWLEDGED"),
+            (NEWS_MESSAGE_ADMIN_NOT_AUTHORIZED, "NEWS_MESSAGE_ADMIN_NOT_AUTHORIZED"),
+            (NEWS_MESSAGE_ADMIN_MENU, "NEWS_MESSAGE_ADMIN_MENU"),
+            (NEWS_MESSAGE_ADMIN_DRAFTS_EMPTY, "NEWS_MESSAGE_ADMIN_DRAFTS_EMPTY"),
+            (NEWS_MESSAGE_ADMIN_PUBLISHED_EMPTY, "NEWS_MESSAGE_ADMIN_PUBLISHED_EMPTY"),
+            (NEWS_MESSAGE_ADMIN_DRAFT_SAVED, "NEWS_MESSAGE_ADMIN_DRAFT_SAVED"),
+            (NEWS_MESSAGE_ADMIN_PREVIEW_SENT, "NEWS_MESSAGE_ADMIN_PREVIEW_SENT"),
+            (NEWS_MESSAGE_ADMIN_PUBLISHED, "NEWS_MESSAGE_ADMIN_PUBLISHED"),
+        ]
+
+        all_errors = []
+
+        for message, name in messages_to_check:
+            errors = self._check_markdown_v2_escaping(message, name)
+            all_errors.extend(errors)
+
+        if all_errors:
+            self.fail("News MarkdownV2 formatting errors found:\n" + "\n".join(all_errors))
     
     def test_no_github_url_escaping_issues(self):
         """Test that GitHub URLs are properly escaped in all messages."""
@@ -484,6 +535,24 @@ class TestMessageIntegration(unittest.TestCase):
             'VYEZD_MESSAGE_SUBMENU',
             'MESSAGE_INSTRUCTIONS',
             'VYEZD_MESSAGE_HELP',
+            # News messages
+            'NEWS_MESSAGE_SUBMENU',
+            'NEWS_MESSAGE_SUBMENU_UNREAD',
+            'NEWS_MESSAGE_NO_NEWS',
+            'NEWS_MESSAGE_ARCHIVE_EMPTY',
+            'NEWS_MESSAGE_SEARCH_PROMPT',
+            'NEWS_MESSAGE_SEARCH_NO_RESULTS',
+            'NEWS_MESSAGE_NEWS_MARKED_READ',
+            'NEWS_MESSAGE_MANDATORY_NEWS',
+            'NEWS_MESSAGE_MANDATORY_BLOCKING',
+            'NEWS_MESSAGE_MANDATORY_ACKNOWLEDGED',
+            'NEWS_MESSAGE_ADMIN_NOT_AUTHORIZED',
+            'NEWS_MESSAGE_ADMIN_MENU',
+            'NEWS_MESSAGE_ADMIN_DRAFTS_EMPTY',
+            'NEWS_MESSAGE_ADMIN_PUBLISHED_EMPTY',
+            'NEWS_MESSAGE_ADMIN_DRAFT_SAVED',
+            'NEWS_MESSAGE_ADMIN_PREVIEW_SENT',
+            'NEWS_MESSAGE_ADMIN_PUBLISHED',
         }
         
         # In a real implementation, you might scan the codebase for
