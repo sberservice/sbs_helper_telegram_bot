@@ -1,8 +1,8 @@
 """
-File processing module for batch ticket validation.
+Модуль обработки файлов для пакетной валидации заявок.
 
-Handles reading/writing Excel files and batch validation of tickets.
-Supports both .xlsx and legacy .xls file formats.
+Обрабатывает чтение/запись Excel-файлов и пакетную валидацию заявок.
+Поддерживает форматы .xlsx и устаревший .xls.
 """
 
 import os
@@ -13,41 +13,41 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-# Regex to match illegal XML characters (control characters except tab, newline, carriage return)
+# Regex для поиска недопустимых XML-символов (управляющие символы, кроме таба, перевода строки и возврата каретки)
 ILLEGAL_XML_CHARS_RE = re.compile(
     '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\ud800-\udfff\ufffe\uffff]'
 )
 
-# Characters that Excel interprets as formula start
+# Символы, которые Excel воспринимает как начало формулы
 FORMULA_START_CHARS = ('=', '+', '-', '@', '\t', '\r', '\n')
 
 
 def sanitize_for_excel(value: Any) -> Any:
     """
-    Sanitize a value for writing to Excel.
+    Подготовить значение для записи в Excel.
     
-    Removes illegal XML characters that cause Excel file corruption.
-    Escapes formula-like strings to prevent Excel from interpreting them as formulas.
+    Удаляет недопустимые XML-символы, которые портят Excel-файл.
+    Экранирует строки, похожие на формулы, чтобы Excel не интерпретировал их как формулы.
     
     Args:
-        value: The value to sanitize
+        value: Значение для очистки
         
     Returns:
-        Sanitized value safe for Excel
+        Очищенное значение, безопасное для Excel
     """
     if value is None:
         return value
     
     if isinstance(value, str):
-        # Remove illegal XML characters
+        # Удаляем недопустимые XML-символы
         sanitized = ILLEGAL_XML_CHARS_RE.sub('', value)
         
-        # Escape strings that look like formulas by prefixing with single quote
-        # Excel will display the value as text (without the quote visible)
+        # Экранируем строки, похожие на формулы, добавляя ведущую одинарную кавычку
+        # Excel покажет значение как текст (кавычка не отображается)
         if sanitized and sanitized[0] in FORMULA_START_CHARS:
             sanitized = "'" + sanitized
         
-        # Also limit string length to avoid issues (Excel cell limit is 32767 chars)
+        # Также ограничиваем длину строки, чтобы избежать проблем (лимит ячейки Excel — 32767 символов)
         if len(sanitized) > 32000:
             sanitized = sanitized[:32000] + "... [ОБРЕЗАНО]"
         
@@ -58,7 +58,7 @@ def sanitize_for_excel(value: Any) -> Any:
 
 @dataclass
 class TicketValidationRow:
-    """Result of validating a single ticket from file"""
+    """Результат валидации одной заявки из файла"""
     row_number: int
     ticket_text: str
     is_valid: bool
@@ -70,7 +70,7 @@ class TicketValidationRow:
 
 @dataclass 
 class FileValidationResult:
-    """Result of batch file validation"""
+    """Результат пакетной валидации файла"""
     total_tickets: int
     valid_tickets: int
     invalid_tickets: int
@@ -82,10 +82,10 @@ class FileValidationResult:
 
 class ExcelFileProcessor:
     """
-    Processes Excel files for batch ticket validation.
+    Обрабатывает Excel-файлы для пакетной валидации заявок.
     
-    Supports reading .xlsx and .xls files, validating all tickets,
-    and writing results back to a new Excel file.
+    Поддерживает чтение .xlsx и .xls, валидацию всех заявок
+    и запись результатов в новый Excel-файл.
     """
     
     def __init__(self):
@@ -94,7 +94,7 @@ class ExcelFileProcessor:
         self._xlrd = None
     
     def _ensure_openpyxl(self):
-        """Lazy import openpyxl for xlsx files"""
+        """Ленивый импорт openpyxl для файлов xlsx"""
         if self._openpyxl is None:
             try:
                 import openpyxl
@@ -107,7 +107,7 @@ class ExcelFileProcessor:
         return self._openpyxl
     
     def _ensure_xlrd(self):
-        """Lazy import xlrd for xls files"""
+        """Ленивый импорт xlrd для файлов xls"""
         if self._xlrd is None:
             try:
                 import xlrd
@@ -130,7 +130,7 @@ class ExcelFileProcessor:
             Tuple of (headers, rows)
             
         Raises:
-            ValueError: If file format is not supported
+            ValueError: Если формат файла не поддерживается
         """
         ext = os.path.splitext(file_path)[1].lower()
         
@@ -139,25 +139,25 @@ class ExcelFileProcessor:
         elif ext == '.xls':
             return self._read_xls(file_path)
         else:
-            raise ValueError(f"Unsupported file format: {ext}. Use .xls or .xlsx")
+            raise ValueError(f"Неподдерживаемый формат файла: {ext}. Используйте .xls или .xlsx")
     
     def _read_xlsx(self, file_path: str) -> Tuple[List[str], List[List[Any]]]:
-        """Read .xlsx file using openpyxl"""
+        """Прочитать файл .xlsx с помощью openpyxl"""
         openpyxl = self._ensure_openpyxl()
         
         try:
             wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
             ws = wb.active
             
-            # Get headers from first row
+            # Получаем заголовки из первой строки
             headers = []
             for cell in ws[1]:
                 headers.append(str(cell.value) if cell.value is not None else "")
             
-            # Get data rows
+            # Получаем строки данных
             rows = []
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                # Skip completely empty rows
+                # Пропускаем полностью пустые строки
                 if all(cell is None or str(cell).strip() == "" for cell in row):
                     continue
                 rows.append(list(row))
@@ -170,20 +170,20 @@ class ExcelFileProcessor:
             raise ValueError(f"Error reading file: {str(e)}")
     
     def _read_xls(self, file_path: str) -> Tuple[List[str], List[List[Any]]]:
-        """Read legacy .xls file using xlrd"""
+        """Прочитать устаревший файл .xls с помощью xlrd"""
         xlrd = self._ensure_xlrd()
         
         try:
             wb = xlrd.open_workbook(file_path)
             ws = wb.sheet_by_index(0)
             
-            # Get headers
+            # Получаем заголовки
             headers = []
             for col in range(ws.ncols):
                 val = ws.cell_value(0, col)
                 headers.append(str(val) if val else "")
             
-            # Get data rows
+            # Получаем строки данных
             rows = []
             for row_idx in range(1, ws.nrows):
                 row = []
@@ -193,7 +193,7 @@ class ExcelFileProcessor:
                     row.append(val)
                     if val and str(val).strip():
                         all_empty = False
-                # Skip completely empty rows
+                # Пропускаем полностью пустые строки
                 if not all_empty:
                     rows.append(row)
             
@@ -205,13 +205,13 @@ class ExcelFileProcessor:
     
     def get_column_names(self, file_path: str) -> List[str]:
         """
-        Get column names from Excel file.
+        Получить названия столбцов из Excel-файла.
         
         Args:
-            file_path: Path to Excel file
+            file_path: Путь к Excel-файлу
             
         Returns:
-            List of column names
+            Список названий столбцов
         """
         headers, _ = self.read_file(file_path)
         return headers
@@ -225,26 +225,26 @@ class ExcelFileProcessor:
         progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> FileValidationResult:
         """
-        Validate all tickets in a file.
+        Провалидировать все заявки в файле.
         
         Args:
-            file_path: Path to input Excel file
-            ticket_column: Column name or index (0-based) containing tickets
-            output_path: Path for output file (None = auto-generate)
-            ticket_type_id: Force specific ticket type (None = auto-detect)
-            progress_callback: Function to call with progress (current, total)
+            file_path: Путь к входному Excel-файлу
+            ticket_column: Название столбца или индекс (с 0), содержащий заявки
+            output_path: Путь для выходного файла (None = сгенерировать автоматически)
+            ticket_type_id: Принудительно задать тип заявки (None = автоопределение)
+            progress_callback: Функция для уведомления о прогрессе (current, total)
         
         Returns:
-            FileValidationResult with validation details
+            FileValidationResult с деталями валидации
         """
-        # Import validation modules here to avoid circular imports
+        # Импортируем модули валидации здесь, чтобы избежать циклических импортов
         from .validators import validate_ticket, detect_ticket_type, ValidationResult
         from .validation_rules import load_rules_from_db, load_all_ticket_types
         
         self.progress_callback = progress_callback
         
         try:
-            # Read file
+            # Читаем файл
             headers, rows = self.read_file(file_path)
             
             if not rows:
@@ -257,13 +257,13 @@ class ExcelFileProcessor:
                     error_message="Файл не содержит данных"
                 )
             
-            # Find ticket column index
+            # Находим индекс столбца с заявками
             col_idx = self._resolve_column_index(headers, ticket_column)
             
-            # Get ticket types for auto-detection
+            # Получаем типы заявок для автоопределения
             ticket_types = load_all_ticket_types() if ticket_type_id is None else None
             
-            # Validate each ticket
+            # Валидируем каждую заявку
             results = []
             valid_count = 0
             invalid_count = 0
@@ -272,7 +272,7 @@ class ExcelFileProcessor:
             total_rows = len(rows)
             
             for idx, row in enumerate(rows, start=1):
-                # Get ticket text from row
+                # Получаем текст заявки из строки
                 if col_idx >= len(row):
                     ticket_text = ""
                 else:
@@ -280,7 +280,7 @@ class ExcelFileProcessor:
                 
                 ticket_text = ticket_text.strip()
                 
-                # Skip empty tickets
+                # Пропускаем пустые заявки
                 if not ticket_text:
                     result = TicketValidationRow(
                         row_number=idx,
@@ -298,7 +298,7 @@ class ExcelFileProcessor:
                         self.progress_callback(idx, total_rows)
                     continue
                 
-                # Detect ticket type if not forced
+                # Определяем тип заявки, если он не задан явно
                 detected_type = None
                 type_id = ticket_type_id
                 
@@ -306,16 +306,16 @@ class ExcelFileProcessor:
                     detected_type, _ = detect_ticket_type(ticket_text, ticket_types)
                     type_id = detected_type.id if detected_type else None
                 elif ticket_type_id:
-                    # Load the forced ticket type info
+                    # Загружаем данные принудительно заданного типа заявки
                     from .validation_rules import load_ticket_type_by_id
                     detected_type = load_ticket_type_by_id(ticket_type_id)
                 
-                # Load rules and validate
+                # Загружаем правила и валидируем
                 if type_id:
                     rules = load_rules_from_db(type_id)
                     validation_result = validate_ticket(ticket_text, rules, detected_type)
                 else:
-                    # Could not detect type
+                    # Не удалось определить тип
                     validation_result = ValidationResult(
                         is_valid=False,
                         failed_rules=[],
@@ -325,7 +325,7 @@ class ExcelFileProcessor:
                         detected_ticket_type=None
                     )
                 
-                # Store result
+                # Сохраняем результат
                 result = TicketValidationRow(
                     row_number=idx,
                     ticket_text=ticket_text[:500] + "..." if len(ticket_text) > 500 else ticket_text,
@@ -342,11 +342,11 @@ class ExcelFileProcessor:
                 else:
                     invalid_count += 1
                 
-                # Progress callback
+                # Коллбэк прогресса
                 if self.progress_callback:
                     self.progress_callback(idx, total_rows)
             
-            # Generate output file
+            # Генерируем выходной файл
             if output_path is None:
                 base_name = os.path.splitext(file_path)[0]
                 output_path = f"{base_name}_validated.xlsx"
@@ -378,30 +378,30 @@ class ExcelFileProcessor:
         Resolve column name or index to numeric index.
         
         Args:
-            headers: List of column headers
-            ticket_column: Column name or 0-based index
+            headers: Список заголовков столбцов
+            ticket_column: Название столбца или индекс (с 0)
             
         Returns:
-            Column index (0-based)
+            Индекс столбца (с 0)
             
         Raises:
-            ValueError: If column not found
+            ValueError: Если столбец не найден
         """
         if isinstance(ticket_column, int):
             if ticket_column < 0 or ticket_column >= len(headers):
-                raise ValueError(f"Column index {ticket_column} out of range (0-{len(headers)-1})")
+                raise ValueError(f"Индекс столбца {ticket_column} вне диапазона (0-{len(headers)-1})")
             return ticket_column
         
-        # Try exact match first
+        # Сначала пробуем точное совпадение
         if ticket_column in headers:
             return headers.index(ticket_column)
         
-        # Try case-insensitive match
+        # Пробуем совпадение без учёта регистра
         lower_headers = [h.lower() for h in headers]
         if ticket_column.lower() in lower_headers:
             return lower_headers.index(ticket_column.lower())
         
-        raise ValueError(f"Column '{ticket_column}' not found in file. Available: {', '.join(headers)}")
+        raise ValueError(f"Столбец '{ticket_column}' не найден в файле. Доступны: {', '.join(headers)}")
     
     def _write_results(
         self,
@@ -411,13 +411,13 @@ class ExcelFileProcessor:
         output_path: str
     ):
         """
-        Write validation results to Excel file.
+        Записать результаты валидации в Excel-файл.
         
         Args:
-            original_headers: Original column headers
-            results: List of validation results
-            ticket_col_idx: Index of the ticket column
-            output_path: Path to output file
+            original_headers: Исходные заголовки столбцов
+            results: Список результатов валидации
+            ticket_col_idx: Индекс столбца с заявкой
+            output_path: Путь к выходному файлу
         """
         openpyxl = self._ensure_openpyxl()
         from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
@@ -427,7 +427,7 @@ class ExcelFileProcessor:
         ws = wb.active
         ws.title = "Результаты валидации"
         
-        # Define styles
+        # Определяем стили
         header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF")
         valid_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
@@ -443,7 +443,7 @@ class ExcelFileProcessor:
             bottom=Side(style='thin')
         )
         
-        # Write headers
+        # Записываем заголовки
         new_headers = original_headers + ["✅ Результат", "🎫 Тип заявки", "❌ Ошибки", "✓ Пройденные проверки"]
         for col_idx, header in enumerate(new_headers, start=1):
             cell = ws.cell(row=1, column=col_idx, value=header)
@@ -452,20 +452,20 @@ class ExcelFileProcessor:
             cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
             cell.border = thin_border
         
-        # Write data
+        # Записываем данные
         for row_idx, result in enumerate(results, start=2):
-            # Write original columns (sanitize all values)
+            # Записываем исходные столбцы (очищаем все значения)
             for col_idx, value in enumerate(result.original_row, start=1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=sanitize_for_excel(value))
                 cell.border = thin_border
                 cell.alignment = Alignment(vertical='top', wrap_text=True)
             
-            # Fill remaining original columns if row is shorter
+            # Заполняем оставшиеся исходные столбцы, если строка короче
             for col_idx in range(len(result.original_row) + 1, len(original_headers) + 1):
                 cell = ws.cell(row=row_idx, column=col_idx, value="")
                 cell.border = thin_border
             
-            # Validation status column
+            # Столбец статуса валидации
             status_col = len(original_headers) + 1
             
             if result.ticket_type == "Пустая строка":
@@ -487,25 +487,25 @@ class ExcelFileProcessor:
             status_cell.alignment = Alignment(horizontal='center', vertical='center')
             status_cell.border = thin_border
             
-            # Ticket type column
+            # Столбец типа заявки
             type_cell = ws.cell(row=row_idx, column=status_col + 1, value=sanitize_for_excel(result.ticket_type))
             type_cell.border = thin_border
             type_cell.alignment = Alignment(vertical='top')
             
-            # Errors column
+            # Столбец ошибок
             errors_cell = ws.cell(row=row_idx, column=status_col + 2, value=sanitize_for_excel(result.errors))
             errors_cell.border = thin_border
             errors_cell.alignment = Alignment(vertical='top', wrap_text=True)
             if result.errors:
                 errors_cell.fill = invalid_fill
             
-            # Passed rules column
+            # Столбец пройденных правил
             passed_text = "; ".join(result.passed_rules) if result.passed_rules else ""
             passed_cell = ws.cell(row=row_idx, column=status_col + 3, value=sanitize_for_excel(passed_text))
             passed_cell.border = thin_border
             passed_cell.alignment = Alignment(vertical='top', wrap_text=True)
         
-        # Auto-adjust column widths
+        # Автоподстройка ширины столбцов
         for col_idx in range(1, len(new_headers) + 1):
             max_length = 0
             column_letter = get_column_letter(col_idx)
@@ -514,28 +514,28 @@ class ExcelFileProcessor:
                 cell = ws.cell(row=row_idx, column=col_idx)
                 if cell.value:
                     cell_length = len(str(cell.value))
-                    # Account for wrapped text
-                    if col_idx == len(original_headers) + 3:  # Errors column
+                    # Учитываем переносы строк
+                    if col_idx == len(original_headers) + 3:  # Столбец ошибок
                         cell_length = min(cell_length, 60)
-                    elif col_idx == len(original_headers) + 4:  # Passed rules column
+                    elif col_idx == len(original_headers) + 4:  # Столбец пройденных правил
                         cell_length = min(cell_length, 50)
                     max_length = max(max_length, cell_length)
             
-            # Limit column width
+            # Ограничиваем ширину столбца
             adjusted_width = min(max(max_length + 2, 10), 60)
             ws.column_dimensions[column_letter].width = adjusted_width
         
-        # Freeze header row
+        # Закрепляем строку заголовков
         ws.freeze_panes = 'A2'
         
-        # Add summary sheet
+        # Добавляем лист со сводкой
         self._add_summary_sheet(wb, results)
         
         wb.save(output_path)
         logger.info(f"Wrote validation results to {output_path}")
     
     def _add_summary_sheet(self, wb, results: List[TicketValidationRow]):
-        """Add a summary sheet with statistics"""
+        """Добавить лист со статистикой"""
         ws = wb.create_sheet("Статистика")
         
         from openpyxl.styles import PatternFill, Font, Alignment
@@ -547,7 +547,7 @@ class ExcelFileProcessor:
         invalid = sum(1 for r in results if not r.is_valid and r.ticket_type != "Пустая строка")
         skipped = sum(1 for r in results if r.ticket_type == "Пустая строка")
         
-        # Write summary
+        # Записываем сводку
         ws.cell(row=1, column=1, value="Статистика валидации").font = header_font
         ws.cell(row=3, column=1, value="Всего строк:")
         ws.cell(row=3, column=2, value=total)
@@ -563,7 +563,7 @@ class ExcelFileProcessor:
             ws.cell(row=8, column=1, value="Процент успеха:")
             ws.cell(row=8, column=2, value=f"{success_rate:.1f}%")
         
-        # Count errors by type
+        # Считаем ошибки по типам
         error_counts: Dict[str, int] = {}
         for result in results:
             if result.errors:
@@ -580,7 +580,7 @@ class ExcelFileProcessor:
                 ws.cell(row=row, column=2, value=count)
                 row += 1
         
-        # Count by ticket type
+        # Считаем по типам заявок
         type_counts: Dict[str, int] = {}
         for result in results:
             if result.ticket_type and result.ticket_type != "Пустая строка":
@@ -594,20 +594,20 @@ class ExcelFileProcessor:
                 ws.cell(row=row, column=2, value=count)
                 row += 1
         
-        # Adjust column widths
+        # Настраиваем ширину столбцов
         ws.column_dimensions['A'].width = 50
         ws.column_dimensions['B'].width = 15
 
 
 def get_column_names(file_path: str) -> List[str]:
     """
-    Convenience function to get column names from Excel file.
+    Удобная функция для получения названий столбцов из Excel-файла.
     
     Args:
-        file_path: Path to Excel file
+        file_path: Путь к Excel-файлу
         
     Returns:
-        List of column names
+        Список названий столбцов
     """
     processor = ExcelFileProcessor()
     return processor.get_column_names(file_path)

@@ -1,39 +1,39 @@
 """
-News Module Settings
+Настройки модуля новостей.
 
-Configuration constants, context keys, callback prefixes, and menu definitions.
+Константы конфигурации, ключи контекста, префиксы колбэков и меню.
 """
 
 from typing import Final, List
 
 from src.common.messages import BUTTON_MAIN_MENU as COMMON_BUTTON_MAIN_MENU
 
-# ===== MODULE METADATA =====
+# ===== МЕТАДАННЫЕ МОДУЛЯ =====
 
 MODULE_NAME: Final[str] = "Новости"
 MODULE_DESCRIPTION: Final[str] = "Модуль публикации новостей и объявлений с поддержкой рассылки"
 MODULE_VERSION: Final[str] = "1.0.0"
 MODULE_AUTHOR: Final[str] = "SBS Helper Team"
 
-# ===== MENU BUTTONS =====
+# ===== КНОПКИ МЕНЮ =====
 
 MENU_BUTTON_TEXT: Final[str] = "📰 Новости"
 
-# User submenu buttons
+# Кнопки подменю пользователя
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["📋 Последние новости"],
     ["📂 Архив", "🔍 Поиск"],
     [COMMON_BUTTON_MAIN_MENU]
 ]
 
-# Admin submenu buttons (includes admin panel)
+# Кнопки подменю админа (включая админ-панель)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["📋 Последние новости"],
     ["📂 Архив", "🔍 Поиск"],
     ["⚙️ Управление новостями", COMMON_BUTTON_MAIN_MENU]
 ]
 
-# Button texts
+# Тексты кнопок
 BUTTON_LATEST_NEWS: Final[str] = "📋 Последние новости"
 BUTTON_ARCHIVE: Final[str] = "📂 Архив"
 BUTTON_SEARCH: Final[str] = "🔍 Поиск"
@@ -42,7 +42,7 @@ BUTTON_MAIN_MENU: Final[str] = COMMON_BUTTON_MAIN_MENU
 BUTTON_BACK: Final[str] = "◀️ Назад"
 BUTTON_CANCEL: Final[str] = "❌ Отмена"
 
-# ===== ADMIN PANEL BUTTONS =====
+# ===== КНОПКИ АДМИН-ПАНЕЛИ =====
 
 ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     ["📝 Создать новость"],
@@ -56,7 +56,7 @@ BUTTON_DRAFTS: Final[str] = "📋 Черновики"
 BUTTON_PUBLISHED: Final[str] = "📢 Опубликованные"
 BUTTON_CATEGORIES: Final[str] = "📂 Категории"
 
-# Category management buttons
+# Кнопки управления категориями
 ADMIN_CATEGORY_BUTTONS: Final[List[List[str]]] = [
     ["➕ Добавить категорию"],
     ["◀️ Назад"]
@@ -64,9 +64,9 @@ ADMIN_CATEGORY_BUTTONS: Final[List[List[str]]] = [
 
 BUTTON_ADD_CATEGORY: Final[str] = "➕ Добавить категорию"
 
-# ===== CONVERSATION STATES =====
+# ===== СОСТОЯНИЯ ДИАЛОГА =====
 
-# User states
+# Состояния пользователя
 (
     STATE_SUBMENU,
     STATE_VIEW_NEWS,
@@ -75,7 +75,7 @@ BUTTON_ADD_CATEGORY: Final[str] = "➕ Добавить категорию"
     STATE_ARCHIVE,
 ) = range(5)
 
-# Admin states (start at 100 to avoid conflicts)
+# Состояния админа (с 100, чтобы избежать конфликтов)
 (
     STATE_ADMIN_MENU,
     STATE_ADMIN_DRAFTS_LIST,
@@ -97,30 +97,30 @@ BUTTON_ADD_CATEGORY: Final[str] = "➕ Добавить категорию"
     STATE_ADMIN_BROADCAST_PROGRESS,
 ) = range(100, 118)
 
-# ===== CONTEXT KEYS =====
+# ===== КЛЮЧИ КОНТЕКСТА =====
 
-# User context
+# Контекст пользователя
 CURRENT_PAGE_KEY: Final[str] = "news_current_page"
 SEARCH_QUERY_KEY: Final[str] = "news_search_query"
-VIEW_MODE_KEY: Final[str] = "news_view_mode"  # 'latest', 'archive', 'search'
+VIEW_MODE_KEY: Final[str] = "news_view_mode"  # режимы: 'latest', 'archive', 'search'
 
-# Admin context
+# Контекст админа
 ADMIN_CURRENT_ARTICLE_KEY: Final[str] = "news_admin_current_article"
 ADMIN_LIST_PAGE_KEY: Final[str] = "news_admin_list_page"
 ADMIN_DRAFT_DATA_KEY: Final[str] = "news_admin_draft_data"
 ADMIN_EDIT_FIELD_KEY: Final[str] = "news_admin_edit_field"
 ADMIN_CURRENT_CATEGORY_KEY: Final[str] = "news_admin_current_category"
 
-# ===== CALLBACK PREFIXES =====
+# ===== ПРЕФИКСЫ КОЛБЭКОВ =====
 
-# User callbacks
+# Колбэки пользователя
 CALLBACK_PAGE_PREFIX: Final[str] = "news_page_"
 CALLBACK_ARTICLE_PREFIX: Final[str] = "news_art_"
 CALLBACK_REACT_PREFIX: Final[str] = "news_react_"
 CALLBACK_ACK_PREFIX: Final[str] = "news_ack_"
 CALLBACK_SEARCH_PAGE_PREFIX: Final[str] = "news_search_"
 
-# Admin callbacks
+# Колбэки админа
 CALLBACK_ADMIN_ARTICLE_PREFIX: Final[str] = "news_adm_art_"
 CALLBACK_ADMIN_PAGE_PREFIX: Final[str] = "news_adm_page_"
 CALLBACK_ADMIN_CATEGORY_PREFIX: Final[str] = "news_adm_cat_"
@@ -128,49 +128,49 @@ CALLBACK_ADMIN_ACTION_PREFIX: Final[str] = "news_adm_act_"
 CALLBACK_ADMIN_EDIT_PREFIX: Final[str] = "news_adm_edit_"
 CALLBACK_ADMIN_CONFIRM_PREFIX: Final[str] = "news_adm_conf_"
 
-# Specific callbacks
+# Специальные колбэки
 CALLBACK_CANCEL: Final[str] = "news_cancel"
 CALLBACK_NOOP: Final[str] = "news_noop"
 CALLBACK_SKIP: Final[str] = "news_skip"
 
-# ===== REACTION TYPES =====
+# ===== ТИПЫ РЕАКЦИЙ =====
 
 REACTION_LIKE: Final[str] = "like"
 REACTION_LOVE: Final[str] = "love"
 REACTION_DISLIKE: Final[str] = "dislike"
 
-# Reaction emojis mapping
+# Соответствие эмодзи реакций
 REACTION_EMOJIS: Final[dict] = {
     REACTION_LIKE: "👍",
     REACTION_LOVE: "❤️",
     REACTION_DISLIKE: "👎",
 }
 
-# ===== BROADCAST SETTINGS =====
+# ===== НАСТРОЙКИ РАССЫЛКИ =====
 
-# Delay between messages in seconds (0.1 = 10 msg/sec, safe margin for 30/sec limit)
+# Задержка между сообщениями в секундах (0.1 = 10 сообщений/с, запас до лимита 30/с)
 BROADCAST_DELAY_SECONDS: Final[float] = 0.1
 
-# Progress update interval (every N users)
+# Интервал обновления прогресса (каждые N пользователей)
 BROADCAST_PROGRESS_INTERVAL: Final[int] = 50
 
-# ===== BOT SETTINGS KEYS =====
+# ===== КЛЮЧИ НАСТРОЕК БОТА =====
 
 SETTING_NEWS_EXPIRY_DAYS: Final[str] = "news_expiry_days"
 SETTING_MODULE_ENABLED: Final[str] = "module_news_enabled"
 
-# Default values
+# Значения по умолчанию
 DEFAULT_NEWS_EXPIRY_DAYS: Final[int] = 30
 
-# ===== PAGINATION =====
+# ===== ПАГИНАЦИЯ =====
 
-# Max items per page for list views
+# Максимум элементов на страницу
 ITEMS_PER_PAGE: Final[int] = 5
 
-# Max characters per message (Telegram limit is 4096, leave buffer for formatting)
+# Максимум символов в сообщении (лимит Telegram 4096, оставляем запас на форматирование)
 MAX_MESSAGE_LENGTH: Final[int] = 3800
 
-# ===== ARTICLE STATUSES =====
+# ===== СТАТУСЫ СТАТЕЙ =====
 
 STATUS_DRAFT: Final[str] = "draft"
 STATUS_PUBLISHED: Final[str] = "published"

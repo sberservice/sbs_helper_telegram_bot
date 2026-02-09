@@ -1,7 +1,7 @@
 """
-News Module User Handlers
+Пользовательские обработчики модуля новостей
 
-User-facing handlers for viewing news, reactions, search, and archive.
+Обработчики для просмотра новостей, реакций, поиска и архива.
 """
 
 import logging
@@ -28,20 +28,20 @@ from . import news_logic
 logger = logging.getLogger(__name__)
 
 
-# ===== ENTRY POINTS =====
+# ===== ТОЧКИ ВХОДА =====
 
 
 async def news_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Entry point for news module.
-    Shows submenu and marks all news as read.
+    Точка входа в модуль новостей.
+    Показывает подменю и помечает все новости как прочитанные.
     """
     user_id = update.effective_user.id
     
     if not check_if_user_legit(user_id):
         return ConversationHandler.END
     
-    # Mark all news as read when entering the module
+    # Помечаем все новости как прочитанные при входе в модуль
     news_logic.mark_all_as_read(user_id)
     
     is_admin = check_if_user_admin(user_id)
@@ -56,17 +56,17 @@ async def news_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return settings.STATE_SUBMENU
 
 
-# ===== VIEW NEWS =====
+# ===== ПРОСМОТР НОВОСТЕЙ =====
 
 
 async def show_latest_news(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Show list of latest (non-expired) published news.
+    Показать список последних (не истёкших) опубликованных новостей.
     """
     user_id = update.effective_user.id
     page = context.user_data.get(settings.CURRENT_PAGE_KEY, 0)
     
-    # Get news
+    # Получаем новости
     articles, total = news_logic.get_published_news(page=page, include_expired=False)
     
     if not articles:
@@ -76,7 +76,7 @@ async def show_latest_news(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return settings.STATE_SUBMENU
     
-    # Build message with all articles on current page
+    # Формируем сообщение со всеми статьями на текущей странице
     total_pages = (total + settings.ITEMS_PER_PAGE - 1) // settings.ITEMS_PER_PAGE
     
     text = messages.MESSAGE_NEWS_LIST_HEADER
@@ -85,21 +85,21 @@ async def show_latest_news(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         text += _format_article_preview(article)
         text += "\n\n" + "─" * 20 + "\n\n"
     
-    # Get keyboard with article links
+    # Получаем клавиатуру со ссылками на статьи
     keyboard = keyboards.get_news_list_keyboard(
         articles, page, total_pages,
         prefix=settings.CALLBACK_ARTICLE_PREFIX,
         page_prefix=settings.CALLBACK_PAGE_PREFIX
     )
     
-    # First send reply keyboard so user can navigate
+    # Сначала отправляем reply-клавиатуру, чтобы пользователь мог навигировать
     await update.message.reply_text(
         text,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.get_article_view_keyboard()
     )
     
-    # Then send article list with inline keyboard
+    # Затем отправляем список статей с inline-клавиатурой
     await update.message.reply_text(
         "👆 Выберите новость для просмотра:",
         reply_markup=keyboard
@@ -111,12 +111,12 @@ async def show_latest_news(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def handle_news_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle pagination callback for news list.
+    Обработать callback пагинации списка новостей.
     """
     query = update.callback_query
     await query.answer()
     
-    # Extract page number from callback data
+    # Извлекаем номер страницы из callback-данных
     page = int(query.data.replace(settings.CALLBACK_PAGE_PREFIX, ''))
     context.user_data[settings.CURRENT_PAGE_KEY] = page
     
@@ -179,17 +179,17 @@ async def handle_article_view(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return settings.STATE_VIEW_NEWS
     
-    # Format full article
+    # Форматируем полную статью
     text = _format_full_article(article)
     
-    # Get reactions and user's reaction
+    # Получаем реакции и реакцию пользователя
     reactions = news_logic.get_article_reactions(article_id)
     user_reaction = news_logic.get_user_reaction(article_id, user_id)
     
     keyboard = keyboards.get_reaction_keyboard(article_id, reactions, user_reaction)
     reply_keyboard = keyboards.get_article_view_keyboard()
     
-    # Send article (with image if present)
+    # Отправляем статью (с изображением, если есть)
     if article.get('image_file_id'):
         await query.message.reply_photo(
             photo=article['image_file_id'],
@@ -197,7 +197,7 @@ async def handle_article_view(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
-        # Send a separate message to update reply keyboard
+        # Отправляем отдельное сообщение для обновления reply-клавиатуры
         await query.message.reply_text(
             "↑ Используйте кнопки под статьёй для реакций",
             reply_markup=reply_keyboard
@@ -208,13 +208,13 @@ async def handle_article_view(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboard
         )
-        # Send a separate message to update reply keyboard
+        # Отправляем отдельное сообщение для обновления reply-клавиатуры
         await query.message.reply_text(
             "↑ Используйте кнопки под статьёй для реакций",
             reply_markup=reply_keyboard
         )
     
-    # Send attachment if present
+    # Отправляем вложение, если оно есть
     if article.get('attachment_file_id'):
         await query.message.reply_document(
             document=article['attachment_file_id'],
@@ -225,7 +225,7 @@ async def handle_article_view(update: Update, context: ContextTypes.DEFAULT_TYPE
     return settings.STATE_VIEW_NEWS
 
 
-# ===== REACTIONS =====
+# ===== РЕАКЦИИ =====
 
 
 async def handle_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -235,7 +235,7 @@ async def handle_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     query = update.callback_query
     user_id = update.effective_user.id
     
-    # Parse callback data: news_react_{article_id}_{reaction_type}
+    # Разбираем callback-данные: news_react_{article_id}_{reaction_type}
     parts = query.data.replace(settings.CALLBACK_REACT_PREFIX, '').split('_')
     if len(parts) != 2:
         await query.answer("Ошибка")
@@ -248,10 +248,10 @@ async def handle_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.answer("Неизвестная реакция")
         return
     
-    # Toggle reaction
+    # Переключаем реакцию
     was_added = news_logic.set_reaction(article_id, user_id, reaction_type)
     
-    # Update keyboard with new counts
+    # Обновляем клавиатуру с новыми счётчиками
     reactions = news_logic.get_article_reactions(article_id)
     user_reaction = news_logic.get_user_reaction(article_id, user_id)
     
@@ -268,7 +268,7 @@ async def handle_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.answer("Готово")
 
 
-# ===== ARCHIVE =====
+# ===== АРХИВ =====
 
 
 async def show_archive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -302,14 +302,14 @@ async def show_archive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         page_prefix=settings.CALLBACK_PAGE_PREFIX
     )
     
-    # First send reply keyboard so user can navigate
+    # Сначала отправляем reply-клавиатуру, чтобы пользователь мог навигировать
     await update.message.reply_text(
         text,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.get_article_view_keyboard()
     )
     
-    # Then send article list with inline keyboard
+    # Затем отправляем список статей с inline-клавиатурой
     await update.message.reply_text(
         "👆 Выберите новость для просмотра:",
         reply_markup=keyboard
@@ -318,7 +318,7 @@ async def show_archive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return settings.STATE_VIEW_NEWS
 
 
-# ===== SEARCH =====
+# ===== ПОИСК =====
 
 
 async def search_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -379,14 +379,14 @@ async def handle_search_query(update: Update, context: ContextTypes.DEFAULT_TYPE
         page_prefix=settings.CALLBACK_SEARCH_PAGE_PREFIX
     )
     
-    # First send reply keyboard so user can navigate
+    # Сначала отправляем reply-клавиатуру, чтобы пользователь мог навигировать
     await update.message.reply_text(
         text,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.get_article_view_keyboard()
     )
     
-    # Then send article list with inline keyboard
+    # Затем отправляем список статей с inline-клавиатурой
     await update.message.reply_text(
         "👆 Выберите новость для просмотра:",
         reply_markup=keyboard
@@ -395,7 +395,7 @@ async def handle_search_query(update: Update, context: ContextTypes.DEFAULT_TYPE
     return settings.STATE_VIEW_NEWS
 
 
-# ===== MANDATORY NEWS ACKNOWLEDGMENT =====
+# ===== ПОДТВЕРЖДЕНИЕ ОБЯЗАТЕЛЬНЫХ НОВОСТЕЙ =====
 
 
 async def handle_mandatory_ack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -405,19 +405,19 @@ async def handle_mandatory_ack(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     user_id = update.effective_user.id
     
-    # Extract news ID
+    # Извлекаем ID новости
     news_id = int(query.data.replace(settings.CALLBACK_ACK_PREFIX, ''))
     
-    # Record acknowledgment
+    # Фиксируем подтверждение
     news_logic.acknowledge_mandatory_news(news_id, user_id)
     
     await query.answer("✅ Принято")
     
-    # Check if there are more mandatory news
+    # Проверяем, есть ли ещё обязательные новости
     next_mandatory = news_logic.get_unacked_mandatory_news(user_id)
     
     if next_mandatory:
-        # Show next mandatory news
+        # Показываем следующую обязательную новость
         text = messages.MESSAGE_MANDATORY_NEWS + "\n\n"
         text += _format_full_article(next_mandatory)
         
@@ -437,7 +437,7 @@ async def handle_mandatory_ack(update: Update, context: ContextTypes.DEFAULT_TYP
                 reply_markup=keyboard
             )
     else:
-        # All mandatory news acknowledged
+        # Все обязательные новости подтверждены
         is_admin = check_if_user_admin(user_id)
         await query.message.reply_text(
             messages.MESSAGE_MANDATORY_ACKNOWLEDGED,
@@ -446,7 +446,7 @@ async def handle_mandatory_ack(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
 
-# ===== NAVIGATION =====
+# ===== НАВИГАЦИЯ =====
 
 
 async def back_to_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -456,7 +456,7 @@ async def back_to_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = update.effective_user.id
     is_admin = check_if_user_admin(user_id)
     
-    # Clear context
+    # Очищаем контекст
     context.user_data.pop(settings.CURRENT_PAGE_KEY, None)
     context.user_data.pop(settings.SEARCH_QUERY_KEY, None)
     context.user_data.pop(settings.VIEW_MODE_KEY, None)
@@ -477,7 +477,7 @@ async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user_id = update.effective_user.id
     is_admin = check_if_user_admin(user_id)
     
-    # Clear all context
+    # Очищаем весь контекст
     for key in [settings.CURRENT_PAGE_KEY, settings.SEARCH_QUERY_KEY, settings.VIEW_MODE_KEY]:
         context.user_data.pop(key, None)
     
@@ -499,7 +499,7 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return await back_to_submenu(update, context)
 
 
-# ===== HELPER FUNCTIONS =====
+# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 
 def _format_article_preview(article: dict) -> str:
@@ -517,12 +517,12 @@ def _format_article_preview(article: dict) -> str:
     else:
         published_date = ""
     
-    # Truncate content for preview
+    # Обрезаем контент для превью
     content = article.get('content', '')
     if len(content) > 200:
         content = content[:197] + "..."
     
-    # Escape content for MarkdownV2
+    # Экранируем контент для MarkdownV2
     content = messages.escape_markdown_v2(content)
     
     text = f"{category_emoji} *{title}*\n"
@@ -560,7 +560,7 @@ def _format_full_article(article: dict) -> str:
     )
 
 
-# ===== CONVERSATION HANDLER =====
+# ===== ОБРАБОТЧИК ДИАЛОГА =====
 
 
 def get_news_user_handler() -> ConversationHandler:
@@ -570,7 +570,7 @@ def get_news_user_handler() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[
             MessageHandler(filters.Regex(f"^{settings.MENU_BUTTON_TEXT}$"), news_entry),
-            MessageHandler(filters.Regex("^📰 Новости"), news_entry),  # With unread count
+            MessageHandler(filters.Regex("^📰 Новости"), news_entry),  # С учётом непрочитанных
         ],
         states={
             settings.STATE_SUBMENU: [
@@ -616,11 +616,11 @@ async def _admin_panel_redirect(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return settings.STATE_SUBMENU
     
-    # The admin panel handler will take over
+    # Управление передаётся админ-панели
     return ConversationHandler.END
 
 
-# ===== GLOBAL HANDLER FOR MANDATORY NEWS ACK =====
+# ===== ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ПОДТВЕРЖДЕНИЯ ОБЯЗАТЕЛЬНЫХ НОВОСТЕЙ =====
 
 
 def get_mandatory_ack_handler() -> CallbackQueryHandler:

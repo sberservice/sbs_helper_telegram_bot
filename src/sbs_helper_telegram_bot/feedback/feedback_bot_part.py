@@ -1,7 +1,7 @@
 """
-Feedback Module - User Bot Part
+Модуль обратной связи — пользовательская часть бота
 
-User-facing conversation handlers for submitting and viewing feedback.
+Обработчики диалогов для отправки и просмотра обращений.
 """
 
 import logging
@@ -25,11 +25,11 @@ from . import feedback_logic
 logger = logging.getLogger(__name__)
 
 
-# ===== HELPER FUNCTIONS =====
+# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 
 def _clear_user_context(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Clear all feedback-related user context data."""
+    """Очистить все данные пользовательского контекста, связанные с обратной связью."""
     keys_to_clear = [
         settings.CURRENT_CATEGORY_KEY,
         settings.CURRENT_MESSAGE_KEY,
@@ -47,7 +47,7 @@ async def _send_message_safe(
     parse_mode: str = "MarkdownV2"
 ) -> None:
     """
-    Send message handling both message and callback query updates.
+    Отправить сообщение, корректно обрабатывая и сообщения, и callback-запросы.
     """
     if update.callback_query:
         await update.callback_query.answer()
@@ -64,13 +64,13 @@ async def _send_message_safe(
         )
 
 
-# ===== ENTRY POINTS =====
+# ===== ТОЧКИ ВХОДА =====
 
 
 async def feedback_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Entry point for feedback module (menu button click).
-    Shows the feedback submenu.
+    Точка входа в модуль обратной связи (нажатие кнопки меню).
+    Показывает подменю обратной связи.
     """
     if not check_if_user_legit(update.effective_user.id):
         return ConversationHandler.END
@@ -89,17 +89,17 @@ async def feedback_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return settings.STATE_SUBMENU
 
 
-# ===== SUBMIT FEEDBACK FLOW =====
+# ===== ПРОЦЕСС ОТПРАВКИ ОБРАЩЕНИЯ =====
 
 
 async def submit_feedback_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:  # pylint: disable=unused-argument
     """
-    Start the feedback submission flow.
-    Checks rate limit, then shows category selection.
+    Запустить процесс отправки обращения.
+    Проверяет лимит, затем показывает выбор категории.
     """
     user_id = update.effective_user.id
     
-    # Check rate limit
+    # Проверяем лимит
     is_allowed, seconds_remaining = feedback_logic.check_rate_limit(user_id)
     
     if not is_allowed:
@@ -113,7 +113,7 @@ async def submit_feedback_start(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return settings.STATE_SUBMENU
     
-    # Get categories
+    # Получаем категории
     categories = feedback_logic.get_active_categories()
     
     if not categories:
@@ -140,12 +140,12 @@ async def submit_feedback_start(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle category selection callback.
+    Обработать выбор категории.
     """
     query = update.callback_query
     await query.answer()
     
-    # Parse category ID from callback data
+    # Разбираем ID категории из callback data
     callback_data = query.data
     
     if callback_data == settings.CALLBACK_CANCEL:
@@ -159,19 +159,19 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     except ValueError:
         return settings.STATE_SELECT_CATEGORY
     
-    # Verify category exists
+    # Проверяем, что категория существует
     category = feedback_logic.get_category_by_id(category_id)
     if not category:
         return settings.STATE_SELECT_CATEGORY
     
-    # Store selected category
+    # Сохраняем выбранную категорию
     context.user_data[settings.CURRENT_CATEGORY_KEY] = {
         'id': category_id,
         'name': category['name'],
         'emoji': category.get('emoji', '📝')
     }
     
-    # Show message input prompt
+    # Показываем приглашение для ввода сообщения
     cancel_keyboard = keyboards.get_cancel_keyboard()
     
     await query.edit_message_text(
@@ -189,12 +189,12 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def message_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle user's feedback message input.
-    Validates for links and shows confirmation.
+    Обработать ввод текста обращения пользователем.
+    Проверяет наличие ссылок и показывает подтверждение.
     """
     user_message = update.message.text
     
-    # Check for links
+    # Проверяем наличие ссылок
     if feedback_logic.contains_links(user_message):
         await update.message.reply_text(
             messages.MESSAGE_LINKS_NOT_ALLOWED,
@@ -203,14 +203,14 @@ async def message_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return settings.STATE_ENTER_MESSAGE
     
-    # Store message
+    # Сохраняем сообщение
     context.user_data[settings.CURRENT_MESSAGE_KEY] = user_message
     
-    # Get category info
+    # Получаем информацию о категории
     category_info = context.user_data.get(settings.CURRENT_CATEGORY_KEY, {})
     category_name = f"{category_info.get('emoji', '📝')} {category_info.get('name', 'Без категории')}"
     
-    # Show confirmation
+    # Показываем подтверждение
     confirm_keyboard = keyboards.get_confirm_keyboard()
     
     await update.message.reply_text(
@@ -224,7 +224,7 @@ async def message_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def confirm_submission(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle submission confirmation callback.
+    Обработать подтверждение отправки.
     """
     query = update.callback_query
     await query.answer()
@@ -248,7 +248,7 @@ async def confirm_submission(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return settings.STATE_SUBMENU
     
     if query.data == settings.CALLBACK_CONFIRM_YES:
-        # Get stored data
+        # Получаем сохранённые данные
         category_info = context.user_data.get(settings.CURRENT_CATEGORY_KEY, {})
         message_text = context.user_data.get(settings.CURRENT_MESSAGE_KEY, "")
         
@@ -260,7 +260,7 @@ async def confirm_submission(update: Update, context: ContextTypes.DEFAULT_TYPE)
             _clear_user_context(context)
             return settings.STATE_SUBMENU
         
-        # Create feedback entry
+        # Создаём обращение
         entry_id = feedback_logic.create_feedback_entry(
             user_id=user_id,
             category_id=category_info['id'],
@@ -292,7 +292,7 @@ async def confirm_submission(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def cancel_submission(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Cancel feedback submission.
+    Отменить отправку обращения.
     """
     user_id = update.effective_user.id
     is_admin = check_if_user_admin(user_id)
@@ -321,12 +321,12 @@ async def cancel_submission(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     return settings.STATE_SUBMENU
 
 
-# ===== VIEW MY FEEDBACK FLOW =====
+# ===== ПРОСМОТР МОИХ ОБРАЩЕНИЙ =====
 
 
 async def view_my_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Show user's feedback list.
+    Показать список обращений пользователя.
     """
     user_id = update.effective_user.id
     page = context.user_data.get(settings.MY_FEEDBACK_PAGE_KEY, 0)
@@ -358,7 +358,7 @@ async def view_my_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def my_feedback_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle callbacks in my feedback list view.
+    Обработать колбэки в списке обращений пользователя.
     """
     query = update.callback_query
     await query.answer()
@@ -366,7 +366,7 @@ async def my_feedback_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     callback_data = query.data
     user_id = update.effective_user.id
     
-    # Handle pagination
+    # Обработать пагинацию
     if callback_data.startswith(settings.CALLBACK_PAGE_PREFIX):
         try:
             page = int(callback_data.replace(settings.CALLBACK_PAGE_PREFIX, ""))
@@ -377,7 +377,7 @@ async def my_feedback_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         entries, total = feedback_logic.get_user_feedback_entries(user_id, page)
         
         if not entries:
-            # Return to first page if current is empty
+            # Возвращаемся на первую страницу, если текущая пустая
             page = 0
             context.user_data[settings.MY_FEEDBACK_PAGE_KEY] = 0
             entries, total = feedback_logic.get_user_feedback_entries(user_id, page)
@@ -392,14 +392,14 @@ async def my_feedback_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return settings.STATE_VIEW_MY_FEEDBACK
     
-    # Handle entry selection
+    # Обработать выбор обращения
     if callback_data.startswith(settings.CALLBACK_ENTRY_PREFIX):
         try:
             entry_id = int(callback_data.replace(settings.CALLBACK_ENTRY_PREFIX, ""))
         except ValueError:
             return settings.STATE_VIEW_MY_FEEDBACK
         
-        # Get entry details (verify ownership)
+        # Получаем детали обращения (проверяем принадлежность)
         entry = feedback_logic.get_feedback_entry(entry_id, user_id)
         
         if not entry:
@@ -411,7 +411,7 @@ async def my_feedback_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         
         context.user_data[settings.CURRENT_ENTRY_ID_KEY] = entry_id
         
-        # Format detail message
+        # Формируем сообщение с деталями
         status_name = feedback_logic.get_status_display_name(entry['status'])
         detail_message = messages.format_feedback_detail(
             entry_id=entry['id'],
@@ -434,12 +434,12 @@ async def my_feedback_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     return settings.STATE_VIEW_MY_FEEDBACK
 
 
-# ===== NAVIGATION =====
+# ===== НАВИГАЦИЯ =====
 
 
 async def back_to_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Return to feedback submenu.
+    Вернуться в подменю обратной связи.
     """
     user_id = update.effective_user.id
     is_admin = check_if_user_admin(user_id)
@@ -458,9 +458,9 @@ async def back_to_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Return to main menu and end conversation.
+    Вернуться в главное меню и завершить диалог.
     """
-    # Import here to avoid circular import
+    # Импортируем здесь, чтобы избежать циклического импорта
     from src.common.messages import get_main_menu_message, get_main_menu_keyboard
     
     _clear_user_context(context)
@@ -478,7 +478,7 @@ async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle /cancel command.
+    Обработать команду /cancel.
     """
     user_id = update.effective_user.id
     is_admin = check_if_user_admin(user_id)
@@ -495,12 +495,12 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return settings.STATE_SUBMENU
 
 
-# ===== CONVERSATION HANDLER =====
+# ===== ОБРАБОТЧИК ДИАЛОГА =====
 
 
 def get_feedback_user_handler() -> ConversationHandler:
     """
-    Build and return the user feedback conversation handler.
+    Собрать и вернуть обработчик диалога для пользовательской части обратной связи.
     """
     return ConversationHandler(
         entry_points=[
@@ -523,7 +523,7 @@ def get_feedback_user_handler() -> ConversationHandler:
                     filters.Regex(f"^{settings.BUTTON_MAIN_MENU}$"),
                     back_to_main_menu
                 ),
-                # Admin panel button is handled by admin handler
+                # Кнопку админ-панели обрабатывает админский обработчик
             ],
             settings.STATE_SELECT_CATEGORY: [
                 CallbackQueryHandler(

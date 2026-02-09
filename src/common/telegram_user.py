@@ -5,37 +5,37 @@ from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, MESSAGE_INVITE_SYST
 
 def check_if_user_legit(telegram_id) -> bool:
     """
-        Checks whether the user is authorized to use the bot.
+        Проверить, авторизован ли пользователь для работы с ботом.
 
-        A user is considered legitimate if they have:
-        1. Successfully consumed an invite code (only when invite system is enabled), OR
-        2. Are pre-registered in the chat_members table, OR
-        3. Are in the manual_users table (added by admin)
+        Пользователь считается легитимным, если:
+        1. Он успешно использовал инвайт (только когда инвайт-система включена), ИЛИ
+        2. Он пред-добавлен в таблицу chat_members, ИЛИ
+        3. Он находится в таблице manual_users (добавлен администратором).
 
-        When the invite system is disabled, users who joined only via invite
-        (not pre-invited or manually added) lose access.
+        Когда инвайт-система выключена, пользователи, вошедшие только по инвайту
+        (не пред-добавленные и не вручную добавленные), теряют доступ.
 
         Args:
-            telegram_id: Telegram user ID to verify.
+            telegram_id: Telegram ID пользователя для проверки.
 
         Returns:
-            True if the user is authorized, False otherwise.
+            True, если пользователь авторизован, иначе False.
     """
-    # Check if user is pre-invited (in chat_members table)
-    # Pre-invited users always have access regardless of invite system setting
+    # Проверяем, пред-добавлен ли пользователь (таблица chat_members)
+    # Пред-добавленные пользователи всегда имеют доступ независимо от настроек инвайтов
     if invites_module.check_if_user_pre_invited(telegram_id):
         return True
     
-    # Check if user is manually added (in manual_users table)
-    # Manually added users always have access regardless of invite system setting
+    # Проверяем, добавлен ли пользователь вручную (таблица manual_users)
+    # Вручную добавленные пользователи всегда имеют доступ независимо от настроек инвайтов
     if invites_module.check_if_user_manual(telegram_id):
         return True
     
-    # If invite system is disabled, only pre-invited and manual users have access
+    # Если инвайт-система выключена, доступ есть только у пред-добавленных и ручных пользователей
     if not bot_settings.is_invite_system_enabled():
         return False
     
-    # Check if user has consumed an invite (only when invite system is enabled)
+    # Проверяем, использовал ли пользователь инвайт (только когда инвайт-система включена)
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             sql_query = "SELECT count(consumed_userid) as invite_consumed from invites where consumed_userid=%s"
@@ -50,49 +50,49 @@ def check_if_user_legit(telegram_id) -> bool:
 
 def check_if_invite_user_blocked(telegram_id) -> bool:
     """
-        Checks if a user should be blocked due to invite system being disabled.
-        
-        Returns True if:
-        1. Invite system is currently disabled, AND
-        2. User is NOT in chat_members (pre-invited), AND
-        3. User is NOT in manual_users (manually added)
-        
-        When invite system is disabled, only chat_members and manual_users have access.
-        
+        Проверить, должен ли пользователь быть заблокирован из-за выключенной инвайт-системы.
+
+        Возвращает True, если:
+        1. Инвайт-система сейчас выключена, И
+        2. Пользователя НЕТ в chat_members (пред-добавленные), И
+        3. Пользователя НЕТ в manual_users (вручную добавленные).
+
+        Когда инвайт-система выключена, доступ есть только у chat_members и manual_users.
+
         Args:
-            telegram_id: Telegram user ID to check.
-            
+            telegram_id: Telegram ID пользователя для проверки.
+
         Returns:
-            True if user should see the "invite system disabled" message.
+            True, если пользователю нужно показать сообщение о выключенной инвайт-системе.
     """
-    # If invite system is enabled, no one is blocked
+    # Если инвайт-система включена, никто не блокируется
     if bot_settings.is_invite_system_enabled():
         return False
     
-    # If user is pre-invited (in chat_members), they're not blocked
+    # Если пользователь пред-добавлен (chat_members), он не блокируется
     if invites_module.check_if_user_pre_invited(telegram_id):
         return False
     
-    # If user is manually added (in manual_users), they're not blocked
+    # Если пользователь добавлен вручную (manual_users), он не блокируется
     if invites_module.check_if_user_manual(telegram_id):
         return False
     
-    # When invite system is disabled, any user not in chat_members or manual_users is blocked
+    # При выключенной инвайт-системе блокируется любой, кто не в chat_members или manual_users
     return True
 
 
 def get_unauthorized_message(telegram_id) -> str:
     """
-        Returns the appropriate message when a user is not authorized.
+        Вернуть подходящее сообщение, когда пользователь не авторизован.
 
-        If the invite system is disabled and the user is blocked, returns
-        the invite-system-disabled message. Otherwise, returns the invite prompt.
+        Если инвайт-система выключена и пользователь заблокирован,
+        возвращает сообщение о выключенной инвайт-системе. Иначе — приглашение ввести инвайт.
 
         Args:
-            telegram_id: Telegram user ID to check.
+            telegram_id: Telegram ID пользователя для проверки.
 
         Returns:
-            Message string suitable for reply_text.
+            Строка сообщения, подходящая для reply_text.
     """
     if check_if_invite_user_blocked(telegram_id):
         return MESSAGE_INVITE_SYSTEM_DISABLED
@@ -101,15 +101,15 @@ def get_unauthorized_message(telegram_id) -> str:
 
 def check_if_user_admin(telegram_id) -> bool:
     """
-        Checks whether the user is an admin.
+        Проверить, является ли пользователь администратором.
 
-        Queries the `users` table to see if the given user_id has is_admin = 1.
+        Проверяет таблицу `users` на наличие is_admin = 1 для указанного user_id.
 
         Args:
-            telegram_id: Telegram user ID to verify.
+            telegram_id: Telegram ID пользователя для проверки.
 
         Returns:
-            True if the user is an admin, False otherwise.
+            True, если пользователь администратор, иначе False.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -124,10 +124,10 @@ def check_if_user_admin(telegram_id) -> bool:
 
 def get_all_admin_ids() -> list:
     """
-        Gets all admin user IDs from the users table.
+        Получить все ID администраторов из таблицы users.
 
         Returns:
-            List of telegram user IDs with admin status.
+            Список Telegram ID пользователей со статусом администратора.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -139,14 +139,14 @@ def get_all_admin_ids() -> list:
 
 def set_user_admin(telegram_id, is_admin: bool = True) -> bool:
     """
-        Sets or removes admin status for a user.
+        Назначить или снять администраторские права у пользователя.
 
         Args:
-            telegram_id: Telegram user ID to modify.
-            is_admin: True to grant admin, False to revoke.
+            telegram_id: Telegram ID пользователя.
+            is_admin: True — назначить админом, False — снять права.
 
         Returns:
-            True if operation was successful, False otherwise.
+            True при успехе, иначе False.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -158,13 +158,13 @@ def set_user_admin(telegram_id, is_admin: bool = True) -> bool:
 
 def update_user_info_from_telegram(user) -> None:
     """
-        Updates or inserts user information from a Telegram Update into the `users` table.
+        Обновить или вставить данные пользователя из Telegram Update в таблицу `users`.
 
-        Uses INSERT ... ON DUPLICATE KEY UPDATE to either create a new record
-        or refresh first_name, last_name, and username if the user already exists.
+        Использует INSERT ... ON DUPLICATE KEY UPDATE для создания записи
+        или обновления first_name, last_name и username, если пользователь уже существует.
 
         Args:
-            user: telegram.User object containing id, first_name, last_name, username.
+            user: объект telegram.User с полями id, first_name, last_name, username.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:

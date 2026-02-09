@@ -1,8 +1,8 @@
 """
-Feedback Module - Admin Panel Bot Part
+Модуль обратной связи — часть бота для админ-панели
 
-Admin handlers for viewing feedback entries and sending anonymous replies.
-CRITICAL: Admin identity must NEVER be exposed to users.
+Админ-обработчики для просмотра обращений и отправки анонимных ответов.
+КРИТИЧНО: личность администратора НЕЛЬЗЯ раскрывать пользователям.
 """
 
 import logging
@@ -26,11 +26,11 @@ from . import feedback_logic
 logger = logging.getLogger(__name__)
 
 
-# ===== HELPER FUNCTIONS =====
+# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 
 def _clear_admin_context(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Clear all feedback admin-related context data."""
+    """Очистить все данные контекста, связанные с админкой обратной связи."""
     keys_to_clear = [
         settings.ADMIN_CURRENT_ENTRY_KEY,
         settings.ADMIN_REPLY_TEXT_KEY,
@@ -48,16 +48,16 @@ async def _notify_user(
     message: str
 ) -> bool:
     """
-    Send notification to user.
-    NOTE: No admin identification is included in notifications.
+    Отправить уведомление пользователю.
+    ПРИМЕЧАНИЕ: в уведомлениях не содержится информация об администраторе.
     
     Args:
-        bot: Telegram bot instance
-        user_id: User's Telegram ID
-        message: Message to send
+        bot: Экземпляр Telegram-бота
+        user_id: Telegram ID пользователя
+        message: Текст сообщения
         
     Returns:
-        True on success, False on error
+        True при успехе, False при ошибке
     """
     try:
         await bot.send_message(
@@ -71,12 +71,12 @@ async def _notify_user(
         return False
 
 
-# ===== ENTRY POINTS =====
+# ===== ТОЧКИ ВХОДА =====
 
 
 async def admin_panel_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Entry point for admin panel.
+    Точка входа в админ-панель.
     """
     user_id = update.effective_user.id
     
@@ -100,12 +100,12 @@ async def admin_panel_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     return settings.STATE_ADMIN_MENU
 
 
-# ===== VIEW ENTRIES =====
+# ===== ПРОСМОТР ОБРАЩЕНИЙ =====
 
 
 async def view_new_entries(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Show list of new (unprocessed) feedback entries.
+    Показать список новых (необработанных) обращений.
     """
     user_id = update.effective_user.id
     
@@ -143,7 +143,7 @@ async def view_new_entries(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def view_all_entries(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Show list of all feedback entries.
+    Показать список всех обращений.
     """
     user_id = update.effective_user.id
     
@@ -178,7 +178,7 @@ async def view_all_entries(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def view_by_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:  # pylint: disable=unused-argument
     """
-    Show categories with entry counts for filtering.
+    Показать категории с количеством обращений для фильтрации.
     """
     user_id = update.effective_user.id
     
@@ -208,7 +208,7 @@ async def view_by_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def category_filter_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle category filter selection callback.
+    Обработать выбор категории для фильтрации.
     """
     query = update.callback_query
     await query.answer()
@@ -247,7 +247,7 @@ async def category_filter_selected(update: Update, context: ContextTypes.DEFAULT
         )
         return settings.STATE_ADMIN_BY_CATEGORY
     
-    # Get category name
+    # Получаем название категории
     category = feedback_logic.get_category_by_id(category_id)
     cat_name = category['name'] if category else "Неизвестная"
     
@@ -263,19 +263,19 @@ async def category_filter_selected(update: Update, context: ContextTypes.DEFAULT
     return settings.STATE_ADMIN_VIEW_LIST
 
 
-# ===== ADMIN LIST CALLBACKS =====
+# ===== КОЛБЭКИ СПИСКА ОБРАЩЕНИЙ =====
 
 
 async def admin_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle callbacks in admin entry list view.
+    Обработать колбэки в списке обращений администратора.
     """
     query = update.callback_query
     await query.answer()
     
     callback_data = query.data
     
-    # Back to admin menu
+    # Назад в админ-меню
     if callback_data == settings.CALLBACK_ADMIN_BACK:
         await query.edit_message_text(
             messages.MESSAGE_ADMIN_MENU,
@@ -283,7 +283,7 @@ async def admin_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return settings.STATE_ADMIN_MENU
     
-    # Handle pagination
+    # Обработать пагинацию
     if callback_data.startswith(settings.CALLBACK_ADMIN_PAGE_PREFIX):
         try:
             page = int(callback_data.replace(settings.CALLBACK_ADMIN_PAGE_PREFIX, ""))
@@ -314,14 +314,14 @@ async def admin_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return settings.STATE_ADMIN_VIEW_LIST
     
-    # Handle entry selection
+    # Обработать выбор обращения
     if callback_data.startswith(settings.CALLBACK_ADMIN_ENTRY_PREFIX):
         try:
             entry_id = int(callback_data.replace(settings.CALLBACK_ADMIN_ENTRY_PREFIX, ""))
         except ValueError:
             return settings.STATE_ADMIN_VIEW_LIST
         
-        # Get entry details (admin view - includes user_id)
+        # Получаем детали обращения (админский вид — включает user_id)
         entry = feedback_logic.get_feedback_entry(entry_id)
         
         if not entry:
@@ -330,7 +330,7 @@ async def admin_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         context.user_data[settings.ADMIN_CURRENT_ENTRY_KEY] = entry_id
         
-        # Format detail message
+        # Формируем сообщение с деталями
         status_name = feedback_logic.get_status_display_name(entry['status'])
         detail_message = messages.format_admin_entry_detail(
             entry_id=entry['id'],
@@ -354,12 +354,12 @@ async def admin_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     return settings.STATE_ADMIN_VIEW_LIST
 
 
-# ===== VIEW ENTRY CALLBACKS =====
+# ===== КОЛБЭКИ ПРОСМОТРА ОБРАЩЕНИЯ =====
 
 
 async def admin_entry_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle callbacks in admin entry detail view.
+    Обработать колбэки на экране деталей обращения.
     """
     query = update.callback_query
     await query.answer()
@@ -367,7 +367,7 @@ async def admin_entry_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     callback_data = query.data
     entry_id = context.user_data.get(settings.ADMIN_CURRENT_ENTRY_KEY)
     
-    # Back to list
+    # Назад к списку
     if callback_data == settings.CALLBACK_ADMIN_BACK:
         page = context.user_data.get(settings.ADMIN_LIST_PAGE_KEY, 0)
         status_filter = context.user_data.get(settings.ADMIN_FILTER_STATUS_KEY)
@@ -400,7 +400,7 @@ async def admin_entry_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return settings.STATE_ADMIN_VIEW_LIST
     
-    # Reply to entry
+    # Ответить на обращение
     if callback_data == settings.CALLBACK_ADMIN_REPLY:
         if not entry_id:
             await query.answer("Ошибка: обращение не выбрано", show_alert=True)
@@ -411,7 +411,7 @@ async def admin_entry_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             parse_mode="MarkdownV2"
         )
         
-        # Send keyboard separately
+        # Клавиатуру отправляем отдельно
         await query.message.reply_text(
             "👇",
             reply_markup=keyboards.get_cancel_keyboard()
@@ -419,7 +419,7 @@ async def admin_entry_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         
         return settings.STATE_ADMIN_COMPOSE_REPLY
     
-    # Change status
+    # Изменить статус
     if callback_data == settings.CALLBACK_ADMIN_STATUS:
         if not entry_id:
             await query.answer("Ошибка: обращение не выбрано", show_alert=True)
@@ -445,12 +445,12 @@ async def admin_entry_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     return settings.STATE_ADMIN_VIEW_ENTRY
 
 
-# ===== STATUS CHANGE =====
+# ===== СМЕНА СТАТУСА =====
 
 
 async def status_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle status selection callback.
+    Обработать выбор статуса.
     """
     query = update.callback_query
     await query.answer()
@@ -459,7 +459,7 @@ async def status_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     entry_id = context.user_data.get(settings.ADMIN_CURRENT_ENTRY_KEY)
     
     if callback_data == settings.CALLBACK_CANCEL:
-        # Return to entry detail
+        # Возвращаемся к деталям обращения
         entry = feedback_logic.get_feedback_entry(entry_id)
         if entry:
             status_name = feedback_logic.get_status_display_name(entry['status'])
@@ -489,21 +489,21 @@ async def status_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if new_status not in settings.STATUS_NAMES:
         return settings.STATE_ADMIN_SELECT_STATUS
     
-    # Update status
+    # Обновляем статус
     success = feedback_logic.update_entry_status(entry_id, new_status)
     
     if not success:
         await query.answer("Ошибка при обновлении статуса", show_alert=True)
         return settings.STATE_ADMIN_SELECT_STATUS
     
-    # Notify user about status change (anonymously)
+    # Уведомляем пользователя об изменении статуса (анонимно)
     user_id_to_notify = feedback_logic.get_entry_user_id(entry_id)
     if user_id_to_notify:
         status_display = feedback_logic.get_status_display_name(new_status)
         notification = messages.format_status_changed_notification(entry_id, status_display)
         await _notify_user(context.bot, user_id_to_notify, notification)
     
-    # Show updated entry
+    # Показываем обновлённое обращение
     entry = feedback_logic.get_feedback_entry(entry_id)
     if entry:
         status_name = feedback_logic.get_status_display_name(entry['status'])
@@ -527,12 +527,12 @@ async def status_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     return settings.STATE_ADMIN_VIEW_ENTRY
 
 
-# ===== COMPOSE REPLY =====
+# ===== СОСТАВЛЕНИЕ ОТВЕТА =====
 
 
 async def reply_text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle admin's reply text input.
+    Обработать ввод текста ответа администратора.
     """
     admin_id = update.effective_user.id
     
@@ -550,10 +550,10 @@ async def reply_text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return settings.STATE_ADMIN_MENU
     
-    # Store reply text for confirmation
+    # Сохраняем текст ответа для подтверждения
     context.user_data[settings.ADMIN_REPLY_TEXT_KEY] = reply_text
     
-    # Show confirmation
+    # Показываем подтверждение
     confirm_keyboard = keyboards.get_admin_confirm_reply_keyboard()
     
     await update.message.reply_text(
@@ -567,7 +567,7 @@ async def reply_text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def confirm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle reply confirmation callback.
+    Обработать подтверждение ответа.
     """
     query = update.callback_query
     await query.answer()
@@ -577,7 +577,7 @@ async def confirm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     reply_text = context.user_data.get(settings.ADMIN_REPLY_TEXT_KEY)
     
     if query.data == settings.CALLBACK_CONFIRM_NO:
-        # Cancel reply, return to entry detail
+        # Отменяем ответ и возвращаемся к деталям обращения
         await query.edit_message_text(
             messages.MESSAGE_ADMIN_REPLY_CANCELLED,
             parse_mode="MarkdownV2"
@@ -585,7 +585,7 @@ async def confirm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         
         context.user_data.pop(settings.ADMIN_REPLY_TEXT_KEY, None)
         
-        # Return to entry view
+        # Возвращаемся к просмотру обращения
         entry = feedback_logic.get_feedback_entry(entry_id)
         if entry:
             status_name = feedback_logic.get_status_display_name(entry['status'])
@@ -621,10 +621,10 @@ async def confirm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             )
             return settings.STATE_ADMIN_MENU
         
-        # Create response (admin_id stored but NEVER exposed to user)
+        # Создаём ответ (admin_id сохраняется, но НИКОГДА не показывается пользователю)
         success = feedback_logic.create_admin_response(
             entry_id=entry_id,
-            admin_id=admin_id,  # Internal use only
+            admin_id=admin_id,  # Только для внутреннего использования
             response_text=reply_text
         )
         
@@ -635,7 +635,7 @@ async def confirm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             )
             return settings.STATE_ADMIN_VIEW_ENTRY
         
-        # Notify user (ANONYMOUS - no admin info!)
+        # Уведомляем пользователя (АНОНИМНО — без данных админа!)
         user_id_to_notify = feedback_logic.get_entry_user_id(entry_id)
         if user_id_to_notify:
             notification = messages.format_new_response_notification(entry_id, reply_text)
@@ -648,7 +648,7 @@ async def confirm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         
         context.user_data.pop(settings.ADMIN_REPLY_TEXT_KEY, None)
         
-        # Return to entry view with updated data
+        # Возвращаемся к обращению с обновлёнными данными
         entry = feedback_logic.get_feedback_entry(entry_id)
         if entry:
             status_name = feedback_logic.get_status_display_name(entry['status'])
@@ -681,7 +681,7 @@ async def confirm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 async def cancel_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Cancel reply composition.
+    Отменить составление ответа.
     """
     context.user_data.pop(settings.ADMIN_REPLY_TEXT_KEY, None)
     
@@ -692,7 +692,7 @@ async def cancel_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         parse_mode="MarkdownV2"
     )
     
-    # Return to entry view
+    # Возвращаемся к просмотру обращения
     entry = feedback_logic.get_feedback_entry(entry_id)
     if entry:
         status_name = feedback_logic.get_status_display_name(entry['status'])
@@ -723,12 +723,12 @@ async def cancel_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return settings.STATE_ADMIN_MENU
 
 
-# ===== NAVIGATION =====
+# ===== НАВИГАЦИЯ =====
 
 
 async def back_to_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Return to admin menu.
+    Вернуться в админ-меню.
     """
     user_id = update.effective_user.id
     
@@ -748,7 +748,7 @@ async def back_to_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def back_to_feedback_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Return to feedback submenu and end admin conversation.
+    Вернуться в подменю обратной связи и завершить админ-диалог.
     """
     user_id = update.effective_user.id
     is_admin = check_if_user_admin(user_id)
@@ -768,9 +768,9 @@ async def back_to_feedback_submenu(update: Update, context: ContextTypes.DEFAULT
 
 async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Return to main menu and end conversation.
+    Вернуться в главное меню и завершить диалог.
     """
-    # Import here to avoid circular import
+    # Импортируем здесь, чтобы избежать циклического импорта
     from src.common.messages import get_main_menu_message, get_main_menu_keyboard
     
     _clear_admin_context(context)
@@ -788,7 +788,7 @@ async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle /cancel command in admin panel.
+    Обработать команду /cancel в админ-панели.
     """
     user_id = update.effective_user.id
     
@@ -806,12 +806,12 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return settings.STATE_ADMIN_MENU
 
 
-# ===== CONVERSATION HANDLER =====
+# ===== ОБРАБОТЧИК ДИАЛОГА =====
 
 
 def get_feedback_admin_handler() -> ConversationHandler:
     """
-    Build and return the admin feedback conversation handler.
+    Собрать и вернуть обработчик диалога для админской части обратной связи.
     """
     return ConversationHandler(
         entry_points=[

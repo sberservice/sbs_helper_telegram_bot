@@ -1,24 +1,24 @@
 """
 processimagequeue.py
 
-Background job processor for the SPRINT app fake-location overlay bot.
+Фоновый обработчик задач для бота SPRINT, накладывающего фейковую метку локации.
 
-Continuously polls the `imagequeue` table for pending jobs (status=0),
-processes each uploaded screenshot by:
+Постоянно опрашивает таблицу `imagequeue` на ожидающие задачи (status=0)
+и обрабатывает загруженные скриншоты:
 
-- Detecting light/dark mode via Yandex Maps logo pixel
-- Verifying the map does not already contain a location marker
-- Placing a random fake location icon near the screen center
-  (adjusted for dark-mode UI borders)
-- Saving the result and sending it back to the user via Telegram
+- Определяет светлый/тёмный режим по пикселю логотипа Яндекс.Карт
+- Проверяет, что на карте ещё нет маркера локации
+- Размещает случайную фейковую метку около центра экрана
+    (с учётом границ UI в тёмном режиме)
+- Сохраняет результат и отправляет его пользователю через Telegram
 
-Manages job lifecycle:
-  - Marks jobs as in-progress (status=1)
-  - Marks jobs as finished (status=2) on completion or error
-  - Clears stale unfinished jobs on startup
+Управляет жизненным циклом задач:
+    - Помечает задачи как выполняемые (status=1)
+    - Помечает задачи как завершённые (status=2) при успехе или ошибке
+    - Очищает зависшие незавершённые задачи при запуске
 
-Uses Pillow for image manipulation and Telegram Bot API for delivery.
-Runs as a long-living daemon process.
+Использует Pillow для обработки изображений и Telegram Bot API для доставки.
+Работает как долгоживущий демон.
 """
 
 import logging
@@ -65,27 +65,27 @@ from config.settings import (
 )
 
 
-# status = 0 job is not started
-# status = 1 job started
-# status = 2 job finished
+# статус = 0 задача не начата
+# статус = 1 задача в работе
+# статус = 2 задача завершена
 
 logging.basicConfig(
     level=logging.DEBUG if DEBUG else logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    handlers=[logging.StreamHandler()],  # console
+    handlers=[logging.StreamHandler()],  # консоль
 )
 logger = logging.getLogger(__name__)
 
 
 def send_msg(user_id, text) -> None:
     """
-    Sends a text message to a Telegram user via the Bot API.
+    Отправляет текстовое сообщение пользователю Telegram через Bot API.
 
     Args:
-        user_id: Telegram chat ID of the recipient.
-        text: Message text to send.
+        user_id: ID чата Telegram получателя.
+        text: текст сообщения для отправки.
 
-    Logs the API response JSON for debugging.
+    Логирует JSON-ответ API для отладки.
     """
     url_req = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     results = requests.post(url_req, params={"chat_id": user_id, "text": text},timeout=5)
@@ -98,15 +98,15 @@ def is_color_close(
     tolerance: int = ALLOWED_COLOR_INTENSITY_DEVIATION,
 ) -> bool:
     """
-    Checks if two RGB colors are within a given tolerance of each other.
+    Проверяет, что два RGB-цвета находятся в пределах заданной допустимой разницы.
 
     Args:
-        pixel_color: Observed RGB color from the image.
-        target_color: Expected reference RGB color.
-        tolerance: Maximum allowed difference per channel (default from config).
+        pixel_color: наблюдаемый RGB-цвет из изображения.
+        target_color: ожидаемый эталонный RGB-цвет.
+        tolerance: максимально допустимое отклонение по каналу (по умолчанию из конфига).
 
     Returns:
-        True if the colors are close enough in all three channels, False otherwise.
+        True, если цвета достаточно близки по всем трём каналам, иначе False.
     """
     r, g, b = pixel_color
     rt, gt, bt = target_color
@@ -120,32 +120,32 @@ def is_color_close(
 
 def generate_image(user_id, file_name) -> bool:
     """
-        Processes a user's uploaded map screenshot and overlays a fake location marker.
+        Обрабатывает загруженный скриншот карты и накладывает фейковую метку локации.
 
-        Performs the following steps:
-        - Loads the source image ({user_id}.jpg)
-        - Detects light/dark mode by checking Yandex Maps logo color
-        - Rejects images that already contain a location marker
-        - Calculates safe placement zone (centered, avoids UI elements in dark mode)
-        - Randomly places the appropriate location icon (light or dark variant)
-        - Saves the result as `file_name` in IMAGES_DIR
-        - Sends the processed image back to the user via Telegram
+        Шаги обработки:
+        - Загружает исходное изображение ({user_id}.jpg)
+        - Определяет светлый/тёмный режим по цвету логотипа Яндекс.Карт
+        - Отклоняет изображения, где уже есть маркер локации
+        - Считает безопасную зону размещения (центр, с учётом UI в тёмном режиме)
+        - Случайно размещает нужную иконку локации (светлую или тёмную)
+        - Сохраняет результат как `file_name` в IMAGES_DIR
+        - Отправляет обработанное изображение пользователю через Telegram
 
         Args:
-            user_id: Telegram user ID (used to locate original image).
-            file_name: Desired output filename for the processed image.
+            user_id: ID пользователя Telegram (для поиска исходного изображения).
+            file_name: желаемое имя выходного файла.
 
         Returns:
-            Tuple of (success: bool, error_code: int | None).
-            On success: (True, None)
-            On failure: (False, error_code) from constants.errorcodes
+            Кортеж (success: bool, error_code: int | None).
+            При успехе: (True, None)
+            При ошибке: (False, error_code) из constants.errorcodes
     """
 
     dark_mode = False
     good_pixel_found = False
 
-    # let's load the file that has name like user_id+jpg in the images folder
-    # as a background_image
+    # Загружаем файл с именем вида user_id.jpg из папки images
+    # как фоновое изображение
     try:
         if not Path(IMAGES_DIR / f"{user_id}.jpg").exists():
             logger.critical(f"Can't open the file: {IMAGES_DIR / f'{user_id}.jpg'}")
@@ -208,8 +208,8 @@ def generate_image(user_id, file_name) -> bool:
                 ):
                     highest = y
 
-                # it only works if lowest value was untouched before
-                # then we can safely escape
+                # Работает только если lowest ещё не менялся
+                # тогда можно безопасно прервать поиск
                 if (
                     x == COLUMN_TO_SCAN_FOR_TASKS_BORDER_COLOR
                     and lowest == height
@@ -232,12 +232,12 @@ def generate_image(user_id, file_name) -> bool:
         for y in range(height):
             for x in range(width):
                 pixel = background_image.getpixel((x, y))
-                # check if we found light location icon on the make
+                # Проверяем, нашли ли светлую иконку локации на карте
                 if is_color_close(pixel, LIGHT_LOCATION_ICON_COLOR):
                     logger.info("Found light location circle in the image")
                     return False, ERR_ALREADY_HAS_CIRCLE
 
-                # Check if we found the light triangle
+                # Проверяем, нашли ли светлый треугольник
                 if is_color_close(pixel, LIGHT_TRIANGLE_ICON_COLOR):
                     return False, ERR_ALREADY_HAS_TRIANGLE
 
@@ -345,12 +345,12 @@ def mark_all_unfinished_jobs_as_completed() -> None:
 
 def mark_job_as_finished(job_id) -> None:
     """
-        Marks a job in the imagequeue as finished.
+        Помечает задачу в imagequeue как завершённую.
 
-        Updates the status of the specified job to 2 (completed).
+        Обновляет статус указанной задачи на 2 (выполнено).
 
         Args:
-            job_id: The database ID of the job to mark as finished.
+            job_id: ID задачи в БД, которую нужно пометить как завершённую.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -361,20 +361,20 @@ def mark_job_as_finished(job_id) -> None:
 
 def get_next_pending_job_id() -> dict | None:
     """
-        Retrieves the oldest pending job (status=0) from the image processing queue
-        and atomically marks it as in-progress (status=1).
+        Получает самую старую ожидающую задачу (status=0) из очереди
+        и атомарно помечает её как выполняемую (status=1).
 
-        Uses SELECT ... FOR UPDATE with SKIP LOCKED to prevent race conditions
-        when multiple workers are running concurrently.
+        Использует SELECT ... FOR UPDATE с SKIP LOCKED, чтобы избежать гонок
+        при работе нескольких воркеров одновременно.
 
         Returns:
-            dict with keys 'user_id', 'file_name', and 'job_id' if a pending job exists,
-            otherwise None.
+            dict с ключами 'user_id', 'file_name', 'job_id', если задача есть,
+            иначе None.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # Atomically select and update the next pending job
-            # FOR UPDATE locks the row, SKIP LOCKED prevents waiting on locked rows
+            # Атомарно выбираем и обновляем следующую ожидающую задачу
+            # FOR UPDATE блокирует строку, SKIP LOCKED не ждёт заблокированные строки
             sql_query = """
                 SELECT userid, file_name, id 
                 FROM imagequeue 
@@ -391,7 +391,7 @@ def get_next_pending_job_id() -> dict | None:
                 user_id = result["userid"]
                 file_name = result["file_name"]
                 
-                # Atomically mark as in-progress within the same transaction
+                # Атомарно помечаем как выполняемую в той же транзакции
                 update_query = "UPDATE imagequeue SET status=1 WHERE id=%s"
                 cursor.execute(update_query, (job_id,))
                 
@@ -403,24 +403,24 @@ def get_next_pending_job_id() -> dict | None:
 
 def main() -> None:
     """
-    Main daemon loop of the image processing worker.
+        Главный цикл демона обработки изображений.
 
-    On start: marks all unfinished jobs as completed (clears stale entries).
-    Then continuously:
-      - Fetches the oldest pending job (status=0) and atomically marks it as in-progress
-      - Processes the image with generate_image()
-      - Sends error message to user if processing fails
-      - Marks job as finished (status=2)
-      - Sleeps 1 second if queue is empty
+        При старте: помечает все незавершённые задачи как завершённые (очистка зависших).
+        Далее в цикле:
+            - Берёт самую старую ожидающую задачу (status=0) и атомарно помечает её как выполняемую
+            - Обрабатывает изображение через generate_image()
+            - Отправляет пользователю сообщение об ошибке при неуспехе
+            - Помечает задачу как завершённую (status=2)
+            - Спит 1 секунду, если очередь пуста
 
-    Runs indefinitely as a background worker process.
+        Работает непрерывно как фоновый воркер.
     """
     mark_all_unfinished_jobs_as_completed()
 
     while True:
         job = get_next_pending_job_id()
         if job:
-            # Job is already marked as in-progress by get_next_pending_job_id
+            # Задача уже помечена как выполняемая в get_next_pending_job_id
             success, error_code = generate_image(job["user_id"], job["file_name"])
             if not success:
                 send_msg(job["user_id"], ERROR_MESSAGES[error_code])

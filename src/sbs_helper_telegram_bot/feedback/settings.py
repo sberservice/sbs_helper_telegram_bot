@@ -1,39 +1,39 @@
 """
-Feedback Module Settings
+Настройки модуля обратной связи
 
-Configuration constants, context keys, and menu definitions.
+Константы конфигурации, ключи контекста и определения меню.
 """
 
 from typing import Final, List
 
 from src.common.messages import BUTTON_MAIN_MENU as COMMON_BUTTON_MAIN_MENU
 
-# ===== MODULE METADATA =====
+# ===== МЕТАДАННЫЕ МОДУЛЯ =====
 
 MODULE_NAME: Final[str] = "Обратная связь"
 MODULE_DESCRIPTION: Final[str] = "Модуль для отправки отзывов и получения ответов от команды поддержки"
 MODULE_VERSION: Final[str] = "1.0.0"
 MODULE_AUTHOR: Final[str] = "SBS Helper Team"
 
-# ===== MENU BUTTONS =====
+# ===== КНОПКИ МЕНЮ =====
 
 MENU_BUTTON_TEXT: Final[str] = "📬 Обратная связь"
 
-# User submenu buttons
+# Кнопки подменю пользователя
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["📝 Отправить отзыв"],
     ["📋 Мои обращения"],
     [COMMON_BUTTON_MAIN_MENU]
 ]
 
-# Admin submenu buttons (includes admin panel)
+# Кнопки подменю администратора (включают админ-панель)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
     ["📝 Отправить отзыв"],
     ["📋 Мои обращения"],
     ["⚙️ Управление отзывами", COMMON_BUTTON_MAIN_MENU]
 ]
 
-# Button texts
+# Тексты кнопок
 BUTTON_SUBMIT_FEEDBACK: Final[str] = "📝 Отправить отзыв"
 BUTTON_MY_FEEDBACK: Final[str] = "📋 Мои обращения"
 BUTTON_ADMIN_PANEL: Final[str] = "⚙️ Управление отзывами"
@@ -41,7 +41,7 @@ BUTTON_MAIN_MENU: Final[str] = COMMON_BUTTON_MAIN_MENU
 BUTTON_BACK: Final[str] = "◀️ Назад"
 BUTTON_CANCEL: Final[str] = "❌ Отмена"
 
-# ===== ADMIN PANEL BUTTONS =====
+# ===== КНОПКИ АДМИН-ПАНЕЛИ =====
 
 ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     ["📥 Новые обращения", "📊 Все обращения"],
@@ -53,9 +53,9 @@ BUTTON_NEW_ENTRIES: Final[str] = "📥 Новые обращения"
 BUTTON_ALL_ENTRIES: Final[str] = "📊 Все обращения"
 BUTTON_BY_CATEGORY: Final[str] = "📂 По категориям"
 
-# ===== CONVERSATION STATES =====
+# ===== СОСТОЯНИЯ ДИАЛОГА =====
 
-# User states
+# Состояния пользователя
 (
     STATE_SUBMENU,
     STATE_SELECT_CATEGORY,
@@ -65,7 +65,7 @@ BUTTON_BY_CATEGORY: Final[str] = "📂 По категориям"
     STATE_VIEW_FEEDBACK_DETAIL,
 ) = range(6)
 
-# Admin states (start at 100 to avoid conflicts)
+# Состояния администратора (начиная с 100, чтобы избежать конфликтов)
 (
     STATE_ADMIN_MENU,
     STATE_ADMIN_VIEW_LIST,
@@ -76,50 +76,50 @@ BUTTON_BY_CATEGORY: Final[str] = "📂 По категориям"
     STATE_ADMIN_BY_CATEGORY,
 ) = range(100, 107)
 
-# ===== CONTEXT KEYS =====
+# ===== КЛЮЧИ КОНТЕКСТА =====
 
-# User context
+# Контекст пользователя
 CURRENT_CATEGORY_KEY: Final[str] = "feedback_current_category"
 CURRENT_MESSAGE_KEY: Final[str] = "feedback_current_message"
 CURRENT_ENTRY_ID_KEY: Final[str] = "feedback_current_entry_id"
 MY_FEEDBACK_PAGE_KEY: Final[str] = "feedback_my_page"
 
-# Admin context
+# Контекст администратора
 ADMIN_CURRENT_ENTRY_KEY: Final[str] = "feedback_admin_current_entry"
 ADMIN_REPLY_TEXT_KEY: Final[str] = "feedback_admin_reply_text"
 ADMIN_LIST_PAGE_KEY: Final[str] = "feedback_admin_list_page"
 ADMIN_FILTER_STATUS_KEY: Final[str] = "feedback_admin_filter_status"
 ADMIN_FILTER_CATEGORY_KEY: Final[str] = "feedback_admin_filter_category"
 
-# ===== RATE LIMITING =====
+# ===== ОГРАНИЧЕНИЕ ЧАСТОТЫ =====
 
-# Minimum time between feedback submissions (in seconds)
-# 3600 = 1 hour
+# Минимальный интервал между отправками (в секундах)
+# 3600 = 1 час
 RATE_LIMIT_SECONDS: Final[int] = 3600
 
-# ===== PAGINATION =====
+# ===== ПАГИНАЦИЯ =====
 
 ITEMS_PER_PAGE: Final[int] = 5
 
-# ===== LINK DETECTION PATTERNS =====
+# ===== ПАТТЕРНЫ ДЛЯ ПОИСКА ССЫЛОК =====
 
-# Regex patterns to detect links in user messages
-# These patterns are used to reject messages containing URLs
+# Regex-паттерны для обнаружения ссылок в сообщениях
+# Эти паттерны используются для отклонения сообщений с URL
 LINK_PATTERNS: Final[List[str]] = [
-    r'https?://[^\s]+',  # http:// or https://
+    r'https?://[^\s]+',  # http:// или https://
     r'www\.[^\s]+',  # www.
-    r't\.me/[^\s]+',  # Telegram links
-    r'[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,}(?:/[^\s]*)?',  # domain.tld patterns
+    r't\.me/[^\s]+',  # ссылки Telegram
+    r'[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,}(?:/[^\s]*)?',  # шаблоны domain.tld
 ]
 
-# ===== FEEDBACK STATUSES =====
+# ===== СТАТУСЫ ОБРАТНОЙ СВЯЗИ =====
 
 STATUS_NEW: Final[str] = "new"
 STATUS_IN_PROGRESS: Final[str] = "in_progress"
 STATUS_RESOLVED: Final[str] = "resolved"
 STATUS_CLOSED: Final[str] = "closed"
 
-# Human-readable status names
+# Человекочитаемые названия статусов
 STATUS_NAMES: Final[dict] = {
     STATUS_NEW: "🆕 Новое",
     STATUS_IN_PROGRESS: "⏳ В работе",
@@ -127,7 +127,7 @@ STATUS_NAMES: Final[dict] = {
     STATUS_CLOSED: "🔒 Закрыто",
 }
 
-# ===== INLINE CALLBACK PREFIXES =====
+# ===== ПРЕФИКСЫ INLINE CALLBACK =====
 
 CALLBACK_CATEGORY_PREFIX: Final[str] = "fb_cat_"
 CALLBACK_ENTRY_PREFIX: Final[str] = "fb_entry_"

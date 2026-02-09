@@ -1,7 +1,7 @@
 """
-Database-related constants.
-Never hardcode real credentials in source code!
-Use environment variables + fallback defaults for local dev.
+Константы, связанные с базой данных.
+Никогда не хардкодьте реальные креды в исходниках!
+Используйте переменные окружения и значения по умолчанию для локальной разработки.
 """
 
 from typing import Final
@@ -10,10 +10,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 # ─────────────────────────────────────────────────────────────
-# MySQL / MariaDB connection settings
+# Настройки подключения MySQL / MariaDB
 # ─────────────────────────────────────────────────────────────
 
-# Core credentials – always read from environment
+# Основные креды — всегда читаем из окружения
 MYSQL_USER: Final[str] = os.getenv("MYSQL_USER", "dev_user")
 MYSQL_PASSWORD: Final[str] = os.getenv("MYSQL_PASSWORD", "dev_password")
 MYSQL_HOST: Final[str] = os.getenv("MYSQL_HOST", "localhost")

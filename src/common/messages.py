@@ -1,10 +1,10 @@
 """
-Common Messages
+Общие сообщения
 
-Contains only truly common messages used across the entire bot,
-not specific to any module.
+Содержит только действительно общие сообщения, используемые во всём боте,
+не относящиеся к конкретным модулям.
 
-Module-specific messages should be in their respective module's messages.py file.
+Сообщения конкретных модулей должны находиться в их messages.py.
 """
 # pylint: disable=line-too-long
 
@@ -12,11 +12,11 @@ from typing import Optional
 
 from src.common.constants.sync import SYNC_INTERVAL_HOURS
 
-# Welcome and authentication messages
+# Приветственные и авторизационные сообщения
 MESSAGE_WELCOME = "👋 *Рады видеть вас в боте помощника инженера СберСервис\!*\n\nВозможности:\n• ✅ Проверка заявок по правилам\n• 📸 Обработка скриншотов карты из Спринта\n• 🔢 Поиск кодов ошибок UPOS и подсказок\n• 📝 Аттестация и рейтинг\n• 📰 Новости и важные объявления\n\nНажмите кнопку меню ниже, чтобы начать работу\.\n\n📚 *GitHub:* https://github\.com/sberservice/sbs\_helper\_telegram\_bot"
 MESSAGE_PLEASE_ENTER_INVITE = "Пожалуйста, введите ваш инвайт.\nЕго можно попросить у другого пользователя этого бота, если он введет команду /invite или выберет её из меню."
 
-# Invite-related messages
+# Сообщения, связанные с инвайтами
 MESSAGE_AVAILABLE_INVITES = "Доступные инвайты:"
 MESSAGE_NO_INVITES = "У вас нет доступных инвайтов."
 MESSAGE_WELCOME_SHORT = "Добро пожаловать!"
@@ -25,13 +25,13 @@ MESSAGE_INVITE_ISSUED = "Вам выдан инвайт. Вы можете им 
 MESSAGE_INVITE_ALREADY_USED = "Данный инвайт уже был использован. Пожалуйста, введите другой инвайт."
 MESSAGE_NO_ADMIN_RIGHTS = "⛔ У вас нет прав администратора\\."
 
-# Invite system disabled message
+# Сообщение о выключенной инвайт-системе
 def get_invite_system_disabled_message() -> str:
     """
-    Get the invite system disabled message with dynamic sync interval.
-    
+    Получить сообщение о выключенной инвайт-системе с динамическим интервалом синхронизации.
+
     Returns:
-        Formatted message with the actual sync interval from settings.
+        Отформатированное сообщение с актуальным интервалом синхронизации из настроек.
     """
     if SYNC_INTERVAL_HOURS == 24:
         interval_text = "ежедневно"
@@ -45,33 +45,33 @@ def get_invite_system_disabled_message() -> str:
 
 Если стали участником этой группы, ждите, список участников обновляется {interval_text}."""
 
-# Keep backward compatibility - use function result as constant
+# Сохраняем обратную совместимость — используем результат функции как константу
 MESSAGE_INVITE_SYSTEM_DISABLED = get_invite_system_disabled_message()
 
-# Bot command descriptions
+# Описания команд бота
 COMMAND_DESC_START = "Начать работу с ботом"
 COMMAND_DESC_MENU = "Показать главное меню"
 COMMAND_DESC_HELP = "Показать справку"
 
-# Main menu labels
+# Подписи главного меню
 BUTTON_MAIN_MENU_TEXT = "Главное меню"
 BUTTON_MAIN_MENU_ICON = "🏠"
 BUTTON_MAIN_MENU = f"{BUTTON_MAIN_MENU_ICON} {BUTTON_MAIN_MENU_TEXT}"
 
-# Main menu messages
+# Сообщения главного меню
 MESSAGE_MAIN_MENU = f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\nВыберите действие из меню:"
 MESSAGE_UNRECOGNIZED_INPUT = "🤔 Не понял вашу команду\\.\n\n*Используйте:*\n• Кнопки меню ниже\n• Команды бота \\(/menu, /validate\\)\n• Или /help для справки"
 
 
 def _escape_markdown_v2(text: str) -> str:
     """
-    Escape special characters for Telegram MarkdownV2.
+    Экранировать специальные символы для Telegram MarkdownV2.
 
     Args:
-        text: Text to escape
+        text: Текст для экранирования.
 
     Returns:
-        Escaped text
+        Экранированный текст.
     """
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     for char in special_chars:
@@ -125,14 +125,14 @@ def _format_main_menu_message(
 
 def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str:
     """
-    Build personalized main menu message using gamification profile data.
+    Сформировать персонализированное сообщение главного меню по данным профиля геймификации.
 
     Args:
-        user_id: Telegram user ID
-        first_name: User's first name for greeting fallback
+        user_id: Telegram ID пользователя.
+        first_name: Имя пользователя для приветствия по умолчанию.
 
     Returns:
-        Personalized main menu message (MarkdownV2) or default message on failure.
+        Персонализированное сообщение главного меню (MarkdownV2) или сообщение по умолчанию при ошибке.
     """
     display_name = first_name or "коллега"
     try:
@@ -173,7 +173,7 @@ def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str
     except Exception:
         return MESSAGE_MAIN_MENU
 
-# Help message - overview of all modules
+# Сообщение справки — обзор всех модулей
 MESSAGE_MAIN_HELP = """❓ *Помощь*
 
 *Модули бота:*
@@ -209,13 +209,13 @@ MESSAGE_MAIN_HELP = """❓ *Помощь*
 
 📚 *GitHub:* https://github\\.com/sberservice/sbs\\_helper\\_telegram\\_bot"""
 
-# Settings menu message
+# Сообщение меню настроек
 MESSAGE_SETTINGS_MENU = "⚙️ *Настройки*\n\nВыберите действие из меню:"
 
-# Modules menu message
+# Сообщение меню модулей
 MESSAGE_MODULES_MENU = "⚡ *Функции бота*\n\nВыберите модуль:"
 
-# Button labels for main menu
+# Подписи кнопок главного меню
 BUTTON_MODULES = "⚡ Начать работу"
 BUTTON_SETTINGS = "⚙️ Настройки"
 BUTTON_MY_INVITES = "🎫 Мои инвайты"
@@ -223,8 +223,8 @@ BUTTON_HELP = "❓ Помощь"
 BUTTON_BOT_ADMIN = "🛠️ Админ бота"
 BUTTON_PROFILE = "🏆 Достижения"
 
-# Module buttons - deprecated, now loaded from bot_settings.MODULE_CONFIG
-# These constants remain for backward compatibility but are not used in keyboard generation
+# Кнопки модулей — устарели, теперь загружаются из bot_settings.MODULE_CONFIG
+# Эти константы оставлены для обратной совместимости, но не используются при генерации клавиатуры
 BUTTON_VALIDATE_TICKET = "✅ Валидация заявок"
 BUTTON_SCREENSHOT = "📸 Обработать скриншот"
 BUTTON_UPOS_ERRORS = "🔢 UPOS Ошибки"
@@ -236,14 +236,14 @@ BUTTON_NEWS = "📰 Новости"
 
 def get_main_menu_keyboard(is_admin: bool = False):
     """
-    Build main menu keyboard with Modules and Settings buttons.
-    For admins, includes the Bot Admin button.
-    
+    Собрать клавиатуру главного меню с кнопками модулей и настроек.
+    Для администраторов включает кнопку админки.
+
     Args:
-        is_admin: Whether the user is an admin
-        
+        is_admin: Является ли пользователь администратором.
+
     Returns:
-        ReplyKeyboardMarkup for main menu.
+        ReplyKeyboardMarkup для главного меню.
     """
     from telegram import ReplyKeyboardMarkup
     
@@ -269,10 +269,10 @@ def get_main_menu_keyboard(is_admin: bool = False):
 
 def get_settings_menu_keyboard():
     """
-    Build settings menu keyboard with invites, help, and back to main menu.
-    
+    Собрать клавиатуру меню настроек с инвайтами, справкой и возвратом в главное меню.
+
     Returns:
-        ReplyKeyboardMarkup for settings menu.
+        ReplyKeyboardMarkup для меню настроек.
     """
     from telegram import ReplyKeyboardMarkup
     
@@ -291,43 +291,43 @@ def get_settings_menu_keyboard():
 
 def get_modules_menu_keyboard():
     """
-    Build modules menu keyboard with all available bot modules.
-    Only shows enabled modules in configured order.
-    
-    The module configuration (order, labels, columns) is loaded from
-    bot_settings.MODULE_CONFIG. To change module order or add new modules,
-    modify the MODULE_CONFIG list in src/common/bot_settings.py.
-    
+    Собрать клавиатуру меню модулей со всеми доступными модулями бота.
+    Показывает только включённые модули в заданном порядке.
+
+    Конфигурация модулей (порядок, подписи, колонки) берётся из
+    bot_settings.MODULE_CONFIG. Чтобы изменить порядок или добавить новый модуль,
+    обновите список MODULE_CONFIG в src/common/bot_settings.py.
+
     Returns:
-        ReplyKeyboardMarkup for modules menu.
+        ReplyKeyboardMarkup для меню модулей.
     """
     from telegram import ReplyKeyboardMarkup
     from src.common import bot_settings
     
-    # Get enabled modules in configured order
+    # Получаем включённые модули в заданном порядке
     modules = bot_settings.get_modules_config(enabled_only=True)
     
-    # Build button rows dynamically based on columns setting
+    # Динамически собираем строки кнопок по настройке columns
     buttons = []
     current_row = []
     
     for module in modules:
         button_label = module['button_label']
-        columns = module.get('columns', 2)  # Default to 2 columns
+        columns = module.get('columns', 2)  # По умолчанию 2 колонки
         
-        # Add button to current row
+        # Добавляем кнопку в текущую строку
         current_row.append(button_label)
         
-        # If row is full (based on columns setting), start a new row
+        # Если строка заполнена (по настройке columns), начинаем новую
         if len(current_row) >= columns:
             buttons.append(current_row)
             current_row = []
     
-    # Add any remaining buttons in the last row
+    # Добавляем оставшиеся кнопки в последнюю строку
     if current_row:
         buttons.append(current_row)
     
-    # Always add main menu button at the bottom
+    # Всегда добавляем кнопку главного меню внизу
     buttons.append([BUTTON_MAIN_MENU])
     
     return ReplyKeyboardMarkup(

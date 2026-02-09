@@ -1,7 +1,7 @@
 """
-Validation Logic Module
+Модуль логики валидации.
 
-Contains validation rules, validators, and result classes for ticket validation.
+Содержит правила, валидаторы и классы результатов для проверки заявок.
 """
 
 import re
@@ -11,7 +11,7 @@ from enum import Enum
 
 
 class RuleType(Enum):
-    """Validation rule types"""
+    """Типы правил валидации."""
     REGEX = "regex"
     REGEX_NOT_MATCH = "regex_not_match"
     REGEX_FULLMATCH = "regex_fullmatch"
@@ -22,7 +22,7 @@ class RuleType(Enum):
 
 @dataclass
 class TicketType:
-    """Represents a ticket type/template"""
+    """Описывает тип/шаблон заявки."""
     id: int
     type_name: str
     description: str
@@ -32,20 +32,20 @@ class TicketType:
     
     def get_keyword_weight(self, keyword: str) -> float:
         """
-        Get weight for a keyword.
+        Получить вес для ключевого слова.
         
         Args:
-            keyword: The keyword to get weight for (case-insensitive)
+            keyword: ключевое слово, для которого нужен вес (без учёта регистра).
             
         Returns:
-            Weight for the keyword, defaults to 1.0 if not specified
+            Вес ключевого слова, по умолчанию 1.0.
         """
         return self.keyword_weights.get(keyword.lower(), 1.0)
 
 
 @dataclass
 class ValidationRule:
-    """Represents a single validation rule"""
+    """Описывает одно правило валидации."""
     id: int
     rule_name: str
     pattern: str
@@ -55,18 +55,18 @@ class ValidationRule:
     priority: int = 0
     
     def __post_init__(self):
-        """Validate and convert rule_type"""
+        """Проверить и привести `rule_type` к Enum при необходимости."""
         if isinstance(self.rule_type, str):
             try:
                 self.rule_type = RuleType(self.rule_type)
             except ValueError:
-                # Keep as string if not a valid enum value
+                # Оставляем строкой, если значение не является элементом Enum
                 pass
 
 
 @dataclass
 class KeywordMatch:
-    """Represents a keyword match with its details"""
+    """Описывает совпадение по ключевому слову и его параметры."""
     keyword: str
     count: int
     weight: float = 1.0
@@ -80,7 +80,7 @@ class KeywordMatch:
 
 @dataclass
 class TicketTypeScore:
-    """Score details for a ticket type during detection"""
+    """Детали оценки для типа заявки при определении."""
     ticket_type: TicketType
     total_score: float
     keyword_matches: List[KeywordMatch] = field(default_factory=list)
@@ -89,7 +89,7 @@ class TicketTypeScore:
     
     @property
     def match_percentage(self) -> float:
-        """Percentage of keywords that matched"""
+        """Процент совпавших ключевых слов."""
         if self.total_keywords_count == 0:
             return 0.0
         return (self.matched_keywords_count / self.total_keywords_count) * 100
@@ -97,7 +97,7 @@ class TicketTypeScore:
 
 @dataclass
 class DetectionDebugInfo:
-    """Debug information for ticket type detection"""
+    """Отладочная информация по определению типа заявки."""
     detected_type: Optional[TicketType]
     all_scores: List[TicketTypeScore] = field(default_factory=list)
     ticket_text_preview: str = ""
@@ -106,7 +106,7 @@ class DetectionDebugInfo:
     ambiguous_types: List[TicketType] = field(default_factory=list)
     
     def get_summary(self) -> str:
-        """Generate a human-readable summary of the detection process"""
+        """Сформировать человекочитаемое резюме процесса определения типа."""
         lines = []
         lines.append("=" * 60)
         lines.append("TICKET TYPE DETECTION DEBUG INFO")
@@ -129,7 +129,7 @@ class DetectionDebugInfo:
         lines.append("SCORES BY TICKET TYPE (sorted by score):")
         lines.append("-" * 60)
         
-        # Sort by total score descending
+        # Сортировка по убыванию общего балла
         sorted_scores = sorted(self.all_scores, key=lambda x: x.total_score, reverse=True)
         
         for score_info in sorted_scores:
@@ -153,7 +153,7 @@ class DetectionDebugInfo:
 
 @dataclass
 class ValidationResult:
-    """Result of ticket validation"""
+    """Результат проверки заявки."""
     is_valid: bool
     failed_rules: List[str] = field(default_factory=list)
     passed_rules: List[str] = field(default_factory=list)
@@ -164,97 +164,97 @@ class ValidationResult:
 
 def validate_regex(ticket_text: str, pattern: str) -> bool:
     """
-    Validate ticket text against a regex pattern.
+    Проверить текст заявки по регулярному выражению.
     
     Args:
-        ticket_text: The ticket text to validate
-        pattern: Regex pattern to match
+        ticket_text: текст заявки для проверки.
+        pattern: регулярное выражение для поиска.
         
     Returns:
-        True if pattern is found in text, False otherwise
+        True, если совпадение найдено, иначе False.
     """
     try:
         return bool(re.search(pattern, ticket_text, re.IGNORECASE | re.MULTILINE | re.UNICODE | re.DOTALL))
     except re.error:
-        # Invalid regex pattern
+        # Некорректное регулярное выражение
         return False
 
 
 def validate_regex_not_match(ticket_text: str, pattern: str) -> bool:
     """
-    Validate ticket text against a regex pattern (negated match).
+    Проверить текст заявки по регулярному выражению (инверсия совпадения).
     
     Args:
-        ticket_text: The ticket text to validate
-        pattern: Regex pattern that should NOT match
+        ticket_text: текст заявки для проверки.
+        pattern: регулярное выражение, которое НЕ должно совпасть.
         
     Returns:
-        True if pattern is NOT found in text, False if pattern matches
+        True, если совпадение НЕ найдено, иначе False.
     """
     try:
         return not bool(re.search(pattern, ticket_text, re.IGNORECASE | re.MULTILINE | re.UNICODE | re.DOTALL))
     except re.error:
-        # Invalid regex pattern - treat as not matching
+        # Некорректное регулярное выражение — считаем, что совпадения нет
         return True
 
 
 def validate_regex_fullmatch(ticket_text: str, pattern: str) -> bool:
     """
-    Validate ticket text against a regex pattern using fullmatch.
+    Проверить текст заявки по регулярному выражению с `fullmatch`.
     
     Args:
-        ticket_text: The ticket text to validate
-        pattern: Regex pattern that must match the entire text
+        ticket_text: текст заявки для проверки.
+        pattern: регулярное выражение, которое должно совпасть со всем текстом.
         
     Returns:
-        True if pattern matches the entire text, False otherwise
+        True, если совпадает весь текст, иначе False.
     """
     try:
         return bool(re.fullmatch(pattern, ticket_text, re.IGNORECASE | re.MULTILINE | re.UNICODE | re.DOTALL))
     except re.error:
-        # Invalid regex pattern
+        # Некорректное регулярное выражение
         return False
 
 
 def validate_regex_not_fullmatch(ticket_text: str, pattern: str) -> bool:
     """
-    Validate ticket text against a regex pattern using fullmatch (negated).
+    Проверить текст заявки по регулярному выражению с `fullmatch` (инверсия).
     
     Args:
-        ticket_text: The ticket text to validate
-        pattern: Regex pattern that must NOT fully match the entire text
+        ticket_text: текст заявки для проверки.
+        pattern: регулярное выражение, которое НЕ должно полностью совпасть.
         
     Returns:
-        True if pattern does NOT match the entire text, False otherwise
+        True, если полного совпадения нет, иначе False.
     """
     try:
         return not bool(re.fullmatch(pattern, ticket_text, re.IGNORECASE | re.MULTILINE | re.UNICODE | re.DOTALL))
     except re.error:
-        # Invalid regex pattern - treat as not matching
+        # Некорректное регулярное выражение — считаем, что совпадения нет
         return True
 
 
 def validate_fias_address(ticket_text: str, pattern: str) -> bool:
-    """Validate an address extracted from ticket text against the FIAS database.
+    """Проверить адрес из текста заявки по базе ФИАС.
 
-    The *pattern* is a regex whose **first capture group** contains the address
-    to check.  For example::
+    В *pattern* используется регулярное выражение, где **первая группа**
+    содержит адрес. Например::
 
         Адрес установки POS-терминала:\\s*([\\s\\S]*?)(?=Тип пакета:|$)
 
-    The extracted address is sent to the currently configured FIAS provider
-    (see :mod:`fias_providers`).  The rule **passes** when the provider
-    returns at least one suggestion.
+    Извлечённый адрес передаётся активному провайдеру ФИАС
+    (см. :mod:`fias_providers`). Правило **успешно**, если провайдер
+    возвращает хотя бы одну подсказку.
 
-    If the address cannot be extracted from the text the rule is considered
-    **failed** (returns ``False``).
+    Если адрес не удаётся извлечь из текста, правило считается
+    **проваленным** (возвращает ``False``).
 
     Args:
-        ticket_text: Full ticket text.
-        pattern: Regex with a capture group that extracts the address.
+        ticket_text: полный текст заявки.
+        pattern: регулярное выражение с группой для извлечения адреса.
 
     Returns:
-        ``True`` if the address is found in FIAS, ``False`` otherwise.
+        ``True``, если адрес найден в ФИАС, иначе ``False``.
     """
     try:
         match = re.search(pattern, ticket_text, re.IGNORECASE | re.MULTILINE | re.UNICODE | re.DOTALL)
@@ -273,7 +273,7 @@ def validate_fias_address(ticket_text: str, pattern: str) -> bool:
 
     except re.error:
         return False
-    except Exception:  # noqa: BLE001 – fail-open for unexpected errors
+    except Exception:  # noqa: BLE001 – разрешаем по умолчанию при неожиданных ошибках
         return True
 
 
@@ -284,16 +284,16 @@ def detect_ticket_type(
     keyword_weights: Optional[Dict[str, float]] = None
 ) -> tuple[Optional[TicketType], Optional[DetectionDebugInfo]]:
     """
-    Detect ticket type from text based on keywords.
+    Определить тип заявки по ключевым словам.
     
     Args:
-        ticket_text: The ticket text to analyze
-        ticket_types: List of available ticket types
-        debug: If True, return detailed debug information
-        keyword_weights: Optional dict mapping keywords to custom weights (default weight is 1.0)
+        ticket_text: текст заявки для анализа.
+        ticket_types: список доступных типов заявок.
+        debug: если True, вернуть подробную отладочную информацию.
+        keyword_weights: словарь пользовательских весов ключевых слов (по умолчанию 1.0).
         
     Returns:
-        Tuple of (TicketType that best matches the text or None, DetectionDebugInfo if debug=True else None)
+        Кортеж: (лучше всего подходящий тип заявки или None, DetectionDebugInfo при debug=True).
     """
     if not ticket_types:
         if debug:
@@ -304,10 +304,10 @@ def detect_ticket_type(
             )
         return None, None
     
-    # Normalize keyword_weights keys to lowercase for case-insensitive matching
+    # Нормализуем ключи keyword_weights к нижнему регистру для поиска без учёта регистра
     keyword_weights = {k.lower(): v for k, v in (keyword_weights or {}).items()}
     
-    # Score each ticket type based on keyword matches
+    # Оцениваем каждый тип заявки по совпадениям ключевых слов
     scores = {}
     all_scores_debug: List[TicketTypeScore] = []
     ticket_text_lower = ticket_text.lower()
@@ -324,32 +324,32 @@ def detect_ticket_type(
         total_keywords = len(ticket_type.detection_keywords)
         
         for keyword in ticket_type.detection_keywords:
-            # Check if keyword is negative (starts with minus sign)
+            # Проверяем, является ли ключевое слово отрицательным (начинается с минуса)
             is_negative = keyword.startswith('-')
-            # Remove minus sign for matching
+            # Убираем минус для поиска
             keyword_to_match = keyword[1:] if is_negative else keyword
             keyword_lower = keyword_to_match.lower()
             
-            # Check if keyword is present (count as 1 if present, 0 if not)
+            # Проверяем наличие ключевого слова (1 если найдено, иначе 0)
             count = 1 if keyword_lower in ticket_text_lower else 0
             
-            # Get weight for this keyword (default 1.0)
-            # Priority: 1) keyword_weights parameter, 2) ticket_type.keyword_weights, 3) default 1.0
-            # For negative keywords, use the original keyword (with minus) as the key
+            # Получаем вес для ключевого слова (по умолчанию 1.0)
+            # Приоритет: 1) параметр keyword_weights, 2) ticket_type.keyword_weights, 3) 1.0
+            # Для отрицательных ключевых слов используем исходный ключ (с минусом)
             weight_key = keyword.lower() if is_negative else keyword_lower
             if weight_key in keyword_weights:
                 weight = keyword_weights[weight_key]
             else:
                 weight = ticket_type.get_keyword_weight(weight_key)
             
-            # Calculate score (negative for negative keywords)
+            # Считаем балл (отрицательный для отрицательных ключевых слов)
             weighted_score = count * weight
             if is_negative:
                 weighted_score = -weighted_score
             score += weighted_score
             
             if count > 0:
-                # Only count positive keywords towards matched_count
+                # В счёт совпадений идут только положительные ключевые слова
                 if not is_negative:
                     matched_count += 1
                 if debug:
@@ -372,24 +372,24 @@ def detect_ticket_type(
                 total_keywords_count=total_keywords
             ))
     
-    # Return ticket type with highest score
+    # Возвращаем тип заявки с максимальным баллом
     detected_type = None
     has_ambiguity = False
     ambiguous_types = []
     
     if scores:
-        # Find the highest score
+        # Находим максимальный балл
         max_score = max(score for score, _ in scores.values())
         
-        # Find all types with the highest score
+        # Находим все типы с максимальным баллом
         types_with_max_score = [tt for score, tt in scores.values() if score == max_score]
         
-        # Check for ambiguity (multiple types with same max score)
+        # Проверяем неоднозначность (несколько типов с одинаковым максимумом)
         if len(types_with_max_score) > 1:
             has_ambiguity = True
             ambiguous_types = types_with_max_score
         
-        # Still return the first one (or could return None if ambiguous)
+        # Всё равно возвращаем первый (или можно вернуть None при неоднозначности)
         detected_type = types_with_max_score[0]
     
     if debug:
@@ -409,22 +409,22 @@ def detect_ticket_type(
 def validate_ticket(ticket_text: str, rules: List[ValidationRule], 
                    detected_ticket_type: Optional[TicketType] = None) -> ValidationResult:
     """
-    Main validation function that applies all rules to a ticket.
+    Основная функция валидации, применяющая все правила к заявке.
     
     Args:
-        ticket_text: The ticket text to validate
-        rules: List of validation rules to apply
-        detected_ticket_type: Optional detected ticket type
+        ticket_text: текст заявки для проверки.
+        rules: список правил валидации.
+        detected_ticket_type: опционально определённый тип заявки.
         
     Returns:
-        ValidationResult with validation status and details
+        ValidationResult с результатом проверки и деталями.
     """
     failed_rules = []
     passed_rules = []
     error_messages = []
     validation_details = {}
     
-    # Sort rules by priority (higher priority first)
+    # Сортируем правила по приоритету (сначала более высокий)
     sorted_rules = sorted(rules, key=lambda r: r.priority, reverse=True)
     
     for rule in sorted_rules:
@@ -446,14 +446,14 @@ def validate_ticket(ticket_text: str, rules: List[ValidationRule],
             elif rule_type_value == 'fias_check':
                 is_valid = validate_fias_address(ticket_text, rule.pattern)
             elif rule_type_value == 'custom':
-                # Custom validation could be extended in the future
+                # Пользовательскую валидацию можно расширить в будущем
                 is_valid = True
             else:
-                # Unknown rule type, skip it
+                # Неизвестный тип правила — пропускаем
                 continue
                 
         except Exception as e:
-            # Log error but continue with other rules
+            # Логируем ошибку, но продолжаем остальные правила
             validation_details[rule.rule_name] = f"Error: {str(e)}"
             continue
         

@@ -1,11 +1,11 @@
 """
-Gamification Logic
+Логика геймификации.
 
-Core business logic for the gamification system:
-- Score management
-- Achievement progress tracking
-- Rankings computation
-- User profile data
+Основная бизнес-логика системы геймификации:
+- Управление очками
+- Отслеживание прогресса достижений
+- Расчёт рейтингов
+- Данные профиля пользователя
 """
 
 import time
@@ -19,7 +19,7 @@ from . import settings
 
 logger = logging.getLogger(__name__)
 
-# ===== SIMPLE IN-MEMORY CACHES =====
+# ===== ПРОСТЫЕ КЭШИ В ПАМЯТИ =====
 
 _RANKS_CACHE: Optional[List[Dict]] = None
 _RANKS_CACHE_TS: float = 0.0
@@ -30,10 +30,10 @@ _TOTAL_ACHIEVEMENTS_CACHE_TS: float = 0.0
 _TOTAL_ACHIEVEMENTS_CACHE_TTL_SECONDS = 300
 
 
-# ===== SETTINGS HELPERS =====
+# ===== ПОМОЩНИКИ НАСТРОЕК =====
 
 def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
-    """Get a setting value from database."""
+    """Получить значение настройки из базы данных."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -49,7 +49,7 @@ def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
 
 
 def set_setting(key: str, value: str, description: Optional[str] = None) -> bool:
-    """Set a setting value in database."""
+    """Установить значение настройки в базе данных."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -72,15 +72,15 @@ def set_setting(key: str, value: str, description: Optional[str] = None) -> bool
 
 
 def get_obfuscate_names() -> bool:
-    """Check if name obfuscation is enabled."""
+    """Проверить, включено ли скрытие имён."""
     value = get_setting(settings.DB_SETTING_OBFUSCATE_NAMES, 'false')
     return value in (True, 'True', 'true', '1', 1)
 
 
-# ===== RANK HELPERS =====
+# ===== ПОМОЩНИКИ РАНГОВ =====
 
 def get_ranks_config() -> List[Dict]:
-    """Get rank configuration from database or defaults."""
+    """Получить конфигурацию рангов из базы или значения по умолчанию."""
     global _RANKS_CACHE, _RANKS_CACHE_TS
     now = time.time()
     if _RANKS_CACHE is not None and (now - _RANKS_CACHE_TS) < _RANKS_CACHE_TTL_SECONDS:
@@ -107,13 +107,13 @@ def get_ranks_config() -> List[Dict]:
 
 def get_rank_for_score(score: int) -> Dict:
     """
-    Determine rank based on score.
+    Определить ранг по количеству очков.
     
     Args:
-        score: User's total score
+        score: суммарные очки пользователя.
     
     Returns:
-        Rank dict with level, name, icon, threshold
+        Словарь ранга с level, name, icon, threshold.
     """
     ranks = get_ranks_config()
     current_rank = ranks[0]
@@ -128,7 +128,7 @@ def get_rank_for_score(score: int) -> Dict:
 
 
 def get_next_rank(current_rank_level: int) -> Optional[Dict]:
-    """Get the next rank after current level."""
+    """Получить следующий ранг после текущего уровня."""
     ranks = get_ranks_config()
     for rank in ranks:
         if rank['level'] > current_rank_level:
@@ -136,7 +136,7 @@ def get_next_rank(current_rank_level: int) -> Optional[Dict]:
     return None
 
 
-# ===== SCORE MANAGEMENT =====
+# ===== УПРАВЛЕНИЕ ОЧКАМИ =====
 
 def add_score_points(
     userid: int,
@@ -161,13 +161,13 @@ def add_score_points(
         
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Add score entry
+                # Добавляем запись начисления очков
                 cursor.execute("""
                     INSERT INTO gamification_scores (userid, points, source, reason, timestamp)
                     VALUES (%s, %s, %s, %s, %s)
                 """, (userid, points, source, reason, timestamp))
                 
-                # Update or create totals cache
+                # Обновляем или создаём кэш итогов
                 cursor.execute("""
                     INSERT INTO gamification_user_totals (userid, total_score, last_updated)
                     VALUES (%s, %s, %s)
@@ -176,7 +176,7 @@ def add_score_points(
                         last_updated = %s
                 """, (userid, points, timestamp, points, timestamp))
                 
-                # Update rank
+                # Обновляем ранг
                 _update_user_rank(cursor, userid)
                 
                 return True
@@ -200,7 +200,7 @@ def award_score_for_action(userid: int, module: str, action: str) -> bool:
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Get points for this action
+                # Получаем очки для этого действия
                 cursor.execute("""
                     SELECT points FROM gamification_score_config
                     WHERE module = %s AND action = %s AND active = 1
@@ -212,7 +212,7 @@ def award_score_for_action(userid: int, module: str, action: str) -> bool:
                 
                 points = result['points']
         
-        # Add the points
+        # Начисляем очки
         return add_score_points(
             userid=userid,
             points=points,
@@ -225,7 +225,7 @@ def award_score_for_action(userid: int, module: str, action: str) -> bool:
 
 
 def get_user_total_score(userid: int) -> int:
-    """Get user's total score."""
+    """Получить суммарные очки пользователя."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -240,7 +240,7 @@ def get_user_total_score(userid: int) -> int:
 
 
 def _update_user_rank(cursor, userid: int) -> None:
-    """Update user's rank in totals table."""
+    """Обновить ранг пользователя в таблице итогов."""
     try:
         cursor.execute(
             "SELECT total_score FROM gamification_user_totals WHERE userid = %s",
@@ -258,10 +258,10 @@ def _update_user_rank(cursor, userid: int) -> None:
         logger.error(f"Error updating user rank: {e}")
 
 
-# ===== ACHIEVEMENT MANAGEMENT =====
+# ===== УПРАВЛЕНИЕ ДОСТИЖЕНИЯМИ =====
 
 def get_achievement_by_code(code: str) -> Optional[Dict]:
-    """Get achievement definition by code."""
+    """Получить описание достижения по коду."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -275,7 +275,7 @@ def get_achievement_by_code(code: str) -> Optional[Dict]:
 
 
 def get_all_achievements(module: Optional[str] = None) -> List[Dict]:
-    """Get all achievements, optionally filtered by module."""
+    """Получить все достижения, опционально с фильтром по модулю."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -298,7 +298,7 @@ def get_all_achievements(module: Optional[str] = None) -> List[Dict]:
 
 
 def get_achievement_modules() -> List[str]:
-    """Get list of modules that have achievements."""
+    """Получить список модулей, у которых есть достижения."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -313,7 +313,7 @@ def get_achievement_modules() -> List[str]:
 
 
 def get_total_achievements_count() -> int:
-    """Get total number of achievement levels (achievements * 3)."""
+    """Получить общее число уровней достижений (достижения * 3)."""
     global _TOTAL_ACHIEVEMENTS_CACHE, _TOTAL_ACHIEVEMENTS_CACHE_TS
     now = time.time()
     if (
@@ -416,7 +416,7 @@ def increment_achievement_progress(userid: int, achievement_code: str) -> Option
         
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Increment progress
+                # Увеличиваем прогресс
                 cursor.execute("""
                     INSERT INTO gamification_user_progress 
                     (userid, achievement_id, current_count, last_increment_timestamp)
@@ -426,7 +426,7 @@ def increment_achievement_progress(userid: int, achievement_code: str) -> Option
                         last_increment_timestamp = %s
                 """, (userid, achievement_id, timestamp, timestamp))
                 
-                # Get new count
+                # Получаем новое значение счётчика
                 cursor.execute("""
                     SELECT current_count FROM gamification_user_progress
                     WHERE userid = %s AND achievement_id = %s
@@ -438,7 +438,7 @@ def increment_achievement_progress(userid: int, achievement_code: str) -> Option
                 
                 current_count = result['current_count']
                 
-                # Check for level unlocks
+                # Проверяем, не разблокированы ли уровни
                 return _check_and_unlock_levels(
                     cursor, userid, achievement_id, achievement, current_count, timestamp
                 )
@@ -469,7 +469,7 @@ def set_achievement_progress(userid: int, achievement_code: str, count: int) -> 
         
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Set progress
+                # Устанавливаем прогресс
                 cursor.execute("""
                     INSERT INTO gamification_user_progress 
                     (userid, achievement_id, current_count, last_increment_timestamp)
@@ -479,7 +479,7 @@ def set_achievement_progress(userid: int, achievement_code: str, count: int) -> 
                         last_increment_timestamp = %s
                 """, (userid, achievement_id, count, timestamp, count, timestamp))
                 
-                # Check for level unlocks
+                # Проверяем, не разблокированы ли уровни
                 return _check_and_unlock_levels(
                     cursor, userid, achievement_id, achievement, count, timestamp
                 )
@@ -496,7 +496,7 @@ def _check_and_unlock_levels(
     current_count: int,
     timestamp: int
 ) -> Optional[int]:
-    """Check thresholds and unlock any new levels."""
+    """Проверить пороги и разблокировать новые уровни, если нужно."""
     thresholds = [
         (settings.ACHIEVEMENT_LEVEL_BRONZE, achievement['threshold_bronze']),
         (settings.ACHIEVEMENT_LEVEL_SILVER, achievement['threshold_silver']),
@@ -507,21 +507,21 @@ def _check_and_unlock_levels(
     
     for level, threshold in thresholds:
         if current_count >= threshold:
-            # Check if already unlocked
+            # Проверяем, не разблокирован ли уже
             cursor.execute("""
                 SELECT id FROM gamification_user_achievements
                 WHERE userid = %s AND achievement_id = %s AND level = %s
             """, (userid, achievement_id, level))
             
             if not cursor.fetchone():
-                # Unlock this level
+                # Разблокируем этот уровень
                 cursor.execute("""
                     INSERT INTO gamification_user_achievements
                     (userid, achievement_id, level, unlocked_timestamp)
                     VALUES (%s, %s, %s, %s)
                 """, (userid, achievement_id, level, timestamp))
                 
-                # Update totals
+                # Обновляем итоги
                 cursor.execute("""
                     INSERT INTO gamification_user_totals (userid, total_achievements, last_updated)
                     VALUES (%s, 1, %s)
@@ -537,11 +537,11 @@ def _check_and_unlock_levels(
 
 
 def get_user_achievement_progress(userid: int, achievement_id: int) -> Dict:
-    """Get user's progress on a specific achievement."""
+    """Получить прогресс пользователя по конкретному достижению."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Get progress
+                # Получаем прогресс
                 cursor.execute("""
                     SELECT current_count FROM gamification_user_progress
                     WHERE userid = %s AND achievement_id = %s
@@ -549,7 +549,7 @@ def get_user_achievement_progress(userid: int, achievement_id: int) -> Dict:
                 progress = cursor.fetchone()
                 current_count = progress['current_count'] if progress else 0
                 
-                # Get unlocked levels
+                # Получаем разблокированные уровни
                 cursor.execute("""
                     SELECT MAX(level) as max_level FROM gamification_user_achievements
                     WHERE userid = %s AND achievement_id = %s
@@ -570,7 +570,7 @@ def get_user_achievements_with_progress(
     userid: int,
     module: Optional[str] = None
 ) -> List[Dict]:
-    """Get all achievements with user's progress."""
+    """Получить все достижения с прогрессом пользователя."""
     achievements = get_all_achievements(module)
     result = []
     
@@ -586,7 +586,7 @@ def get_user_achievements_with_progress(
 
 
 def get_user_unlocked_achievements_count(userid: int) -> int:
-    """Get total number of achievement levels unlocked by user."""
+    """Получить общее число уровней достижений, разблокированных пользователем."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -601,7 +601,7 @@ def get_user_unlocked_achievements_count(userid: int) -> int:
 
 
 def get_user_achievements_by_level(userid: int) -> Dict[int, int]:
-    """Get count of achievements by level for a user."""
+    """Получить количество достижений по уровням для пользователя."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -617,7 +617,7 @@ def get_user_achievements_by_level(userid: int) -> Dict[int, int]:
         return {}
 
 
-# ===== USER PROFILE =====
+# ===== ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ =====
 
 def get_user_profile(userid: int) -> Optional[Dict]:
     """
@@ -629,7 +629,7 @@ def get_user_profile(userid: int) -> Optional[Dict]:
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Get user info
+                # Получаем данные пользователя
                 cursor.execute("""
                     SELECT userid, first_name, last_name, username
                     FROM users WHERE userid = %s
@@ -639,7 +639,7 @@ def get_user_profile(userid: int) -> Optional[Dict]:
                 if not user:
                     return None
                 
-                # Get totals
+                # Получаем итоги
                 cursor.execute("""
                     SELECT total_score, total_achievements, current_rank
                     FROM gamification_user_totals WHERE userid = %s
@@ -649,14 +649,14 @@ def get_user_profile(userid: int) -> Optional[Dict]:
                 total_score = totals['total_score'] if totals else 0
                 total_achievements = totals['total_achievements'] if totals else 0
                 
-                # Get rank info
+                # Получаем информацию о ранге
                 rank = get_rank_for_score(total_score)
                 next_rank = get_next_rank(rank['level'])
                 
-                # Get achievements by level
+                # Получаем достижения по уровням
                 achievements_by_level = get_user_achievements_by_level(userid)
                 
-                # Get max possible achievements
+                # Получаем максимальное возможное число достижений
                 max_achievements = get_total_achievements_count()
                 
                 return {
@@ -680,7 +680,7 @@ def get_user_profile(userid: int) -> Optional[Dict]:
 
 
 def ensure_user_totals_exist(userid: int) -> None:
-    """Ensure user has a totals record (creates if missing)."""
+    """Убедиться, что у пользователя есть запись итогов (создать при отсутствии)."""
     try:
         timestamp = int(time.time())
         with database.get_db_connection() as conn:
@@ -694,10 +694,10 @@ def ensure_user_totals_exist(userid: int) -> None:
         logger.error(f"Error ensuring user totals: {e}")
 
 
-# ===== RANKINGS =====
+# ===== РЕЙТИНГИ =====
 
 def _get_time_range(period: str) -> Tuple[int, int]:
-    """Get timestamp range for a period."""
+    """Получить диапазон временных меток для периода."""
     now = datetime.now()
     
     if period == settings.RANKING_PERIOD_MONTHLY:
@@ -707,7 +707,7 @@ def _get_time_range(period: str) -> Tuple[int, int]:
     elif period == settings.RANKING_PERIOD_YEARLY:
         start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         end = now.replace(month=12, day=31, hour=23, minute=59, second=59)
-    else:  # all_time
+    else:  # за всё время
         start = datetime(2020, 1, 1)
         end = now
     
@@ -736,7 +736,7 @@ def get_score_ranking(
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
                 if period == settings.RANKING_PERIOD_ALL_TIME:
-                    # Use totals table for all-time
+                    # Для общего рейтинга используем таблицу итогов
                     cursor.execute("""
                         SELECT COUNT(*) as cnt FROM gamification_user_totals 
                         WHERE total_score > 0
@@ -754,7 +754,7 @@ def get_score_ranking(
                         LIMIT %s OFFSET %s
                     """, (per_page, offset))
                 else:
-                    # Calculate from scores table for period
+                    # Для периода считаем по таблице очков
                     start_ts, end_ts = _get_time_range(period)
                     
                     cursor.execute("""
@@ -808,7 +808,7 @@ def get_achievements_ranking(
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
                 if period == settings.RANKING_PERIOD_ALL_TIME:
-                    # Use totals table
+                    # Используем таблицу итогов
                     cursor.execute("""
                         SELECT COUNT(*) as cnt FROM gamification_user_totals 
                         WHERE total_achievements > 0
@@ -826,7 +826,7 @@ def get_achievements_ranking(
                         LIMIT %s OFFSET %s
                     """, (per_page, offset))
                 else:
-                    # Calculate from achievements table for period
+                    # Для периода считаем по таблице достижений
                     start_ts, end_ts = _get_time_range(period)
                     
                     cursor.execute("""
@@ -862,7 +862,7 @@ def get_user_rank(
     ranking_type: str,
     period: str = settings.RANKING_PERIOD_ALL_TIME
 ) -> Optional[Dict]:
-    """Get a specific user's rank position."""
+    """Получить позицию конкретного пользователя в рейтинге."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -919,10 +919,10 @@ def get_user_rank(
         return None
 
 
-# ===== SEARCH =====
+# ===== ПОИСК =====
 
 def search_users(query: str, limit: int = 10) -> List[Dict]:
-    """Search users by name."""
+    """Искать пользователей по имени."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -939,10 +939,10 @@ def search_users(query: str, limit: int = 10) -> List[Dict]:
         return []
 
 
-# ===== ADMIN FUNCTIONS =====
+# ===== ФУНКЦИИ ДЛЯ АДМИНА =====
 
 def get_all_score_configs() -> List[Dict]:
-    """Get all score configuration entries."""
+    """Получить все записи конфигурации начисления очков."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -957,7 +957,7 @@ def get_all_score_configs() -> List[Dict]:
 
 
 def update_score_config(config_id: int, points: int) -> bool:
-    """Update score points for a configuration."""
+    """Обновить количество очков для конфигурации."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -973,7 +973,7 @@ def update_score_config(config_id: int, points: int) -> bool:
 
 
 def get_score_config_by_id(config_id: int) -> Optional[Dict]:
-    """Get a score config by ID."""
+    """Получить конфигурацию очков по идентификатору."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -988,15 +988,15 @@ def get_score_config_by_id(config_id: int) -> Optional[Dict]:
 
 
 def get_system_stats() -> Dict:
-    """Get system-wide statistics for admin."""
+    """Получить общую статистику системы для админа."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Total users with any activity
+                # Всего пользователей с любой активностью
                 cursor.execute("SELECT COUNT(*) as cnt FROM gamification_user_totals")
                 total_users = cursor.fetchone()['cnt']
                 
-                # Active users in last 7 days
+                # Активные пользователи за последние 7 дней
                 week_ago = int(time.time()) - (7 * 24 * 60 * 60)
                 cursor.execute("""
                     SELECT COUNT(DISTINCT userid) as cnt 
@@ -1005,15 +1005,15 @@ def get_system_stats() -> Dict:
                 """, (week_ago,))
                 active_7d = cursor.fetchone()['cnt']
                 
-                # Total achievements unlocked
+                # Всего разблокированных достижений
                 cursor.execute("SELECT COUNT(*) as cnt FROM gamification_user_achievements")
                 total_achievements = cursor.fetchone()['cnt']
                 
-                # Total score awarded
+                # Всего начислено очков
                 cursor.execute("SELECT COALESCE(SUM(points), 0) as total FROM gamification_scores")
                 total_score = cursor.fetchone()['total']
                 
-                # Top scorers
+                # Топ по очкам
                 cursor.execute("""
                     SELECT t.userid, t.total_score, u.first_name
                     FROM gamification_user_totals t
@@ -1042,7 +1042,7 @@ def get_system_stats() -> Dict:
 
 
 def get_achievements_with_unlock_counts() -> List[Dict]:
-    """Get all achievements with how many times each was unlocked."""
+    """Получить все достижения с количеством разблокировок каждого."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
