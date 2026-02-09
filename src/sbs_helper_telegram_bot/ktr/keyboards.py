@@ -118,7 +118,7 @@ def get_codes_inline_keyboard(
             )
         ])
     
-    # Pagination buttons
+    # Кнопки пагинации
     nav_buttons = []
     if page > 1:
         nav_buttons.append(
@@ -131,7 +131,7 @@ def get_codes_inline_keyboard(
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    # Back button
+    # Кнопка назад
     keyboard.append([
         InlineKeyboardButton(messages.BUTTON_BACK_TO_MENU, callback_data="ktr_admin_menu")
     ])
@@ -172,13 +172,13 @@ def get_categories_inline_keyboard(
             )
         ])
     
-    # Skip button for category selection
+    # Кнопка пропуска для выбора категории
     if for_selection:
         keyboard.append([
             InlineKeyboardButton("⏭️ Пропустить", callback_data="ktr_cat_skip")
         ])
     
-    # Pagination buttons
+    # Кнопки пагинации
     nav_buttons = []
     if page > 1:
         nav_buttons.append(
@@ -191,7 +191,7 @@ def get_categories_inline_keyboard(
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    # Back button (not for selection mode)
+    # Кнопка назад (не для режима выбора)
     if not for_selection:
         keyboard.append([
             InlineKeyboardButton(messages.BUTTON_BACK_TO_MENU, callback_data="ktr_admin_menu")
@@ -298,7 +298,7 @@ def get_unknown_codes_inline_keyboard(
             )
         ])
     
-    # Pagination buttons
+    # Кнопки пагинации
     nav_buttons = []
     if page > 1:
         nav_buttons.append(

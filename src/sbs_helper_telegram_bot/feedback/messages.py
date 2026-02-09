@@ -1,22 +1,22 @@
 """
-Feedback Module Messages
+Сообщения модуля обратной связи
 
-All user-facing messages for the feedback module.
-Messages use Telegram MarkdownV2 format where needed.
+Все пользовательские сообщения для модуля обратной связи.
+Сообщения используют формат Telegram MarkdownV2 там, где это нужно.
 """
 # pylint: disable=line-too-long
-# Note: Double backslashes are intentional for Telegram MarkdownV2 escaping
+# Примечание: двойные обратные слэши нужны для экранирования в Telegram MarkdownV2
 
 
 def _escape_markdown_v2(text: str) -> str:
     """
-    Escape special characters for Telegram MarkdownV2.
+    Экранировать спецсимволы для Telegram MarkdownV2.
     
     Args:
-        text: Text to escape
+        text: Текст для экранирования
         
     Returns:
-        Escaped text
+        Экранированный текст
     """
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     for char in special_chars:
@@ -24,7 +24,7 @@ def _escape_markdown_v2(text: str) -> str:
     return text
 
 
-# ===== USER MESSAGES =====
+# ===== СООБЩЕНИЯ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ =====
 
 MESSAGE_SUBMENU = "📬 *Обратная связь*\n\nЗдесь вы можете отправить отзыв, предложение или сообщить об ошибке\\.\n\nВыберите действие из меню:"
 
@@ -112,7 +112,7 @@ MESSAGE_ERROR = "❌ Произошла ошибка\\. Попробуйте п�
 MESSAGE_ENTRY_NOT_FOUND = "❌ Обращение не найдено\\."
 
 
-# ===== ADMIN MESSAGES =====
+# ===== СООБЩЕНИЯ ДЛЯ АДМИНА =====
 
 MESSAGE_ADMIN_NOT_AUTHORIZED = "⛔ У вас нет прав администратора\\."
 
@@ -192,7 +192,7 @@ MESSAGE_ADMIN_CATEGORY_ENTRIES = "📂 *{category}*\n\nОбращений: {coun
 MESSAGE_ADMIN_ERROR = "❌ Произошла ошибка\\. Попробуйте позже\\."
 
 
-# ===== HELPER FUNCTIONS =====
+# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 def format_feedback_detail(
     entry_id: int,

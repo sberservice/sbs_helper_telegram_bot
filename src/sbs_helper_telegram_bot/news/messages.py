@@ -1,21 +1,21 @@
 """
-News Module Messages
+Сообщения модуля новостей.
 
-All user-facing messages for the news module.
-Messages use Telegram MarkdownV2 format where needed.
+Все пользовательские сообщения для модуля новостей.
+Сообщения используют формат Telegram MarkdownV2 там, где это нужно.
 """
 # pylint: disable=line-too-long
 
 
 def escape_markdown_v2(text: str) -> str:
     """
-    Escape special characters for Telegram MarkdownV2.
+    Экранировать спецсимволы для Telegram MarkdownV2.
     
     Args:
-        text: Text to escape
+        text: текст для экранирования.
         
     Returns:
-        Escaped text
+        Экранированный текст.
     """
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     for char in special_chars:
@@ -23,7 +23,7 @@ def escape_markdown_v2(text: str) -> str:
     return text
 
 
-# ===== USER MESSAGES =====
+# ===== СООБЩЕНИЯ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ =====
 
 MESSAGE_SUBMENU = "📰 *Новости*\n\nЗдесь вы можете просматривать последние новости и объявления\\.\n\nВыберите действие из меню:"
 
@@ -45,7 +45,7 @@ MESSAGE_SEARCH_RESULTS = "🔍 *Результаты поиска*\n\nПо за�
 
 MESSAGE_NEWS_MARKED_READ = "✅ Все новости отмечены как прочитанные\\."
 
-# Mandatory news
+# Обязательные новости
 MESSAGE_MANDATORY_NEWS = """🚨 *ВАЖНОЕ ОБЪЯВЛЕНИЕ*
 
 Прежде чем продолжить, ознакомьтесь с обязательной новостью\\.
@@ -57,7 +57,7 @@ MESSAGE_MANDATORY_BLOCKING = "🚨 *Пожалуйста, сначала озн�
 MESSAGE_MANDATORY_ACKNOWLEDGED = "✅ Спасибо\\! Теперь вы можете продолжить работу с ботом\\."
 
 
-# ===== NEWS ARTICLE TEMPLATE =====
+# ===== ШАБЛОН НОВОСТНОЙ СТАТЬИ =====
 
 def format_news_article(
     title: str,
@@ -68,18 +68,18 @@ def format_news_article(
     reactions: dict = None
 ) -> str:
     """
-    Format a single news article for display.
+    Сформатировать новостную статью для отображения.
     
     Args:
-        title: Article title (already escaped)
-        content: Article content (already MarkdownV2 formatted)
-        category_emoji: Category emoji
-        category_name: Category name (already escaped)
-        published_date: Formatted publish date (already escaped)
-        reactions: Dict with like/love/dislike counts
+        title: заголовок статьи (уже экранирован).
+        content: содержание статьи (уже в MarkdownV2).
+        category_emoji: эмодзи категории.
+        category_name: название категории (уже экранировано).
+        published_date: дата публикации (уже экранирована).
+        reactions: словарь с количеством реакций like/love/dislike.
         
     Returns:
-        Formatted article text
+        Отформатированный текст статьи.
     """
     article = f"{category_emoji} *{title}*\n"
     article += f"_{category_name} • {published_date}_\n\n"
@@ -100,7 +100,7 @@ def format_news_article(
     return article
 
 
-# ===== ADMIN MESSAGES =====
+# ===== СООБЩЕНИЯ ДЛЯ АДМИНА =====
 
 MESSAGE_ADMIN_NOT_AUTHORIZED = "⛔ У вас нет прав администратора\\."
 
@@ -118,7 +118,7 @@ MESSAGE_ADMIN_PUBLISHED_EMPTY = "📢 *Опубликованных новост
 
 MESSAGE_ADMIN_PUBLISHED_LIST = "📢 *Опубликованные новости*\n\nВсего: {count}\n\nНажмите для просмотра:"
 
-# Article detail for admin
+# Детали статьи для админа
 MESSAGE_ADMIN_ARTICLE_DETAIL = """📄 *{title}*
 
 *Статус:* {status}
@@ -142,7 +142,7 @@ MESSAGE_ADMIN_REACTIONS_SECTION = """
 👍 {like} • ❤️ {love} • 👎 {dislike}
 *Доставлено:* {delivered} из {total_users}"""
 
-# Create news wizard
+# Мастер создания новости
 MESSAGE_ADMIN_CREATE_TITLE = """📝 *Создание новости*
 
 *Шаг 1/6: Заголовок*
@@ -248,7 +248,7 @@ MESSAGE_ADMIN_ARTICLE_DELETED = "🗑️ *Новость удалена*"
 
 MESSAGE_ADMIN_ARTICLE_ARCHIVED = "📂 *Новость перемещена в архив*"
 
-# Category management
+# Управление категориями
 MESSAGE_ADMIN_CATEGORIES_LIST = "📂 *Категории новостей*\n\nНажмите для редактирования или добавьте новую:"
 
 MESSAGE_ADMIN_CATEGORY_CREATE_NAME = "📂 *Создание категории*\n\nВведите название категории:"
@@ -263,14 +263,14 @@ MESSAGE_ADMIN_CATEGORY_DELETED = "🗑️ *Категория удалена*"
 
 MESSAGE_ADMIN_CATEGORY_HAS_ARTICLES = "⚠️ *Нельзя удалить категорию*\n\nВ этой категории есть новости\\. Сначала переместите или удалите их\\."
 
-# Edit messages
+# Сообщения редактирования
 MESSAGE_ADMIN_EDIT_TITLE = "✏️ *Редактирование заголовка*\n\nТекущий заголовок:\n_{current}_\n\nВведите новый заголовок:"
 
 MESSAGE_ADMIN_EDIT_CONTENT = "✏️ *Редактирование содержимого*\n\nВведите новый текст новости:"
 
 MESSAGE_ADMIN_EDIT_SAVED = "✅ *Изменения сохранены\\!*"
 
-# Error messages
+# Сообщения об ошибках
 MESSAGE_ERROR = "❌ Произошла ошибка\\. Попробуйте позже\\."
 
 MESSAGE_ARTICLE_NOT_FOUND = "❌ Новость не найдена\\."

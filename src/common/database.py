@@ -13,8 +13,8 @@ def get_db_connection(
     **kwargs
 ) -> Generator[mysql.connector.MySQLConnection, None, None]:
     """
-    Context manager for MySQL connection.
-    Automatically handles connect/commit/rollback/close.
+    Контекстный менеджер для подключения к MySQL.
+    Автоматически выполняет connect/commit/rollback/close.
     """
     conn = None
     try:
@@ -27,7 +27,7 @@ def get_db_connection(
             **kwargs
         )
         yield conn
-        conn.commit()  # commit if no exception
+        conn.commit()  # фиксируем транзакцию, если нет исключения
     except Exception:
         if conn:
             conn.rollback()

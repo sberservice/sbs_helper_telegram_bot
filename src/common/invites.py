@@ -1,18 +1,18 @@
 """
 invites.py
 
-Invite code management utilities.
+Утилиты управления инвайт-кодами.
 
-Functions:
-- generate_invite_string(length=6) -> str: Generates an uppercase alphanumeric code (without 0).
-- invite_exists(invite) -> bool: Checks if an invite code already exists in the database.
-- generate_invite_for_user(user_id) -> str: Creates/stores a unique unused invite code for a user.
-- check_if_user_pre_invited(telegram_id) -> bool: Checks if user is in the chat_members table.
-- mark_pre_invited_user_activated(telegram_id) -> bool: Sets activated_timestamp for a pre-invited user.
-- add_pre_invited_user(telegram_id, added_by_userid, notes) -> bool: Adds user to chat_members.
-- remove_pre_invited_user(telegram_id) -> bool: Removes user from chat_members.
-- get_pre_invited_users() -> list: Returns all pre-invited users.
-- is_pre_invited_user_activated(telegram_id) -> bool: Checks if pre-invited user has activated.
+Функции:
+- generate_invite_string(length=6) -> str: Генерирует алфавитно-цифровой код в верхнем регистре (без 0).
+- invite_exists(invite) -> bool: Проверяет, существует ли инвайт-код в базе.
+- generate_invite_for_user(user_id) -> str: Создаёт/сохраняет уникальный неиспользованный инвайт для пользователя.
+- check_if_user_pre_invited(telegram_id) -> bool: Проверяет, есть ли пользователь в таблице chat_members.
+- mark_pre_invited_user_activated(telegram_id) -> bool: Устанавливает activated_timestamp для пред-добавленного пользователя.
+- add_pre_invited_user(telegram_id, added_by_userid, notes) -> bool: Добавляет пользователя в chat_members.
+- remove_pre_invited_user(telegram_id) -> bool: Удаляет пользователя из chat_members.
+- get_pre_invited_users() -> list: Возвращает всех пред-добавленных пользователей.
+- is_pre_invited_user_activated(telegram_id) -> bool: Проверяет, активировался ли пред-добавленный пользователь.
 """
 
 import string
@@ -22,28 +22,27 @@ from src.common.constants.errorcodes import InviteStatus
 
 def generate_invite_string(length=6)->str:
     """
-        Generate a random invite code of the specified length.
+        Сгенерировать случайный инвайт-код указанной длины.
 
-        The code consists only of uppercase Latin letters (A-Z) and digits 1-9
-        (digit 0 is excluded to avoid confusion with the letter O).
+        Код состоит только из заглавных латинских букв (A-Z) и цифр 1-9
+        (цифра 0 исключена, чтобы не путать её с буквой O).
 
         Args:
-            length: Length of the invite code (default: 6).
+            length: Длина инвайт-кода (по умолчанию: 6).
 
         Returns:
-            Random invite string of the requested length.
+            Случайная строка-инвайт запрошенной длины.
     """
     return ''.join(random.choice(string.ascii_uppercase + string.digits[1:]) for _ in range(length))
 def invite_exists(invite)->bool:
     """
-    Check whether an invite code already exists in the database.
+    Проверить, существует ли инвайт-код в базе данных.
 
     Args:
-        invite (str): The invite code to look up.
+        invite (str): Инвайт-код для поиска.
 
     Returns:
-        bool: True if the invite code is already present in the `invites` table,
-              False otherwise.
+        bool: True, если инвайт уже есть в таблице `invites`, иначе False.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -55,16 +54,16 @@ def invite_exists(invite)->bool:
 
 def generate_invite_for_user(user_id):
     """
-        Generates a unique 6-character invite code and assigns it to the given user.
+        Сгенерировать уникальный 6-символьный инвайт-код и назначить его пользователю.
 
-        Keeps generating random codes until a non-existing one is found,
-        then inserts it into the `invites` table with the current timestamp.
+        Генерирует случайные коды, пока не найдёт свободный,
+        затем вставляет его в таблицу `invites` с текущим временем.
 
         Args:
-            user_id (int): Telegram user ID to whom the invite will be issued.
+            user_id (int): Telegram ID пользователя, которому выдаётся инвайт.
 
         Returns:
-            str: The newly created unique invite code.
+            str: Новый уникальный инвайт-код.
     """
     while True:
         invite=generate_invite_string(6)
@@ -81,18 +80,18 @@ def generate_invite_for_user(user_id):
 
 
 # ============================================================================
-# Pre-invited users (chat_members table) functions
+# Функции для пред-добавленных пользователей (таблица chat_members)
 # ============================================================================
 
 def check_if_user_pre_invited(telegram_id) -> bool:
     """
-    Check if a user exists in the chat_members table (pre-invited).
-    
+    Проверить, есть ли пользователь в таблице chat_members (пред-добавлен).
+
     Args:
-        telegram_id: Telegram user ID to check.
-        
+        telegram_id: Telegram ID пользователя для проверки.
+
     Returns:
-        True if user is in chat_members table, False otherwise.
+        True, если пользователь есть в chat_members, иначе False.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -104,13 +103,13 @@ def check_if_user_pre_invited(telegram_id) -> bool:
 
 def is_pre_invited_user_activated(telegram_id) -> bool:
     """
-    Check if a pre-invited user has already activated (first used the bot).
-    
+    Проверить, активировался ли пред-добавленный пользователь (первое использование бота).
+
     Args:
-        telegram_id: Telegram user ID to check.
-        
+        telegram_id: Telegram ID пользователя для проверки.
+
     Returns:
-        True if user is pre-invited AND has activated, False otherwise.
+        True, если пользователь пред-добавлен и активировался, иначе False.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -124,14 +123,14 @@ def is_pre_invited_user_activated(telegram_id) -> bool:
 
 def mark_pre_invited_user_activated(telegram_id) -> bool:
     """
-    Mark a pre-invited user as activated (first use of the bot).
-    Sets activated_timestamp to current time.
-    
+    Отметить пред-добавленного пользователя как активировавшегося (первое использование бота).
+    Устанавливает activated_timestamp в текущее время.
+
     Args:
-        telegram_id: Telegram user ID to activate.
-        
+        telegram_id: Telegram ID пользователя для активации.
+
     Returns:
-        True if user was found and updated, False otherwise.
+        True, если пользователь найден и обновлён, иначе False.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -142,15 +141,15 @@ def mark_pre_invited_user_activated(telegram_id) -> bool:
 
 def add_pre_invited_user(telegram_id, added_by_userid=None, notes=None) -> bool:
     """
-    Add a user to the chat_members table (pre-invite them).
-    
+    Добавить пользователя в таблицу chat_members (пред-добавить).
+
     Args:
-        telegram_id: Telegram user ID to pre-invite.
-        added_by_userid: Admin user ID who is adding this user (optional).
-        notes: Optional notes about the user.
-        
+        telegram_id: Telegram ID пользователя.
+        added_by_userid: ID администратора, добавляющего пользователя (опционально).
+        notes: Дополнительные заметки о пользователе.
+
     Returns:
-        True if user was added, False if user already exists.
+        True, если пользователь добавлен, False если уже существует.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -162,21 +161,21 @@ def add_pre_invited_user(telegram_id, added_by_userid=None, notes=None) -> bool:
                 cursor.execute(sql, (telegram_id, added_by_userid, notes))
                 return True
             except Exception:
-                # User already exists (unique constraint violation)
+                # Пользователь уже существует (нарушение уникального ограничения)
                 return False
 
 
 def remove_pre_invited_user(telegram_id) -> bool:
     """
-    Remove a user from the chat_members table.
-    
-    Note: If user has also redeemed an invite, they will retain access via the invite.
-    
+    Удалить пользователя из таблицы chat_members.
+
+    Примечание: если пользователь также использовал инвайт, доступ сохраняется через инвайт.
+
     Args:
-        telegram_id: Telegram user ID to remove.
-        
+        telegram_id: Telegram ID пользователя для удаления.
+
     Returns:
-        True if user was found and removed, False otherwise.
+        True, если пользователь найден и удалён, иначе False.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -187,16 +186,16 @@ def remove_pre_invited_user(telegram_id) -> bool:
 
 def get_pre_invited_users(include_activated=True, limit=50, offset=0) -> list:
     """
-    Get list of all pre-invited users.
-    
+    Получить список всех пред-добавленных пользователей.
+
     Args:
-        include_activated: If True, includes users who have already activated.
-                          If False, only returns users who haven't used the bot yet.
-        limit: Maximum number of results to return.
-        offset: Number of results to skip (for pagination).
-        
+        include_activated: Если True, включает пользователей, уже активировавшихся.
+                           Если False, возвращает только тех, кто ещё не использовал бота.
+        limit: Максимальное число результатов.
+        offset: Сколько результатов пропустить (для пагинации).
+
     Returns:
-        List of dicts with user info: telegram_id, added_by_userid, notes,
+        Список словарей с данными: telegram_id, added_by_userid, notes,
         created_timestamp, activated_timestamp.
     """
     with database.get_db_connection() as conn:
@@ -223,13 +222,13 @@ def get_pre_invited_users(include_activated=True, limit=50, offset=0) -> list:
 
 def get_pre_invited_user_count(include_activated=True) -> int:
     """
-    Get count of pre-invited users.
-    
+    Получить количество пред-добавленных пользователей.
+
     Args:
-        include_activated: If True, counts all users. If False, only pending.
-        
+        include_activated: Если True, считать всех. Если False — только ожидающих.
+
     Returns:
-        Number of pre-invited users.
+        Количество пред-добавленных пользователей.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -245,12 +244,12 @@ def get_pre_invited_user_count(include_activated=True) -> int:
 
 def get_all_pre_invited_telegram_ids() -> set:
     """
-    Get all telegram_ids from chat_members table as a set.
-    
-    Optimized for bulk comparison during sync operations.
-    
+    Получить все telegram_id из таблицы chat_members в виде множества.
+
+    Оптимизировано для массового сравнения при синхронизации.
+
     Returns:
-        Set of all telegram_id values in chat_members.
+        Множество всех telegram_id в chat_members.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -262,16 +261,16 @@ def get_all_pre_invited_telegram_ids() -> set:
 
 def bulk_add_pre_invited_users(telegram_ids: list, notes: str = None) -> int:
     """
-    Add multiple users to chat_members table in a single transaction.
-    
-    Skips users that already exist (ON DUPLICATE KEY).
-    
+    Добавить несколько пользователей в таблицу chat_members в одной транзакции.
+
+    Пропускает пользователей, которые уже существуют (ON DUPLICATE KEY).
+
     Args:
-        telegram_ids: List of Telegram user IDs to add.
-        notes: Optional notes to add for all users.
-        
+        telegram_ids: Список Telegram ID для добавления.
+        notes: Общая заметка для всех добавляемых пользователей (опционально).
+
     Returns:
-        Number of users actually added (excludes duplicates).
+        Количество реально добавленных пользователей (без дубликатов).
     """
     if not telegram_ids:
         return 0
@@ -289,20 +288,20 @@ def bulk_add_pre_invited_users(telegram_ids: list, notes: str = None) -> int:
 
 def bulk_remove_pre_invited_users(telegram_ids: list) -> int:
     """
-    Remove multiple users from chat_members table in a single transaction.
-    
+    Удалить несколько пользователей из таблицы chat_members в одной транзакции.
+
     Args:
-        telegram_ids: List of Telegram user IDs to remove.
-        
+        telegram_ids: Список Telegram ID для удаления.
+
     Returns:
-        Number of users actually removed.
+        Количество реально удалённых пользователей.
     """
     if not telegram_ids:
         return 0
     
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # Use IN clause with parameterized query
+            # Используем IN с параметризованным запросом
             placeholders = ", ".join(["%s"] * len(telegram_ids))
             sql = f"DELETE FROM chat_members WHERE telegram_id IN ({placeholders})"
             cursor.execute(sql, telegram_ids)
@@ -310,18 +309,18 @@ def bulk_remove_pre_invited_users(telegram_ids: list) -> int:
 
 
 # ============================================================================
-# Manual users (manual_users table) functions
+# Функции для ручных пользователей (таблица manual_users)
 # ============================================================================
 
 def check_if_user_manual(telegram_id) -> bool:
     """
-    Check if a user exists in the manual_users table.
-    
+    Проверить, есть ли пользователь в таблице manual_users.
+
     Args:
-        telegram_id: Telegram user ID to check.
-        
+        telegram_id: Telegram ID пользователя для проверки.
+
     Returns:
-        True if user is in manual_users table, False otherwise.
+        True, если пользователь есть в manual_users, иначе False.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -333,15 +332,15 @@ def check_if_user_manual(telegram_id) -> bool:
 
 def add_manual_user(telegram_id, added_by_userid, notes=None) -> bool:
     """
-    Add a user to the manual_users table.
-    
+    Добавить пользователя в таблицу manual_users.
+
     Args:
-        telegram_id: Telegram user ID to add.
-        added_by_userid: Admin user ID who is adding this user.
-        notes: Optional notes about the user.
-        
+        telegram_id: Telegram ID пользователя для добавления.
+        added_by_userid: ID администратора, добавляющего пользователя.
+        notes: Дополнительные заметки о пользователе.
+
     Returns:
-        True if user was added, False if user already exists.
+        True, если пользователь добавлен, False если уже существует.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -353,19 +352,19 @@ def add_manual_user(telegram_id, added_by_userid, notes=None) -> bool:
                 cursor.execute(sql, (telegram_id, added_by_userid, notes))
                 return True
             except Exception:
-                # User already exists (unique constraint violation)
+                # Пользователь уже существует (нарушение уникального ограничения)
                 return False
 
 
 def remove_manual_user(telegram_id) -> bool:
     """
-    Remove a user from the manual_users table.
-    
+    Удалить пользователя из таблицы manual_users.
+
     Args:
-        telegram_id: Telegram user ID to remove.
-        
+        telegram_id: Telegram ID пользователя для удаления.
+
     Returns:
-        True if user was found and removed, False otherwise.
+        True, если пользователь найден и удалён, иначе False.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -376,15 +375,15 @@ def remove_manual_user(telegram_id) -> bool:
 
 def get_manual_users(limit=50, offset=0) -> list:
     """
-    Get list of all manual users.
-    
+    Получить список всех ручных пользователей.
+
     Args:
-        limit: Maximum number of results to return.
-        offset: Number of results to skip (for pagination).
-        
+        limit: Максимальное число результатов.
+        offset: Сколько результатов пропустить (для пагинации).
+
     Returns:
-        List of dicts with user info: telegram_id, added_by_userid, notes,
-        created_timestamp, plus user info from users table if available.
+        Список словарей с данными: telegram_id, added_by_userid, notes,
+        created_timestamp, а также данные из users (если есть).
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -408,10 +407,10 @@ def get_manual_users(limit=50, offset=0) -> list:
 
 def get_manual_user_count() -> int:
     """
-    Get count of manual users.
-    
+    Получить количество ручных пользователей.
+
     Returns:
-        Total number of manual users.
+        Общее число ручных пользователей.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -423,13 +422,13 @@ def get_manual_user_count() -> int:
 
 def get_manual_user_details(telegram_id) -> dict:
     """
-    Get details of a specific manual user.
-    
+    Получить данные конкретного ручного пользователя.
+
     Args:
-        telegram_id: Telegram user ID to look up.
-        
+        telegram_id: Telegram ID пользователя для поиска.
+
     Returns:
-        Dict with user info or None if not found.
+        Словарь с данными пользователя или None, если не найден.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:

@@ -119,26 +119,26 @@ def get_article_view_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-# ===== INLINE KEYBOARDS =====
+# ===== ВСТРОЕННЫЕ КЛАВИАТУРЫ =====
 
 
 def get_reaction_keyboard(news_id: int, reactions: dict, user_reaction: Optional[str] = None) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard with reaction buttons and counts.
+    Собрать inline-клавиатуру с реакциями и счётчиками.
     
     Args:
-        news_id: Article ID
-        reactions: Dict with like/love/dislike counts
-        user_reaction: Current user's reaction type (to highlight)
+        news_id: ID новости
+        reactions: Словарь с количеством лайков/любовей/дизлайков
+        user_reaction: Текущая реакция пользователя (для подсветки)
         
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     like_count = reactions.get('like', 0)
     love_count = reactions.get('love', 0)
     dislike_count = reactions.get('dislike', 0)
     
-    # Add highlight if user has reacted
+    # Добавляем подсветку, если пользователь уже реагировал
     like_text = f"{'✓' if user_reaction == 'like' else ''}👍 {like_count}" if like_count > 0 else "👍"
     love_text = f"{'✓' if user_reaction == 'love' else ''}❤️ {love_count}" if love_count > 0 else "❤️"
     dislike_text = f"{'✓' if user_reaction == 'dislike' else ''}👎 {dislike_count}" if dislike_count > 0 else "👎"
@@ -154,13 +154,13 @@ def get_reaction_keyboard(news_id: int, reactions: dict, user_reaction: Optional
 
 def get_mandatory_ack_keyboard(news_id: int) -> InlineKeyboardMarkup:
     """
-    Build keyboard for mandatory news acknowledgment.
+    Собрать клавиатуру для обязательного подтверждения новости.
     
     Args:
-        news_id: Article ID
+        news_id: ID новости
         
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Принято", callback_data=f"{settings.CALLBACK_ACK_PREFIX}{news_id}")]
@@ -173,15 +173,15 @@ def get_pagination_keyboard(
     prefix: str = settings.CALLBACK_PAGE_PREFIX
 ) -> List[InlineKeyboardButton]:
     """
-    Build pagination row for inline keyboards.
+    Собрать строку пагинации для inline-клавиатур.
     
     Args:
-        page: Current page (0-indexed)
-        total_pages: Total number of pages
-        prefix: Callback data prefix
+        page: Текущая страница (с 0)
+        total_pages: Общее количество страниц
+        prefix: Префикс callback-данных
         
     Returns:
-        List of inline keyboard buttons for pagination
+        Список кнопок inline-клавиатуры для пагинации
     """
     nav_row = []
     
@@ -204,24 +204,24 @@ def get_news_list_keyboard(
     page_prefix: str = settings.CALLBACK_PAGE_PREFIX
 ) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for news article list with pagination.
+    Собрать inline-клавиатуру для списка новостей с пагинацией.
     
     Args:
-        articles: List of article dicts with 'id', 'title', 'category_emoji'
-        page: Current page (0-indexed)
-        total_pages: Total number of pages
-        prefix: Callback data prefix for article selection
-        page_prefix: Callback data prefix for pagination
+        articles: Список словарей статей с 'id', 'title', 'category_emoji'
+        page: Текущая страница (с 0)
+        total_pages: Общее количество страниц
+        prefix: Префикс callback-данных для выбора статьи
+        page_prefix: Префикс callback-данных для пагинации
         
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     keyboard = []
     
     for article in articles:
         emoji = article.get('category_emoji', '📰')
         title = article.get('title', 'Без названия')
-        # Truncate title if too long
+        # Обрезаем заголовок, если слишком длинный
         if len(title) > 35:
             title = title[:32] + "..."
         article_id = article.get('id', 0)
@@ -233,7 +233,7 @@ def get_news_list_keyboard(
             )
         ])
     
-    # Add pagination if needed
+    # Добавляем пагинацию при необходимости
     if total_pages > 1:
         keyboard.append(get_pagination_keyboard(page, total_pages, page_prefix))
     
@@ -242,13 +242,13 @@ def get_news_list_keyboard(
 
 def get_category_keyboard(categories: List[dict]) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for category selection.
+    Собрать inline-клавиатуру для выбора категории.
     
     Args:
-        categories: List of category dicts with 'id', 'name', 'emoji'
+        categories: Список словарей категорий с 'id', 'name', 'emoji'
         
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     keyboard = []
     
@@ -263,7 +263,7 @@ def get_category_keyboard(categories: List[dict]) -> InlineKeyboardMarkup:
             )
         ])
     
-    # Add cancel button
+    # Добавляем кнопку отмены
     keyboard.append([
         InlineKeyboardButton("❌ Отмена", callback_data=settings.CALLBACK_CANCEL)
     ])
@@ -273,10 +273,10 @@ def get_category_keyboard(categories: List[dict]) -> InlineKeyboardMarkup:
 
 def get_publish_mode_keyboard() -> InlineKeyboardMarkup:
     """
-    Build keyboard for selecting publish mode (silent/notify).
+    Собрать клавиатуру для выбора режима публикации (тихо/с уведомлением).
     
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔕 Тихая публикация", callback_data=f"{settings.CALLBACK_ADMIN_ACTION_PREFIX}silent")],
@@ -287,10 +287,10 @@ def get_publish_mode_keyboard() -> InlineKeyboardMarkup:
 
 def get_mandatory_mode_keyboard() -> InlineKeyboardMarkup:
     """
-    Build keyboard for selecting mandatory mode.
+    Собрать клавиатуру для выбора обязательного режима.
     
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🚨 Обязательная", callback_data=f"{settings.CALLBACK_ADMIN_ACTION_PREFIX}mandatory")],
@@ -301,13 +301,13 @@ def get_mandatory_mode_keyboard() -> InlineKeyboardMarkup:
 
 def get_confirm_keyboard(action: str = "publish") -> InlineKeyboardMarkup:
     """
-    Build confirmation keyboard (yes/no).
+    Собрать клавиатуру подтверждения (да/нет).
     
     Args:
-        action: Action being confirmed
+        action: Действие, которое подтверждается
         
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     return InlineKeyboardMarkup([
         [
@@ -319,19 +319,19 @@ def get_confirm_keyboard(action: str = "publish") -> InlineKeyboardMarkup:
 
 def get_admin_article_actions_keyboard(article_id: int, status: str) -> InlineKeyboardMarkup:
     """
-    Build keyboard with admin actions for an article.
+    Собрать клавиатуру с админ-действиями для статьи.
     
     Args:
-        article_id: Article ID
-        status: Current article status
+        article_id: ID статьи
+        status: Текущий статус статьи
         
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     keyboard = []
     
     if status == settings.STATUS_DRAFT:
-        # Draft actions
+        # Действия для черновика
         keyboard.append([
             InlineKeyboardButton("👁️ Превью", callback_data=f"{settings.CALLBACK_ADMIN_ACTION_PREFIX}preview_{article_id}"),
             InlineKeyboardButton("📢 Опубликовать", callback_data=f"{settings.CALLBACK_ADMIN_ACTION_PREFIX}publish_{article_id}")
@@ -352,7 +352,7 @@ def get_admin_article_actions_keyboard(article_id: int, status: str) -> InlineKe
             InlineKeyboardButton("🗑️ Удалить", callback_data=f"{settings.CALLBACK_ADMIN_ACTION_PREFIX}delete_{article_id}")
         ])
     elif status == settings.STATUS_PUBLISHED:
-        # Published article actions
+        # Действия для опубликованной статьи
         keyboard.append([
             InlineKeyboardButton("📤 Повторная рассылка", callback_data=f"{settings.CALLBACK_ADMIN_ACTION_PREFIX}rebroadcast_{article_id}")
         ])
@@ -361,7 +361,7 @@ def get_admin_article_actions_keyboard(article_id: int, status: str) -> InlineKe
             InlineKeyboardButton("🗑️ Удалить", callback_data=f"{settings.CALLBACK_ADMIN_ACTION_PREFIX}delete_{article_id}")
         ])
     
-    # Back button
+    # Кнопка назад
     keyboard.append([
         InlineKeyboardButton("◀️ Назад", callback_data=f"{settings.CALLBACK_ADMIN_ACTION_PREFIX}back")
     ])
@@ -371,15 +371,15 @@ def get_admin_article_actions_keyboard(article_id: int, status: str) -> InlineKe
 
 def get_admin_category_list_keyboard(categories: List[dict], page: int = 0, total_pages: int = 1) -> InlineKeyboardMarkup:
     """
-    Build keyboard for admin category list.
+    Собрать клавиатуру для списка категорий в админке.
     
     Args:
-        categories: List of category dicts
-        page: Current page
-        total_pages: Total pages
+        categories: Список словарей категорий
+        page: Текущая страница
+        total_pages: Всего страниц
         
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     keyboard = []
     
@@ -397,7 +397,7 @@ def get_admin_category_list_keyboard(categories: List[dict], page: int = 0, tota
             )
         ])
     
-    # Add pagination if needed
+    # Добавляем пагинацию при необходимости
     if total_pages > 1:
         keyboard.append(get_pagination_keyboard(page, total_pages, f"{settings.CALLBACK_ADMIN_CATEGORY_PREFIX}page_"))
     
@@ -406,14 +406,14 @@ def get_admin_category_list_keyboard(categories: List[dict], page: int = 0, tota
 
 def get_admin_category_edit_keyboard(category_id: int, is_active: bool) -> InlineKeyboardMarkup:
     """
-    Build keyboard for category editing.
+    Собрать клавиатуру для редактирования категории.
     
     Args:
-        category_id: Category ID
-        is_active: Whether category is currently active
+        category_id: ID категории
+        is_active: Активна ли категория сейчас
         
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     toggle_text = "🔴 Деактивировать" if is_active else "🟢 Активировать"
     toggle_action = "deactivate" if is_active else "activate"

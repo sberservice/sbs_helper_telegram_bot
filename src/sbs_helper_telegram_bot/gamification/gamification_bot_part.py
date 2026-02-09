@@ -1,8 +1,8 @@
 """
-Gamification Bot Part
+Часть бота для геймификации.
 
-Main bot handlers for the gamification/achievement system.
-Handles user profile viewing, achievements display, and rankings navigation.
+Основные обработчики системы достижений/геймификации.
+Обрабатывает просмотр профиля, достижения и навигацию по рейтингам.
 """
 
 import logging
@@ -30,20 +30,20 @@ from . import gamification_logic
 logger = logging.getLogger(__name__)
 
 
-# ===== ENTRY POINT =====
+# ===== ТОЧКА ВХОДА =====
 
 async def gamification_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Entry point for gamification module."""
+    """Точка входа в модуль геймификации."""
     user = update.effective_user
     
     if not check_if_user_legit(user.id):
         await update.message.reply_text(get_unauthorized_message(user.id))
         return ConversationHandler.END
     
-    # Ensure user has totals record
+    # Убеждаемся, что у пользователя есть запись итогов
     gamification_logic.ensure_user_totals_exist(user.id)
     
-    # Choose keyboard based on admin status
+    # Выбираем клавиатуру с учётом статуса администратора
     is_admin = check_if_user_admin(user.id)
     keyboard = keyboards.get_admin_submenu_keyboard() if is_admin else keyboards.get_submenu_keyboard()
     
@@ -56,10 +56,10 @@ async def gamification_entry(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return settings.STATE_SUBMENU
 
 
-# ===== PROFILE HANDLERS =====
+# ===== ОБРАБОТЧИКИ ПРОФИЛЯ =====
 
 async def show_my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show current user's profile."""
+    """Показать профиль текущего пользователя."""
     user = update.effective_user
     
     profile = gamification_logic.get_user_profile(user.id)
@@ -93,11 +93,11 @@ async def show_my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def show_other_user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show another user's profile (from rankings)."""
+    """Показать профиль другого пользователя (из рейтинга)."""
     query = update.callback_query
     await query.answer()
     
-    # Extract userid from callback data
+    # Извлекаем идентификатор пользователя из callback-данных
     callback_data = query.data
     try:
         userid = int(callback_data.split('_')[-1])
@@ -138,13 +138,13 @@ async def show_other_user_profile(update: Update, context: ContextTypes.DEFAULT_
     return settings.STATE_VIEW_USER_PROFILE
 
 
-# ===== ACHIEVEMENTS HANDLERS =====
+# ===== ОБРАБОТЧИКИ ДОСТИЖЕНИЙ =====
 
 async def show_my_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show current user's achievements."""
+    """Показать достижения текущего пользователя."""
     user = update.effective_user
     
-    # Clear filters
+    # Сбрасываем фильтры
     context.user_data[settings.CONTEXT_MODULE_FILTER] = None
     context.user_data[settings.CONTEXT_CURRENT_PAGE] = 1
     
@@ -159,18 +159,18 @@ async def _display_achievements(
     context: ContextTypes.DEFAULT_TYPE,
     edit: bool = False
 ) -> None:
-    """Display achievements list with pagination."""
+    """Показать список достижений с пагинацией."""
     module_filter = context.user_data.get(settings.CONTEXT_MODULE_FILTER)
     page = context.user_data.get(settings.CONTEXT_CURRENT_PAGE, 1)
     
-    # Get achievements with progress
+    # Получаем достижения с прогрессом
     achievements = gamification_logic.get_user_achievements_with_progress(userid, module_filter)
     
     if not achievements:
         text = messages.MESSAGE_ACHIEVEMENTS_EMPTY
         keyboard = None
     else:
-        # Pagination
+        # Пагинация
         per_page = settings.ACHIEVEMENTS_PER_PAGE
         total_pages = math.ceil(len(achievements) / per_page)
         page = min(page, total_pages)
@@ -178,7 +178,7 @@ async def _display_achievements(
         start_idx = (page - 1) * per_page
         page_achievements = achievements[start_idx:start_idx + per_page]
         
-        # Build message
+        # Формируем сообщение
         unlocked = gamification_logic.get_user_unlocked_achievements_count(userid)
         total = gamification_logic.get_total_achievements_count()
         
@@ -210,7 +210,7 @@ async def _display_achievements(
         
         text = header + "\n".join(cards)
         
-        # Get modules for filter buttons
+        # Получаем список модулей для кнопок фильтра
         modules = gamification_logic.get_achievement_modules()
         keyboard = keyboards.get_achievements_keyboard(
             modules=modules,
@@ -227,7 +227,7 @@ async def _display_achievements(
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
         except BadRequest as e:
-            # Ignore "Message is not modified" error
+            # Игнорируем ошибку Telegram о неизменённом сообщении
             if "Message is not modified" not in str(e):
                 raise
     else:
@@ -239,7 +239,7 @@ async def _display_achievements(
 
 
 async def handle_achievement_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle achievement-related callbacks (filter, pagination)."""
+    """Обработать колбэки достижений (фильтр, пагинация)."""
     query = update.callback_query
     await query.answer()
     
@@ -247,7 +247,7 @@ async def handle_achievement_callback(update: Update, context: ContextTypes.DEFA
     user = update.effective_user
     
     if "_filter_" in callback_data:
-        # Module filter
+        # Фильтр по модулю
         filter_value = callback_data.split("_filter_")[-1]
         if filter_value == "all":
             context.user_data[settings.CONTEXT_MODULE_FILTER] = None
@@ -256,7 +256,7 @@ async def handle_achievement_callback(update: Update, context: ContextTypes.DEFA
         context.user_data[settings.CONTEXT_CURRENT_PAGE] = 1
         
     elif "_page_" in callback_data:
-        # Pagination
+        # Пагинация
         try:
             page = int(callback_data.split("_page_")[-1])
             context.user_data[settings.CONTEXT_CURRENT_PAGE] = page
@@ -264,7 +264,7 @@ async def handle_achievement_callback(update: Update, context: ContextTypes.DEFA
             pass
     
     elif "_module_" in callback_data:
-        # Module achievements button from other modules
+        # Кнопка достижений модуля, пришедшая из других модулей
         module_name = callback_data.split("_module_")[-1]
         context.user_data[settings.CONTEXT_MODULE_FILTER] = module_name
         context.user_data[settings.CONTEXT_CURRENT_PAGE] = 1
@@ -274,10 +274,10 @@ async def handle_achievement_callback(update: Update, context: ContextTypes.DEFA
     return settings.STATE_VIEW_ACHIEVEMENTS
 
 
-# ===== RANKINGS HANDLERS =====
+# ===== ОБРАБОТЧИКИ РЕЙТИНГОВ =====
 
 async def show_rankings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show rankings type selection."""
+    """Показать выбор типа рейтинга."""
     await update.message.reply_text(
         messages.MESSAGE_RANKINGS_MENU,
         reply_markup=keyboards.get_rankings_type_keyboard(),
@@ -288,7 +288,7 @@ async def show_rankings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def handle_ranking_type_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle ranking type selection."""
+    """Обработать выбор типа рейтинга."""
     query = update.callback_query
     await query.answer()
     
@@ -315,14 +315,14 @@ async def handle_ranking_type_selection(update: Update, context: ContextTypes.DE
 
 
 async def handle_ranking_period_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle ranking period selection and display rankings."""
+    """Обработать выбор периода и показать рейтинг."""
     query = update.callback_query
     await query.answer()
     
     callback_data = query.data
     user = update.effective_user
     
-    # Parse callback: gf_period_{type}_{period}
+    # Разбор колбэка: gf_period_{type}_{period}
     parts = callback_data.split("_")
     if len(parts) >= 4:
         ranking_type = parts[2]
@@ -340,14 +340,14 @@ async def handle_ranking_period_selection(update: Update, context: ContextTypes.
 
 
 async def handle_ranking_page(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle ranking pagination."""
+    """Обработать пагинацию рейтинга."""
     query = update.callback_query
     await query.answer()
     
     callback_data = query.data
     user = update.effective_user
     
-    # Parse callback: gf_page_{type}_{period}_{page}
+    # Разбор колбэка: gf_page_{type}_{period}_{page}
     parts = callback_data.split("_")
     if len(parts) >= 5:
         ranking_type = parts[2]
@@ -369,14 +369,14 @@ async def _display_rankings(
     context: ContextTypes.DEFAULT_TYPE,
     edit: bool = True
 ) -> None:
-    """Display ranking list."""
+    """Показать список рейтинга."""
     ranking_type = context.user_data.get(settings.CONTEXT_RANKING_TYPE, settings.RANKING_TYPE_SCORE)
     period = context.user_data.get(settings.CONTEXT_RANKING_PERIOD, settings.RANKING_PERIOD_ALL_TIME)
     page = context.user_data.get(settings.CONTEXT_CURRENT_PAGE, 1)
     
     per_page = settings.RANKINGS_PER_PAGE
     
-    # Get ranking data
+    # Получаем данные рейтинга
     if ranking_type == settings.RANKING_TYPE_SCORE:
         entries, total = gamification_logic.get_score_ranking(period, page, per_page)
         header = messages.MESSAGE_RANKING_SCORE_HEADER.format(
@@ -390,12 +390,12 @@ async def _display_rankings(
     
     total_pages = max(1, math.ceil(total / per_page))
     
-    # Get user's rank if not in visible list
+    # Получаем позицию пользователя, если её нет в видимом списке
     user_rank = gamification_logic.get_user_rank(current_userid, ranking_type, period)
     
     obfuscate = gamification_logic.get_obfuscate_names()
     
-    # Format ranking list
+    # Форматируем список рейтинга
     ranking_text = messages.format_ranking_list(
         entries=entries,
         ranking_type=ranking_type,
@@ -425,7 +425,7 @@ async def _display_rankings(
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
         except BadRequest as e:
-            # Ignore "Message is not modified" error
+            # Игнорируем ошибку Telegram о неизменённом сообщении
             if "Message is not modified" not in str(e):
                 raise
     else:
@@ -437,7 +437,7 @@ async def _display_rankings(
 
 
 async def handle_ranking_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle search button in rankings."""
+    """Обработать кнопку поиска в рейтингах."""
     query = update.callback_query
     await query.answer()
     
@@ -450,7 +450,7 @@ async def handle_ranking_search(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def handle_search_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle user search query."""
+    """Обработать поисковый запрос пользователя."""
     query_text = update.message.text.strip()
     
     if not query_text:
@@ -479,7 +479,7 @@ async def handle_search_query(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def handle_ranking_return(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Return to rankings from profile view or search."""
+    """Вернуться к рейтингу из профиля или поиска."""
     query = update.callback_query
     await query.answer()
     
@@ -489,10 +489,10 @@ async def handle_ranking_return(update: Update, context: ContextTypes.DEFAULT_TY
     return settings.STATE_VIEW_RANKINGS
 
 
-# ===== NAVIGATION =====
+# ===== НАВИГАЦИЯ =====
 
 async def return_to_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Return to gamification submenu."""
+    """Вернуться в подменю геймификации."""
     user = update.effective_user
     
     is_admin = check_if_user_admin(user.id)
@@ -508,7 +508,7 @@ async def return_to_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def return_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Return to main bot menu."""
+    """Вернуться в главное меню бота."""
     user = update.effective_user
     is_admin = check_if_user_admin(user.id)
     await update.message.reply_text(
@@ -521,14 +521,14 @@ async def return_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle /cancel command."""
+    """Обработать команду /cancel."""
     return await return_to_main_menu(update, context)
 
 
-# ===== CONVERSATION HANDLER =====
+# ===== ОБРАБОТЧИК ДИАЛОГА =====
 
 def get_gamification_user_handler() -> ConversationHandler:
-    """Build and return the user conversation handler."""
+    """Собрать и вернуть ConversationHandler для пользователя."""
     return ConversationHandler(
         entry_points=[
             MessageHandler(

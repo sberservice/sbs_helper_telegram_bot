@@ -1,8 +1,8 @@
 """
-KTR Bot Part (Коэффициент Трудозатрат)
+Часть бота для КТР (Коэффициент трудозатрат)
 
-Main bot handlers for KTR code lookup module.
-Includes user-facing lookup functionality and admin CRUD operations.
+Основные обработчики бота для модуля поиска кодов КТР.
+Включает пользовательский поиск и админские CRUD-операции.
 """
 # pylint: disable=line-too-long
 
@@ -50,11 +50,11 @@ from src.sbs_helper_telegram_bot.ticket_validator import settings as validator_s
 
 logger = logging.getLogger(__name__)
 
-# Conversation states for user lookup
-SUBMENU = 0  # User is in the module submenu
+# Состояния диалога для пользовательского поиска
+SUBMENU = 0  # Пользователь находится в подменю модуля
 WAITING_FOR_CODE = 1
 
-# Conversation states for admin operations
+# Состояния диалога для админских операций
 (
     ADMIN_MENU,
     ADMIN_ADD_CODE,
@@ -74,17 +74,17 @@ WAITING_FOR_CODE = 1
 ) = range(200, 215)
 
 
-# ===== HELPER FUNCTIONS =====
+# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 def _validate_date_format(date_str: str) -> bool:
     """
-    Validate date string is in dd.mm.yyyy format.
+    Проверить, что строка даты в формате dd.mm.yyyy.
     
     Args:
-        date_str: Date string to validate
+        date_str: Строка даты для проверки
         
     Returns:
-        True if valid format, False otherwise
+        True, если формат валиден, иначе False
     """
     if not date_str:
         return False
@@ -95,7 +95,7 @@ def _validate_date_format(date_str: str) -> bool:
     
     try:
         day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
-        # Basic validation
+        # Базовая проверка
         if not (1 <= day <= 31 and 1 <= month <= 12 and 1900 <= year <= 2100):
             return False
         return True
@@ -103,17 +103,17 @@ def _validate_date_format(date_str: str) -> bool:
         return False
 
 
-# ===== DATABASE OPERATIONS =====
+# ===== ОПЕРАЦИИ С БАЗОЙ ДАННЫХ =====
 
 def get_ktr_code_by_code(code: str) -> Optional[dict]:
     """
-    Look up a KTR code in the database.
+    Найти код КТР в базе данных.
     
     Args:
-        code: The KTR code to look up
+        code: Код КТР для поиска
         
     Returns:
-        Dict with code info or None if not found
+        Словарь с данными кода или None, если не найден
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -128,7 +128,7 @@ def get_ktr_code_by_code(code: str) -> Optional[dict]:
 
 def get_ktr_code_by_id(code_id: int) -> Optional[dict]:
     """
-    Get KTR code by ID (for admin).
+    Получить код КТР по ID (для админа).
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -143,10 +143,10 @@ def get_ktr_code_by_id(code_id: int) -> Optional[dict]:
 
 def get_all_ktr_codes(page: int = 1, per_page: int = None, include_inactive: bool = False) -> Tuple[List[dict], int]:
     """
-    Get paginated list of KTR codes.
+    Получить постраничный список кодов КТР.
     
     Returns:
-        Tuple of (codes_list, total_count)
+        Кортеж (список_кодов, общее_количество)
     """
     if per_page is None:
         per_page = settings.CODES_PER_PAGE
@@ -156,11 +156,11 @@ def get_all_ktr_codes(page: int = 1, per_page: int = None, include_inactive: boo
     
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # Get total count
+            # Получаем общее количество
             cursor.execute(f"SELECT COUNT(*) as cnt FROM ktr_codes k {active_filter}")
             total = cursor.fetchone()['cnt']
             
-            # Get page
+            # Получаем страницу
             cursor.execute(f"""
                 SELECT k.*, c.name as category_name
                 FROM ktr_codes k
@@ -175,17 +175,17 @@ def get_all_ktr_codes(page: int = 1, per_page: int = None, include_inactive: boo
 
 def create_ktr_code(code: str, description: str, minutes: int, category_id: Optional[int] = None, date_updated: Optional[str] = None) -> int:
     """
-    Create a new KTR code.
+    Создать новый код КТР.
     
     Args:
-        code: KTR code
-        description: Work description
-        minutes: Labor cost in minutes
-        category_id: Optional category ID
-        date_updated: Optional update date in dd.mm.yyyy format
+        code: Код КТР
+        description: Описание работ
+        minutes: Трудозатраты в минутах
+        category_id: Необязательный ID категории
+        date_updated: Необязательная дата обновления в формате dd.mm.yyyy
     
     Returns:
-        The new code ID
+        ID нового кода
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -199,7 +199,7 @@ def create_ktr_code(code: str, description: str, minutes: int, category_id: Opti
 
 def update_ktr_code(code_id: int, field: str, value, update_timestamp: bool = False) -> bool:
     """
-    Update a field of a KTR code.
+    Обновить поле кода КТР.
     """
     allowed_fields = ['description', 'minutes', 'category_id', 'active', 'date_updated']
     if field not in allowed_fields:
@@ -224,7 +224,7 @@ def update_ktr_code(code_id: int, field: str, value, update_timestamp: bool = Fa
 
 def delete_ktr_code(code_id: int) -> bool:
     """
-    Delete a KTR code (hard delete).
+    Удалить код КТР (жёсткое удаление).
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -234,7 +234,7 @@ def delete_ktr_code(code_id: int) -> bool:
 
 def ktr_code_exists(code: str) -> bool:
     """
-    Check if KTR code already exists (including inactive).
+    Проверить, существует ли код КТР (включая неактивные).
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -244,8 +244,8 @@ def ktr_code_exists(code: str) -> bool:
 
 def get_ktr_code_by_code_any_status(code: str) -> Optional[dict]:
     """
-    Look up a KTR code in the database (including inactive codes).
-    Used for import operations.
+    Найти код КТР в базе данных (включая неактивные коды).
+    Используется для операций импорта.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -260,25 +260,25 @@ def get_ktr_code_by_code_any_status(code: str) -> Optional[dict]:
 
 def batch_check_existing_codes(codes: List[str]) -> set:
     """
-    Check which codes already exist in the database (batch operation).
-    Returns a set of existing codes.
+    Проверить, какие коды уже есть в базе (пакетная операция).
+    Возвращает множество существующих кодов.
     """
     if not codes:
         return set()
     
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # Use IN clause for batch check
+            # Используем IN для пакетной проверки
             placeholders = ','.join(['%s'] * len(codes))
             cursor.execute(f"SELECT code FROM ktr_codes WHERE code IN ({placeholders})", tuple(codes))
             return {row['code'] for row in cursor.fetchall()}
 
 
-# Category operations
+# Операции с категориями
 
 def get_all_categories(page: int = 1, per_page: int = None) -> Tuple[List[dict], int]:
     """
-    Get paginated list of categories.
+    Получить постраничный список категорий.
     """
     if per_page is None:
         per_page = settings.CATEGORIES_PER_PAGE
@@ -304,7 +304,7 @@ def get_all_categories(page: int = 1, per_page: int = None) -> Tuple[List[dict],
 
 def get_category_by_id(category_id: int) -> Optional[dict]:
     """
-    Get category by ID.
+    Получить категорию по ID.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -319,7 +319,7 @@ def get_category_by_id(category_id: int) -> Optional[dict]:
 
 def create_category(name: str, description: Optional[str] = None, display_order: int = 0) -> int:
     """
-    Create a new category.
+    Создать новую категорию.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -333,7 +333,7 @@ def create_category(name: str, description: Optional[str] = None, display_order:
 
 def update_category(category_id: int, field: str, value) -> bool:
     """
-    Update a category field.
+    Обновить поле категории.
     """
     allowed_fields = ['name', 'description', 'display_order', 'active']
     if field not in allowed_fields:
@@ -351,18 +351,18 @@ def update_category(category_id: int, field: str, value) -> bool:
 
 def delete_category(category_id: int) -> bool:
     """
-    Delete a category (sets codes category_id to NULL).
+    Удалить категорию (у кодов category_id станет NULL).
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # FK constraint with ON DELETE SET NULL handles codes
+            # Ограничение FK с ON DELETE SET NULL корректно обрабатывает коды
             cursor.execute("DELETE FROM ktr_categories WHERE id = %s", (category_id,))
             return cursor.rowcount > 0
 
 
 def category_exists(name: str) -> bool:
     """
-    Check if category name already exists.
+    Проверить, существует ли уже название категории.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -372,7 +372,7 @@ def category_exists(name: str) -> bool:
 
 def get_category_by_name(name: str) -> Optional[dict]:
     """
-    Get category by name.
+    Получить категорию по названию.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -380,11 +380,11 @@ def get_category_by_name(name: str) -> Optional[dict]:
             return cursor.fetchone()
 
 
-# CSV Import structures and functions
+# Структуры и функции импорта CSV
 
 @dataclass
 class CSVImportResult:
-    """Result of CSV import operation."""
+    """Результат операции импорта CSV."""
     success_count: int = 0
     skipped_count: int = 0
     error_count: int = 0
@@ -397,46 +397,46 @@ class CSVImportResult:
 
 def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[dict], List[str]]:
     """
-    Parse CSV content and validate KTR codes data.
+    Разобрать CSV и проверить данные кодов КТР.
     
-    Expected CSV format:
+    Ожидаемый формат CSV:
     code,description,minutes,category (optional)
     
-    Unexpected columns are ignored.
+    Неизвестные столбцы игнорируются.
     
     Args:
-        csv_content: Raw CSV content as string
-        delimiter: CSV delimiter character
+        csv_content: Содержимое CSV в виде строки
+        delimiter: Разделитель CSV
         
     Returns:
-        Tuple of (valid_records, errors_list)
+        Кортеж (валидные_записи, список_ошибок)
     """
     valid_records = []
     errors = []
-    seen_codes = set()  # Track duplicates within CSV
+    seen_codes = set()  # Отслеживаем дубликаты внутри CSV
     
     try:
-        # Limit content size to prevent memory issues
+        # Ограничиваем размер содержимого, чтобы избежать проблем с памятью
         max_content_size = 5 * 1024 * 1024  # 5MB
         if len(csv_content) > max_content_size:
             errors.append("CSV файл слишком большой")
             return [], errors
         
-        # Try to detect the delimiter if it's not comma
+        # Пытаемся определить разделитель, если это не запятая
         first_line = csv_content.split('\n')[0] if csv_content else ''
         if delimiter == ',' and ';' in first_line and ',' not in first_line:
             delimiter = ';'
         
         reader = csv.DictReader(io.StringIO(csv_content), delimiter=delimiter)
         
-        # Check for required fields
+        # Проверяем обязательные поля
         if not reader.fieldnames:
             errors.append("CSV файл пуст или имеет неверный формат")
             return [], errors
         
         fieldnames_lower = [f.lower().strip() if f else '' for f in reader.fieldnames]
         
-        # Map possible column names (only the ones we expect)
+        # Сопоставляем возможные названия колонок (только ожидаемые)
         code_col = None
         desc_col = None
         minutes_col = None
@@ -454,7 +454,7 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
                 category_col = reader.fieldnames[i]
             elif fname in ('date_updated', 'дата_обновления', 'дата', 'date', 'updated'):
                 date_col = reader.fieldnames[i]
-            # Any other columns are silently ignored
+            # Любые другие столбцы игнорируются
         
         if not code_col:
             errors.append(messages.MESSAGE_CSV_ERROR_NO_CODE_COLUMN)
@@ -466,35 +466,35 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
             errors.append(messages.MESSAGE_CSV_ERROR_NO_MINUTES_COLUMN)
             return [], errors
         
-        row_num = 1  # Header is row 1
-        max_rows = 10000  # Limit number of rows to prevent hangs
+        row_num = 1  # Заголовок — строка 1
+        max_rows = 10000  # Ограничиваем число строк, чтобы избежать зависаний
         
         for row in reader:
             row_num += 1
             
-            # Safety limit
+            # Предохранительный лимит
             if row_num > max_rows + 1:
                 errors.append(f"Превышен лимит строк ({max_rows}). Остальные строки пропущены.")
                 break
             
             try:
-                # Only extract the columns we mapped, ignore everything else
-                code = (row.get(code_col) or '').strip().upper()  # Normalize to uppercase
+                # Извлекаем только сопоставленные столбцы, остальное игнорируем
+                code = (row.get(code_col) or '').strip().upper()  # Нормализуем в верхний регистр
                 description = (row.get(desc_col) or '').strip()
                 minutes_str = (row.get(minutes_col) or '').strip()
                 category_name = (row.get(category_col) or '').strip() if category_col else None
                 date_updated = (row.get(date_col) or '').strip() if date_col else None
                 
-                # Skip empty rows
+                # Пропускаем пустые строки
                 if not code and not description and not minutes_str:
                     continue
                 
-                # Validate required fields
+                # Валидируем обязательные поля
                 if not code:
                     errors.append(messages.MESSAGE_CSV_ERROR_EMPTY_CODE.format(row=row_num))
                     continue
                 
-                # Check code format (alphanumeric)
+                # Проверяем формат кода (буквы/цифры)
                 if not code.replace('-', '').replace('_', '').replace('.', '').isalnum():
                     errors.append(f"Строка {row_num}: код '{code}' содержит недопустимые символы")
                     continue
@@ -503,7 +503,7 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
                     errors.append(messages.MESSAGE_CSV_ERROR_CODE_TOO_LONG.format(row=row_num, code=code[:20]))
                     continue
                 
-                # Check for duplicates within CSV
+                # Проверяем дубликаты внутри CSV
                 if code in seen_codes:
                     errors.append(f"Строка {row_num}: дублирующийся код '{code}' в файле")
                     continue
@@ -517,24 +517,24 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
                     errors.append(f"Строка {row_num}: описание слишком длинное (макс. 1000 символов)")
                     continue
                 
-                # Parse minutes
+                # Парсим минуты
                 try:
-                    # Handle various number formats
+                    # Обрабатываем различные форматы чисел
                     minutes_str = minutes_str.replace(',', '.').strip()
                     minutes = int(float(minutes_str))
                     if minutes < 0:
                         raise ValueError("Negative minutes")
-                    if minutes > 100000:  # Sanity check: ~70 days max
+                    if minutes > 100000:  # Проверка здравого смысла: максимум около 70 дней
                         raise ValueError("Minutes too large")
                 except (ValueError, TypeError):
                     errors.append(messages.MESSAGE_CSV_ERROR_INVALID_MINUTES.format(row=row_num, code=code))
                     continue
                 
-                # Validate category name if provided
+                # Валидируем название категории, если оно задано
                 if category_name and len(category_name) > 100:
                     category_name = category_name[:100]
                 
-                # Validate date format if provided (dd.mm.yyyy)
+                # Валидируем формат даты, если он задан (dd.mm.yyyy)
                 if date_updated:
                     if not _validate_date_format(date_updated):
                         errors.append(f"Строка {row_num}: некорректный формат даты '{date_updated}' (ожидается дд.мм.гггг)")
@@ -550,7 +550,7 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
                 
             except Exception as e:
                 errors.append(messages.MESSAGE_CSV_ERROR_ROW_PROCESSING.format(row=row_num, error=str(e)))
-                if len(errors) > 100:  # Limit error count
+                if len(errors) > 100:  # Ограничиваем количество ошибок
                     errors.append("Слишком много ошибок, обработка прервана")
                     break
                 
@@ -564,25 +564,25 @@ def parse_csv_ktr_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[di
 
 def import_ktr_codes_from_csv(records: List[dict], skip_existing: bool = True) -> CSVImportResult:
     """
-    Import KTR codes from parsed CSV records.
+    Импортировать коды КТР из разобранных CSV-записей.
     
     Args:
-        records: List of validated record dicts
-        skip_existing: If True, skip existing codes; if False, update them
+        records: Список валидированных словарей записей
+        skip_existing: Если True, пропускать существующие коды; если False — обновлять
         
     Returns:
-        CSVImportResult with import statistics
+        CSVImportResult со статистикой импорта
     """
     result = CSVImportResult()
     
     if not records:
         return result
     
-    # Pre-fetch existing codes in batch to avoid N+1 queries
+    # Предзагружаем существующие коды пакетом, чтобы избежать N+1 запросов
     all_codes = [r['code'] for r in records]
     existing_codes_set = batch_check_existing_codes(all_codes)
     
-    # Pre-fetch categories
+    # Предзагружаем категории
     category_cache = {}
     
     for record in records:
@@ -593,7 +593,7 @@ def import_ktr_codes_from_csv(records: List[dict], skip_existing: bool = True) -
             category_name = record.get('category_name')
             date_updated = record.get('date_updated')
             
-            # Check if code exists (using pre-fetched set)
+            # Проверяем наличие кода (используем предзагруженный набор)
             code_exists = code in existing_codes_set
             
             if code_exists:
@@ -601,14 +601,14 @@ def import_ktr_codes_from_csv(records: List[dict], skip_existing: bool = True) -
                     result.skipped_count += 1
                     continue
                 else:
-                    # Update existing - need to fetch full record
+                    # Обновляем существующий — нужно загрузить полный объект
                     existing = get_ktr_code_by_code_any_status(code)
                     if existing:
                         update_ktr_code(existing['id'], 'description', description)
                         update_ktr_code(existing['id'], 'minutes', minutes, update_timestamp=True)
                         if date_updated:
                             update_ktr_code(existing['id'], 'date_updated', date_updated)
-                        # Also reactivate if it was inactive
+                        # Также активируем, если был неактивен
                         if not existing['active']:
                             update_ktr_code(existing['id'], 'active', 1)
                         if category_name:
@@ -621,12 +621,12 @@ def import_ktr_codes_from_csv(records: List[dict], skip_existing: bool = True) -
                         result.errors.append(f"Не удалось найти код '{code}' для обновления")
                     continue
             
-            # Get category ID if provided
+            # Получаем ID категории, если она задана
             category_id = None
             if category_name:
                 category_id = _get_or_create_category(category_name, category_cache)
             
-            # Create new code
+            # Создаём новый код
             create_ktr_code(code, description, minutes, category_id, date_updated)
             result.success_count += 1
             
@@ -637,7 +637,7 @@ def import_ktr_codes_from_csv(records: List[dict], skip_existing: bool = True) -
                 error_msg = error_msg[:100] + '...'
             result.errors.append(messages.MESSAGE_CSV_ERROR_IMPORT.format(code=record.get('code', '?'), error=error_msg))
             
-            # Stop if too many errors
+            # Останавливаемся при слишком большом числе ошибок
             if result.error_count > 50:
                 result.errors.append("Слишком много ошибок импорта, обработка прервана")
                 break
@@ -647,22 +647,22 @@ def import_ktr_codes_from_csv(records: List[dict], skip_existing: bool = True) -
 
 def _get_or_create_category(category_name: str, cache: dict) -> Optional[int]:
     """
-    Get category ID from cache or database, create if doesn't exist.
+    Получить ID категории из кэша или базы, создать при отсутствии.
     """
     if not category_name:
         return None
     
-    # Check cache first
+    # Сначала проверяем кэш
     if category_name in cache:
         return cache[category_name]
     
-    # Check database
+    # Проверяем базу данных
     cat = get_category_by_name(category_name)
     if cat:
         cache[category_name] = cat['id']
         return cat['id']
     
-    # Create new category
+    # Создаём новую категорию
     try:
         cat_id = create_category(category_name, None, 0)
         cache[category_name] = cat_id
@@ -671,11 +671,11 @@ def _get_or_create_category(category_name: str, cache: dict) -> Optional[int]:
         return None
 
 
-# Unknown codes and statistics
+# Неизвестные коды и статистика
 
 def record_ktr_request(user_id: int, code: str, found: bool) -> None:
     """
-    Record a KTR code request in the log.
+    Записать запрос кода КТР в лог.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -688,11 +688,11 @@ def record_ktr_request(user_id: int, code: str, found: bool) -> None:
 
 def record_unknown_code(code: str) -> None:
     """
-    Record or increment an unknown code request.
+    Записать или увеличить счётчик запроса неизвестного кода.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # Try to update existing
+            # Пытаемся обновить существующий
             cursor.execute("""
                 UPDATE ktr_unknown_codes 
                 SET times_requested = times_requested + 1,
@@ -701,7 +701,7 @@ def record_unknown_code(code: str) -> None:
             """, (code,))
             
             if cursor.rowcount == 0:
-                # Insert new
+                # Вставляем новый
                 cursor.execute("""
                     INSERT INTO ktr_unknown_codes 
                     (code, times_requested, first_requested_timestamp, last_requested_timestamp)
@@ -711,7 +711,7 @@ def record_unknown_code(code: str) -> None:
 
 def get_unknown_codes(page: int = 1, per_page: int = None) -> Tuple[List[dict], int]:
     """
-    Get paginated list of unknown codes.
+    Получить постраничный список неизвестных кодов.
     """
     if per_page is None:
         per_page = settings.UNKNOWN_CODES_PER_PAGE
@@ -734,7 +734,7 @@ def get_unknown_codes(page: int = 1, per_page: int = None) -> Tuple[List[dict], 
 
 def get_unknown_code_by_id(unknown_id: int) -> Optional[dict]:
     """
-    Get unknown code by ID.
+    Получить неизвестный код по ID.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -744,7 +744,7 @@ def get_unknown_code_by_id(unknown_id: int) -> Optional[dict]:
 
 def delete_unknown_code(unknown_id: int) -> bool:
     """
-    Delete an unknown code entry (after adding it to known codes).
+    Удалить запись неизвестного кода (после добавления в известные коды).
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -754,7 +754,7 @@ def delete_unknown_code(unknown_id: int) -> bool:
 
 def get_popular_ktr_codes(limit: int = None) -> List[dict]:
     """
-    Get most requested KTR codes.
+    Получить наиболее запрашиваемые коды КТР.
     """
     if limit is None:
         limit = settings.TOP_POPULAR_COUNT
@@ -775,13 +775,13 @@ def get_popular_ktr_codes(limit: int = None) -> List[dict]:
 
 def get_statistics() -> dict:
     """
-    Get module statistics.
+    Получить статистику модуля.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             stats = {}
             
-            # Total counts
+            # Общие количества
             cursor.execute("SELECT COUNT(*) as cnt FROM ktr_codes WHERE active = 1")
             stats['total_codes'] = cursor.fetchone()['cnt']
             
@@ -791,7 +791,7 @@ def get_statistics() -> dict:
             cursor.execute("SELECT COUNT(*) as cnt FROM ktr_unknown_codes")
             stats['unknown_codes'] = cursor.fetchone()['cnt']
             
-            # Last 7 days
+            # Последние 7 дней
             cursor.execute("""
                 SELECT 
                     COUNT(*) as total,
@@ -805,7 +805,7 @@ def get_statistics() -> dict:
             stats['found_7d'] = result['found'] or 0
             stats['not_found_7d'] = result['not_found'] or 0
             
-            # Top codes
+            # Топ кодов
             cursor.execute("""
                 SELECT code, COUNT(*) as cnt
                 FROM ktr_request_log
@@ -819,12 +819,12 @@ def get_statistics() -> dict:
             return stats
 
 
-# ===== USER HANDLERS =====
+# ===== ПОЛЬЗОВАТЕЛЬСКИЕ ОБРАБОТЧИКИ =====
 
 async def enter_ktr_module(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Entry point for KTR module.
-    Shows the submenu.
+    Точка входа в модуль КТР.
+    Показывает подменю.
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
@@ -840,12 +840,12 @@ async def enter_ktr_module(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboard
     )
-    return SUBMENU  # Enter submenu state to accept direct codes
+    return SUBMENU  # Переходим в состояние подменю для прямого ввода кодов
 
 
 async def start_code_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Start KTR code search flow.
+    Запустить процесс поиска кода КТР.
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
@@ -860,15 +860,15 @@ async def start_code_search(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def process_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Process user's KTR code input and return result.
+    Обработать ввод кода КТР и вернуть результат.
     """
-    # Import gamification events (lazy import to avoid circular deps)
+    # Импортируем события геймификации (ленивый импорт, чтобы избежать циклов)
     from src.sbs_helper_telegram_bot.gamification.events import emit_event
     
     user_id = update.effective_user.id
-    input_text = update.message.text.strip().upper()  # KTR codes are typically uppercase
+    input_text = update.message.text.strip().upper()  # Коды КТР обычно в верхнем регистре
     
-    # Validate input
+    # Валидируем ввод
     if not input_text or len(input_text) > 50:
         await update.message.reply_text(
             messages.MESSAGE_INVALID_CODE,
@@ -876,17 +876,17 @@ async def process_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return WAITING_FOR_CODE
     
-    # Emit gamification event for lookup attempt
+    # Отправляем событие геймификации о попытке поиска
     emit_event("ktr.lookup", user_id, {"code": input_text})
     
-    # Look up the KTR code
+    # Ищем код КТР
     code_info = get_ktr_code_by_code(input_text)
     
     if code_info:
-        # Found - log and display
+        # Найдено — логируем и показываем
         record_ktr_request(user_id, input_text, found=True)
         
-        # Emit gamification event for successful lookup
+        # Отправляем событие геймификации об успешном поиске
         emit_event("ktr.lookup_found", user_id, {"code": input_text})
         
         response = messages.format_ktr_code_response(
@@ -903,7 +903,7 @@ async def process_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
     else:
-        # Not found - log and add to unknown
+        # Не найдено — логируем и добавляем в неизвестные
         record_ktr_request(user_id, input_text, found=False)
         record_unknown_code(input_text)
         
@@ -913,7 +913,7 @@ async def process_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
     
-    # Return to submenu
+    # Возвращаемся в подменю
     if check_if_user_admin(user_id):
         keyboard = keyboards.get_admin_submenu_keyboard()
     else:
@@ -924,25 +924,25 @@ async def process_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup=keyboard
     )
     
-    return SUBMENU  # Stay in submenu to allow more lookups
+    return SUBMENU  # Остаёмся в подменю для дальнейших поисков
 
 
 async def direct_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle direct KTR code input from submenu (without pressing search button).
-    This allows users to enter codes directly.
+    Обработать прямой ввод кода КТР из подменю (без нажатия кнопки поиска).
+    Это позволяет пользователям вводить коды напрямую.
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
-    # Reuse the same processing logic as process_code_input
+    # Переиспользуем логику process_code_input
     return await process_code_input(update, context)
 
 
 async def show_popular_codes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Show most requested KTR codes.
+    Показать наиболее запрашиваемые коды КТР.
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
@@ -977,7 +977,7 @@ async def show_popular_codes(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def show_ktr_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Show KTR module achievements for the current user.
+    Показать достижения модуля КТР для текущего пользователя.
     """
     from src.sbs_helper_telegram_bot.gamification import gamification_logic
     from src.sbs_helper_telegram_bot.gamification import messages as gf_messages
@@ -989,7 +989,7 @@ async def show_ktr_achievements(update: Update, context: ContextTypes.DEFAULT_TY
     
     user_id = update.effective_user.id
     
-    # Get KTR achievements with progress
+    # Получаем достижения КТР с прогрессом
     achievements = gamification_logic.get_user_achievements_with_progress(user_id, 'ktr')
     
     if not achievements:
@@ -999,9 +999,9 @@ async def show_ktr_achievements(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return SUBMENU
     
-    # Count unlocked
+    # Считаем разблокированные
     unlocked = sum(1 for a in achievements if a['unlocked_level'] > 0)
-    total = len(achievements) * 3  # 3 levels per achievement
+    total = len(achievements) * 3  # 3 уровня на достижение
     
     text = gf_messages.MESSAGE_MODULE_ACHIEVEMENTS_HEADER.format(
         module=gf_messages._escape_md("КТР"),
@@ -1031,7 +1031,7 @@ async def show_ktr_achievements(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def cancel_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Cancel the code search flow.
+    Отменить процесс поиска кода.
     """
     await update.message.reply_text(
         messages.MESSAGE_SEARCH_CANCELLED,
@@ -1043,13 +1043,13 @@ async def cancel_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 async def cancel_search_on_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Cancel search when menu button is pressed.
-    Shows appropriate response based on button pressed.
+    Отменить поиск при нажатии кнопки меню.
+    Показывает соответствующий ответ в зависимости от нажатой кнопки.
     """
-    # Clear any context data
+    # Очищаем данные контекста
     context.user_data.pop('ktr_temp', None)
     
-    # Check which button was pressed and respond accordingly
+    # Проверяем, какая кнопка была нажата, и отвечаем соответствующим образом
     text = update.message.text if update.message else None
     user_id = update.effective_user.id
     is_admin = check_if_user_admin(user_id)
@@ -1064,11 +1064,11 @@ async def cancel_search_on_menu(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 
-# ===== ADMIN HANDLERS =====
+# ===== АДМИНСКИЕ ОБРАБОТЧИКИ =====
 
 async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Show admin menu for KTR.
+    Показать админ-меню для КТР.
     """
     if not check_if_user_admin(update.effective_user.id):
         await update.message.reply_text(
@@ -1087,7 +1087,7 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle admin menu button presses.
+    Обработать нажатия кнопок админ-меню.
     """
     text = update.message.text
     
@@ -1129,7 +1129,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def admin_show_codes_list(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
     """
-    Show paginated list of KTR codes.
+    Показать постраничный список кодов КТР.
     """
     codes, total = get_all_ktr_codes(page=page, include_inactive=True)
     
@@ -1168,8 +1168,8 @@ async def admin_show_codes_list(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def admin_start_search_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Start the flow to search for a KTR code by code.
-    Admin can type the code directly instead of scrolling through the list.
+    Запустить процесс поиска кода КТР.
+    Админ может ввести код напрямую, не прокручивая список.
     """
     await update.message.reply_text(
         messages.MESSAGE_ADMIN_SEARCH_CODE,
@@ -1182,11 +1182,11 @@ async def admin_start_search_code(update: Update, context: ContextTypes.DEFAULT_
 
 async def admin_receive_search_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive code for search and show it for editing.
+    Получить код для поиска и показать его для редактирования.
     """
     code = update.message.text.strip().upper()
     
-    # Look up the code in the database (include inactive)
+    # Ищем код в базе данных (включая неактивные)
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             cursor.execute("""
@@ -1206,10 +1206,10 @@ async def admin_receive_search_code(update: Update, context: ContextTypes.DEFAUL
         )
         return ADMIN_MENU
     
-    # Store code info for potential edit
+    # Сохраняем данные кода для возможного редактирования
     context.user_data['ktr_temp'] = {'code_id': ktr['id']}
     
-    # Format code details
+    # Форматируем детали кода
     text = messages.format_ktr_code_response(
         code=ktr['code'],
         description=ktr['description'],
@@ -1219,7 +1219,7 @@ async def admin_receive_search_code(update: Update, context: ContextTypes.DEFAUL
         date_updated=ktr.get('date_updated')
     )
     
-    # Add status indicator
+    # Добавляем индикатор статуса
     status = "✅ Активен" if ktr['active'] else "🚫 Деактивирован"
     status_escaped = messages.escape_markdown_v2(status)
     text += f"\n\n📌 *Статус:* {status_escaped}"
@@ -1237,7 +1237,7 @@ async def admin_receive_search_code(update: Update, context: ContextTypes.DEFAUL
 
 async def admin_start_add_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Start the flow to add a new KTR code.
+    Запустить процесс добавления нового кода КТР.
     """
     context.user_data['ktr_temp'] = {}
     
@@ -1251,7 +1251,7 @@ async def admin_start_add_code(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def admin_receive_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive code for new KTR entry.
+    Получить код для новой записи КТР.
     """
     code = update.message.text.strip().upper()
     
@@ -1276,7 +1276,7 @@ async def admin_receive_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def admin_receive_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive description for new KTR code.
+    Получить описание для нового кода КТР.
     """
     description = update.message.text.strip()
     context.user_data['ktr_temp']['description'] = description
@@ -1294,7 +1294,7 @@ async def admin_receive_description(update: Update, context: ContextTypes.DEFAUL
 
 async def admin_receive_minutes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive minutes for new KTR code, then show category selection.
+    Получить минуты для нового кода КТР, затем показать выбор категории.
     """
     try:
         minutes = int(update.message.text.strip())
@@ -1312,7 +1312,7 @@ async def admin_receive_minutes(update: Update, context: ContextTypes.DEFAULT_TY
     code = context.user_data['ktr_temp']['code']
     escaped = messages.escape_markdown_v2(code)
     
-    # Get categories for selection
+    # Получаем категории для выбора
     categories, total = get_all_categories(page=1, per_page=20)
     
     if categories:
@@ -1324,13 +1324,13 @@ async def admin_receive_minutes(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return ADMIN_SELECT_CATEGORY
     else:
-        # No categories - create code without category
+        # Категорий нет — создаём код без категории
         return await _create_ktr_code(update, context, category_id=None)
 
 
 async def admin_select_category_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle category selection callback.
+    Обработать callback выбора категории.
     """
     query = update.callback_query
     await query.answer()
@@ -1338,7 +1338,7 @@ async def admin_select_category_callback(update: Update, context: ContextTypes.D
     data = query.data
     
     if data == "ktr_cat_skip":
-        # Skip category selection
+        # Пропускаем выбор категории
         return await _create_ktr_code(query, context, category_id=None)
     elif data.startswith("ktr_cat_select_"):
         category_id = int(data.replace("ktr_cat_select_", ""))
@@ -1349,7 +1349,7 @@ async def admin_select_category_callback(update: Update, context: ContextTypes.D
 
 async def _create_ktr_code(update_or_query, context: ContextTypes.DEFAULT_TYPE, category_id: Optional[int]) -> int:
     """
-    Helper to create the KTR code after all inputs collected.
+    Вспомогательная функция для создания кода КТР после сбора всех данных.
     """
     temp = context.user_data.get('ktr_temp', {})
     code = temp.get('code')
@@ -1359,10 +1359,10 @@ async def _create_ktr_code(update_or_query, context: ContextTypes.DEFAULT_TYPE, 
     if not all([code, description, minutes is not None]):
         return ADMIN_MENU
     
-    # Create the KTR code
+    # Создаём код КТР
     create_ktr_code(code, description, minutes, category_id)
     
-    # Get category name for response
+    # Получаем название категории для ответа
     category_name = messages.MESSAGE_NO_CATEGORY
     if category_id:
         cat = get_category_by_id(category_id)
@@ -1380,7 +1380,7 @@ async def _create_ktr_code(update_or_query, context: ContextTypes.DEFAULT_TYPE, 
         minutes=minutes
     )
     
-    # Check if this was a callback query or message
+    # Проверяем, это callback-запрос или сообщение
     if hasattr(update_or_query, 'message') and update_or_query.message:
         await update_or_query.message.reply_text(
             response,
@@ -1388,19 +1388,19 @@ async def _create_ktr_code(update_or_query, context: ContextTypes.DEFAULT_TYPE, 
             reply_markup=keyboards.get_admin_menu_keyboard()
         )
     else:
-        # It's a callback query
+        # Это callback-запрос
         await update_or_query.edit_message_text(
             response,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
-        # Send new message with keyboard
+        # Отправляем новое сообщение с клавиатурой
         await context.bot.send_message(
             chat_id=update_or_query.message.chat_id,
             text=messages.MESSAGE_SELECT_ACTION,
             reply_markup=keyboards.get_admin_menu_keyboard()
         )
     
-    # Clear temp data
+    # Очищаем временные данные
     context.user_data.pop('ktr_temp', None)
     
     return ADMIN_MENU
@@ -1408,7 +1408,7 @@ async def _create_ktr_code(update_or_query, context: ContextTypes.DEFAULT_TYPE, 
 
 async def admin_show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
     """
-    Show categories list.
+    Показать список категорий.
     """
     categories, total = get_all_categories(page=page)
     
@@ -1450,7 +1450,7 @@ async def admin_show_categories(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def admin_show_unknown_codes(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
     """
-    Show unknown codes list.
+    Показать список неизвестных кодов.
     """
     codes, total = get_unknown_codes(page=page)
     
@@ -1489,11 +1489,11 @@ async def admin_show_unknown_codes(update: Update, context: ContextTypes.DEFAULT
 
 async def admin_show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Show module statistics.
+    Показать статистику модуля.
     """
     stats = get_statistics()
     
-    # Format top codes
+    # Форматируем топ кодов
     top_codes_text = ""
     if stats['top_codes']:
         for i, code_info in enumerate(stats['top_codes'], 1):
@@ -1523,19 +1523,19 @@ async def admin_show_statistics(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle admin inline keyboard callbacks.
+    Обработать callback-и админской inline-клавиатуры.
     """
     query = update.callback_query
     await query.answer()
     
     data = query.data
     
-    # View code details
+    # Просмотр деталей кода
     if data.startswith("ktr_view_"):
         code_id = int(data.replace("ktr_view_", ""))
         return await _show_code_details(query, context, code_id)
     
-    # Edit code description
+    # Редактирование описания кода
     elif data.startswith("ktr_edit_desc_"):
         code_id = int(data.replace("ktr_edit_desc_", ""))
         context.user_data['ktr_temp'] = {'code_id': code_id, 'edit_field': 'description'}
@@ -1548,7 +1548,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
             return ADMIN_EDIT_DESCRIPTION
     
-    # Edit minutes
+    # Редактирование минут
     elif data.startswith("ktr_edit_minutes_"):
         code_id = int(data.replace("ktr_edit_minutes_", ""))
         context.user_data['ktr_temp'] = {'code_id': code_id, 'edit_field': 'minutes'}
@@ -1560,7 +1560,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
             return ADMIN_EDIT_MINUTES
     
-    # Edit category
+    # Редактирование категории
     elif data.startswith("ktr_edit_cat_"):
         code_id = int(data.replace("ktr_edit_cat_", ""))
         context.user_data['ktr_temp'] = {'code_id': code_id, 'edit_field': 'category_id'}
@@ -1572,7 +1572,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return ADMIN_SELECT_CATEGORY
     
-    # Activate/deactivate
+    # Активация/деактивация
     elif data.startswith("ktr_activate_"):
         code_id = int(data.replace("ktr_activate_", ""))
         update_ktr_code(code_id, 'active', 1)
@@ -1583,7 +1583,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         update_ktr_code(code_id, 'active', 0)
         return await _show_code_details(query, context, code_id)
     
-    # Delete code
+    # Удаление кода
     elif data.startswith("ktr_delete_"):
         code_id = int(data.replace("ktr_delete_", ""))
         keyboard = keyboards.get_confirm_delete_keyboard('code', code_id)
@@ -1594,7 +1594,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return ADMIN_MENU
     
-    # Confirm delete
+    # Подтверждение удаления
     elif data.startswith("ktr_confirm_delete_code_"):
         code_id = int(data.replace("ktr_confirm_delete_code_", ""))
         ktr = get_ktr_code_by_id(code_id)
@@ -1607,13 +1607,13 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
         return ADMIN_MENU
     
-    # Back to codes list
+    # Назад к списку кодов
     elif data == "ktr_codes_list":
-        # Can't show full list in callback, just acknowledge
+        # В callback нельзя показать полный список — просто подтверждаем
         await query.edit_message_text(messages.MESSAGE_USE_LIST_BUTTON)
         return ADMIN_MENU
     
-    # Back to admin menu
+    # Назад в админ-меню
     elif data == "ktr_admin_menu":
         await query.edit_message_text(
             messages.MESSAGE_ADMIN_MENU,
@@ -1621,7 +1621,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return ADMIN_MENU
     
-    # Category callbacks
+    # Коллбэки категорий
     elif data.startswith("ktr_cat_view_"):
         category_id = int(data.replace("ktr_cat_view_", ""))
         return await _show_category_details(query, context, category_id)
@@ -1648,7 +1648,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
         return ADMIN_MENU
     
-    # Add from unknown codes
+    # Добавление из неизвестных кодов
     elif data.startswith("ktr_add_unknown_"):
         unknown_id = int(data.replace("ktr_add_unknown_", ""))
         unknown = get_unknown_code_by_id(unknown_id)
@@ -1665,10 +1665,10 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             return ADMIN_ADD_DESCRIPTION
         return ADMIN_MENU
     
-    # Pagination
+    # Пагинация
     elif data.startswith("ktr_page_"):
         page = int(data.replace("ktr_page_", ""))
-        # Re-fetch and display
+        # Перезапрашиваем и показываем
         codes, total = get_all_ktr_codes(page=page, include_inactive=True)
         total_pages = math.ceil(total / settings.CODES_PER_PAGE)
         
@@ -1692,7 +1692,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 async def _show_code_details(query, context: ContextTypes.DEFAULT_TYPE, code_id: int) -> int:
     """
-    Show KTR code details with edit options.
+    Показать детали кода КТР с вариантами редактирования.
     """
     ktr = get_ktr_code_by_id(code_id)
     if not ktr:
@@ -1724,7 +1724,7 @@ async def _show_code_details(query, context: ContextTypes.DEFAULT_TYPE, code_id:
 
 async def _show_category_details(query, context: ContextTypes.DEFAULT_TYPE, category_id: int) -> int:
     """
-    Show category details with edit options.
+    Показать детали категории с вариантами редактирования.
     """
     cat = get_category_by_id(category_id)
     if not cat:
@@ -1752,7 +1752,7 @@ async def _show_category_details(query, context: ContextTypes.DEFAULT_TYPE, cate
 
 async def admin_receive_edit_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive edited description.
+    Получить отредактированное описание.
     """
     temp = context.user_data.get('ktr_temp', {})
     code_id = temp.get('code_id')
@@ -1775,7 +1775,7 @@ async def admin_receive_edit_description(update: Update, context: ContextTypes.D
 
 async def admin_receive_edit_minutes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive edited minutes value.
+    Получить отредактированное значение минут.
     """
     temp = context.user_data.get('ktr_temp', {})
     code_id = temp.get('code_id')
@@ -1808,7 +1808,7 @@ async def admin_receive_edit_minutes(update: Update, context: ContextTypes.DEFAU
 
 async def admin_start_add_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Start flow to add a new category.
+    Запустить процесс добавления новой категории.
     """
     context.user_data['ktr_temp'] = {}
     
@@ -1822,7 +1822,7 @@ async def admin_start_add_category(update: Update, context: ContextTypes.DEFAULT
 
 async def admin_receive_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive category name.
+    Получить название категории.
     """
     name = update.message.text.strip()
     
@@ -1847,7 +1847,7 @@ async def admin_receive_category_name(update: Update, context: ContextTypes.DEFA
 
 async def admin_receive_category_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive category description.
+    Получить описание категории.
     """
     description = update.message.text.strip()
     
@@ -1869,7 +1869,7 @@ async def admin_receive_category_description(update: Update, context: ContextTyp
 
 async def admin_receive_category_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive category display order and create category.
+    Получить порядок отображения и создать категорию.
     """
     try:
         display_order = int(update.message.text.strip())
@@ -1893,11 +1893,11 @@ async def admin_receive_category_order(update: Update, context: ContextTypes.DEF
     return ADMIN_MENU
 
 
-# ===== CSV IMPORT HANDLERS =====
+# ===== ОБРАБОТЧИКИ ИМПОРТА CSV =====
 
 async def admin_start_csv_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Start CSV import flow.
+    Запустить процесс импорта CSV.
     """
     await update.message.reply_text(
         messages.MESSAGE_ADMIN_CSV_IMPORT_START,
@@ -1910,9 +1910,9 @@ async def admin_start_csv_import(update: Update, context: ContextTypes.DEFAULT_T
 
 async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive and process CSV file for import.
+    Получить и обработать CSV-файл для импорта.
     """
-    # Check if file was sent
+    # Проверяем, что файл был отправлен
     if not update.message.document:
         await update.message.reply_text(
             messages.MESSAGE_ADMIN_CSV_NO_FILE,
@@ -1922,7 +1922,7 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
     
     document = update.message.document
     
-    # Validate file type
+    # Проверяем тип файла
     file_name = document.file_name or ''
     if not file_name.lower().endswith('.csv'):
         await update.message.reply_text(
@@ -1931,7 +1931,7 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
         )
         return ADMIN_IMPORT_CSV_WAITING
     
-    # Check file size (max 5MB)
+    # Проверяем размер файла (максимум 5 МБ)
     if document.file_size > 5 * 1024 * 1024:
         await update.message.reply_text(
             messages.MESSAGE_ADMIN_CSV_TOO_LARGE,
@@ -1940,18 +1940,18 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
         return ADMIN_IMPORT_CSV_WAITING
     
     try:
-        # Download file
+        # Загружаем файл
         file = await context.bot.get_file(document.file_id)
         file_bytes = await file.download_as_bytearray()
         raw_bytes = bytes(file_bytes)
         
-        # Try to decode with different encodings
+        # Пытаемся декодировать разными кодировками
         csv_content = None
         detected_encoding = None
         
-        # Check for BOM (Byte Order Mark) first
+        # Сначала проверяем BOM (маркер порядка байтов)
         if raw_bytes.startswith(b'\xef\xbb\xbf'):
-            # UTF-8 with BOM
+            # UTF-8 с BOM
             csv_content = raw_bytes[3:].decode('utf-8')
             detected_encoding = 'UTF-8 with BOM'
         elif raw_bytes.startswith(b'\xff\xfe'):
@@ -1963,17 +1963,17 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
             csv_content = raw_bytes.decode('utf-16-be')
             detected_encoding = 'UTF-16 BE'
         else:
-            # Try different encodings in order of likelihood for Mac
-            # macroman (alias for mac_roman) is common for Mac Excel exports
+            # Пробуем разные кодировки в порядке вероятности для Mac
+            # macroman (alias для mac_roman) часто используется при экспорте из Excel на Mac
             encodings_to_try = [
                 'utf-8',
-                'macroman',      # Mac OS Roman (primary Mac encoding)
-                'mac-cyrillic',  # Mac Cyrillic for Russian
-                'cp1251',        # Windows Cyrillic
-                'windows-1251',  # Alternative name for cp1251
-                'koi8-r',        # KOI8-R Cyrillic
-                'iso-8859-5',    # ISO Cyrillic
-                'utf-16',        # UTF-16 without BOM
+                'macroman',      # Mac OS Roman (основная mac-кодировка)
+                'mac-cyrillic',  # Mac-кодировка для кириллицы
+                'cp1251',        # Кириллица Windows
+                'windows-1251',  # Альтернативное имя для cp1251
+                'koi8-r',        # KOI8-R для кириллицы
+                'iso-8859-5',    # ISO-кодировка для кириллицы
+                'utf-16',        # UTF-16 без BOM
                 'latin1',        # ISO-8859-1
             ]
             
@@ -1981,18 +1981,18 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
                 try:
                     test_content = raw_bytes.decode(encoding)
                     
-                    # Check if decoding produced replacement characters
-                    # which would indicate wrong encoding
+                    # Проверяем, появились ли символы замены при декодировании
+                    # это указывает на неверную кодировку
                     if '\ufffd' in test_content:
                         continue
                     
-                    # For non-UTF-8, do additional validation
+                    # Для не-UTF-8 выполняем дополнительную проверку
                     if encoding != 'utf-8':
-                        # Check if the content looks reasonable (has some ASCII chars)
+                        # Проверяем, похоже ли содержимое на текст (есть ASCII)
                         sample = test_content[:1000]
                         ascii_chars = sum(1 for c in sample if ord(c) < 128)
                         if len(sample) > 0 and ascii_chars / len(sample) < 0.3:
-                            # Too few ASCII chars, probably wrong encoding
+                            # Слишком мало ASCII — вероятно, неверная кодировка
                             continue
                     
                     csv_content = test_content
@@ -2009,18 +2009,18 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
             )
             return ADMIN_IMPORT_CSV_WAITING
         
-        # Normalize line endings
+        # Нормализуем переводы строк
         csv_content = csv_content.replace('\r\n', '\n').replace('\r', '\n')
         
-        # Log detected encoding for debugging
+        # Логируем определённую кодировку для отладки
         if detected_encoding:
             logger.info(f"CSV file decoded successfully using {detected_encoding} encoding")
         
-        # Parse CSV
+        # Разбираем CSV
         records, parse_errors = parse_csv_ktr_codes(csv_content)
         
         if parse_errors and not records:
-            # Only errors, no valid records
+            # Только ошибки, валидных записей нет
             escaped_errors = [messages.escape_markdown_v2(e) for e in parse_errors[:10]]
             error_text = messages.MESSAGE_ADMIN_CSV_PARSE_ERRORS.format(
                 error_count=len(parse_errors),
@@ -2041,25 +2041,25 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
             )
             return ADMIN_IMPORT_CSV_WAITING
         
-        # Store parsed records in context for confirmation
+        # Сохраняем разобранные записи в контекст для подтверждения
         context.user_data['ktr_temp'] = {
             'csv_records': records,
             'csv_parse_errors': parse_errors
         }
         
-        # Count existing codes using batch operation
+        # Подсчитываем существующие коды пакетной операцией
         all_codes = [r['code'] for r in records]
         existing_codes_set = batch_check_existing_codes(all_codes)
         existing_count = len(existing_codes_set)
         new_count = len(records) - existing_count
         
-        # Prepare encoding info for display
+        # Готовим информацию о кодировке для отображения
         encoding_info = ""
         if detected_encoding and detected_encoding != 'utf-8':
             escaped_enc = messages.escape_markdown_v2(detected_encoding)
             encoding_info = f"\n_\\(кодировка: {escaped_enc}\\)_"
         
-        # Show preview and ask for confirmation
+        # Показываем превью и просим подтверждение
         preview_text = messages.MESSAGE_ADMIN_CSV_PREVIEW.format(
             total=len(records),
             new=new_count,
@@ -2097,7 +2097,7 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
 
 async def admin_csv_import_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle CSV import confirmation callbacks.
+    Обработать callback-и подтверждения импорта CSV.
     """
     query = update.callback_query
     await query.answer()
@@ -2118,11 +2118,11 @@ async def admin_csv_import_callback(update: Update, context: ContextTypes.DEFAUL
         return ADMIN_MENU
     
     elif data == "ktr_csv_import_skip":
-        # Import, skip existing
+        # Импортировать, пропуская существующие
         return await _perform_csv_import(query, context, skip_existing=True)
     
     elif data == "ktr_csv_import_update":
-        # Import, update existing
+        # Импортировать, обновляя существующие
         return await _perform_csv_import(query, context, skip_existing=False)
     
     return ADMIN_IMPORT_CSV_CONFIRM
@@ -2130,7 +2130,7 @@ async def admin_csv_import_callback(update: Update, context: ContextTypes.DEFAUL
 
 async def _perform_csv_import(query, context: ContextTypes.DEFAULT_TYPE, skip_existing: bool) -> int:
     """
-    Perform the actual CSV import.
+    Выполнить фактический импорт CSV.
     """
     temp = context.user_data.get('ktr_temp', {})
     records = temp.get('csv_records', [])
@@ -2147,10 +2147,10 @@ async def _perform_csv_import(query, context: ContextTypes.DEFAULT_TYPE, skip_ex
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     
-    # Perform import
+    # Выполняем импорт
     result = import_ktr_codes_from_csv(records, skip_existing=skip_existing)
     
-    # Format result message
+    # Форматируем сообщение с результатом
     result_text = messages.MESSAGE_ADMIN_CSV_IMPORT_RESULT.format(
         success=result.success_count,
         skipped=result.skipped_count,
@@ -2181,7 +2181,7 @@ async def _perform_csv_import(query, context: ContextTypes.DEFAULT_TYPE, skip_ex
 
 async def admin_cancel_csv_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Cancel CSV import via button.
+    Отменить импорт CSV через кнопку.
     """
     context.user_data.pop('ktr_temp', None)
     
@@ -2194,15 +2194,15 @@ async def admin_cancel_csv_import(update: Update, context: ContextTypes.DEFAULT_
     return ADMIN_MENU
 
 
-# ===== CONVERSATION HANDLER BUILDER =====
+# ===== СБОРКА CONVERSATION HANDLER =====
 
 def get_menu_button_regex_pattern() -> str:
     """
-    Get regex pattern matching KTR module-specific buttons for fallback.
-    Also includes buttons from other modules to properly end conversation when switching modules.
+    Получить regex-шаблон для кнопок модуля КТР в fallback.
+    Также включает кнопки других модулей, чтобы корректно завершать диалог при переключении.
     """
     buttons = []
-    # Include KTR-specific buttons
+    # Добавляем кнопки, относящиеся к КТР
     for row in settings.SUBMENU_BUTTONS:
         for button in row:
             buttons.append(button)
@@ -2215,8 +2215,8 @@ def get_menu_button_regex_pattern() -> str:
         for button in row:
             buttons.append(button)
     
-    # Add main navigation and other module buttons to properly end conversation when switching
-    # These buttons indicate user wants to leave KTR module
+    # Добавляем кнопки основного меню и других модулей, чтобы завершать диалог при переключении
+    # Эти кнопки означают, что пользователь хочет выйти из модуля КТР
     other_module_buttons = [
         BUTTON_MAIN_MENU,
         BUTTON_MODULES,
@@ -2234,7 +2234,7 @@ def get_menu_button_regex_pattern() -> str:
     ]
     buttons.extend(other_module_buttons)
     
-    # Remove duplicates and escape for regex
+    # Удаляем дубли и экранируем для regex
     unique_buttons = list(set(buttons))
     escaped = [b.replace("(", "\\(").replace(")", "\\)").replace("+", "\\+") for b in unique_buttons]
     
@@ -2243,23 +2243,23 @@ def get_menu_button_regex_pattern() -> str:
 
 def get_user_conversation_handler() -> ConversationHandler:
     """
-    Get ConversationHandler for user KTR code lookup flow.
-    Users must press the search button to enter KTR codes.
+    Получить ConversationHandler для пользовательского поиска кодов КТР.
+    Пользователь должен нажать кнопку поиска, чтобы вводить коды КТР.
     """
     menu_pattern = get_menu_button_regex_pattern()
     
     return ConversationHandler(
         entry_points=[
-            # Entry when user clicks on KTR module button
+            # Вход при нажатии кнопки модуля КТР
             MessageHandler(filters.Regex(f"^{re.escape(settings.MENU_BUTTON_TEXT)}$"), enter_ktr_module),
         ],
         states={
             SUBMENU: [
-                # In submenu, accept button to start search
+                # В подменю принимаем кнопку запуска поиска
                 MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_FIND_CODE)}$"), start_code_search),
-                # Popular codes button
+                # Кнопка популярных кодов
                 MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_POPULAR_CODES)}$"), show_popular_codes),
-                # Achievements button
+                # Кнопка достижений
                 MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ACHIEVEMENTS)}$"), show_ktr_achievements),
             ],
             WAITING_FOR_CODE: [
@@ -2280,7 +2280,7 @@ def get_user_conversation_handler() -> ConversationHandler:
 
 def get_admin_conversation_handler() -> ConversationHandler:
     """
-    Get ConversationHandler for admin CRUD operations.
+    Получить ConversationHandler для админских CRUD-операций.
     """
     menu_pattern = get_menu_button_regex_pattern()
     
@@ -2347,6 +2347,6 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CommandHandler("menu", cancel_search_on_menu),
             MessageHandler(filters.Regex(f"^{re.escape(BUTTON_MAIN_MENU)}$"), cancel_search_on_menu),
             MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_BACK_TO_KTR)}$"), enter_ktr_module),
-            MessageHandler(filters.COMMAND, cancel_search_on_menu),  # Handle /start and other commands
+            MessageHandler(filters.COMMAND, cancel_search_on_menu),  # Обрабатываем /start и другие команды
         ]
     )

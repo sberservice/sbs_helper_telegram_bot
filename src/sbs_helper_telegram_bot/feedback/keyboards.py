@@ -1,7 +1,7 @@
 """
-Feedback Module Keyboards
+Клавиатуры модуля обратной связи
 
-Keyboard builders for reply and inline keyboards.
+Сборщики reply- и inline-клавиатур.
 """
 
 from typing import List
@@ -12,13 +12,13 @@ from . import settings
 
 def get_submenu_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
     """
-    Get the feedback submenu keyboard.
+    Получить клавиатуру подменю обратной связи.
     
     Args:
-        is_admin: Whether to show admin buttons
+        is_admin: Показывать ли админские кнопки
         
     Returns:
-        Reply keyboard markup
+        Разметка reply-клавиатуры
     """
     buttons = settings.ADMIN_SUBMENU_BUTTONS if is_admin else settings.SUBMENU_BUTTONS
     return ReplyKeyboardMarkup(
@@ -31,10 +31,10 @@ def get_submenu_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
 
 def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
     """
-    Get the admin panel menu keyboard.
+    Получить клавиатуру меню админ-панели.
     
     Returns:
-        Reply keyboard markup
+        Разметка reply-клавиатуры
     """
     return ReplyKeyboardMarkup(
         settings.ADMIN_MENU_BUTTONS,
@@ -46,10 +46,10 @@ def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
 
 def get_cancel_keyboard() -> ReplyKeyboardMarkup:
     """
-    Get a keyboard with just a cancel button.
+    Получить клавиатуру только с кнопкой отмены.
     
     Returns:
-        Reply keyboard markup
+        Разметка reply-клавиатуры
     """
     return ReplyKeyboardMarkup(
         [[settings.BUTTON_CANCEL]],
@@ -61,13 +61,13 @@ def get_cancel_keyboard() -> ReplyKeyboardMarkup:
 
 def get_category_keyboard(categories: List[dict]) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for category selection.
+    Собрать inline-клавиатуру для выбора категории.
     
     Args:
-        categories: List of category dicts with 'id', 'name', 'emoji' keys
+        categories: Список словарей категорий с ключами 'id', 'name', 'emoji'
         
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     keyboard = []
     for cat in categories:
@@ -81,7 +81,7 @@ def get_category_keyboard(categories: List[dict]) -> InlineKeyboardMarkup:
             )
         ])
     
-    # Add cancel button
+    # Добавляем кнопку отмены
     keyboard.append([
         InlineKeyboardButton(
             "❌ Отмена",
@@ -94,10 +94,10 @@ def get_category_keyboard(categories: List[dict]) -> InlineKeyboardMarkup:
 
 def get_confirm_keyboard() -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for confirmation (Yes/No).
+    Собрать inline-клавиатуру подтверждения (Да/Нет).
     
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     return InlineKeyboardMarkup([
         [
@@ -113,15 +113,15 @@ def get_my_feedback_keyboard(
     total_pages: int = 1
 ) -> InlineKeyboardMarkup:
     """
-    Build paginated inline keyboard for user's feedback list.
+    Собрать постраничную inline-клавиатуру для списка обращений пользователя.
     
     Args:
-        entries: List of entry dicts with 'id', 'category', 'status', 'date' keys
-        page: Current page number (0-indexed)
-        total_pages: Total number of pages
+        entries: Список словарей записей с ключами 'id', 'category', 'status', 'date'
+        page: Текущая страница (с 0)
+        total_pages: Общее количество страниц
         
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     keyboard = []
     
@@ -131,7 +131,7 @@ def get_my_feedback_keyboard(
         date = entry.get('date', '')
         category = entry.get('category', '')
         
-        # Format: "🆕 #123 | Ошибка | 01.01.2026"
+        # Формат: "🆕 #123 | Ошибка | 01.01.2026"
         button_text = f"{status_emoji} #{entry_id} | {category} | {date}"
         keyboard.append([
             InlineKeyboardButton(
@@ -140,7 +140,7 @@ def get_my_feedback_keyboard(
             )
         ])
     
-    # Pagination buttons
+    # Кнопки пагинации
     pagination_row = []
     if page > 0:
         pagination_row.append(
@@ -159,13 +159,13 @@ def get_my_feedback_keyboard(
 
 def get_feedback_detail_keyboard(entry_id: int) -> InlineKeyboardMarkup:  # pylint: disable=unused-argument
     """
-    Build inline keyboard for feedback detail view (user).
+    Собрать inline-клавиатуру для просмотра деталей обращения (пользователь).
     
     Args:
-        entry_id: Feedback entry ID (reserved for future use)
+        entry_id: ID обращения (зарезервировано для будущего использования)
         
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     return InlineKeyboardMarkup([
         [
@@ -174,7 +174,7 @@ def get_feedback_detail_keyboard(entry_id: int) -> InlineKeyboardMarkup:  # pyli
     ])
 
 
-# ===== ADMIN KEYBOARDS =====
+# ===== АДМИНСКИЕ КЛАВИАТУРЫ =====
 
 
 def get_admin_entries_keyboard(
@@ -183,15 +183,15 @@ def get_admin_entries_keyboard(
     total_pages: int = 1
 ) -> InlineKeyboardMarkup:
     """
-    Build paginated inline keyboard for admin feedback list.
+    Собрать постраничную inline-клавиатуру для списка обращений (админ).
     
     Args:
-        entries: List of entry dicts with 'id', 'user_id', 'status', 'date' keys
-        page: Current page number (0-indexed)
-        total_pages: Total number of pages
+        entries: Список словарей записей с ключами 'id', 'user_id', 'status', 'date'
+        page: Текущая страница (с 0)
+        total_pages: Общее количество страниц
         
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     keyboard = []
     
@@ -201,7 +201,7 @@ def get_admin_entries_keyboard(
         date = entry.get('date', '')
         category = entry.get('category', '')
         
-        # Format: "🆕 #123 | Ошибка | 01.01.2026"
+        # Формат: "🆕 #123 | Ошибка | 01.01.2026"
         button_text = f"{status_emoji} #{entry_id} | {category} | {date}"
         keyboard.append([
             InlineKeyboardButton(
@@ -210,7 +210,7 @@ def get_admin_entries_keyboard(
             )
         ])
     
-    # Pagination buttons
+    # Кнопки пагинации
     pagination_row = []
     if page > 0:
         pagination_row.append(
@@ -224,7 +224,7 @@ def get_admin_entries_keyboard(
     if pagination_row:
         keyboard.append(pagination_row)
     
-    # Back button
+    # Кнопка назад
     keyboard.append([
         InlineKeyboardButton("◀️ Назад", callback_data=settings.CALLBACK_ADMIN_BACK)
     ])
@@ -234,14 +234,14 @@ def get_admin_entries_keyboard(
 
 def get_admin_entry_detail_keyboard(entry_id: int, current_status: str) -> InlineKeyboardMarkup:  # pylint: disable=unused-argument
     """
-    Build inline keyboard for admin entry detail view.
+    Собрать inline-клавиатуру для просмотра деталей обращения (админ).
     
     Args:
-        entry_id: Feedback entry ID (reserved for future use)
-        current_status: Current status of the entry (reserved for future use)
+        entry_id: ID обращения (зарезервировано для будущего использования)
+        current_status: Текущий статус обращения (зарезервировано для будущего использования)
         
     Returns:
-        Inline keyboard markup
+        Разметка inline-клавиатуры
     """
     keyboard = [
         [
@@ -332,7 +332,7 @@ def get_admin_confirm_reply_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-# ===== HELPER FUNCTIONS =====
+# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 
 def _get_status_emoji(status: str) -> str:

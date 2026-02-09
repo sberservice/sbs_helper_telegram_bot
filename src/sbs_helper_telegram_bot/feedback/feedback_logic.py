@@ -1,7 +1,7 @@
 """
-Feedback Module Logic
+Логика модуля обратной связи
 
-Business logic, database operations, link detection, and rate limiting.
+Бизнес-логика, операции с базой, поиск ссылок и ограничение частоты.
 """
 
 import re
@@ -16,18 +16,18 @@ from . import settings
 logger = logging.getLogger(__name__)
 
 
-# ===== LINK DETECTION =====
+# ===== ПОИСК ССЫЛОК =====
 
 
 def contains_links(text: str) -> bool:
     """
-    Check if text contains any links/URLs.
+    Проверить, содержит ли текст ссылки/URL.
     
     Args:
-        text: Text to check
+        text: Текст для проверки
         
     Returns:
-        True if links are detected, False otherwise
+        True, если ссылки найдены, иначе False
     """
     for pattern in settings.LINK_PATTERNS:
         if re.search(pattern, text, re.IGNORECASE):
@@ -35,25 +35,25 @@ def contains_links(text: str) -> bool:
     return False
 
 
-# ===== RATE LIMITING =====
+# ===== ОГРАНИЧЕНИЕ ЧАСТОТЫ =====
 
 
 def check_rate_limit(user_id: int) -> Tuple[bool, int]:
     """
-    Check if user is rate limited.
+    Проверить, действует ли ограничение частоты для пользователя.
     
     Args:
-        user_id: Telegram user ID
+        user_id: ID пользователя Telegram
         
     Returns:
-        Tuple of (is_allowed, seconds_remaining)
-        - is_allowed: True if user can submit, False if rate limited
-        - seconds_remaining: Seconds until next submission allowed (0 if allowed)
+        Кортеж (is_allowed, seconds_remaining)
+        - is_allowed: True, если можно отправлять, False при ограничении
+        - seconds_remaining: Секунды до следующей разрешённой отправки (0, если разрешено)
     """
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Get most recent feedback submission
+                # Получаем последнюю отправку обратной связи
                 cursor.execute("""
                     SELECT created_timestamp
                     FROM feedback_entries
@@ -79,19 +79,19 @@ def check_rate_limit(user_id: int) -> Tuple[bool, int]:
                 
     except Exception as e:
         logger.error("Error checking rate limit for user %s: %s", user_id, e)
-        # On error, allow submission to not block users
+        # При ошибке разрешаем отправку, чтобы не блокировать пользователей
         return (True, 0)
 
 
-# ===== CATEGORIES =====
+# ===== КАТЕГОРИИ =====
 
 
 def get_active_categories() -> List[Dict[str, Any]]:
     """
-    Get all active feedback categories.
+    Получить все активные категории обратной связи.
     
     Returns:
-        List of category dicts with id, name, description, emoji
+        Список словарей категорий с id, name, description, emoji
     """
     try:
         with database.get_db_connection() as conn:
@@ -112,13 +112,13 @@ def get_active_categories() -> List[Dict[str, Any]]:
 
 def get_category_by_id(category_id: int) -> Optional[Dict[str, Any]]:
     """
-    Get a category by ID.
+    Получить категорию по ID.
     
     Args:
-        category_id: Category ID
+        category_id: ID категории
         
     Returns:
-        Category dict or None
+        Словарь категории или None
     """
     try:
         with database.get_db_connection() as conn:
@@ -138,10 +138,10 @@ def get_category_by_id(category_id: int) -> Optional[Dict[str, Any]]:
 
 def get_categories_with_counts() -> List[Dict[str, Any]]:
     """
-    Get all active categories with entry counts.
+    Получить все активные категории с количеством записей.
     
     Returns:
-        List of category dicts with id, name, emoji, count
+        Список словарей категорий с id, name, emoji, count
     """
     try:
         with database.get_db_connection() as conn:
@@ -166,7 +166,7 @@ def get_categories_with_counts() -> List[Dict[str, Any]]:
         return []
 
 
-# ===== FEEDBACK ENTRIES =====
+# ===== ЗАПИСИ ОБРАТНОЙ СВЯЗИ =====
 
 
 def create_feedback_entry(
@@ -175,15 +175,15 @@ def create_feedback_entry(
     message: str
 ) -> Optional[int]:
     """
-    Create a new feedback entry.
+    Создать новую запись обратной связи.
     
     Args:
-        user_id: Telegram user ID
-        category_id: Category ID
-        message: User's feedback message
+        user_id: ID пользователя Telegram
+        category_id: ID категории
+        message: Сообщение пользователя
         
     Returns:
-        Created entry ID or None on error
+        ID созданной записи или None при ошибке
     """
     try:
         with database.get_db_connection() as conn:
@@ -210,15 +210,15 @@ def get_user_feedback_entries(
     per_page: int = None
 ) -> Tuple[List[Dict[str, Any]], int]:
     """
-    Get feedback entries for a user with pagination.
+    Получить записи обратной связи пользователя с пагинацией.
     
     Args:
-        user_id: Telegram user ID
-        page: Page number (0-indexed)
-        per_page: Items per page (default from settings)
+        user_id: ID пользователя Telegram
+        page: Номер страницы (с 0)
+        per_page: Количество элементов на странице (по умолчанию из настроек)
         
     Returns:
-        Tuple of (entries list, total count)
+        Кортеж (список_записей, общее_количество)
     """
     if per_page is None:
         per_page = settings.ITEMS_PER_PAGE
@@ -226,7 +226,7 @@ def get_user_feedback_entries(
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Get total count
+                # Получаем общее количество
                 cursor.execute("""
                     SELECT COUNT(*) as count
                     FROM feedback_entries
@@ -234,7 +234,7 @@ def get_user_feedback_entries(
                 """, (user_id,))
                 total = cursor.fetchone()['count']
                 
-                # Get entries
+                # Получаем записи
                 offset = page * per_page
                 cursor.execute("""
                     SELECT 
@@ -251,7 +251,7 @@ def get_user_feedback_entries(
                 
                 entries = cursor.fetchall() or []
                 
-                # Format dates
+                # Форматируем даты
                 for entry in entries:
                     entry['date'] = _format_timestamp(entry['created_timestamp'])
                 
@@ -264,19 +264,19 @@ def get_user_feedback_entries(
 
 def get_feedback_entry(entry_id: int, user_id: int = None) -> Optional[Dict[str, Any]]:
     """
-    Get a single feedback entry with responses.
+    Получить одну запись обратной связи вместе с ответами.
     
     Args:
-        entry_id: Entry ID
-        user_id: Optional user ID for ownership verification
+        entry_id: ID записи
+        user_id: ID пользователя для проверки владения (необязательно)
         
     Returns:
-        Entry dict with responses or None
+        Словарь записи с ответами или None
     """
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Build query
+                # Формируем запрос
                 query = """
                     SELECT 
                         e.id,
@@ -301,10 +301,10 @@ def get_feedback_entry(entry_id: int, user_id: int = None) -> Optional[Dict[str,
                 if not entry:
                     return None
                 
-                # Format date
+                # Форматируем дату
                 entry['date'] = _format_timestamp(entry['created_timestamp'])
                 
-                # Get responses (NO admin_id exposed!)
+                # Получаем ответы (без раскрытия admin_id!)
                 cursor.execute("""
                     SELECT 
                         response_text,
@@ -330,7 +330,7 @@ def get_feedback_entry(entry_id: int, user_id: int = None) -> Optional[Dict[str,
         return None
 
 
-# ===== ADMIN FUNCTIONS =====
+# ===== АДМИНСКИЕ ФУНКЦИИ =====
 
 
 def get_feedback_entries_by_status(
@@ -340,16 +340,16 @@ def get_feedback_entries_by_status(
     per_page: int = None
 ) -> Tuple[List[Dict[str, Any]], int]:
     """
-    Get feedback entries with optional filters (admin function).
+    Получить записи обратной связи с необязательными фильтрами (админ-функция).
     
     Args:
-        status: Filter by status (None for all)
-        category_id: Filter by category (None for all)
-        page: Page number (0-indexed)
-        per_page: Items per page
+        status: Фильтр по статусу (None = все)
+        category_id: Фильтр по категории (None = все)
+        page: Номер страницы (с 0)
+        per_page: Количество элементов на странице
         
     Returns:
-        Tuple of (entries list, total count)
+        Кортеж (список_записей, общее_количество)
     """
     if per_page is None:
         per_page = settings.ITEMS_PER_PAGE
@@ -357,7 +357,7 @@ def get_feedback_entries_by_status(
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Build WHERE clause
+                # Собираем WHERE-условие
                 conditions = []
                 params = []
                 
@@ -373,7 +373,7 @@ def get_feedback_entries_by_status(
                 if conditions:
                     where_clause = "WHERE " + " AND ".join(conditions)
                 
-                # Get total count
+                # Получаем общее количество
                 cursor.execute(f"""
                     SELECT COUNT(*) as count
                     FROM feedback_entries e
@@ -381,7 +381,7 @@ def get_feedback_entries_by_status(
                 """, params)
                 total = cursor.fetchone()['count']
                 
-                # Get entries
+                # Получаем записи
                 offset = page * per_page
                 cursor.execute(f"""
                     SELECT 
@@ -401,7 +401,7 @@ def get_feedback_entries_by_status(
                 
                 entries = cursor.fetchall() or []
                 
-                # Format dates
+                # Форматируем даты
                 for entry in entries:
                     entry['date'] = _format_timestamp(entry['created_timestamp'])
                 
@@ -414,10 +414,10 @@ def get_feedback_entries_by_status(
 
 def get_new_entries_count() -> int:
     """
-    Get count of new (unread) feedback entries.
+    Получить количество новых (непрочитанных) записей обратной связи.
     
     Returns:
-        Count of new entries
+        Количество новых записей
     """
     try:
         with database.get_db_connection() as conn:
@@ -441,30 +441,30 @@ def create_admin_response(
     response_text: str
 ) -> bool:
     """
-    Create an admin response to a feedback entry.
-    NOTE: admin_id is stored but NEVER exposed to users.
+    Создать ответ администратора на запись обратной связи.
+    ПРИМЕЧАНИЕ: admin_id хранится, но НИКОГДА не показывается пользователям.
     
     Args:
-        entry_id: Feedback entry ID
-        admin_id: Admin's Telegram user ID (stored internally only)
-        response_text: Response text
+        entry_id: ID записи обратной связи
+        admin_id: ID администратора Telegram (хранится только внутри)
+        response_text: Текст ответа
         
     Returns:
-        True on success, False on error
+        True при успехе, False при ошибке
     """
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
                 current_time = int(time.time())
                 
-                # Create response
+                # Создаём ответ
                 cursor.execute("""
                     INSERT INTO feedback_responses 
                     (entry_id, admin_id, response_text, created_timestamp)
                     VALUES (%s, %s, %s, %s)
                 """, (entry_id, admin_id, response_text, current_time))
                 
-                # Update entry status to in_progress if it was new
+                # Обновляем статус записи на in_progress, если она была новой
                 cursor.execute("""
                     UPDATE feedback_entries
                     SET status = %s, updated_timestamp = %s
@@ -481,14 +481,14 @@ def create_admin_response(
 
 def update_entry_status(entry_id: int, new_status: str) -> bool:
     """
-    Update feedback entry status.
+    Обновить статус записи обратной связи.
     
     Args:
-        entry_id: Entry ID
-        new_status: New status value
+        entry_id: ID записи
+        new_status: Новое значение статуса
         
     Returns:
-        True on success, False on error
+        True при успехе, False при ошибке
     """
     if new_status not in settings.STATUS_NAMES:
         return False
@@ -514,13 +514,13 @@ def update_entry_status(entry_id: int, new_status: str) -> bool:
 
 def get_entry_user_id(entry_id: int) -> Optional[int]:
     """
-    Get the user ID for a feedback entry (for sending notifications).
+    Получить ID пользователя для записи обратной связи (для отправки уведомлений).
     
     Args:
-        entry_id: Entry ID
+        entry_id: ID записи
         
     Returns:
-        User ID or None
+        ID пользователя или None
     """
     try:
         with database.get_db_connection() as conn:
@@ -539,7 +539,7 @@ def get_entry_user_id(entry_id: int) -> Optional[int]:
         return None
 
 
-# ===== HELPER FUNCTIONS =====
+# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 
 def _format_timestamp(timestamp: int) -> str:

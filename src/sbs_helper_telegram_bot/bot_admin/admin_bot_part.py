@@ -40,10 +40,10 @@ from . import keyboards
 
 logger = logging.getLogger(__name__)
 
-# Conversation states
+# Состояния диалога
 (
     ADMIN_MENU,
-    # User management states
+    # Состояния управления пользователями
     USER_MANAGEMENT_MENU,
     USER_LIST,
     USER_VIEW,
@@ -51,41 +51,41 @@ logger = logging.getLogger(__name__)
     USER_SEARCH_RESULTS,
     ADMIN_LIST,
     CONFIRM_ADMIN_ACTION,
-    # Pre-invite states
+    # Состояния предварительных приглашений
     PREINVITE_MENU,
     PREINVITE_LIST,
     PREINVITE_VIEW,
     PREINVITE_ADD_ID,
     PREINVITE_ADD_NOTES,
     PREINVITE_CONFIRM_DELETE,
-    # Manual users states
+    # Состояния ручных пользователей
     MANUAL_USERS_MENU,
     MANUAL_USERS_LIST,
     MANUAL_USER_VIEW,
     MANUAL_USER_ADD_ID,
     MANUAL_USER_ADD_NOTES,
     MANUAL_USER_CONFIRM_DELETE,
-    # Statistics states
+    # Состояния статистики
     STATISTICS_MENU,
-    # Invite management states
+    # Состояния управления инвайтами
     INVITE_MENU,
     INVITE_LIST,
     INVITE_ISSUE_USER,
     INVITE_ISSUE_COUNT,
-    # Bot settings states
+    # Состояния настроек бота
     BOT_SETTINGS_MENU,
     INVITE_SYSTEM_SETTINGS,
-    # Modules management states
+    # Состояния управления модулями
     MODULES_MANAGEMENT_MENU,
 ) = range(28)
 
 
 # ============================================================================
-# Helper Functions
+# Вспомогательные функции
 # ============================================================================
 
 def escape_markdown(text: str) -> str:
-    """Escape special characters for MarkdownV2."""
+    """Экранировать спецсимволы для MarkdownV2."""
     if text is None:
         return ""
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
@@ -95,15 +95,15 @@ def escape_markdown(text: str) -> str:
 
 
 def get_users_list(page: int = 1, limit: int = 10) -> tuple:
-    """Get paginated list of users from database."""
+    """Получить список пользователей из БД с пагинацией."""
     offset = (page - 1) * limit
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # Get total count
+            # Получаем общее количество
             cursor.execute("SELECT COUNT(*) as count FROM users")
             total = cursor.fetchone()['count']
             
-            # Get users for current page
+            # Получаем пользователей для текущей страницы
             cursor.execute("""
                 SELECT userid, first_name, last_name, username, timestamp, is_admin
                 FROM users
@@ -117,10 +117,10 @@ def get_users_list(page: int = 1, limit: int = 10) -> tuple:
 
 
 def get_user_details(user_id: int) -> Optional[dict]:
-    """Get detailed user information."""
+    """Получить подробную информацию о пользователе."""
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # Get user info
+            # Получаем данные пользователя
             cursor.execute("""
                 SELECT userid, first_name, last_name, username, timestamp, is_admin
                 FROM users WHERE userid = %s
@@ -130,7 +130,7 @@ def get_user_details(user_id: int) -> Optional[dict]:
             if not user:
                 return None
             
-            # Get invites statistics
+            # Получаем статистику по инвайтам
             cursor.execute("""
                 SELECT COUNT(*) as issued FROM invites WHERE userid = %s
             """, (user_id,))
@@ -141,7 +141,7 @@ def get_user_details(user_id: int) -> Optional[dict]:
             """, (user_id,))
             invites_used = cursor.fetchone()['used']
             
-            # Get who invited this user
+            # Получаем информацию, кто пригласил пользователя
             cursor.execute("""
                 SELECT userid FROM invites WHERE consumed_userid = %s LIMIT 1
             """, (user_id,))
@@ -157,10 +157,10 @@ def get_user_details(user_id: int) -> Optional[dict]:
 
 
 def search_users(query: str) -> list:
-    """Search users by ID, username, or name."""
+    """Искать пользователей по ID, username или имени."""
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # Try exact ID match first
+            # Сначала пробуем точное совпадение ID
             if query.isdigit():
                 cursor.execute("""
                     SELECT userid, first_name, last_name, username, is_admin
@@ -170,7 +170,7 @@ def search_users(query: str) -> list:
                 if result:
                     return [result]
             
-            # Search by name/username
+            # Ищем по имени/username
             search_pattern = f"%{query}%"
             cursor.execute("""
                 SELECT userid, first_name, last_name, username, is_admin
@@ -185,7 +185,7 @@ def search_users(query: str) -> list:
 
 
 def get_admin_list() -> list:
-    """Get list of all admin users."""
+    """Получить список всех администраторов."""
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             cursor.execute("""
@@ -197,29 +197,29 @@ def get_admin_list() -> list:
 
 
 def get_bot_statistics() -> dict:
-    """Get overall bot statistics."""
+    """Получить общую статистику бота."""
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # User stats
+            # Статистика пользователей
             cursor.execute("SELECT COUNT(*) as count FROM users")
             total_users = cursor.fetchone()['count']
             
             cursor.execute("SELECT COUNT(*) as count FROM users WHERE is_admin = 1")
             admin_count = cursor.fetchone()['count']
             
-            # Invite stats
+            # Статистика инвайтов
             cursor.execute("SELECT COUNT(*) as count FROM invites")
             total_invites = cursor.fetchone()['count']
             
             cursor.execute("SELECT COUNT(*) as count FROM invites WHERE consumed_userid IS NOT NULL")
             used_invites = cursor.fetchone()['count']
             
-            # Pre-invite stats
+            # Статистика пред-инвайтов
             total_preinvites = invites_module.get_pre_invited_user_count(include_activated=True)
             activated_preinvites = invites_module.get_pre_invited_user_count(include_activated=True) - \
                                    invites_module.get_pre_invited_user_count(include_activated=False)
             
-            # Monthly stats (last 30 days)
+            # Месячная статистика (последние 30 дней)
             thirty_days_ago = int(datetime.now().timestamp()) - (30 * 24 * 60 * 60)
             
             cursor.execute("""
@@ -248,7 +248,7 @@ def get_bot_statistics() -> dict:
 
 
 def get_new_feedback_count() -> int:
-    """Get count of new (unanswered) feedback entries."""
+    """Получить количество новых (неотвеченных) обращений."""
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -264,11 +264,11 @@ def get_new_feedback_count() -> int:
 
 
 # ============================================================================
-# Entry Point and Main Menu
+# Точка входа и главное меню
 # ============================================================================
 
 async def bot_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle /botadmin command or 🛠️ Админ бота button."""
+    """Обработать /botadmin или кнопку 🛠️ Админ бота."""
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return ConversationHandler.END
@@ -290,7 +290,7 @@ async def bot_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle admin menu button presses."""
+    """Обработать нажатия кнопок админ-меню."""
     text = update.message.text
     
     if not check_if_user_admin(update.effective_user.id):
@@ -330,7 +330,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return ConversationHandler.END
     
-    # User management menu handlers
+    # Обработчики меню управления пользователями
     elif text == "📋 Список пользователей":
         return await show_user_list(update, context)
     elif text == "🔍 Поиск пользователя":
@@ -338,31 +338,31 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == "👑 Список админов":
         return await show_admin_list(update, context)
     
-    # Pre-invite menu handlers
+    # Обработчики меню пред-инвайтов
     elif text == "📋 Список пре-инвайтов":
         return await show_preinvite_list(update, context)
     elif text == "➕ Добавить пользователя":
         return await start_add_preinvite(update, context)
     
-    # Manual users menu handlers
+    # Обработчики меню ручных пользователей
     elif text == "📋 Список ручных пользователей":
         return await show_manual_users_list(update, context)
     elif text == "➕ Добавить ручного пользователя":
         return await start_add_manual_user(update, context)
     
-    # Statistics handlers
+    # Обработчики статистики
     elif text == "📈 Общая статистика":
         return await show_general_statistics(update, context)
     elif text == "📅 Статистика за период":
-        return await show_general_statistics(update, context)  # Same for now
+        return await show_general_statistics(update, context)  # Пока так же, как общая статистика
     
-    # Invite management handlers
+    # Обработчики управления инвайтами
     elif text == "📋 Все инвайты":
         return await show_invite_list(update, context)
     elif text == "🎁 Выдать инвайты":
         return await start_issue_invites(update, context)
     
-    # Bot settings handlers
+    # Обработчики настроек бота
     elif text == "⚙️ Настройки бота":
         return await show_bot_settings_menu(update, context)
     elif text == "🔐 Инвайт-система":
@@ -376,11 +376,11 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # ============================================================================
-# User Management
+# Управление пользователями
 # ============================================================================
 
 async def show_user_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show user management submenu."""
+    """Показать подменю управления пользователями."""
     await update.message.reply_text(
         messages.MESSAGE_USER_MANAGEMENT_MENU,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -390,7 +390,7 @@ async def show_user_management_menu(update: Update, context: ContextTypes.DEFAUL
 
 
 async def show_user_list(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
-    """Show paginated list of users."""
+    """Показать список пользователей с пагинацией."""
     users, total, total_pages = get_users_list(page=page, limit=settings.USERS_PER_PAGE)
     
     if not users:
@@ -401,11 +401,11 @@ async def show_user_list(update: Update, context: ContextTypes.DEFAULT_TYPE, pag
         )
         return USER_MANAGEMENT_MENU
     
-    # Build inline keyboard with users
+    # Собираем инлайн-клавиатуру с пользователями
     keyboard = []
     for user in users:
         status = "👑" if user['is_admin'] else "👤"
-        # Build full name: first_name + last_name
+        # Формируем полное имя: first_name + last_name
         name_parts = []
         if user['first_name']:
             name_parts.append(user['first_name'])
@@ -413,7 +413,7 @@ async def show_user_list(update: Update, context: ContextTypes.DEFAULT_TYPE, pag
             name_parts.append(user['last_name'])
         full_name = " ".join(name_parts) if name_parts else "Без имени"
         username = f"@{user['username']}" if user['username'] else ""
-        # Format: status + full_name + (username if exists)
+        # Формат: статус + полное имя + (username, если есть)
         display_text = f"{status} {full_name}"
         if username:
             display_text += f" {username}"
@@ -424,7 +424,7 @@ async def show_user_list(update: Update, context: ContextTypes.DEFAULT_TYPE, pag
             )
         ])
     
-    # Add pagination
+    # Добавляем пагинацию
     if total_pages > 1:
         keyboard.append(keyboards.get_pagination_keyboard(page, total_pages, "bot_admin_users"))
     
@@ -439,7 +439,7 @@ async def show_user_list(update: Update, context: ContextTypes.DEFAULT_TYPE, pag
 
 
 async def start_user_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start user search process."""
+    """Запустить процесс поиска пользователя."""
     await update.message.reply_text(
         messages.MESSAGE_USER_SEARCH,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -449,10 +449,10 @@ async def start_user_search(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def receive_user_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle user search query."""
+    """Обработать поисковый запрос пользователя."""
     query = update.message.text.strip()
     
-    # Handle menu buttons
+    # Обрабатываем кнопки меню
     if query in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список пользователей", "👑 Список админов"]:
         return await admin_menu_handler(update, context)
     
@@ -466,11 +466,11 @@ async def receive_user_search(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return USER_MANAGEMENT_MENU
     
-    # Build inline keyboard with results
+    # Собираем инлайн-клавиатуру с результатами
     keyboard = []
     for user in users:
         status = "👑" if user['is_admin'] else "👤"
-        # Build full name: first_name + last_name
+        # Формируем полное имя: first_name + last_name
         name_parts = []
         if user['first_name']:
             name_parts.append(user['first_name'])
@@ -499,7 +499,7 @@ async def receive_user_search(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def show_admin_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show list of admin users."""
+    """Показать список администраторов."""
     admins = get_admin_list()
     
     if not admins:
@@ -510,10 +510,10 @@ async def show_admin_list(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return USER_MANAGEMENT_MENU
     
-    # Build inline keyboard with admins
+    # Собираем инлайн-клавиатуру с администраторами
     keyboard = []
     for admin in admins:
-        # Build full name: first_name + last_name
+        # Формируем полное имя: first_name + last_name
         name_parts = []
         if admin['first_name']:
             name_parts.append(admin['first_name'])
@@ -542,7 +542,7 @@ async def show_admin_list(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def show_user_details_callback(query, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> int:
-    """Show detailed user information."""
+    """Показать подробную информацию о пользователе."""
     user = get_user_details(user_id)
     
     if not user:
@@ -552,10 +552,10 @@ async def show_user_details_callback(query, context: ContextTypes.DEFAULT_TYPE, 
         )
         return USER_LIST
     
-    # Format user details
+    # Форматируем детали пользователя
     registered = datetime.fromtimestamp(user['timestamp']).strftime("%Y-%m-%d %H:%M")
     
-    # Check if user has pre-invite
+    # Проверяем, есть ли у пользователя пред-инвайт
     status_parts = []
     if invites_module.check_if_user_pre_invited(user_id):
         if invites_module.is_pre_invited_user_activated(user_id):
@@ -563,11 +563,11 @@ async def show_user_details_callback(query, context: ContextTypes.DEFAULT_TYPE, 
         else:
             status_parts.append("Пре-инвайт (ожидает)")
     
-    # Check if user is manually added
+    # Проверяем, добавлен ли пользователь вручную
     if invites_module.check_if_user_manual(user_id):
         status_parts.append("Ручной пользователь")
     
-    # Check if has consumed invite
+    # Проверяем, использован ли инвайт
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             cursor.execute("SELECT COUNT(*) as c FROM invites WHERE consumed_userid = %s", (user_id,))
@@ -578,7 +578,7 @@ async def show_user_details_callback(query, context: ContextTypes.DEFAULT_TYPE, 
     
     is_self = query.from_user.id == user_id
     
-    # Format invited_by field
+    # Форматируем поле invited_by
     if user['invited_by']:
         invited_by_text = escape_markdown(f"#{user['invited_by']}")
     else:
@@ -604,11 +604,11 @@ async def show_user_details_callback(query, context: ContextTypes.DEFAULT_TYPE, 
 
 
 # ============================================================================
-# Pre-Invite Management
+# Управление пред-инвайтами
 # ============================================================================
 
 async def show_preinvite_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show pre-invite management menu."""
+    """Показать меню управления пред-инвайтами."""
     await update.message.reply_text(
         messages.MESSAGE_PREINVITE_MENU,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -618,7 +618,7 @@ async def show_preinvite_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def show_preinvite_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show list of pre-invited users."""
+    """Показать список предварительно приглашённых пользователей."""
     users = invites_module.get_pre_invited_users(include_activated=True, limit=50)
     total = invites_module.get_pre_invited_user_count(include_activated=True)
     activated = total - invites_module.get_pre_invited_user_count(include_activated=False)
@@ -632,7 +632,7 @@ async def show_preinvite_list(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return PREINVITE_MENU
     
-    # Build inline keyboard with users
+    # Собираем инлайн-клавиатуру с пользователями
     keyboard = []
     for user in users:
         status = "✅" if user['activated_timestamp'] else "⏳"
@@ -654,7 +654,7 @@ async def show_preinvite_list(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def start_add_preinvite(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start adding a new pre-invite."""
+    """Начать добавление нового пред-инвайта."""
     context.user_data['new_preinvite'] = {}
     
     await update.message.reply_text(
@@ -666,10 +666,10 @@ async def start_add_preinvite(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def receive_preinvite_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive Telegram ID for new pre-invite."""
+    """Принять Telegram ID для нового пред-инвайта."""
     text = update.message.text.strip()
     
-    # Handle menu buttons
+    # Обрабатываем кнопки меню
     if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список пре-инвайтов"]:
         context.user_data.pop('new_preinvite', None)
         return await admin_menu_handler(update, context)
@@ -702,10 +702,10 @@ async def receive_preinvite_id(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def receive_preinvite_notes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive notes and complete pre-invite addition."""
+    """Принять заметки и завершить добавление пред-инвайта."""
     text = update.message.text.strip()
     
-    # Handle menu buttons
+    # Обрабатываем кнопки меню
     if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список пре-инвайтов"]:
         context.user_data.pop('new_preinvite', None)
         return await admin_menu_handler(update, context)
@@ -755,7 +755,7 @@ async def receive_preinvite_notes(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def show_preinvite_details_callback(query, context: ContextTypes.DEFAULT_TYPE, telegram_id: int) -> int:
-    """Show pre-invite details."""
+    """Показать детали пред-инвайта."""
     users = invites_module.get_pre_invited_users(include_activated=True, limit=100)
     user = next((u for u in users if u['telegram_id'] == telegram_id), None)
     
@@ -766,7 +766,7 @@ async def show_preinvite_details_callback(query, context: ContextTypes.DEFAULT_T
         )
         return PREINVITE_LIST
     
-    # Format details
+    # Форматируем детали
     if user['added_by_userid']:
         added_by = messages.MESSAGE_PREINVITE_ADDED_BY_ADMIN.format(admin_id=user['added_by_userid'])
     else:
@@ -796,11 +796,11 @@ async def show_preinvite_details_callback(query, context: ContextTypes.DEFAULT_T
 
 
 # ============================================================================
-# Manual Users Management
+# Управление ручными пользователями
 # ============================================================================
 
 async def show_manual_users_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show manual users management menu."""
+    """Показать меню управления ручными пользователями."""
     await update.message.reply_text(
         messages.MESSAGE_MANUAL_USERS_MENU,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -810,7 +810,7 @@ async def show_manual_users_menu(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def show_manual_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show list of manual users."""
+    """Показать список ручных пользователей."""
     users = invites_module.get_manual_users(limit=50)
     total = invites_module.get_manual_user_count()
     
@@ -822,10 +822,10 @@ async def show_manual_users_list(update: Update, context: ContextTypes.DEFAULT_T
         )
         return MANUAL_USERS_MENU
     
-    # Build inline keyboard with users
+    # Собираем инлайн-клавиатуру с пользователями
     keyboard = []
     for user in users:
-        # Build display name
+        # Формируем отображаемое имя
         name_parts = []
         if user.get('first_name'):
             name_parts.append(user['first_name'])
@@ -851,7 +851,7 @@ async def show_manual_users_list(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def start_add_manual_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start adding a new manual user."""
+    """Начать добавление нового ручного пользователя."""
     context.user_data['new_manual_user'] = {}
     
     await update.message.reply_text(
@@ -863,10 +863,10 @@ async def start_add_manual_user(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def receive_manual_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive Telegram ID for new manual user."""
+    """Принять Telegram ID для нового ручного пользователя."""
     text = update.message.text.strip()
     
-    # Handle menu buttons
+    # Обрабатываем кнопки меню
     if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список ручных пользователей"]:
         context.user_data.pop('new_manual_user', None)
         return await admin_menu_handler(update, context)
@@ -899,10 +899,10 @@ async def receive_manual_user_id(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def receive_manual_user_notes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive notes and complete manual user addition."""
+    """Принять заметки и завершить добавление ручного пользователя."""
     text = update.message.text.strip()
     
-    # Handle menu buttons
+    # Обрабатываем кнопки меню
     if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Список ручных пользователей"]:
         context.user_data.pop('new_manual_user', None)
         return await admin_menu_handler(update, context)
@@ -952,7 +952,7 @@ async def receive_manual_user_notes(update: Update, context: ContextTypes.DEFAUL
 
 
 async def show_manual_user_details_callback(query, context: ContextTypes.DEFAULT_TYPE, telegram_id: int) -> int:
-    """Show manual user details."""
+    """Показать детали ручного пользователя."""
     user = invites_module.get_manual_user_details(telegram_id)
     
     if not user:
@@ -962,7 +962,7 @@ async def show_manual_user_details_callback(query, context: ContextTypes.DEFAULT
         )
         return MANUAL_USERS_LIST
     
-    # Format details
+    # Форматируем детали
     first_name = escape_markdown(user['first_name']) if user.get('first_name') else "Не указано"
     last_name = escape_markdown(user['last_name']) if user.get('last_name') else "Не указана"
     username = f"@{user['username']}" if user.get('username') else "Не указан"
@@ -987,11 +987,11 @@ async def show_manual_user_details_callback(query, context: ContextTypes.DEFAULT
 
 
 # ============================================================================
-# Statistics
+# Статистика
 # ============================================================================
 
 async def show_statistics_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show statistics menu."""
+    """Показать меню статистики."""
     await update.message.reply_text(
         messages.MESSAGE_STATISTICS_MENU,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -1001,7 +1001,7 @@ async def show_statistics_menu(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def show_general_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show general bot statistics."""
+    """Показать общую статистику бота."""
     try:
         stats = get_bot_statistics()
         
@@ -1022,11 +1022,11 @@ async def show_general_statistics(update: Update, context: ContextTypes.DEFAULT_
 
 
 # ============================================================================
-# Invite Management
+# Управление инвайтами
 # ============================================================================
 
 async def show_invite_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show invite management menu."""
+    """Показать меню управления инвайтами."""
     await update.message.reply_text(
         messages.MESSAGE_INVITE_MANAGEMENT_MENU,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -1036,7 +1036,7 @@ async def show_invite_management_menu(update: Update, context: ContextTypes.DEFA
 
 
 async def show_invite_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show invite statistics."""
+    """Показать статистику инвайтов."""
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             cursor.execute("SELECT COUNT(*) as total FROM invites")
@@ -1060,7 +1060,7 @@ async def show_invite_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def start_issue_invites(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start the process of issuing invites to a user."""
+    """Начать выдачу инвайтов пользователю."""
     await update.message.reply_text(
         messages.MESSAGE_INVITE_ISSUE,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -1070,10 +1070,10 @@ async def start_issue_invites(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def receive_invite_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive user ID for invite issuance."""
+    """Принять ID пользователя для выдачи инвайтов."""
     text = update.message.text.strip()
     
-    # Handle menu buttons
+    # Обрабатываем кнопки меню
     if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Все инвайты"]:
         return await admin_menu_handler(update, context)
     
@@ -1086,7 +1086,7 @@ async def receive_invite_user_id(update: Update, context: ContextTypes.DEFAULT_T
         )
         return INVITE_ISSUE_USER
     
-    # Check if user exists
+    # Проверяем, существует ли пользователь
     user = get_user_details(user_id)
     if not user:
         await update.message.reply_text(
@@ -1105,10 +1105,10 @@ async def receive_invite_user_id(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def receive_invite_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive count and issue invites."""
+    """Принять количество и выдать инвайты."""
     text = update.message.text.strip()
     
-    # Handle menu buttons
+    # Обрабатываем кнопки меню
     if text in ["🔙 Админ бота", BUTTON_MAIN_MENU, "📋 Все инвайты"]:
         context.user_data.pop('issue_invites_user', None)
         return await admin_menu_handler(update, context)
@@ -1133,7 +1133,7 @@ async def receive_invite_count(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return INVITE_MENU
     
-    # Issue invites
+    # Выдаём инвайты
     for _ in range(count):
         invites_module.generate_invite_for_user(user_id)
     
@@ -1148,11 +1148,11 @@ async def receive_invite_count(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 # ============================================================================
-# Bot Settings
+# Настройки бота
 # ============================================================================
 
 async def show_bot_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show bot settings submenu."""
+    """Показать подменю настроек бота."""
     await update.message.reply_text(
         messages.MESSAGE_BOT_SETTINGS_MENU,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -1162,7 +1162,7 @@ async def show_bot_settings_menu(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def show_invite_system_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show invite system settings with toggle button."""
+    """Показать настройки инвайт-системы с кнопкой переключения."""
     is_enabled = bot_settings.is_invite_system_enabled()
     status = messages.MESSAGE_INVITE_SYSTEM_STATUS_ENABLED if is_enabled else messages.MESSAGE_INVITE_SYSTEM_STATUS_DISABLED
     
@@ -1175,7 +1175,7 @@ async def show_invite_system_settings(update: Update, context: ContextTypes.DEFA
 
 
 async def toggle_invite_system(query, context: ContextTypes.DEFAULT_TYPE, enable: bool) -> int:
-    """Toggle the invite system on or off."""
+    """Включить или отключить инвайт-систему."""
     admin_id = query.from_user.id
     bot_settings.set_invite_system_enabled(enable, admin_id)
     
@@ -1193,11 +1193,11 @@ async def toggle_invite_system(query, context: ContextTypes.DEFAULT_TYPE, enable
 
 
 # ============================================================================
-# Modules Management
+# Управление модулями
 # ============================================================================
 
 def get_modules_status_text() -> str:
-    """Generate a formatted status text for all modules."""
+    """Сформировать текст статусов для всех модулей."""
     from src.common.bot_settings import MODULE_NAMES
     
     module_states = bot_settings.get_all_module_states()
@@ -1210,7 +1210,7 @@ def get_modules_status_text() -> str:
 
 
 async def show_modules_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show modules management menu with toggle buttons."""
+    """Показать меню управления модулями с кнопками переключения."""
     module_states = bot_settings.get_all_module_states()
     modules_status = get_modules_status_text()
     
@@ -1223,7 +1223,7 @@ async def show_modules_management_menu(update: Update, context: ContextTypes.DEF
 
 
 async def toggle_module(query, context: ContextTypes.DEFAULT_TYPE, module_key: str, enable: bool) -> int:
-    """Toggle a specific module on or off."""
+    """Включить или выключить конкретный модуль."""
     from src.common.bot_settings import MODULE_NAMES
     
     admin_id = query.from_user.id
@@ -1236,7 +1236,7 @@ async def toggle_module(query, context: ContextTypes.DEFAULT_TYPE, module_key: s
     else:
         message = messages.MESSAGE_MODULE_DISABLED.format(module_name=escape_markdown(module_name))
     
-    # Update keyboard with new states
+    # Обновляем клавиатуру с новыми состояниями
     module_states = bot_settings.get_all_module_states()
     
     await query.edit_message_text(
@@ -1248,17 +1248,17 @@ async def toggle_module(query, context: ContextTypes.DEFAULT_TYPE, module_key: s
 
 
 # ============================================================================
-# Callback Handler
+# Обработчик колбэков
 # ============================================================================
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle all inline button callbacks."""
+    """Обработать все колбэки инлайн-кнопок."""
     query = update.callback_query
     await query.answer()
     
     data = query.data
     
-    # Navigation callbacks
+    # Навигационные колбэки
     if data == "bot_admin_noop":
         return None
     
@@ -1279,7 +1279,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return USER_MANAGEMENT_MENU
     
     if data == "bot_admin_user_list":
-        # Refresh user list via callback
+        # Обновляем список пользователей через колбэк
         users, total, total_pages = get_users_list(page=1, limit=settings.USERS_PER_PAGE)
         keyboard = []
         for user in users:
@@ -1302,7 +1302,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return USER_LIST
     
-    # User pagination
+    # Пагинация пользователей
     if data.startswith("bot_admin_users_page_"):
         page = int(data.replace("bot_admin_users_page_", ""))
         users, total, total_pages = get_users_list(page=page, limit=settings.USERS_PER_PAGE)
@@ -1327,12 +1327,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return USER_LIST
     
-    # User view
+    # Просмотр пользователя
     if data.startswith("bot_admin_user_view_"):
         user_id = int(data.replace("bot_admin_user_view_", ""))
         return await show_user_details_callback(query, context, user_id)
     
-    # Admin grant/revoke
+    # Назначение/снятие админа
     if data.startswith("bot_admin_grant_"):
         user_id = int(data.replace("bot_admin_grant_", ""))
         await query.edit_message_text(
@@ -1372,7 +1372,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return await show_user_details_callback(query, context, user_id)
     
-    # Issue invites from user view
+    # Выдача инвайтов из карточки пользователя
     if data.startswith("bot_admin_issue_invites_"):
         user_id = int(data.replace("bot_admin_issue_invites_", ""))
         context.user_data['issue_invites_user'] = user_id
@@ -1383,7 +1383,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return INVITE_ISSUE_COUNT
     
-    # Pre-invite callbacks
+    # Колбэки пред-инвайтов
     if data == "bot_admin_preinvite_menu":
         await query.message.reply_text(
             messages.MESSAGE_PREINVITE_MENU,
@@ -1393,7 +1393,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return PREINVITE_MENU
     
     if data == "bot_admin_preinvite_list":
-        # Refresh list via callback
+        # Обновляем список через колбэк
         users = invites_module.get_pre_invited_users(include_activated=True, limit=50)
         total = invites_module.get_pre_invited_user_count(include_activated=True)
         activated = total - invites_module.get_pre_invited_user_count(include_activated=False)
@@ -1446,7 +1446,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return PREINVITE_MENU
     
-    # Manual users callbacks
+    # Колбэки ручных пользователей
     if data == "bot_admin_manual_menu":
         await query.message.reply_text(
             messages.MESSAGE_MANUAL_USERS_MENU,
@@ -1456,7 +1456,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return MANUAL_USERS_MENU
     
     if data == "bot_admin_manual_list":
-        # Refresh list via callback
+        # Обновляем список через колбэк
         users = invites_module.get_manual_users(limit=50)
         total = invites_module.get_manual_user_count()
         
@@ -1469,7 +1469,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
         keyboard = []
         for user in users:
-            # Build display name
+            # Формируем отображаемое имя
             name_parts = []
             if user.get('first_name'):
                 name_parts.append(user['first_name'])
@@ -1521,7 +1521,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return MANUAL_USERS_MENU
     
-    # Bot settings callbacks
+    # Колбэки настроек бота
     if data == "bot_admin_settings_menu":
         await query.message.reply_text(
             messages.MESSAGE_BOT_SETTINGS_MENU,
@@ -1536,7 +1536,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data == "bot_admin_invite_system_disable":
         return await toggle_invite_system(query, context, False)
     
-    # Modules management callbacks
+    # Колбэки управления модулями
     if data.startswith("bot_admin_module_enable_"):
         module_key = data.replace("bot_admin_module_enable_", "")
         return await toggle_module(query, context, module_key, True)
@@ -1549,11 +1549,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 # ============================================================================
-# Cancel Handler
+# Обработчик отмены
 # ============================================================================
 
 async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancel admin conversation."""
+    """Отменить админский диалог."""
     context.user_data.pop('new_preinvite', None)
     context.user_data.pop('issue_invites_user', None)
     
@@ -1573,11 +1573,11 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 
 # ============================================================================
-# Conversation Handler Builder
+# Сборка ConversationHandler
 # ============================================================================
 
 def get_admin_conversation_handler() -> ConversationHandler:
-    """Build and return the bot admin ConversationHandler."""
+    """Собрать и вернуть ConversationHandler для админ-панели бота."""
     
     menu_buttons_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler)
     
@@ -1591,7 +1591,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
                 CallbackQueryHandler(handle_callback)
             ],
-            # User management states
+            # Состояния управления пользователями
             USER_MANAGEMENT_MENU: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
                 CallbackQueryHandler(handle_callback)
@@ -1619,7 +1619,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(handle_callback),
                 menu_buttons_handler
             ],
-            # Pre-invite states
+            # Состояния пред-инвайтов
             PREINVITE_MENU: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
                 CallbackQueryHandler(handle_callback)
@@ -1642,7 +1642,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(handle_callback),
                 menu_buttons_handler
             ],
-            # Manual users states
+            # Состояния ручных пользователей
             MANUAL_USERS_MENU: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
                 CallbackQueryHandler(handle_callback)
@@ -1665,12 +1665,12 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(handle_callback),
                 menu_buttons_handler
             ],
-            # Statistics states
+            # Состояния статистики
             STATISTICS_MENU: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
                 CallbackQueryHandler(handle_callback)
             ],
-            # Invite management states
+            # Состояния управления инвайтами
             INVITE_MENU: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
                 CallbackQueryHandler(handle_callback)
@@ -1685,7 +1685,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             INVITE_ISSUE_COUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_invite_count)
             ],
-            # Bot settings states
+            # Состояния настроек бота
             BOT_SETTINGS_MENU: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
                 CallbackQueryHandler(handle_callback)
@@ -1694,7 +1694,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(handle_callback),
                 menu_buttons_handler
             ],
-            # Modules management states
+            # Состояния управления модулями
             MODULES_MANAGEMENT_MENU: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
                 CallbackQueryHandler(handle_callback)
@@ -1705,7 +1705,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CommandHandler("reset", cancel_admin),
             CommandHandler("menu", cancel_admin),
             MessageHandler(filters.Regex(f"^{re.escape(BUTTON_MAIN_MENU)}$"), cancel_admin),
-            MessageHandler(filters.COMMAND, cancel_admin),  # Handle /start and other commands
+            MessageHandler(filters.COMMAND, cancel_admin),  # Обрабатываем /start и другие команды
         ],
         name="bot_admin_panel",
         persistent=False

@@ -1,22 +1,22 @@
 """
 telegram_bot.py
 
-Telegram bot for an invite-only image processing service.
+Telegram-бот для сервиса обработки изображений с доступом по инвайтам.
 
-Features:
-- Invite-based access control
-- Accepts images sent as document files (not photos)
-- Enforces one active job per user
-- Queue position feedback
-- Issues new invites to verified users
-- Stores user data and tracks invite usage
-- Modular design for extensibility
+Возможности:
+- Контроль доступа через инвайты
+- Приём изображений как документов (не фото)
+- Ограничение: одна активная задача на пользователя
+- Обратная связь по позиции в очереди
+- Выдача новых инвайтов проверенным пользователям
+- Хранение данных пользователей и учёт инвайтов
+- Модульная архитектура для расширяемости
 
-Commands:
-    /start   - Welcome message (requires valid invite)
-    /invite  - List user's unused invite codes
+Команды:
+    /start   - приветствие (нужен валидный инвайт)
+    /invite  - список неиспользованных инвайтов пользователя
 
-Non-legitimate users are prompted to enter an invite code via text message.
+Нелегитимным пользователям предлагается ввести инвайт-код текстом.
 """
 # pylint: disable=line-too-long
 
@@ -35,7 +35,7 @@ from src.common.constants.os import ASSETS_DIR
 from src.common.constants.errorcodes import InviteStatus
 from src.common.constants.telegram import TELEGRAM_TOKEN
 
-# Common messages (only global/shared messages)
+# Общие сообщения (только глобальные/общие)
 from src.common.messages import (
     MESSAGE_INVITE_SYSTEM_DISABLED,
     MESSAGE_WELCOME,
@@ -73,7 +73,7 @@ from src.common.messages import (
     get_modules_menu_keyboard,
 )
 
-# Import module-specific messages, settings, and keyboards
+# Импорт сообщений, настроек и клавиатур модулей
 from src.sbs_helper_telegram_bot.ticket_validator import messages as validator_messages
 from src.sbs_helper_telegram_bot.ticket_validator import keyboards as validator_keyboards
 from src.sbs_helper_telegram_bot.ticket_validator import settings as validator_settings
@@ -100,7 +100,7 @@ from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import (
     WAITING_FOR_SCREENSHOT
 )
 
-# Import ticket validator handlers
+# Импорт обработчиков валидатора заявок
 from src.sbs_helper_telegram_bot.ticket_validator.ticket_validator_bot_part import (
     validate_ticket_command,
     process_ticket_text,
@@ -113,24 +113,24 @@ from src.sbs_helper_telegram_bot.ticket_validator.ticket_validator_bot_part impo
     WAITING_FOR_TICKET
 )
 
-# Import file upload handler for batch validation
+# Импорт обработчика загрузки файлов для пакетной валидации
 from src.sbs_helper_telegram_bot.ticket_validator.file_upload_bot_part import (
     get_file_validation_handler
 )
 
-# Import admin panel handlers
+# Импорт обработчиков админ-панели
 from src.sbs_helper_telegram_bot.ticket_validator.admin_panel_bot_part import (
     get_admin_conversation_handler
 )
 
-# Import UPOS error handlers
+# Импорт обработчиков ошибок UPOS
 from src.sbs_helper_telegram_bot.upos_error.upos_error_bot_part import (
     show_popular_errors,
     get_user_conversation_handler as get_upos_user_handler,
     get_admin_conversation_handler as get_upos_admin_handler
 )
 
-# Import KTR module handlers
+# Импорт обработчиков модуля КТР
 from src.sbs_helper_telegram_bot.ktr import keyboards as ktr_keyboards
 from src.sbs_helper_telegram_bot.ktr import messages as ktr_messages
 from src.sbs_helper_telegram_bot.ktr import settings as ktr_settings
@@ -140,7 +140,7 @@ from src.sbs_helper_telegram_bot.ktr.ktr_bot_part import (
     get_admin_conversation_handler as get_ktr_admin_handler
 )
 
-# Import certification module handlers
+# Импорт обработчиков модуля аттестации
 from src.sbs_helper_telegram_bot.certification import keyboards as certification_keyboards
 from src.sbs_helper_telegram_bot.certification import messages as certification_messages
 from src.sbs_helper_telegram_bot.certification import settings as certification_settings
@@ -156,12 +156,12 @@ from src.sbs_helper_telegram_bot.certification.admin_panel_bot_part import (
     get_admin_conversation_handler as get_certification_admin_handler
 )
 
-# Import bot admin module handlers
+# Импорт обработчиков админ-модуля бота
 from src.sbs_helper_telegram_bot.bot_admin.admin_bot_part import (
     get_admin_conversation_handler as get_bot_admin_handler
 )
 
-# Import feedback module handlers
+# Импорт обработчиков модуля обратной связи
 from src.sbs_helper_telegram_bot.feedback import messages as feedback_messages
 from src.sbs_helper_telegram_bot.feedback import keyboards as feedback_keyboards
 from src.sbs_helper_telegram_bot.feedback.feedback_bot_part import (
@@ -171,7 +171,7 @@ from src.sbs_helper_telegram_bot.feedback.admin_panel_bot_part import (
     get_feedback_admin_handler,
 )
 
-# Import gamification module handlers
+# Импорт обработчиков модуля геймификации
 from src.sbs_helper_telegram_bot.gamification import settings as gamification_settings
 from src.sbs_helper_telegram_bot.gamification import messages as gamification_messages
 from src.sbs_helper_telegram_bot.gamification import keyboards as gamification_keyboards
@@ -182,7 +182,7 @@ from src.sbs_helper_telegram_bot.gamification.admin_panel_bot_part import (
     get_gamification_admin_handler,
 )
 
-# Import news module handlers
+# Импорт обработчиков модуля новостей
 from src.sbs_helper_telegram_bot.news import settings as news_settings
 from src.sbs_helper_telegram_bot.news import messages as news_messages
 from src.sbs_helper_telegram_bot.news import keyboards as news_keyboards
@@ -208,9 +208,9 @@ from config.settings import DEBUG, INVITES_PER_NEW_USER
 logging.basicConfig(
     level=logging.DEBUG if DEBUG else logging.INFO,
     format='%(asctime)s %(levelname)s %(name)s: %(message)s',
-    handlers=[logging.StreamHandler()]   # console
+    handlers=[logging.StreamHandler()]   # консоль
 )
-# set higher logging level for httpx to avoid all GET and POST requests being logged
+# Повышаем уровень логирования для httpx, чтобы не логировать все GET/POST
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
@@ -218,16 +218,16 @@ logger = logging.getLogger(__name__)
 
 def clear_all_states(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Clear all conversation states from all modules.
+    Сбросить все состояния диалога всех модулей.
     
-    This function clears context.user_data keys used by all modules
-    for conversation state management. It does NOT affect user data
-    stored in the database - only in-memory conversation states.
+    Функция очищает ключи context.user_data, которые используют модули
+    для управления состоянием диалогов. Она НЕ затрагивает данные в БД —
+    только состояния в памяти.
     
-    Use this when implementing /reset or /menu to return to main menu
-    from any stuck conversation state.
+    Используйте при /reset или /menu, чтобы вернуться в главное меню из
+    любого зависшего состояния.
     """
-    # Import module-specific context clearing functions
+    # Импорт функций очистки контекста модулей
     from src.sbs_helper_telegram_bot.certification.certification_bot_part import (
         clear_test_context,
         clear_learning_context,
@@ -237,10 +237,10 @@ def clear_all_states(context: ContextTypes.DEFAULT_TYPE) -> None:
     from src.sbs_helper_telegram_bot.news import settings as news_settings
     from src.sbs_helper_telegram_bot.bot_admin import settings as admin_settings
     
-    # Clear certification module states
+    # Очищаем состояния модуля аттестации
     clear_test_context(context)
     clear_learning_context(context)
-    # Clear certification admin states
+    # Очищаем состояния админ-панели аттестации
     context.user_data.pop(cert_settings.ADMIN_NEW_QUESTION_DATA_KEY, None)
     context.user_data.pop(cert_settings.ADMIN_NEW_CATEGORY_DATA_KEY, None)
     context.user_data.pop(cert_settings.ADMIN_EDITING_QUESTION_KEY, None)
@@ -250,7 +250,7 @@ def clear_all_states(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop('editing_question_categories', None)
     context.user_data.pop('edit_field', None)
     
-    # Clear feedback module states
+    # Очищаем состояния модуля обратной связи
     feedback_keys = [
         feedback_settings.CURRENT_CATEGORY_KEY,
         feedback_settings.CURRENT_MESSAGE_KEY,
@@ -265,7 +265,7 @@ def clear_all_states(context: ContextTypes.DEFAULT_TYPE) -> None:
     for key in feedback_keys:
         context.user_data.pop(key, None)
     
-    # Clear ticket validator states
+    # Очищаем состояния валидатора заявок
     context.user_data.pop('new_rule', None)
     context.user_data.pop('test_pattern', None)
     context.user_data.pop('pending_rule_id', None)
@@ -273,13 +273,13 @@ def clear_all_states(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop('manage_type_id', None)
     context.user_data.pop('manage_template_id', None)
     
-    # Clear UPOS error module states
+    # Очищаем состояния модуля ошибок UPOS
     context.user_data.pop('upos_temp', None)
     
-    # Clear KTR module states
+    # Очищаем состояния модуля КТР
     context.user_data.pop('ktr_temp', None)
     
-    # Clear news module states
+    # Очищаем состояния модуля новостей
     news_keys = [
         news_settings.CURRENT_PAGE_KEY,
         news_settings.SEARCH_QUERY_KEY,
@@ -290,16 +290,16 @@ def clear_all_states(context: ContextTypes.DEFAULT_TYPE) -> None:
     for key in news_keys:
         context.user_data.pop(key, None)
     
-    # Clear bot admin module states
+    # Очищаем состояния админ-модуля бота
     context.user_data.pop('new_preinvite', None)
     context.user_data.pop('new_manual_user', None)
     context.user_data.pop('issue_invites_user', None)
     
-    # Clear gamification states (if any specific ones exist)
-    # Gamification mainly uses database, but clear any temp context
+    # Очищаем состояния геймификации (если есть специфичные)
+    # Геймификация в основном использует БД, но чистим временный контекст
     
-    # Clear screenshot/vyezd_byl module states (if any)
-    # This module primarily uses ConversationHandler states
+    # Очищаем состояния модуля скриншотов/vyezd_byl (если есть)
+    # Этот модуль в основном использует состояния ConversationHandler
 
 def check_if_invite_entered(telegram_id,invite) -> InviteStatus:
     """
@@ -323,21 +323,21 @@ def check_if_invite_entered(telegram_id,invite) -> InviteStatus:
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # Lock the row to prevent race conditions
+            # Блокируем строку, чтобы избежать гонок
             sql_query = "SELECT consumed_userid FROM invites WHERE invite=%s FOR UPDATE"
             val=(invite,)
             cursor.execute(sql_query,val)
             result = cursor.fetchone()
             
-            # Invite doesn't exist
+            # Инвайт не существует
             if result is None:
                 return InviteStatus.NOT_EXISTS
             
-            # Invite is already consumed
+            # Инвайт уже использован
             if result["consumed_userid"] is not None:
                 return InviteStatus.ALREADY_CONSUMED
             
-            # Invite is valid and unused - consume it
+            # Инвайт валиден и не использован — помечаем как использованный
             sql_query = "UPDATE invites SET consumed_userid=%s, consumed_timestamp=UNIX_TIMESTAMP() WHERE invite=%s"
             val=(telegram_id,invite)
             cursor.execute(sql_query,val)
@@ -346,17 +346,17 @@ def check_if_invite_entered(telegram_id,invite) -> InviteStatus:
 
 async def _show_mandatory_news(update: Update, mandatory_news: dict) -> None:
     """
-    Show mandatory news article that must be acknowledged before continuing.
+    Показать обязательную новость, которую нужно подтвердить перед продолжением.
     
     Args:
-        update: Telegram update object
-        mandatory_news: Dictionary with news article data from get_unacked_mandatory_news()
+        update: объект Telegram Update.
+        mandatory_news: словарь с данными новости из get_unacked_mandatory_news().
     """
     from datetime import datetime
     
     keyboard = news_keyboards.get_mandatory_ack_keyboard(mandatory_news['id'])
     
-    # Format the date from published_timestamp
+    # Формируем дату из published_timestamp
     published_ts = mandatory_news.get('published_timestamp')
     if published_ts:
         published_date = datetime.fromtimestamp(published_ts).strftime('%d.%m.%Y')
@@ -365,7 +365,7 @@ async def _show_mandatory_news(update: Update, mandatory_news: dict) -> None:
     
     formatted_content = news_messages.format_news_article(
         title=news_messages.escape_markdown_v2(mandatory_news['title']),
-        content=mandatory_news['content'],  # Assume content is already MarkdownV2
+        content=mandatory_news['content'],  # Считаем, что контент уже в MarkdownV2
         category_emoji=mandatory_news.get('category_emoji', '📌'),
         category_name=news_messages.escape_markdown_v2(mandatory_news.get('category_name', '')),
         published_date=news_messages.escape_markdown_v2(published_date)
@@ -373,7 +373,7 @@ async def _show_mandatory_news(update: Update, mandatory_news: dict) -> None:
     
     text = f"🚨 *ВАЖНОЕ ОБЪЯВЛЕНИЕ*\n\nПрежде чем продолжить, ознакомьтесь с обязательной новостью\\.\n\n{formatted_content}\n\nПосле прочтения нажмите кнопку «✅ Принято» внизу\\."
     
-    # Send with image if present
+    # Отправляем с изображением, если есть
     if mandatory_news.get('image_file_id'):
         await update.message.reply_photo(
             photo=mandatory_news['image_file_id'],
@@ -388,7 +388,7 @@ async def _show_mandatory_news(update: Update, mandatory_news: dict) -> None:
             reply_markup=keyboard
         )
     
-    # Send attachment if present
+    # Отправляем вложение, если есть
     if mandatory_news.get('attachment_file_id'):
         await update.message.reply_document(
             document=mandatory_news['attachment_file_id'],
@@ -409,19 +409,19 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     user_id = update.effective_user.id
     
-    # Check if this is a pre-invited user who hasn't activated yet
+    # Проверяем, является ли пользователь предварительно приглашённым и не активирован
     if invites.check_if_user_pre_invited(user_id) and not invites.is_pre_invited_user_activated(user_id):
-        # Activate the pre-invited user
+        # Активируем предварительно приглашённого пользователя
         invites.mark_pre_invited_user_activated(user_id)
         update_user_info_from_telegram(update.effective_user)
         
-        # Issue invites to the newly activated pre-invited user
+        # Выдаём инвайты недавно активированному пользователю
         await update.message.reply_text(MESSAGE_WELCOME_PRE_INVITED)
         for _ in range(INVITES_PER_NEW_USER):
             invite = invites.generate_invite_for_user(user_id)
             await update.message.reply_text(MESSAGE_INVITE_ISSUED.format(invite=invite))
         
-        # Show main menu
+        # Показываем главное меню
         is_admin = check_if_user_admin(user_id)
         await update.message.reply_text(
             get_main_menu_message(user_id, update.effective_user.first_name),
@@ -430,7 +430,7 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     
-    # Check if user is blocked due to invite system being disabled
+    # Проверяем, заблокирован ли пользователь из-за выключенной системы инвайтов
     if check_if_invite_user_blocked(user_id):
         await update.message.reply_text(MESSAGE_INVITE_SYSTEM_DISABLED)
         return
@@ -443,7 +443,7 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     update_user_info_from_telegram(user)
     is_admin = check_if_user_admin(user_id)
     
-    # Check for unacknowledged mandatory news
+    # Проверяем наличие непрочитанных обязательных новостей
     mandatory_news = get_unacked_mandatory_news(user_id)
     if mandatory_news:
         await _show_mandatory_news(update, mandatory_news)
@@ -464,7 +464,7 @@ async def invite_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) ->
     """
     user_id = update.effective_user.id
     
-    # Check if user is blocked due to invite system being disabled
+    # Проверяем, заблокирован ли пользователь из-за выключенной системы инвайтов
     if check_if_invite_user_blocked(user_id):
         await update.message.reply_text(MESSAGE_INVITE_SYSTEM_DISABLED)
         return
@@ -496,7 +496,7 @@ async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     """
     user_id = update.effective_user.id
     
-    # Check if user is blocked due to invite system being disabled
+    # Проверяем, заблокирован ли пользователь из-за выключенной системы инвайтов
     if check_if_invite_user_blocked(user_id):
         await update.message.reply_text(MESSAGE_INVITE_SYSTEM_DISABLED)
         return
@@ -505,14 +505,14 @@ async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(get_unauthorized_message(user_id))
         return
     
-    # Clear all module conversation states
+    # Очищаем состояния всех модулей
     clear_all_states(_context)
     logger.info(f"User {user_id} used /menu - cleared all conversation states")
     
     update_user_info_from_telegram(update.effective_user)
     is_admin = check_if_user_admin(user_id)
     
-    # Check for unacknowledged mandatory news
+    # Проверяем наличие непрочитанных обязательных новостей
     mandatory_news = get_unacked_mandatory_news(user_id)
     if mandatory_news:
         await _show_mandatory_news(update, mandatory_news)
@@ -535,7 +535,7 @@ async def reset_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> 
     """
     user_id = update.effective_user.id
     
-    # Check if user is blocked due to invite system being disabled
+    # Проверяем, заблокирован ли пользователь из-за выключенной системы инвайтов
     if check_if_invite_user_blocked(user_id):
         await update.message.reply_text(MESSAGE_INVITE_SYSTEM_DISABLED)
         return ConversationHandler.END
@@ -544,20 +544,20 @@ async def reset_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(get_unauthorized_message(user_id))
         return ConversationHandler.END
     
-    # Clear all module conversation states
+    # Очищаем состояния всех модулей
     clear_all_states(_context)
     logger.info(f"User {user_id} used /reset - cleared all conversation states")
     
     update_user_info_from_telegram(update.effective_user)
     is_admin = check_if_user_admin(user_id)
     
-    # Check for unacknowledged mandatory news
+    # Проверяем наличие непрочитанных обязательных новостей
     mandatory_news = get_unacked_mandatory_news(user_id)
     if mandatory_news:
         await _show_mandatory_news(update, mandatory_news)
         return ConversationHandler.END
     
-    # Silently show main menu (no confirmation message)
+    # Тихо показываем главное меню (без подтверждения)
     await update.message.reply_text(
         get_main_menu_message(user_id, update.effective_user.first_name),
         parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -575,7 +575,7 @@ async def help_main_command(update: Update, _context: ContextTypes.DEFAULT_TYPE)
     """
     user_id = update.effective_user.id
     
-    # Check if user is blocked due to invite system being disabled
+    # Проверяем, заблокирован ли пользователь из-за выключенной системы инвайтов
     if check_if_invite_user_blocked(user_id):
         await update.message.reply_text(MESSAGE_INVITE_SYSTEM_DISABLED)
         return
@@ -602,7 +602,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         - If the user is blocked due to invite system being disabled, shows appropriate message.
         - If the user is already authorized, handles menu button presses or sends the standard welcome message.
     """
-    # Check if message exists and has text
+    # Проверяем, что сообщение существует и содержит текст
     if not update.message or not update.message.text:
         logger.warning("Received update without message or text")
         return
@@ -610,20 +610,20 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     text = update.message.text
     user_id = update.effective_user.id
     
-    # First, check if this is a pre-invited user who hasn't activated yet
-    # This takes priority over invite code validation to avoid "wasting" invites
+    # Сначала проверяем, не является ли пользователь предварительно приглашённым
+    # Это приоритетнее проверки инвайт-кода, чтобы не "тратить" инвайты
     if invites.check_if_user_pre_invited(user_id) and not invites.is_pre_invited_user_activated(user_id):
-        # Activate the pre-invited user
+        # Активируем предварительно приглашённого пользователя
         invites.mark_pre_invited_user_activated(user_id)
         update_user_info_from_telegram(update.effective_user)
         
-        # Issue invites to the newly activated pre-invited user
+        # Выдаём инвайты недавно активированному пользователю
         await update.message.reply_text(MESSAGE_WELCOME_PRE_INVITED)
         for _ in range(INVITES_PER_NEW_USER):
             invite = invites.generate_invite_for_user(user_id)
             await update.message.reply_text(MESSAGE_INVITE_ISSUED.format(invite=invite))
         
-        # Show main menu
+        # Показываем главное меню
         is_admin = check_if_user_admin(user_id)
         await update.message.reply_text(
             get_main_menu_message(user_id, update.effective_user.first_name),
@@ -632,7 +632,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
     
-    # Check if user is blocked due to invite system being disabled
+    # Проверяем, заблокирован ли пользователь из-за выключенной системы инвайтов
     if check_if_invite_user_blocked(user_id):
         await update.message.reply_text(MESSAGE_INVITE_SYSTEM_DISABLED)
         return
@@ -644,7 +644,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             for _ in range(INVITES_PER_NEW_USER):                            
                 invite = invites.generate_invite_for_user(user_id)
                 await update.message.reply_text(MESSAGE_INVITE_ISSUED.format(invite=invite))
-            # Show main menu after successful registration
+            # Показываем главное меню после успешной регистрации
             is_admin = check_if_user_admin(user_id)
             await update.message.reply_text(
                 get_main_menu_message(user_id, update.effective_user.first_name),
@@ -659,7 +659,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             return
         return
     
-    # Handle menu button presses for authorized users
+    # Обрабатываем нажатия кнопок меню для авторизованных пользователей
     is_admin = check_if_user_admin(user_id)
     if text == BUTTON_MAIN_MENU:
         await update.message.reply_text(
@@ -668,21 +668,21 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             reply_markup=get_main_menu_keyboard(is_admin=is_admin)
         )
     elif text == BUTTON_MODULES:
-        # Show modules menu
+        # Показываем меню модулей
         await update.message.reply_text(
             MESSAGE_MODULES_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_modules_menu_keyboard()
         )
     elif text == BUTTON_SETTINGS:
-        # Show settings menu
+        # Показываем меню настроек
         await update.message.reply_text(
             MESSAGE_SETTINGS_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_settings_menu_keyboard()
         )
     elif text == BUTTON_VALIDATE_TICKET:
-        # Show validation submenu (with admin panel if user is admin)
+        # Показываем подменю валидации (с админ-панелью для админа)
         if is_admin:
             keyboard = validator_keyboards.get_admin_submenu_keyboard()
         else:
@@ -695,7 +695,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     elif text == validator_settings.BUTTON_VALIDATE_TICKET:
         await validate_ticket_command(update, _context)
     elif text == validator_settings.BUTTON_TEST_TEMPLATES:
-        # Admin-only button for quick test template access
+        # Кнопка быстрого доступа к тестовым шаблонам (только админ)
         await run_test_templates_command(update, _context)
     elif text == validator_settings.BUTTON_HELP_VALIDATION:
         await help_command(update, _context)
@@ -708,8 +708,8 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             reply_markup=get_settings_menu_keyboard()
         )
     elif text == BUTTON_SCREENSHOT or text == vyezd_settings.BUTTON_SEND_SCREENSHOT:
-        # These buttons are now handled by the screenshot ConversationHandler
-        # This fallback is for safety, but normally the ConversationHandler will catch them
+        # Эти кнопки обрабатываются ConversationHandler модуля скриншотов
+        # Фолбэк на всякий случай: обычно ConversationHandler их перехватывает
         return await enter_screenshot_module(update, _context)
     elif text == vyezd_settings.BUTTON_SCREENSHOT_HELP:
         await update.message.reply_photo(
@@ -719,7 +719,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             reply_markup=image_keyboards.get_submenu_keyboard()
         )
     elif text == validator_settings.BUTTON_ADMIN_PANEL:
-        # Show admin panel if user is admin
+        # Показываем админ-панель, если пользователь — админ
         if is_admin:
             await update.message.reply_text(
                 validator_messages.MESSAGE_ADMIN_MENU,
@@ -733,8 +733,8 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
                 reply_markup=get_main_menu_keyboard(is_admin=is_admin)
             )
     elif text == BUTTON_BOT_ADMIN:
-        # Show bot admin panel if user is admin - this is entry point handled by ConversationHandler
-        # This fallback is for safety if handler doesn't catch it
+        # Показываем админ-панель бота для админа — входная точка в ConversationHandler
+        # Фолбэк на случай, если обработчик не поймал
         if not is_admin:
             await update.message.reply_text(
                 MESSAGE_NO_ADMIN_RIGHTS,
@@ -742,7 +742,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
                 reply_markup=get_main_menu_keyboard(is_admin=is_admin)
             )
     elif text == BUTTON_UPOS_ERRORS:
-        # Show UPOS error module submenu
+        # Показываем подменю модуля ошибок UPOS
         if is_admin:
             keyboard = upos_keyboards.get_admin_submenu_keyboard()
         else:
@@ -755,7 +755,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     elif text == upos_settings.BUTTON_POPULAR_ERRORS:
         await show_popular_errors(update, _context)
     elif text == BUTTON_CERTIFICATION:
-        # Show certification module submenu (delegates to the module handler)
+        # Показываем подменю аттестации (делегируем обработчику модуля)
         await enter_certification_module(update, _context)
     elif text == certification_settings.BUTTON_MY_RANKING:
         await show_my_ranking(update, _context)
@@ -764,7 +764,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     elif text == certification_settings.BUTTON_MONTHLY_TOP:
         await show_monthly_top(update, _context)
     elif text == BUTTON_KTR:
-        # Show KTR module submenu
+        # Показываем подменю модуля КТР
         if is_admin:
             keyboard = ktr_keyboards.get_admin_submenu_keyboard()
         else:
@@ -777,11 +777,11 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     elif text == ktr_settings.BUTTON_POPULAR_CODES:
         await show_popular_ktr_codes(update, _context)
     elif text == ktr_settings.BUTTON_ACHIEVEMENTS:
-        # Show KTR achievements (handled by KTR module)
+        # Показываем достижения КТР (обрабатывает модуль КТР)
         from src.sbs_helper_telegram_bot.ktr.ktr_bot_part import show_ktr_achievements
         await show_ktr_achievements(update, _context)
     elif text == BUTTON_FEEDBACK:
-        # Show feedback module submenu
+        # Показываем подменю обратной связи
         if is_admin:
             keyboard = feedback_keyboards.get_submenu_keyboard(is_admin=True)
         else:
@@ -792,12 +792,12 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             reply_markup=keyboard
         )
     elif text == BUTTON_PROFILE:
-        # Show gamification profile submenu
+        # Показываем подменю профиля геймификации
         if is_admin:
             keyboard = gamification_keyboards.get_admin_submenu_keyboard()
         else:
             keyboard = gamification_keyboards.get_submenu_keyboard()
-        # Ensure user has totals record
+        # Убеждаемся, что у пользователя есть запись итогов
         from src.sbs_helper_telegram_bot.gamification.gamification_logic import ensure_user_totals_exist
         ensure_user_totals_exist(user_id)
         await update.message.reply_text(
@@ -806,8 +806,8 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             reply_markup=keyboard
         )
     elif text == BUTTON_NEWS or text.startswith("📰 Новости"):
-        # Show news module submenu (with possible unread badge)
-        # Mark all news as read when entering
+        # Показываем подменю новостей (с индикатором непрочитанных)
+        # Помечаем все новости прочитанными при входе
         from src.sbs_helper_telegram_bot.news import news_logic
         news_logic.mark_all_as_read(user_id)
         
@@ -821,7 +821,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             reply_markup=keyboard
         )
     else:
-        # Default response for unrecognized text
+        # Ответ по умолчанию для нераспознанного текста
         await update.message.reply_text(
             MESSAGE_UNRECOGNIZED_INPUT,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -838,8 +838,8 @@ async def post_init(application: Application) -> None:
         Only core bot commands are shown here - module-specific commands
         are still functional but not listed in the menu to keep it clean.
     """
-    # Set bot commands for the menu button in Telegram
-    # Only core commands are listed - module commands still work but aren't shown
+    # Устанавливаем команды бота для меню в Telegram
+    # Показываем только базовые команды — модульные работают, но не отображаются
     await application.bot.set_my_commands([
         BotCommand("start", COMMAND_DESC_START),
         BotCommand("menu", COMMAND_DESC_MENU),
@@ -851,24 +851,24 @@ async def post_init(application: Application) -> None:
 def main() -> None:
 
     """
-        Entry point for the Telegram bot.
+        Точка входа Telegram-бота.
 
-        Builds and configures the Application instance using python-telegram-bot,
-        registers all command and message handlers, sets up bot menu commands,
-        then starts the bot in polling mode.
+        Создаёт и настраивает Application через python-telegram-bot,
+        регистрирует обработчики команд и сообщений, настраивает меню бота
+        и запускает polling.
 
-        Registered handlers:
+        Зарегистрированные обработчики:
             /start          → start
             /menu           → menu_command
             /invite         → invite_command
             /validate       → validate_ticket_command (ConversationHandler)
             /help_validate  → help_command
-            /debug          → toggle_debug_mode (admins only)
-            /admin          → admin panel (admins only)
-            Image documents → handle_incoming_document
-            Plain text      → text_entered (also handles menu button presses)
+            /debug          → toggle_debug_mode (только админы)
+            /admin          → админ-панель (только админы)
+            Документы-изображения → handle_incoming_document
+            Обычный текст   → text_entered (также обрабатывает кнопки меню)
 
-        Runs indefinitely, processing all update types.
+        Работает непрерывно, обрабатывая все типы обновлений.
     """
 
     application = (
@@ -881,11 +881,11 @@ def main() -> None:
         .build()
     )
 
-    # Create ConversationHandler for ticket validation
-    # Entry points include both /validate command and the menu button
-    # Fallbacks include /cancel, any command, and menu buttons from the validator module
+    # Создаём ConversationHandler для проверки заявок
+    # Входные точки: команда /validate и кнопка меню
+    # Фолбэки: /cancel, любая команда и кнопки меню модуля валидатора
     menu_button_pattern = get_menu_button_regex_pattern()
-    # Exclude menu buttons from WAITING_FOR_TICKET state so they fall through to fallbacks
+    # Исключаем кнопки меню из WAITING_FOR_TICKET, чтобы они попадали в фолбэки
     menu_button_filter = filters.Regex(menu_button_pattern)
     ticket_validator_handler = ConversationHandler(
         entry_points=[
@@ -899,21 +899,21 @@ def main() -> None:
             CommandHandler("cancel", cancel_validation),
             CommandHandler("reset", reset_command),
             CommandHandler("menu", menu_command),
-            # Any other command cancels validation mode
+            # Любая другая команда отменяет режим валидации
             MessageHandler(filters.COMMAND, cancel_validation_on_menu),
-            # Menu buttons from ticket_validator module cancel validation mode
+            # Кнопки меню ticket_validator отменяют режим валидации
             MessageHandler(menu_button_filter, cancel_validation_on_menu)
         ]
     )
 
-    # Create ConversationHandler for admin panel
+    # Создаём ConversationHandler для админ-панели
     admin_handler = get_admin_conversation_handler()
 
-    # Create ConversationHandlers for UPOS error module
+    # Создаём ConversationHandlers для модуля ошибок UPOS
     upos_user_handler = get_upos_user_handler()
     upos_admin_handler = get_upos_admin_handler()
 
-    # Create ConversationHandler for screenshot processing module
+    # Создаём ConversationHandler для модуля обработки скриншотов
     screenshot_exit_pattern = get_menu_button_exit_pattern()
     screenshot_handler = ConversationHandler(
         entry_points=[
@@ -923,11 +923,11 @@ def main() -> None:
         states={
             WAITING_FOR_SCREENSHOT: [
                 MessageHandler(filters.Document.IMAGE, handle_incoming_document),
-                # Help button shows help with photo
+                # Кнопка помощи показывает справку с фото
                 MessageHandler(filters.Regex(f"^{re.escape(vyezd_settings.BUTTON_SCREENSHOT_HELP)}$"), show_screenshot_help),
-                # Menu buttons that should exit the module (must be before generic text handler)
+                # Кнопки меню, которые должны выходить из модуля (до общего текстового обработчика)
                 MessageHandler(filters.Regex(screenshot_exit_pattern), cancel_screenshot_module),
-                # Handle wrong input: photo instead of document, or text
+                # Обработка неверного ввода: фото вместо документа или текст
                 MessageHandler(filters.PHOTO, handle_wrong_input_in_screenshot_mode),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_wrong_input_in_screenshot_mode),
             ]
@@ -935,36 +935,36 @@ def main() -> None:
         fallbacks=[
             CommandHandler("reset", reset_command),
             CommandHandler("menu", menu_command),
-            # Any command exits the module
+            # Любая команда выходит из модуля
             MessageHandler(filters.COMMAND, cancel_screenshot_module),
         ]
     )
 
-    # Create ConversationHandlers for certification module
+    # Создаём ConversationHandlers для модуля аттестации
     certification_user_handler = get_certification_user_handler()
     certification_admin_handler = get_certification_admin_handler()
 
-    # Create ConversationHandlers for KTR module
+    # Создаём ConversationHandlers для модуля КТР
     ktr_user_handler = get_ktr_user_handler()
     ktr_admin_handler = get_ktr_admin_handler()
 
-    # Create ConversationHandler for main bot admin panel
+    # Создаём ConversationHandler для основной админ-панели бота
     bot_admin_handler = get_bot_admin_handler()
 
-    # Create ConversationHandlers for feedback module
+    # Создаём ConversationHandlers для модуля обратной связи
     feedback_user_handler = get_feedback_user_handler()
     feedback_admin_handler = get_feedback_admin_handler()
 
-    # Create ConversationHandlers for gamification module
+    # Создаём ConversationHandlers для модуля геймификации
     gamification_user_handler = get_gamification_user_handler()
     gamification_admin_handler = get_gamification_admin_handler()
 
-    # Create ConversationHandlers for news module
+    # Создаём ConversationHandlers для модуля новостей
     news_user_handler = get_news_user_handler()
     news_admin_handler = get_news_admin_handler()
     news_mandatory_ack_handler = get_mandatory_ack_handler()
 
-    # Register all handlers
+    # Регистрируем все обработчики
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("reset", reset_command))
@@ -972,7 +972,7 @@ def main() -> None:
     application.add_handler(CommandHandler("invite", invite_command))
     application.add_handler(CommandHandler("help_validate", help_command))
     application.add_handler(CommandHandler("debug", toggle_debug_mode))
-    application.add_handler(bot_admin_handler)  # Main bot admin panel (must be before module admins)
+    application.add_handler(bot_admin_handler)  # Основная админ-панель (до админов модулей)
     application.add_handler(admin_handler)
     application.add_handler(upos_admin_handler)
     application.add_handler(upos_user_handler)
@@ -987,17 +987,17 @@ def main() -> None:
     application.add_handler(gamification_user_handler)
     application.add_handler(news_admin_handler)
     application.add_handler(news_user_handler)
-    application.add_handler(news_mandatory_ack_handler)  # Global handler for mandatory news acknowledgment
+    application.add_handler(news_mandatory_ack_handler)  # Глобальный обработчик обязательных новостей
     application.add_handler(screenshot_handler)
     
-    # Create ConversationHandler for file upload validation
+    # Создаём ConversationHandler для проверки загружаемых файлов
     file_validation_handler = get_file_validation_handler()
     application.add_handler(file_validation_handler)
     
     application.add_handler(ticket_validator_handler)
     application.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, text_entered))
     
-    # Add error handler
+    # Добавляем обработчик ошибок
     application.add_error_handler(error_handler)
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
@@ -1005,32 +1005,32 @@ def main() -> None:
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Handle errors that occur during bot operation.
+    Обработчик ошибок во время работы бота.
     
-    Logs the error and silently ignores recoverable errors like
-    TimedOut and NetworkError to prevent spam in logs.
+    Логирует ошибку и тихо игнорирует восстанавливаемые ошибки вроде
+    TimedOut и NetworkError, чтобы не засорять логи.
     """
     error = context.error
     
-    # Silently ignore TimedOut errors - these are usually transient
+    # Тихо игнорируем TimedOut — обычно временные ошибки
     if isinstance(error, TimedOut):
         logger.warning(f"Telegram API timed out: {error}")
         return
     
-    # Silently ignore NetworkError - these are usually transient
+    # Тихо игнорируем NetworkError — обычно временные ошибки
     if isinstance(error, NetworkError):
         logger.warning(f"Network error occurred: {error}")
         return
     
-    # Handle BadRequest with "Message is not modified" - common and harmless
+    # Обрабатываем BadRequest с "Message is not modified" — часто и безвредно
     if isinstance(error, BadRequest):
         if "Message is not modified" in str(error):
-            # Silently ignore this error - it's harmless
+            # Тихо игнорируем эту ошибку — она безвредна
             return
         logger.warning(f"BadRequest error: {error}")
         return
     
-    # Log other errors
+    # Логируем остальные ошибки
     logger.error(f"Exception while handling an update: {error}", exc_info=context.error)
 
 

@@ -1,11 +1,11 @@
 """
-Gamification Admin Panel Bot Part
+Часть бота админ-панели геймификации
 
-Admin handlers for the gamification system:
-- View user profiles
-- Configure score values
-- View all achievements
-- System statistics
+Админ-обработчики системы геймификации:
+- Просмотр профилей пользователей
+- Настройка значений очков
+- Просмотр всех достижений
+- Статистика системы
 """
 
 import logging
@@ -32,10 +32,10 @@ from .gamification_bot_part import return_to_submenu, return_to_main_menu
 logger = logging.getLogger(__name__)
 
 
-# ===== ENTRY POINT =====
+# ===== ТОЧКА ВХОДА =====
 
 async def admin_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Entry point for admin panel."""
+    """Точка входа в админ-панель."""
     user = update.effective_user
     
     if not check_if_user_admin(user.id):
@@ -54,10 +54,10 @@ async def admin_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     return settings.STATE_ADMIN_MENU
 
 
-# ===== PROFILE SEARCH =====
+# ===== ПОИСК ПРОФИЛЯ =====
 
 async def admin_find_profile_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show prompt for finding user profile."""
+    """Показать приглашение для поиска профиля пользователя."""
     await update.message.reply_text(
         messages.MESSAGE_ADMIN_ENTER_USERID,
         parse_mode=constants.ParseMode.MARKDOWN_V2
@@ -67,10 +67,10 @@ async def admin_find_profile_prompt(update: Update, context: ContextTypes.DEFAUL
 
 
 async def admin_find_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle profile search input."""
+    """Обработать ввод для поиска профиля."""
     query_text = update.message.text.strip()
     
-    # Try to parse as userid first
+    # Сначала пробуем распарсить как userid
     try:
         userid = int(query_text)
         profile = gamification_logic.get_user_profile(userid)
@@ -81,7 +81,7 @@ async def admin_find_profile(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except ValueError:
         pass
     
-    # Search by name
+    # Поиск по имени
     users = gamification_logic.search_users(query_text)
     
     if not users:
@@ -97,7 +97,7 @@ async def admin_find_profile(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await _show_admin_profile(update.message, profile)
             return settings.STATE_ADMIN_VIEW_PROFILE
     
-    # Multiple results
+    # Несколько результатов
     await update.message.reply_text(
         messages.MESSAGE_SEARCH_RESULTS_HEADER,
         reply_markup=keyboards.get_search_results_keyboard(users),
@@ -108,7 +108,7 @@ async def admin_find_profile(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def _show_admin_profile(message, profile: dict) -> None:
-    """Display profile for admin viewing."""
+    """Показать профиль для просмотра администратором."""
     text = messages.format_profile_message(
         first_name=profile['first_name'],
         last_name=profile['last_name'],
@@ -122,7 +122,7 @@ async def _show_admin_profile(message, profile: dict) -> None:
         achievements_by_level=profile['achievements_by_level']
     )
     
-    # Add admin info
+    # Добавляем админскую информацию
     text += f"\n\n_ID: {profile['userid']}_"
     if profile.get('username'):
         text += f"\n_Username: @{messages._escape_md(profile['username'])}_"
@@ -134,7 +134,7 @@ async def _show_admin_profile(message, profile: dict) -> None:
 
 
 async def admin_view_profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle profile selection from search results."""
+    """Обработать выбор профиля из результатов поиска."""
     query = update.callback_query
     await query.answer()
     
@@ -179,10 +179,10 @@ async def admin_view_profile_callback(update: Update, context: ContextTypes.DEFA
     return settings.STATE_ADMIN_VIEW_PROFILE
 
 
-# ===== SCORE CONFIGURATION =====
+# ===== НАСТРОЙКА ОЧКОВ =====
 
 async def admin_score_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show score configuration settings."""
+    """Показать настройки конфигурации очков."""
     configs = gamification_logic.get_all_score_configs()
     
     if not configs:
@@ -192,7 +192,7 @@ async def admin_score_settings(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return settings.STATE_ADMIN_MENU
     
-    # Build message
+    # Формируем сообщение
     text = messages.MESSAGE_ADMIN_SCORE_SETTINGS_HEADER
     for config in configs:
         text += messages.MESSAGE_ADMIN_SCORE_CONFIG_ITEM.format(
@@ -214,7 +214,7 @@ async def admin_score_settings(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def admin_edit_score_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle score config edit selection."""
+    """Обработать выбор редактирования конфигурации очков."""
     query = update.callback_query
     await query.answer()
     
@@ -248,7 +248,7 @@ async def admin_edit_score_callback(update: Update, context: ContextTypes.DEFAUL
 
 
 async def admin_save_score(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Save updated score value."""
+    """Сохранить обновлённое значение очков."""
     text = update.message.text.strip()
     
     try:
@@ -278,14 +278,14 @@ async def admin_save_score(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
     
-    # Return to score settings
+    # Возвращаемся к настройкам очков
     return await admin_score_settings(update, context)
 
 
-# ===== ALL ACHIEVEMENTS =====
+# ===== ВСЕ ДОСТИЖЕНИЯ =====
 
 async def admin_all_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show all achievements with unlock counts."""
+    """Показать все достижения с количеством получений."""
     achievements = gamification_logic.get_achievements_with_unlock_counts()
     
     if not achievements:
@@ -317,10 +317,10 @@ async def admin_all_achievements(update: Update, context: ContextTypes.DEFAULT_T
     return settings.STATE_ADMIN_MENU
 
 
-# ===== STATISTICS =====
+# ===== СТАТИСТИКА =====
 
 async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show system statistics."""
+    """Показать статистику системы."""
     stats = gamification_logic.get_system_stats()
     
     text = messages.format_admin_stats(
@@ -339,10 +339,10 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     return settings.STATE_ADMIN_MENU
 
 
-# ===== OBFUSCATION SETTINGS =====
+# ===== НАСТРОЙКИ СКРЫТИЯ =====
 
 async def admin_obfuscate_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Toggle name obfuscation setting in rankings."""
+    """Переключить настройку скрытия имён в рейтингах."""
     current_value = gamification_logic.get_obfuscate_names()
     new_value = not current_value
     
@@ -362,17 +362,17 @@ async def admin_obfuscate_toggle(update: Update, context: ContextTypes.DEFAULT_T
     return settings.STATE_ADMIN_MENU
 
 
-# ===== NAVIGATION =====
+# ===== НАВИГАЦИЯ =====
 
 async def admin_back_to_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Return to gamification submenu from admin."""
+    """Вернуться в подменю геймификации из админки."""
     return await return_to_submenu(update, context)
 
 
-# ===== CONVERSATION HANDLER =====
+# ===== ОБРАБОТЧИК ДИАЛОГА =====
 
 def get_gamification_admin_handler() -> ConversationHandler:
-    """Build and return the admin conversation handler."""
+    """Собрать и вернуть обработчик админ-диалога."""
     return ConversationHandler(
         entry_points=[
             MessageHandler(

@@ -1,27 +1,27 @@
 """
-UPOS Error Module Messages
+Сообщения модуля ошибок UPOS
 
-All user-facing messages for the UPOS error code lookup module.
-Messages use Telegram MarkdownV2 format where needed.
+Все пользовательские сообщения для модуля поиска кодов ошибок UPOS.
+Сообщения используют формат Telegram MarkdownV2 там, где это нужно.
 """
 # pylint: disable=line-too-long
-# Note: Double backslashes are intentional for Telegram MarkdownV2 escaping
+# Примечание: двойные обратные слэши нужны для экранирования в Telegram MarkdownV2
 
 from typing import Optional
 from datetime import datetime
 import src.common.database as database
 
-# ===== USER MESSAGES =====
+# ===== СООБЩЕНИЯ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ =====
 
 MESSAGE_SUBMENU = "🔢 *UPOS Ошибки*\n\n💡 _Выберите действие из меню:_"
 
 
 def _get_errors_count() -> int:
     """
-    Get count of active error codes from the database.
-    
+    Получить количество активных кодов ошибок из базы.
+
     Returns:
-        Number of active error codes
+        Число активных кодов ошибок.
     """
     try:
         with database.get_db_connection() as conn:
@@ -41,10 +41,10 @@ def _get_errors_count() -> int:
 
 def get_submenu_message() -> str:
     """
-    Build submenu message with statistics.
-    
+    Сформировать сообщение подменю со статистикой.
+
     Returns:
-        Formatted message for MarkdownV2
+        Отформатированное сообщение для MarkdownV2.
     """
     errors_count = _get_errors_count()
     return (
@@ -66,13 +66,13 @@ MESSAGE_NO_POPULAR_ERRORS = "📊 *Популярные ошибки*\n\nПок�
 MESSAGE_POPULAR_ERRORS_HEADER = "📊 *Топ\\-{count} запрашиваемых ошибок:*\n\n"
 
 
-# ===== ADMIN MESSAGES =====
+# ===== СООБЩЕНИЯ ДЛЯ АДМИНА =====
 
 MESSAGE_ADMIN_MENU = "🔐 *Админ\\-панель UPOS Ошибки*\n\nВыберите действие из меню:"
 
 MESSAGE_ADMIN_NOT_AUTHORIZED = "⛔ У вас нет прав администратора\\."
 
-# Error code management
+# Управление кодами ошибок
 MESSAGE_ADMIN_ERRORS_LIST_EMPTY = "📋 *Список ошибок пуст*\n\nДобавьте первую ошибку с помощью кнопки «➕ Добавить ошибку»\\."
 
 MESSAGE_ADMIN_ERRORS_LIST_HEADER = "📋 *Коды ошибок UPOS* \\(стр\\. {page}/{total_pages}\\):\n\n"
@@ -99,7 +99,7 @@ MESSAGE_ADMIN_ERROR_DEACTIVATED = "🚫 Код ошибки `{code}` деакт�
 
 MESSAGE_ADMIN_ERROR_ACTIVATED = "✅ Код ошибки `{code}` активирован\\."
 
-# Edit prompts
+# Подсказки для редактирования
 MESSAGE_ADMIN_EDIT_DESCRIPTION = "📝 *Редактирование описания*\n\nТекущее описание:\n{current}\n\nВведите новое описание:"
 
 MESSAGE_ADMIN_EDIT_ACTIONS = "💡 *Редактирование рекомендаций*\n\nТекущие рекомендации:\n{current}\n\nВведите новые рекомендации:"
@@ -108,7 +108,7 @@ MESSAGE_ADMIN_UPDATE_DATE_PROMPT = "📅 *Обновить дату?*\n\nОбн�
 
 MESSAGE_ADMIN_ERROR_UPDATED = "✅ *Ошибка обновлена\\!*"
 
-# Category management
+# Управление категориями
 MESSAGE_ADMIN_CATEGORIES_LIST_EMPTY = "📁 *Список категорий пуст*\n\nДобавьте первую категорию с помощью кнопки «➕ Добавить категорию»\\."
 
 MESSAGE_ADMIN_CATEGORIES_LIST_HEADER = "📁 *Категории UPOS ошибок* \\(стр\\. {page}/{total_pages}\\):\n\n"
@@ -125,12 +125,12 @@ MESSAGE_ADMIN_CATEGORY_EXISTS = "⚠️ Категория «{name}» уже с�
 
 MESSAGE_ADMIN_CATEGORY_DELETED = "🗑️ Категория «{name}» удалена\\."
 
-# Unknown codes
+# Неизвестные коды
 MESSAGE_ADMIN_UNKNOWN_CODES_EMPTY = "❓ *Неизвестные коды*\n\nНет запросов по неизвестным кодам ошибок\\."
 
 MESSAGE_ADMIN_UNKNOWN_CODES_HEADER = "❓ *Неизвестные коды* \\(стр\\. {page}/{total_pages}\\):\n\nКоды, которые запрашивали пользователи, но их нет в базе:\n\n"
 
-# Statistics
+# Статистика
 MESSAGE_ADMIN_STATS = """📈 *Статистика UPOS Ошибки*
 
 *Общее количество:*
@@ -147,7 +147,7 @@ MESSAGE_ADMIN_STATS = """📈 *Статистика UPOS Ошибки*
 {top_codes}"""
 
 
-# ===== CSV IMPORT MESSAGES =====
+# ===== СООБЩЕНИЯ ИМПОРТА CSV =====
 
 MESSAGE_ADMIN_CSV_IMPORT_START = """📥 *Импорт из CSV*
 
@@ -208,7 +208,7 @@ MESSAGE_ADMIN_CSV_IMPORT_RESULT = """✅ *Импорт завершён\\!*
 MESSAGE_ADMIN_CSV_PROCESS_ERROR = "❌ Ошибка обработки файла\\: {error}"
 
 
-# ===== CSV PARSING ERROR MESSAGES =====
+# ===== СООБЩЕНИЯ ОБ ОШИБКАХ РАЗБОРА CSV =====
 
 MESSAGE_CSV_ERROR_NO_CODE_COLUMN = "Не найден столбец с кодом ошибки. Ожидаемые названия: error_code, код, код_ошибки, code"
 MESSAGE_CSV_ERROR_NO_DESC_COLUMN = "Не найден столбец с описанием. Ожидаемые названия: description, описание, desc"
@@ -223,7 +223,7 @@ MESSAGE_CSV_ERROR_UNEXPECTED = "Неожиданная ошибка: {error}"
 MESSAGE_CSV_ERROR_IMPORT = "Ошибка импорта '{code}': {error}"
 
 
-# ===== COMMON UI MESSAGES =====
+# ===== ОБЩИЕ UI-СООБЩЕНИЯ =====
 
 MESSAGE_SELECT_ACTION = "Выберите действие из меню:"
 MESSAGE_NO_CATEGORY = "Без категории"
@@ -234,24 +234,24 @@ MESSAGE_IMPORT_IN_PROGRESS = "⏳ *Импорт данных\\.\\.\\.*\n\nПож
 MESSAGE_AND_MORE = "\\.\\.\\. и ещё {count}"
 
 
-# ===== KEYBOARD BUTTON LABELS =====
+# ===== ПОДПИСИ КНОПОК КЛАВИАТУРЫ =====
 
 BUTTON_FORWARD = "Вперёд ➡️"
 BUTTON_BACK = "⬅️ Назад"
 BUTTON_BACK_TO_MENU = "🔙 Назад в меню"
 
 
-# ===== HELPER FUNCTIONS =====
+# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 def escape_markdown_v2(text: str) -> str:
     """
-    Escape special characters for Telegram MarkdownV2.
-    
+    Экранировать специальные символы для Telegram MarkdownV2.
+
     Args:
-        text: Text to escape
-        
+        text: Текст для экранирования.
+
     Returns:
-        Escaped text
+        Экранированный текст.
     """
     if not text:
         return ""
@@ -269,17 +269,17 @@ def format_error_code_response(
     updated_timestamp: Optional[int] = None
 ) -> str:
     """
-    Format error code information for display to user.
-    
+    Отформатировать информацию о коде ошибки для показа пользователю.
+
     Args:
-        error_code: The error code
-        description: Error description
-        suggested_actions: Suggested actions to resolve
-        category_name: Optional category name
-        updated_timestamp: Optional Unix timestamp of last update
-        
+        error_code: Код ошибки.
+        description: Описание ошибки.
+        suggested_actions: Рекомендации по устранению.
+        category_name: Название категории (опционально).
+        updated_timestamp: Unix-время последнего обновления (опционально).
+
     Returns:
-        Formatted MarkdownV2 message
+        Отформатированное сообщение MarkdownV2.
     """
     escaped_code = escape_markdown_v2(error_code)
     escaped_desc = escape_markdown_v2(description)
@@ -309,20 +309,20 @@ def format_error_list_item(
     times_requested: int = 0
 ) -> str:
     """
-    Format error code for list display (admin).
-    
+    Отформатировать код ошибки для списка (админ).
+
     Args:
-        error_code: The error code
-        description: Short description (will be truncated)
-        category_name: Optional category
-        times_requested: Number of times requested (for popular list)
-        
+        error_code: Код ошибки.
+        description: Короткое описание (будет обрезано).
+        category_name: Категория (опционально).
+        times_requested: Количество запросов (для популярных).
+
     Returns:
-        Formatted line for list
+        Отформатированная строка списка.
     """
     escaped_code = escape_markdown_v2(error_code)
     
-    # Truncate description to 50 chars
+    # Обрезаем описание до 50 символов
     short_desc = description[:50] + "..." if len(description) > 50 else description
     escaped_desc = escape_markdown_v2(short_desc)
     
@@ -337,15 +337,15 @@ def format_error_list_item(
 
 def format_unknown_code_item(error_code: str, times_requested: int, last_timestamp: int) -> str:
     """
-    Format unknown code for list display.
-    
+    Отформатировать неизвестный код для списка.
+
     Args:
-        error_code: The unknown error code
-        times_requested: Number of times requested
-        last_timestamp: Last request timestamp
-        
+        error_code: Неизвестный код ошибки.
+        times_requested: Количество запросов.
+        last_timestamp: Время последнего запроса.
+
     Returns:
-        Formatted line for list
+        Отформатированная строка списка.
     """
     escaped_code = escape_markdown_v2(error_code)
     date_str = datetime.fromtimestamp(last_timestamp).strftime('%d.%m.%Y')
@@ -356,16 +356,16 @@ def format_unknown_code_item(error_code: str, times_requested: int, last_timesta
 
 def format_category_list_item(name: str, error_count: int, display_order: int = 0) -> str:
     """
-    Format category for list display.
-    
+    Отформатировать категорию для списка.
+
     Args:
-        name: Category name
-        error_count: Number of errors in category
-        display_order: Display order value (unused, kept for API compatibility)
-        
+        name: Название категории.
+        error_count: Количество ошибок в категории.
+        display_order: Порядок отображения (не используется, оставлено для совместимости API).
+
     Returns:
-        Formatted line for list
+        Отформатированная строка списка.
     """
-    _ = display_order  # Unused, kept for API compatibility
+    _ = display_order  # Не используется, оставлено для совместимости API
     escaped_name = escape_markdown_v2(name)
     return f"• {escaped_name} \\({error_count} ошибок\\)"

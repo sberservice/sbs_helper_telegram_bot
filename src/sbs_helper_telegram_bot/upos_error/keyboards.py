@@ -1,7 +1,7 @@
 """
-UPOS Error Module Keyboards
+Клавиатуры модуля ошибок UPOS
 
-Telegram keyboard builders for the UPOS error code lookup module.
+Сборщики клавиатур Telegram для модуля поиска кодов ошибок UPOS.
 """
 
 from typing import List, Optional
@@ -12,10 +12,10 @@ from . import messages
 
 def get_submenu_keyboard() -> ReplyKeyboardMarkup:
     """
-    Build UPOS error submenu keyboard for regular users.
-    
+    Собрать клавиатуру подменю ошибок UPOS для обычных пользователей.
+
     Returns:
-        ReplyKeyboardMarkup for UPOS error submenu
+        ReplyKeyboardMarkup для подменю ошибок UPOS.
     """
     return ReplyKeyboardMarkup(
         settings.SUBMENU_BUTTONS,
@@ -27,10 +27,10 @@ def get_submenu_keyboard() -> ReplyKeyboardMarkup:
 
 def get_admin_submenu_keyboard() -> ReplyKeyboardMarkup:
     """
-    Build UPOS error submenu keyboard with admin panel button.
-    
+    Собрать клавиатуру подменю ошибок UPOS с кнопкой админ-панели.
+
     Returns:
-        ReplyKeyboardMarkup for admin UPOS error submenu
+        ReplyKeyboardMarkup для админского подменю ошибок UPOS.
     """
     return ReplyKeyboardMarkup(
         settings.ADMIN_SUBMENU_BUTTONS,
@@ -42,10 +42,10 @@ def get_admin_submenu_keyboard() -> ReplyKeyboardMarkup:
 
 def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
     """
-    Build UPOS error admin panel main menu keyboard.
-    
+    Собрать клавиатуру главного меню админ-панели UPOS.
+
     Returns:
-        ReplyKeyboardMarkup for admin menu
+        ReplyKeyboardMarkup для админ-меню.
     """
     return ReplyKeyboardMarkup(
         settings.ADMIN_MENU_BUTTONS,
@@ -57,10 +57,10 @@ def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
 
 def get_admin_categories_keyboard() -> ReplyKeyboardMarkup:
     """
-    Build admin categories management keyboard.
-    
+    Собрать клавиатуру управления категориями (админ).
+
     Returns:
-        ReplyKeyboardMarkup for categories management
+        ReplyKeyboardMarkup для управления категориями.
     """
     return ReplyKeyboardMarkup(
         settings.ADMIN_CATEGORIES_BUTTONS,
@@ -72,10 +72,10 @@ def get_admin_categories_keyboard() -> ReplyKeyboardMarkup:
 
 def get_admin_errors_keyboard() -> ReplyKeyboardMarkup:
     """
-    Build admin error codes management keyboard.
-    
+    Собрать клавиатуру управления кодами ошибок (админ).
+
     Returns:
-        ReplyKeyboardMarkup for error codes management
+        ReplyKeyboardMarkup для управления кодами ошибок.
     """
     return ReplyKeyboardMarkup(
         settings.ADMIN_ERRORS_BUTTONS,
@@ -92,16 +92,16 @@ def get_error_codes_inline_keyboard(
     action_prefix: str = "upos_view"
 ) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard with error codes for selection.
-    
+    Собрать inline-клавиатуру с кодами ошибок для выбора.
+
     Args:
-        error_codes: List of error code dicts with 'id', 'error_code', 'description'
-        page: Current page number
-        total_pages: Total number of pages
-        action_prefix: Callback data prefix for actions
-        
+        error_codes: Список словарей с ключами 'id', 'error_code', 'description'.
+        page: Текущая страница.
+        total_pages: Общее число страниц.
+        action_prefix: Префикс callback-данных для действий.
+
     Returns:
-        InlineKeyboardMarkup with error code buttons
+        InlineKeyboardMarkup с кнопками кодов ошибок.
     """
     keyboard = []
     
@@ -117,7 +117,7 @@ def get_error_codes_inline_keyboard(
             )
         ])
     
-    # Pagination buttons
+    # Кнопки пагинации
     nav_buttons = []
     if page > 1:
         nav_buttons.append(
@@ -130,7 +130,7 @@ def get_error_codes_inline_keyboard(
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    # Back button
+    # Кнопка назад
     keyboard.append([
         InlineKeyboardButton(messages.BUTTON_BACK_TO_MENU, callback_data="upos_admin_menu")
     ])
@@ -145,16 +145,16 @@ def get_categories_inline_keyboard(
     for_selection: bool = False
 ) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard with categories.
-    
+    Собрать inline-клавиатуру с категориями.
+
     Args:
-        categories: List of category dicts with 'id', 'name'
-        page: Current page number
-        total_pages: Total number of pages
-        for_selection: If True, used for category selection when creating error
-        
+        categories: Список словарей категорий с ключами 'id', 'name'.
+        page: Текущая страница.
+        total_pages: Общее число страниц.
+        for_selection: Если True, используется при выборе категории при создании ошибки.
+
     Returns:
-        InlineKeyboardMarkup with category buttons
+        InlineKeyboardMarkup с кнопками категорий.
     """
     keyboard = []
     
@@ -171,13 +171,13 @@ def get_categories_inline_keyboard(
             )
         ])
     
-    # Skip button for category selection
+    # Кнопка пропуска при выборе категории
     if for_selection:
         keyboard.append([
             InlineKeyboardButton("⏭️ Пропустить", callback_data="upos_cat_skip")
         ])
     
-    # Pagination buttons
+    # Кнопки пагинации
     nav_buttons = []
     if page > 1:
         nav_buttons.append(
@@ -190,7 +190,7 @@ def get_categories_inline_keyboard(
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    # Back button (not for selection mode)
+    # Кнопка назад (не для режима выбора)
     if not for_selection:
         keyboard.append([
             InlineKeyboardButton(messages.BUTTON_BACK_TO_MENU, callback_data="upos_admin_menu")
@@ -201,14 +201,14 @@ def get_categories_inline_keyboard(
 
 def get_error_detail_keyboard(error_id: int, is_active: bool = True) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for error code detail view (admin).
-    
+    Собрать inline-клавиатуру для просмотра деталей кода ошибки (админ).
+
     Args:
-        error_id: Error code ID
-        is_active: Whether the error code is currently active
-        
+        error_id: ID кода ошибки.
+        is_active: Активен ли код ошибки сейчас.
+
     Returns:
-        InlineKeyboardMarkup with edit/delete options
+        InlineKeyboardMarkup с опциями редактирования/удаления.
     """
     keyboard = [
         [
@@ -242,13 +242,13 @@ def get_error_detail_keyboard(error_id: int, is_active: bool = True) -> InlineKe
 
 def get_category_detail_keyboard(category_id: int) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for category detail view (admin).
-    
+    Собрать inline-клавиатуру для просмотра категории (админ).
+
     Args:
-        category_id: Category ID
-        
+        category_id: ID категории.
+
     Returns:
-        InlineKeyboardMarkup with edit/delete options
+        InlineKeyboardMarkup с опциями редактирования/удаления.
     """
     keyboard = [
         [
@@ -274,15 +274,15 @@ def get_unknown_codes_inline_keyboard(
     total_pages: int = 1
 ) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard with unknown codes for quick addition.
-    
+    Собрать inline-клавиатуру с неизвестными кодами для быстрого добавления.
+
     Args:
-        unknown_codes: List of unknown code dicts
-        page: Current page number
-        total_pages: Total number of pages
-        
+        unknown_codes: Список словарей с неизвестными кодами.
+        page: Текущая страница.
+        total_pages: Общее число страниц.
+
     Returns:
-        InlineKeyboardMarkup with unknown code buttons
+        InlineKeyboardMarkup с кнопками неизвестных кодов.
     """
     keyboard = []
     
@@ -297,7 +297,7 @@ def get_unknown_codes_inline_keyboard(
             )
         ])
     
-    # Pagination buttons
+    # Кнопки пагинации
     nav_buttons = []
     if page > 1:
         nav_buttons.append(
@@ -319,14 +319,14 @@ def get_unknown_codes_inline_keyboard(
 
 def get_yes_no_keyboard(action_prefix: str, item_id: Optional[int] = None) -> InlineKeyboardMarkup:
     """
-    Build Yes/No confirmation keyboard.
-    
+    Собрать клавиатуру подтверждения Да/Нет.
+
     Args:
-        action_prefix: Prefix for callback data
-        item_id: Optional item ID to include in callback
-        
+        action_prefix: Префикс callback-данных.
+        item_id: Необязательный ID элемента для включения в callback.
+
     Returns:
-        InlineKeyboardMarkup with Yes/No buttons
+        InlineKeyboardMarkup с кнопками Да/Нет.
     """
     suffix = f"_{item_id}" if item_id else ""
     
@@ -340,14 +340,14 @@ def get_yes_no_keyboard(action_prefix: str, item_id: Optional[int] = None) -> In
 
 def get_confirm_delete_keyboard(item_type: str, item_id: int) -> InlineKeyboardMarkup:
     """
-    Build delete confirmation keyboard.
-    
+    Собрать клавиатуру подтверждения удаления.
+
     Args:
-        item_type: Type of item ('error' or 'category')
-        item_id: Item ID
-        
+        item_type: Тип элемента ('error' или 'category').
+        item_id: ID элемента.
+
     Returns:
-        InlineKeyboardMarkup with confirm/cancel buttons
+        InlineKeyboardMarkup с кнопками подтверждения/отмены.
     """
     return InlineKeyboardMarkup([
         [
@@ -367,10 +367,10 @@ def get_confirm_delete_keyboard(item_type: str, item_id: int) -> InlineKeyboardM
 
 def get_csv_import_keyboard() -> ReplyKeyboardMarkup:
     """
-    Build keyboard for CSV import waiting state.
-    
+    Собрать клавиатуру для режима ожидания импорта CSV.
+
     Returns:
-        ReplyKeyboardMarkup for CSV import
+        ReplyKeyboardMarkup для импорта CSV.
     """
     return ReplyKeyboardMarkup(
         [
@@ -385,10 +385,10 @@ def get_csv_import_keyboard() -> ReplyKeyboardMarkup:
 
 def get_csv_confirm_keyboard() -> InlineKeyboardMarkup:
     """
-    Build keyboard for CSV import confirmation.
-    
+    Собрать клавиатуру подтверждения импорта CSV.
+
     Returns:
-        InlineKeyboardMarkup with import options
+        InlineKeyboardMarkup с вариантами импорта.
     """
     return InlineKeyboardMarkup([
         [

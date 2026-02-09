@@ -1,22 +1,22 @@
 """
-Gamification Module Messages
+Сообщения модуля геймификации.
 
-All user-facing messages for the gamification/achievement system.
-Messages use Telegram MarkdownV2 format where needed.
+Все пользовательские сообщения для системы достижений/геймификации.
+Сообщения используют формат Telegram MarkdownV2 там, где это нужно.
 """
 # pylint: disable=line-too-long
-# Note: Double backslashes are intentional for Telegram MarkdownV2 escaping
+# Примечание: двойные обратные слэши нужны для экранирования MarkdownV2
 
 from typing import Optional, Dict, List
 from . import settings
 
 
-# ===== SUBMENU =====
+# ===== ПОДМЕНЮ =====
 
 MESSAGE_SUBMENU = "🏆 *Достижения*\n\nВаш цифровой профиль, достижения и рейтинги\\.\n\nВыберите действие из меню:"
 
 
-# ===== PROFILE MESSAGES =====
+# ===== СООБЩЕНИЯ ПРОФИЛЯ =====
 
 def format_profile_message(
     first_name: str,
@@ -31,35 +31,35 @@ def format_profile_message(
     achievements_by_level: Dict[int, int]
 ) -> str:
     """
-    Build user profile message.
+    Сформировать сообщение профиля пользователя.
     
     Args:
-        first_name: User's first name
-        last_name: User's last name (optional)
-        total_score: Total score points
-        rank_name: Current rank name
-        rank_icon: Current rank emoji
-        next_rank_name: Next rank name (None if max rank)
-        next_rank_threshold: Points needed for next rank
-        total_achievements: Total achievement levels unlocked
-        max_achievements: Maximum possible achievement levels
-        achievements_by_level: Dict of level -> count
+        first_name: имя пользователя.
+        last_name: фамилия пользователя (опционально).
+        total_score: суммарные очки.
+        rank_name: название текущего ранга.
+        rank_icon: эмодзи текущего ранга.
+        next_rank_name: следующий ранг (None, если уже максимальный).
+        next_rank_threshold: очков нужно до следующего ранга.
+        total_achievements: всего разблокированных уровней достижений.
+        max_achievements: максимальное возможное число уровней достижений.
+        achievements_by_level: словарь уровень -> количество.
     
     Returns:
-        Formatted message for MarkdownV2
+        Сообщение, готовое для MarkdownV2.
     """
-    # Escape special characters for MarkdownV2
+    # Экранируем спецсимволы для MarkdownV2
     name = _escape_md(first_name)
     if last_name:
         name += f" {_escape_md(last_name)}"
     
-    # Progress to next rank
+    # Прогресс до следующего ранга
     if next_rank_name and next_rank_threshold:
         progress_text = f"\n📈 До «{_escape_md(next_rank_name)}»: *{next_rank_threshold - total_score}* очков"
     else:
         progress_text = "\n🎉 *Максимальный ранг достигнут\\!*"
     
-    # Achievement breakdown
+    # Разбивка по достижениям
     bronze = achievements_by_level.get(settings.ACHIEVEMENT_LEVEL_BRONZE, 0)
     silver = achievements_by_level.get(settings.ACHIEVEMENT_LEVEL_SILVER, 0)
     gold = achievements_by_level.get(settings.ACHIEVEMENT_LEVEL_GOLD, 0)
@@ -88,20 +88,20 @@ def format_other_user_profile_message(
     obfuscate: bool = False
 ) -> str:
     """
-    Build another user's profile message (for viewing from rankings).
+    Сформировать профиль другого пользователя (просмотр из рейтинга).
     
     Args:
-        first_name: User's first name
-        last_name: User's last name (optional)
-        total_score: Total score points
-        rank_name: Current rank name
-        rank_icon: Current rank emoji
-        total_achievements: Total achievement levels unlocked
-        achievements_by_level: Dict of level -> count
-        obfuscate: Whether to hide full name
+        first_name: имя пользователя.
+        last_name: фамилия пользователя (опционально).
+        total_score: суммарные очки.
+        rank_name: название текущего ранга.
+        rank_icon: эмодзи текущего ранга.
+        total_achievements: всего разблокированных уровней достижений.
+        achievements_by_level: словарь уровень -> количество.
+        obfuscate: скрывать ли полное имя.
     
     Returns:
-        Formatted message for MarkdownV2
+        Сообщение, готовое для MarkdownV2.
     """
     if obfuscate:
         name = _obfuscate_name(first_name, last_name)
@@ -110,7 +110,7 @@ def format_other_user_profile_message(
         if last_name:
             name += f" {_escape_md(last_name)}"
     
-    # Achievement breakdown
+    # Разбивка по достижениям
     bronze = achievements_by_level.get(settings.ACHIEVEMENT_LEVEL_BRONZE, 0)
     silver = achievements_by_level.get(settings.ACHIEVEMENT_LEVEL_SILVER, 0)
     gold = achievements_by_level.get(settings.ACHIEVEMENT_LEVEL_GOLD, 0)
@@ -127,7 +127,7 @@ def format_other_user_profile_message(
     )
 
 
-# ===== ACHIEVEMENT MESSAGES =====
+# ===== СООБЩЕНИЯ ДОСТИЖЕНИЙ =====
 
 MESSAGE_ACHIEVEMENTS_HEADER = "🎖️ *Мои достижения*\n\nВсего разблокировано: *{unlocked}* из *{total}*\n\n"
 
@@ -144,30 +144,30 @@ def format_achievement_card(
     threshold_bronze: int,
     threshold_silver: int,
     threshold_gold: int,
-    unlocked_level: int  # 0 = none, 1 = bronze, 2 = silver, 3 = gold
+    unlocked_level: int  # 0 = нет, 1 = бронза, 2 = серебро, 3 = золото
 ) -> str:
     """
-    Format a single achievement card.
+    Сформатировать карточку достижения.
     
     Args:
-        name: Achievement name
-        description: Achievement description
-        icon: Achievement emoji icon
-        current_count: Current progress count
-        threshold_bronze: Bronze level threshold
-        threshold_silver: Silver level threshold
-        threshold_gold: Gold level threshold
-        unlocked_level: Highest unlocked level (0-3)
+        name: название достижения.
+        description: описание достижения.
+        icon: эмодзи достижения.
+        current_count: текущий прогресс.
+        threshold_bronze: порог бронзового уровня.
+        threshold_silver: порог серебряного уровня.
+        threshold_gold: порог золотого уровня.
+        unlocked_level: максимальный разблокированный уровень (0-3).
     
     Returns:
-        Formatted achievement card
+        Отформатированная карточка достижения.
     """
-    # Level indicators
+    # Индикаторы уровней
     bronze_check = "🥉" if unlocked_level >= 1 else "⬜"
     silver_check = "🥈" if unlocked_level >= 2 else "⬜"
     gold_check = "🥇" if unlocked_level >= 3 else "⬜"
     
-    # Progress text
+    # Текст прогресса
     if unlocked_level >= 3:
         progress = "✅ Полностью разблокировано"
     elif unlocked_level >= 2:
@@ -192,7 +192,7 @@ def format_achievement_unlocked_notification(
     level_icon: str
 ) -> str:
     """
-    Format achievement unlock notification.
+    Сформатировать уведомление о разблокировке достижения.
     """
     return (
         f"🎉 *Новое достижение\\!*\n\n"
@@ -201,7 +201,7 @@ def format_achievement_unlocked_notification(
     )
 
 
-# ===== RANKING MESSAGES =====
+# ===== СООБЩЕНИЯ РЕЙТИНГОВ =====
 
 MESSAGE_RANKINGS_MENU = "📊 *Рейтинги*\n\nВыберите тип рейтинга и период:"
 
@@ -220,19 +220,19 @@ def format_ranking_list(
     obfuscate: bool = False
 ) -> str:
     """
-    Format ranking list with pagination.
+    Сформатировать список рейтинга с пагинацией.
     
     Args:
-        entries: List of ranking entries
-        ranking_type: 'score' or 'achievements'
-        current_userid: Current user's ID (to highlight)
-        page: Current page
-        total_pages: Total pages
-        user_rank: Current user's rank info if not in visible list
-        obfuscate: Whether to hide full names
+        entries: список записей рейтинга.
+        ranking_type: "score" или "achievements".
+        current_userid: ID текущего пользователя (для подсветки).
+        page: текущая страница.
+        total_pages: всего страниц.
+        user_rank: информация о месте пользователя, если не видно в списке.
+        obfuscate: скрывать ли полные имена.
     
     Returns:
-        Formatted ranking list
+        Отформатированный список рейтинга.
     """
     if not entries:
         return "📊 *Рейтинг пуст*\n\nПока никто не набрал очков\\."
@@ -258,7 +258,7 @@ def format_ranking_list(
             value = entry.get('total_achievements', 0)
             value_text = f"{value} достижений"
         
-        # Rank medal for top 3
+        # Медали для топ-3
         if rank == 1:
             medal = "🥇"
         elif rank == 2:
@@ -268,7 +268,7 @@ def format_ranking_list(
         else:
             medal = f"{rank}\\."
         
-        # Highlight current user
+        # Подсветить текущего пользователя
         if userid == current_userid:
             lines.append(f"*{medal} {name}* — *{_escape_md(value_text)}* 👈")
         else:
@@ -276,7 +276,7 @@ def format_ranking_list(
     
     result = "\n".join(lines)
     
-    # Add user's rank if not in visible list
+    # Добавить позицию пользователя, если её нет в видимом списке
     if user_rank and user_rank.get('rank'):
         user_in_list = any(e.get('userid') == current_userid for e in entries)
         if not user_in_list:
@@ -287,7 +287,7 @@ def format_ranking_list(
                 value_text = f"{ur.get('total_achievements', 0)} достижений"
             result += f"\n\n{'─' * 15}\n*Ваша позиция: {ur.get('rank')}* — {_escape_md(value_text)}"
     
-    # Pagination info
+    # Информация о пагинации
     if total_pages > 1:
         result += f"\n\n_Страница {page}/{total_pages}_"
     
@@ -295,7 +295,7 @@ def format_ranking_list(
 
 
 def get_period_display_name(period: str) -> str:
-    """Get human-readable period name."""
+    """Вернуть человекочитаемое название периода."""
     if period == settings.RANKING_PERIOD_MONTHLY:
         return "За месяц"
     elif period == settings.RANKING_PERIOD_YEARLY:
@@ -304,7 +304,7 @@ def get_period_display_name(period: str) -> str:
         return "За всё время"
 
 
-# ===== ADMIN MESSAGES =====
+# ===== СООБЩЕНИЯ ДЛЯ АДМИНА =====
 
 MESSAGE_ADMIN_MENU = "🔐 *Админ\\-панель геймификации*\n\nВыберите действие из меню:"
 
@@ -332,7 +332,7 @@ def format_admin_stats(
     total_score_awarded: int,
     top_scorers: List[Dict]
 ) -> str:
-    """Format admin statistics message."""
+    """Сформировать сообщение со статистикой для админа."""
     top_lines = []
     for i, scorer in enumerate(top_scorers[:5], 1):
         name = _escape_md(scorer.get('first_name', 'Unknown'))
@@ -364,7 +364,7 @@ def format_admin_achievement_item(
     threshold_gold: int,
     unlocked_count: int
 ) -> str:
-    """Format achievement item for admin view."""
+    """Сформировать элемент достижения для админского просмотра."""
     return (
         f"{icon} *{_escape_md(name)}* \\[{_escape_md(module)}\\]\n"
         f"   Код: `{_escape_md(code)}`\n"
@@ -373,7 +373,7 @@ def format_admin_achievement_item(
     )
 
 
-# ===== SEARCH MESSAGES =====
+# ===== СООБЩЕНИЯ ПОИСКА =====
 
 MESSAGE_SEARCH_ENTER_QUERY = "🔍 *Поиск пользователя*\n\nВведите имя или часть имени:"
 
@@ -382,22 +382,22 @@ MESSAGE_SEARCH_RESULTS_HEADER = "🔍 *Результаты поиска:*\n\n"
 MESSAGE_SEARCH_NO_RESULTS = "❌ Пользователи не найдены\\."
 
 
-# ===== HELPER FUNCTIONS =====
+# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 def _escape_md(text: str) -> str:
     """
-    Escape special characters for Telegram MarkdownV2.
+    Экранировать спецсимволы для Telegram MarkdownV2.
     
     Args:
-        text: Raw text to escape
+        text: исходный текст для экранирования.
         
     Returns:
-        Escaped text safe for MarkdownV2
+        Экранированный текст, безопасный для MarkdownV2.
     """
     if not text:
         return ""
     
-    # Characters that need escaping in MarkdownV2
+    # Символы, требующие экранирования в MarkdownV2
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     
     result = str(text)
@@ -409,24 +409,24 @@ def _escape_md(text: str) -> str:
 
 def _obfuscate_name(first_name: str, last_name: Optional[str]) -> str:
     """
-    Obfuscate user name for privacy in rankings.
-    Shows first letter + dots for remaining characters.
+    Скрыть имя пользователя для приватности в рейтингах.
+    Показывает первую букву и точки для оставшихся символов.
     
     Args:
-        first_name: User's first name
-        last_name: User's last name (optional)
+        first_name: имя пользователя.
+        last_name: фамилия пользователя (опционально).
     
     Returns:
-        Obfuscated name like "И... П....."
+        Скрытое имя, например "И... П.....".
     """
     if not first_name:
         return ""
     
-    # First name: first letter + dots for remaining characters
+    # Имя: первая буква + точки для оставшихся символов
     first_dots = "\\." * (len(first_name) - 1)
     obfuscated = _escape_md(first_name[0]) + first_dots
     
-    # Last name: first letter + dots for remaining characters
+    # Фамилия: первая буква + точки для оставшихся символов
     if last_name:
         last_dots = "\\." * (len(last_name) - 1)
         obfuscated += f" {_escape_md(last_name[0])}{last_dots}"
