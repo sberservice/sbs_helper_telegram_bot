@@ -52,6 +52,20 @@ async def news_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboard
     )
+
+    # Показываем превью двух последних новостей с кнопками "Читать"
+    latest_articles, _ = news_logic.get_published_news(page=0, per_page=2, include_expired=False)
+    if latest_articles:
+        preview_text = messages.MESSAGE_LATEST_PREVIEW_HEADER
+        for article in latest_articles:
+            preview_text += _format_article_preview(article)
+            preview_text += "\n\n" + "─" * 20 + "\n\n"
+
+        await update.message.reply_text(
+            preview_text,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_latest_preview_keyboard(latest_articles)
+        )
     
     return settings.STATE_SUBMENU
 
@@ -574,6 +588,7 @@ def get_news_user_handler() -> ConversationHandler:
         ],
         states={
             settings.STATE_SUBMENU: [
+                CallbackQueryHandler(handle_article_view, pattern=f"^{settings.CALLBACK_ARTICLE_PREFIX}"),
                 MessageHandler(filters.Regex(f"^{settings.BUTTON_LATEST_NEWS}$"), show_latest_news),
                 MessageHandler(filters.Regex(f"^{settings.BUTTON_ARCHIVE}$"), show_archive),
                 MessageHandler(filters.Regex(f"^{settings.BUTTON_SEARCH}$"), search_prompt),
