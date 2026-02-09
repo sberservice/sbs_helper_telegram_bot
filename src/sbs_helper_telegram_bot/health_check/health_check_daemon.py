@@ -15,6 +15,7 @@ import requests
 from config.settings import DEBUG
 from src.common.health_check import record_health_status
 
+BASE_URL = "https://kkt-online.nalog.ru/"
 HEALTHCHECK_URL = (
     "https://kkt-online.nalog.ru/lkip.html?query=/kkt/model/check"
     "&factory_number=00307901234231&model_code=0080"
@@ -38,6 +39,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
+session = requests.Session()
 
 
 def _is_healthy(payload: Dict[str, Any]) -> bool:
@@ -53,7 +55,12 @@ def _is_healthy(payload: Dict[str, Any]) -> bool:
 def _check_once() -> None:
     checked_at = int(time.time())
     try:
-        response = requests.get(
+        session.get(
+            BASE_URL,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            headers=REQUEST_HEADERS,
+        )
+        response = session.get(
             HEALTHCHECK_URL,
             timeout=REQUEST_TIMEOUT_SECONDS,
             headers=REQUEST_HEADERS,
