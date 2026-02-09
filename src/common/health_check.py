@@ -110,7 +110,7 @@ def get_tax_health_status_lines() -> list[str]:
     if snapshot.status == HEALTH_STATUS_BROKEN:
         return [
             f"*Статус налоговой:* {_escape_markdown_v2(f'🔴 проблемы {checked_at}')}",
-            f"*Последний успех:* {_escape_markdown_v2(last_healthy)}",
+            f"*Последняя работоспособность:* {_escape_markdown_v2(last_healthy)}",
         ]
 
     return [f"*Статус налоговой:* {_escape_markdown_v2(f'нет данных {checked_at}')}" ]

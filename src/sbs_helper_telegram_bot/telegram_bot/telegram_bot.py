@@ -452,6 +452,7 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         MESSAGE_WELCOME,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
+        disable_web_page_preview=True,
         reply_markup=get_main_menu_keyboard(is_admin=is_admin)
     )
     await update.message.reply_text(
