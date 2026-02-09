@@ -245,7 +245,7 @@ def _get_tax_health_status_text() -> Optional[str]:
         lines = get_tax_health_status_lines()
         if not lines:
             return None
-        return "\n".join(_escape_markdown_v2(line) for line in lines)
+        return "\n".join(lines)
     except Exception:
         return None
 
