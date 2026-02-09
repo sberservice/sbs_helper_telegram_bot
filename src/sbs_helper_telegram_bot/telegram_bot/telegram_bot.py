@@ -454,6 +454,11 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=get_main_menu_keyboard(is_admin=is_admin)
     )
+    await update.message.reply_text(
+        get_main_menu_message(user_id, update.effective_user.first_name),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+    )
 
 async def invite_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """
