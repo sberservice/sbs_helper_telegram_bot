@@ -86,7 +86,13 @@ def get_health_status_snapshot() -> HealthStatusSnapshot:
 def format_moscow_time(timestamp: Optional[int]) -> str:
     if not timestamp:
         return "нет данных"
-    return datetime.fromtimestamp(timestamp, tz=MOSCOW_TZ).strftime("%H:%M") + " МСК"
+    dt = datetime.fromtimestamp(timestamp, tz=MOSCOW_TZ)
+    now = datetime.now(tz=MOSCOW_TZ)
+    if dt.date() == now.date():
+        return dt.strftime("%H:%M") + " МСК"
+    if dt.date() == (now.date() - timedelta(days=1)):
+        return dt.strftime("%H:%M") + " МСК (вчера)"
+    return dt.strftime("%d.%m.%Y %H:%M") + " МСК"
 
 
 def get_tax_health_status_lines() -> list[str]:
