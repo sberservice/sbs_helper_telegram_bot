@@ -19,14 +19,12 @@ MENU_BUTTON_TEXT: Final[str] = "🏆 Достижения"
 
 # Конфигурация кнопок подменю (обычные пользователи)
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    ["👤 Мой профиль"],
     ["🎖️ Мои достижения", "📊 Рейтинги"],
     [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Подменю администратора (включает кнопку админ-панели)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    ["👤 Мой профиль"],
     ["🎖️ Мои достижения", "📊 Рейтинги"],
     ["🔐 Админ профилей", COMMON_BUTTON_MAIN_MENU]
 ]

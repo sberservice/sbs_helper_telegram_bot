@@ -7,6 +7,7 @@
 
 import logging
 import math
+from typing import Optional
 
 from telegram import Update, constants
 from telegram.error import BadRequest
@@ -46,9 +47,18 @@ async def gamification_entry(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Выбираем клавиатуру с учётом статуса администратора
     is_admin = check_if_user_admin(user.id)
     keyboard = keyboards.get_admin_submenu_keyboard() if is_admin else keyboards.get_submenu_keyboard()
-    
+
+    profile_message = _get_profile_message(user.id)
+    if not profile_message:
+        await update.message.reply_text(
+            "❌ Профиль не найден\.",
+            reply_markup=keyboard,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return settings.STATE_SUBMENU
+
     await update.message.reply_text(
-        messages.MESSAGE_SUBMENU,
+        profile_message,
         reply_markup=keyboard,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
@@ -61,28 +71,14 @@ async def gamification_entry(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def show_my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Показать профиль текущего пользователя."""
     user = update.effective_user
-    
-    profile = gamification_logic.get_user_profile(user.id)
-    
-    if not profile:
+
+    message = _get_profile_message(user.id)
+    if not message:
         await update.message.reply_text(
-            "❌ Профиль не найден\\.",
+            "❌ Профиль не найден\.",
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         return settings.STATE_SUBMENU
-    
-    message = messages.format_profile_message(
-        first_name=profile['first_name'],
-        last_name=profile['last_name'],
-        total_score=profile['total_score'],
-        rank_name=profile['rank_name'],
-        rank_icon=profile['rank_icon'],
-        next_rank_name=profile['next_rank_name'],
-        next_rank_threshold=profile['next_rank_threshold'],
-        total_achievements=profile['total_achievements'],
-        max_achievements=profile['max_achievements'],
-        achievements_by_level=profile['achievements_by_level']
-    )
     
     await update.message.reply_text(
         message,
@@ -494,12 +490,21 @@ async def handle_ranking_return(update: Update, context: ContextTypes.DEFAULT_TY
 async def return_to_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Вернуться в подменю геймификации."""
     user = update.effective_user
-    
+
     is_admin = check_if_user_admin(user.id)
     keyboard = keyboards.get_admin_submenu_keyboard() if is_admin else keyboards.get_submenu_keyboard()
-    
+
+    profile_message = _get_profile_message(user.id)
+    if not profile_message:
+        await update.message.reply_text(
+            "❌ Профиль не найден\.",
+            reply_markup=keyboard,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return settings.STATE_SUBMENU
+
     await update.message.reply_text(
-        messages.MESSAGE_SUBMENU,
+        profile_message,
         reply_markup=keyboard,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
@@ -599,6 +604,10 @@ def get_gamification_user_handler() -> ConversationHandler:
                     pattern=f"^{settings.CALLBACK_PREFIX_RANKING}_return$"
                 ),
                 MessageHandler(
+                    filters.Regex(f"^{settings.BUTTON_RANKINGS}$"),
+                    show_rankings_menu
+                ),
+                MessageHandler(
                     filters.Regex(f"^{settings.BUTTON_MY_PROFILE}$"),
                     show_my_profile
                 ),
@@ -621,6 +630,10 @@ def get_gamification_user_handler() -> ConversationHandler:
                     show_rankings_menu
                 ),
                 MessageHandler(
+                    filters.Regex(f"^{settings.BUTTON_RANKINGS}$"),
+                    show_rankings_menu
+                ),
+                MessageHandler(
                     filters.Regex(f"^{settings.BUTTON_MAIN_MENU}$"),
                     return_to_main_menu
                 ),
@@ -629,6 +642,10 @@ def get_gamification_user_handler() -> ConversationHandler:
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     handle_search_query
+                ),
+                MessageHandler(
+                    filters.Regex(f"^{settings.BUTTON_RANKINGS}$"),
+                    show_rankings_menu
                 ),
                 MessageHandler(
                     filters.Regex(f"^{settings.BUTTON_MAIN_MENU}$"),
@@ -650,4 +667,25 @@ def get_gamification_user_handler() -> ConversationHandler:
         },
         name="gamification_user_handler",
         persistent=False
+    )
+
+
+def _get_profile_message(userid: int) -> Optional[str]:
+    """Сформировать сообщение профиля пользователя."""
+    profile = gamification_logic.get_user_profile(userid)
+
+    if not profile:
+        return None
+
+    return messages.format_profile_message(
+        first_name=profile['first_name'],
+        last_name=profile['last_name'],
+        total_score=profile['total_score'],
+        rank_name=profile['rank_name'],
+        rank_icon=profile['rank_icon'],
+        next_rank_name=profile['next_rank_name'],
+        next_rank_threshold=profile['next_rank_threshold'],
+        total_achievements=profile['total_achievements'],
+        max_achievements=profile['max_achievements'],
+        achievements_by_level=profile['achievements_by_level']
     )
