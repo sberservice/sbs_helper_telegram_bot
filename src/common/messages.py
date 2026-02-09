@@ -63,6 +63,7 @@ BUTTON_MAIN_MENU = f"{BUTTON_MAIN_MENU_ICON} {BUTTON_MAIN_MENU_TEXT}"
 # Сообщения главного меню
 MESSAGE_MAIN_MENU = f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\nВыберите действие из меню:"
 MESSAGE_UNRECOGNIZED_INPUT = "🤔 Не понял вашу команду\\.\n\n*Используйте:*\n• Кнопки меню ниже\n• Команды бота \\(/menu, /validate\\)\n• Или /help для справки"
+SECTION_DIVIDER_THIN = "────────────"
 
 
 def _escape_markdown_v2(text: str) -> str:
@@ -124,11 +125,11 @@ def _format_main_menu_message(
         message += "\n📝 *Аттестация:* начните тест, чтобы попасть в рейтинг"
 
     if latest_preview:
-        message += latest_preview
+        message += f"\n\n{SECTION_DIVIDER_THIN}" + latest_preview
 
     health_text = _get_tax_health_status_text()
     if health_text:
-        message += f"\n\n{health_text}"
+        message += f"\n\n{SECTION_DIVIDER_THIN}\n\n{health_text}"
 
     message += "\n\nВыберите действие из меню:"
     return message
@@ -169,12 +170,12 @@ def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str
             else:
                 cert_line = "\n\n📝 *Аттестация:* начните тест, чтобы попасть в рейтинг"
             if latest_preview:
-                base = base + cert_line + latest_preview
+                base = base + cert_line + f"\n\n{SECTION_DIVIDER_THIN}" + latest_preview
             else:
                 base = base + cert_line
             health_text = _get_tax_health_status_text()
             if health_text:
-                base = base + f"\n\n{health_text}"
+                base = base + f"\n\n{SECTION_DIVIDER_THIN}\n\n{health_text}"
             return base + "\n\nВыберите действие из меню:"
 
         return _format_main_menu_message(
