@@ -1,16 +1,16 @@
 """
-Ticket Validator Module Messages
+Сообщения модуля проверки заявок.
 
-All user-facing messages for the ticket validation module.
-Messages use Telegram MarkdownV2 format where needed.
+Все пользовательские сообщения для модуля валидации заявок.
+Сообщения используют формат Telegram MarkdownV2 там, где это нужно.
 """
 # pylint: disable=line-too-long
-# Note: Double backslashes are intentional for Telegram MarkdownV2 escaping
+# Примечание: двойные обратные слэши нужны для экранирования MarkdownV2
 
 from typing import List, Tuple
 import src.common.database as database
 
-# ===== USER MESSAGES =====
+# ===== СООБЩЕНИЯ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ =====
 
 MESSAGE_SEND_TICKET = "📋 Пожалуйста, отправьте текст заявки для проверки\\.\n\nВы можете скопировать текст заявки и вставить его в чат\\.\n\nДля отмены используйте /cancel или любую кнопку меню\\."
 
@@ -23,13 +23,13 @@ MESSAGE_VALIDATION_FAILED = "❌ *Заявка не прошла валидац�
 
 def _escape_markdown_v2(text: str) -> str:
     """
-    Escape special characters for Telegram MarkdownV2.
+    Экранировать спецсимволы для Telegram MarkdownV2.
     
     Args:
-        text: Text to escape
+        text: текст для экранирования.
         
     Returns:
-        Escaped text
+        Экранированный текст.
     """
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     for char in special_chars:
@@ -39,10 +39,10 @@ def _escape_markdown_v2(text: str) -> str:
 
 def _get_stats() -> Tuple[int, int]:
     """
-    Get counts of active rules and ticket types from the database.
+    Получить количество активных правил и типов заявок из базы.
     
     Returns:
-        Tuple of (rules_count, ticket_types_count)
+        Кортеж (rules_count, ticket_types_count).
     """
     rules_count = 0
     ticket_types_count = 0
@@ -73,10 +73,10 @@ def _get_stats() -> Tuple[int, int]:
 
 def get_submenu_message() -> str:
     """
-    Build submenu message with statistics.
+    Сформировать сообщение подменю со статистикой.
     
     Returns:
-        Formatted message for MarkdownV2
+        Сообщение, готовое для MarkdownV2.
     """
     rules_count, ticket_types_count = _get_stats()
     return (
@@ -88,10 +88,10 @@ def get_submenu_message() -> str:
 
 def _get_ticket_types() -> List[str]:
     """
-    Load all active ticket types from the database.
+    Загрузить все активные типы заявок из базы.
     
     Returns:
-        List of ticket type names
+        Список названий типов заявок.
     """
     try:
         with database.get_db_connection() as conn:
@@ -110,10 +110,10 @@ def _get_ticket_types() -> List[str]:
 
 def _get_validation_rules() -> List[str]:
     """
-    Load all active validation rules from the database.
+    Загрузить все активные правила валидации из базы.
     
     Returns:
-        List of rule names
+        Список названий правил.
     """
     try:
         with database.get_db_connection() as conn:
@@ -132,15 +132,15 @@ def _get_validation_rules() -> List[str]:
 
 def get_validation_help_message() -> str:
     """
-    Generate the validation help message with dynamic content from the database.
+    Сформировать справочное сообщение с динамическими данными из базы.
     
     Returns:
-        Formatted help message with ticket types and validation rules
+        Справочное сообщение с типами заявок и правилами.
     """
     ticket_types = _get_ticket_types()
     validation_rules = _get_validation_rules()
     
-    # Build ticket types section
+    # Формируем раздел типов заявок
     if ticket_types:
         ticket_types_text = "*Типы заявок:*\n"
         for tt in ticket_types:
@@ -148,14 +148,14 @@ def get_validation_help_message() -> str:
     else:
         ticket_types_text = "*Типы заявок:* не настроены\n"
     
-    # Build validation rules section (limit to 10)
+    # Формируем раздел правил (ограничение 10)
     if validation_rules:
         rules_text = "*Проверяемые правила:*\n"
         display_rules = validation_rules[:10]
         for rule in display_rules:
             rules_text += f"• {_escape_markdown_v2(rule)}\n"
         
-        # Add "и другие N шт" if there are more than 10 rules
+        # Добавляем "и другие N шт", если правил больше 10
         remaining = len(validation_rules) - 10
         if remaining > 0:
             rules_text += f"• и другие {remaining} шт\\.\n"
@@ -180,14 +180,14 @@ def get_validation_help_message() -> str:
 """
 
 
-# For backward compatibility, provide a static message that falls back to dynamic generation
+# Для обратной совместимости оставляем статическое сообщение
 MESSAGE_VALIDATION_HELP = get_validation_help_message()
 
 MESSAGE_SUBMENU = "✅ *Валидация заявок*\n\nВыберите действие из меню:"
 
 MESSAGE_CANCEL = "❌ Операция отменена\\."
 
-# Debug mode messages
+# Сообщения режима отладки
 MESSAGE_DEBUG_MODE_ENABLED = "🔍 *Режим отладки включен*\n\nТеперь при валидации заявок вы будете видеть подробную информацию о процессе определения типа заявки\\."
 
 MESSAGE_DEBUG_MODE_DISABLED = "🔍 *Режим отладки выключен*\n\nПодробная информация о валидации больше не будет отображаться\\."
@@ -195,7 +195,7 @@ MESSAGE_DEBUG_MODE_DISABLED = "🔍 *Режим отладки выключен*
 MESSAGE_DEBUG_MODE_NOT_ADMIN = "⛔ Режим отладки доступен только администраторам\\."
 
 
-# ===== ADMIN PANEL MESSAGES =====
+# ===== СООБЩЕНИЯ АДМИН-ПАНЕЛИ =====
 
 MESSAGE_ADMIN_NOT_AUTHORIZED = "⛔ У вас нет прав администратора\\."
 
@@ -275,7 +275,7 @@ MESSAGE_ADMIN_OPERATION_CANCELLED = "❌ Операция отменена\\."
 MESSAGE_ADMIN_INVALID_INPUT = "❌ Некорректный ввод\\. Попробуйте снова\\."
 
 
-# ===== ADMIN TEST TEMPLATES MESSAGES =====
+# ===== СООБЩЕНИЯ ТЕСТОВЫХ ШАБЛОНОВ (АДМИН) =====
 
 MESSAGE_ADMIN_TEMPLATES_MENU = """🧪 *Тестовые шаблоны*
 
@@ -346,7 +346,7 @@ MESSAGE_ADMIN_NO_TEMPLATES = "⚠️ *Тестовые шаблоны не на�
 MESSAGE_ADMIN_NO_RULES_FOR_TEMPLATE = "⚠️ *Для этого шаблона не настроены правила*\n\nДобавьте правила, которые должен тестировать этот шаблон\\."
 
 
-# ===== ADMIN UI MESSAGES =====
+# ===== СООБЩЕНИЯ UI (АДМИН) =====
 
 MESSAGE_ADMIN_NOT_ASSIGNED = "Не назначено"
 MESSAGE_ADMIN_ENABLED = "включено"
@@ -384,7 +384,7 @@ MESSAGE_ADMIN_RULE_NOT_FOUND = "❌ Правило не найдено\\."
 MESSAGE_ADMIN_ERROR_UPDATING = "❌ Ошибка при обновлении правила\\."
 
 
-# ===== TICKET TYPE DETECTION MESSAGES =====
+# ===== СООБЩЕНИЯ ОПРЕДЕЛЕНИЯ ТИПА ЗАЯВКИ =====
 
 MESSAGE_AMBIGUOUS_TYPE_WARNING = """⚠️ *Предупреждение: неоднозначный тип заявки*
 
@@ -415,7 +415,7 @@ MESSAGE_NO_TEST_TEMPLATES = """⚠️ *Тестовые шаблоны не на
 Создайте тестовые шаблоны в админ\\-панели\\."""
 
 
-# ===== FILE UPLOAD MESSAGES =====
+# ===== СООБЩЕНИЯ ЗАГРУЗКИ ФАЙЛА =====
 
 MESSAGE_SEND_FILE = """📁 *Пакетная валидация заявок*
 

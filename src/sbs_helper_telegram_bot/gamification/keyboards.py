@@ -9,7 +9,7 @@ from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardBu
 from . import settings
 
 
-# ===== REPLY KEYBOARDS =====
+# ===== ОТВЕТНЫЕ КЛАВИАТУРЫ =====
 
 def get_submenu_keyboard() -> ReplyKeyboardMarkup:
     """
@@ -71,7 +71,7 @@ def get_view_profile_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-# ===== INLINE KEYBOARDS =====
+# ===== ВСТРОЕННЫЕ КЛАВИАТУРЫ =====
 
 def get_rankings_type_keyboard() -> InlineKeyboardMarkup:
     """
@@ -130,24 +130,24 @@ def get_rankings_period_keyboard(ranking_type: str) -> InlineKeyboardMarkup:
 
 def _obfuscate_name_for_button(first_name: str, last_name: Optional[str]) -> str:
     """
-    Obfuscate user name for button display.
-    Shows first letter + dots for remaining characters.
+    Скрыть имя пользователя для отображения на кнопке.
+    Показывает первую букву и точки вместо остальных символов.
     
     Args:
-        first_name: User's first name
-        last_name: User's last name (optional)
+        first_name: Имя пользователя
+        last_name: Фамилия пользователя (необязательно)
     
     Returns:
-        Obfuscated name like "И... Г..."
+        Маскированное имя вида "И... Г..."
     """
     if not first_name:
         return "???"
     
-    # First name: first letter + dots for remaining characters
+    # Имя: первая буква и точки вместо остальных символов
     first_dots = "." * min(len(first_name) - 1, 3)
     obfuscated = first_name[0] + first_dots
     
-    # Last name: first letter + dots for remaining characters
+    # Фамилия: первая буква и точки вместо остальных символов
     if last_name:
         last_dots = "." * min(len(last_name) - 1, 3)
         obfuscated += f" {last_name[0]}{last_dots}"
@@ -164,22 +164,22 @@ def get_ranking_list_keyboard(
     obfuscate: bool = False
 ) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for ranking list with pagination and user selection.
+    Собрать inline-клавиатуру для списка рейтинга с пагинацией и выбором пользователя.
     
     Args:
-        ranking_type: 'score' or 'achievements'
-        period: Period type
-        page: Current page number
-        total_pages: Total pages
-        entries: List of ranking entries (for user buttons)
-        obfuscate: Whether to obfuscate names in buttons
+        ranking_type: 'score' или 'achievements'
+        period: Тип периода
+        page: Текущая страница
+        total_pages: Всего страниц
+        entries: Список записей рейтинга (для пользовательских кнопок)
+        obfuscate: Нужно ли скрывать имена на кнопках
     
     Returns:
-        InlineKeyboardMarkup with pagination and user buttons
+        InlineKeyboardMarkup с пагинацией и пользовательскими кнопками
     """
     keyboard = []
     
-    # User buttons (2 per row)
+    # Кнопки пользователей (по 2 в строке)
     user_buttons = []
     for entry in entries:
         userid = entry.get('userid')
@@ -187,7 +187,7 @@ def get_ranking_list_keyboard(
         last_name = entry.get('last_name')
         rank = entry.get('rank', 0)
         
-        # Get display name (obfuscated or normal)
+        # Получаем отображаемое имя (скрытое или обычное)
         if obfuscate:
             display_name = _obfuscate_name_for_button(first_name, last_name)
         else:
@@ -200,12 +200,12 @@ def get_ranking_list_keyboard(
             )
         )
     
-    # Add user buttons in pairs
+    # Добавляем кнопки пользователей парами
     for i in range(0, len(user_buttons), 2):
         row = user_buttons[i:i+2]
         keyboard.append(row)
     
-    # Pagination row
+    # Строка пагинации
     pagination_row = []
     if page > 1:
         pagination_row.append(
@@ -233,7 +233,7 @@ def get_ranking_list_keyboard(
     if pagination_row:
         keyboard.append(pagination_row)
     
-    # Search button
+    # Кнопка поиска
     keyboard.append([
         InlineKeyboardButton(
             "🔍 Найти пользователя",
@@ -241,7 +241,7 @@ def get_ranking_list_keyboard(
         )
     ])
     
-    # Period selection button
+    # Кнопка выбора периода
     keyboard.append([
         InlineKeyboardButton(
             "📅 Изменить период",
@@ -258,13 +258,13 @@ def get_ranking_list_keyboard(
 
 def get_user_profile_keyboard(from_ranking: bool = False) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for viewing user profile.
+    Собрать inline-клавиатуру для просмотра профиля пользователя.
     
     Args:
-        from_ranking: Whether viewing from rankings (show back button)
+        from_ranking: Просмотр из рейтинга (показывать кнопку назад)
     
     Returns:
-        InlineKeyboardMarkup with profile actions
+        InlineKeyboardMarkup с действиями профиля
     """
     keyboard = []
     
@@ -286,20 +286,20 @@ def get_achievements_keyboard(
     total_pages: int = 1
 ) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for achievements view with module filter.
+    Собрать inline-клавиатуру для просмотра достижений с фильтром по модулю.
     
     Args:
-        modules: List of module names that have achievements
-        selected_module: Currently selected module filter (None = all)
-        page: Current page
-        total_pages: Total pages
+        modules: Список модулей с достижениями
+        selected_module: Выбранный фильтр по модулю (None = все)
+        page: Текущая страница
+        total_pages: Всего страниц
     
     Returns:
-        InlineKeyboardMarkup with module filters and pagination
+        InlineKeyboardMarkup с фильтрами по модулю и пагинацией
     """
     keyboard = []
     
-    # Module filter buttons
+    # Кнопки фильтра по модулю
     filter_row = [
         InlineKeyboardButton(
             "📋 Все" if selected_module else "✅ Все",
@@ -307,7 +307,7 @@ def get_achievements_keyboard(
         )
     ]
     
-    for module in modules[:3]:  # Limit to 3 modules per row
+    for module in modules[:3]:  # Ограничиваем до 3 модулей в строке
         is_selected = selected_module == module
         display = f"✅ {module}" if is_selected else module
         filter_row.append(
@@ -319,7 +319,7 @@ def get_achievements_keyboard(
     
     keyboard.append(filter_row)
     
-    # Additional modules on second row if needed
+    # Дополнительные модули во второй строке при необходимости
     if len(modules) > 3:
         extra_row = []
         for module in modules[3:6]:
@@ -333,7 +333,7 @@ def get_achievements_keyboard(
             )
         keyboard.append(extra_row)
     
-    # Pagination
+    # Пагинация
     if total_pages > 1:
         pagination_row = []
         if page > 1:
@@ -366,13 +366,13 @@ def get_achievements_keyboard(
 
 def get_module_achievements_button(module_name: str) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard with single "View achievements" button for integration into modules.
+    Собрать inline-клавиатуру с одной кнопкой «Посмотреть достижения» для интеграции в модули.
     
     Args:
-        module_name: Name of the module
+        module_name: Название модуля
     
     Returns:
-        InlineKeyboardMarkup with achievements button
+        InlineKeyboardMarkup с кнопкой достижений
     """
     return InlineKeyboardMarkup([
         [
@@ -384,7 +384,7 @@ def get_module_achievements_button(module_name: str) -> InlineKeyboardMarkup:
     ])
 
 
-# ===== ADMIN KEYBOARDS =====
+# ===== КЛАВИАТУРЫ АДМИНА =====
 
 def get_admin_score_config_keyboard(
     configs: List[Dict],
@@ -392,15 +392,15 @@ def get_admin_score_config_keyboard(
     total_pages: int = 1
 ) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for admin score configuration.
+    Собрать inline-клавиатуру для настройки очков в админ-панели.
     
     Args:
-        configs: List of score config entries
-        page: Current page
-        total_pages: Total pages
+        configs: Список записей конфигурации очков
+        page: Текущая страница
+        total_pages: Всего страниц
     
     Returns:
-        InlineKeyboardMarkup with config edit buttons
+        InlineKeyboardMarkup с кнопками редактирования конфигурации
     """
     keyboard = []
     
@@ -417,7 +417,7 @@ def get_admin_score_config_keyboard(
             )
         ])
     
-    # Pagination
+    # Пагинация
     if total_pages > 1:
         pagination_row = []
         if page > 1:
@@ -452,17 +452,17 @@ def get_search_results_keyboard(
     users: List[Dict]
 ) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for user search results.
+    Собрать inline-клавиатуру для результатов поиска пользователей.
     
     Args:
-        users: List of user dicts with userid, first_name, last_name
+        users: Список словарей пользователей с userid, first_name, last_name
     
     Returns:
-        InlineKeyboardMarkup with user selection buttons
+        InlineKeyboardMarkup с кнопками выбора пользователя
     """
     keyboard = []
     
-    for user in users[:10]:  # Limit to 10 results
+    for user in users[:10]:  # Ограничиваем до 10 результатов
         userid = user.get('userid')
         first_name = user.get('first_name', 'User')
         last_name = user.get('last_name', '')
@@ -471,7 +471,7 @@ def get_search_results_keyboard(
         if last_name:
             display_name += f" {last_name}"
         
-        # Truncate if too long
+        # Обрезаем, если слишком длинно
         if len(display_name) > 25:
             display_name = display_name[:22] + "..."
         
@@ -482,7 +482,7 @@ def get_search_results_keyboard(
             )
         ])
     
-    # Cancel button
+    # Кнопка отмены
     keyboard.append([
         InlineKeyboardButton(
             "❌ Отмена",

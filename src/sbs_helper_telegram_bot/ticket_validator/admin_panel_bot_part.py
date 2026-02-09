@@ -1,8 +1,8 @@
 """
-Admin Panel Bot Part
+Часть бота для админ-панели.
 
-Handles admin-only commands for managing validation rules,
-ticket types, rule-type associations, and test templates.
+Обрабатывает команды администратора для управления правилами валидации,
+типами заявок, связями правило-тип и тестовыми шаблонами.
 """
 
 import logging
@@ -25,7 +25,7 @@ from src.common.messages import (
     BUTTON_MAIN_MENU,
 )
 
-# Import module-specific messages and keyboards
+# Импорт сообщений и клавиатур модуля
 from . import messages
 from .keyboards import (
     get_admin_menu_keyboard,
@@ -45,7 +45,7 @@ from src.sbs_helper_telegram_bot.ticket_validator.validation_rules import (
     add_rule_to_ticket_type,
     remove_rule_from_ticket_type,
     test_regex_pattern,
-    # Test template functions
+    # Функции тестовых шаблонов
     create_test_template,
     update_test_template,
     delete_test_template,
@@ -62,7 +62,7 @@ from src.sbs_helper_telegram_bot.ticket_validator.validation_rules import (
 
 logger = logging.getLogger(__name__)
 
-# Conversation states
+# Состояния диалога
 (
     ADMIN_MENU,
     CREATE_RULE_NAME,
@@ -79,7 +79,7 @@ logger = logging.getLogger(__name__)
     SELECT_RULE_FOR_TYPE,
     TEST_REGEX_PATTERN,
     TEST_REGEX_TEXT,
-    # Template management states
+    # Состояния управления шаблонами
     TEMPLATES_MENU,
     CREATE_TEMPLATE_NAME,
     CREATE_TEMPLATE_TEXT,
@@ -91,7 +91,7 @@ logger = logging.getLogger(__name__)
     SELECT_RULE_EXPECTATION,
 ) = range(24)
 
-# Rule types for selection
+# Типы правил для выбора
 RULE_TYPES = [
     'regex',
     'regex_not_match',
@@ -103,7 +103,7 @@ RULE_TYPES = [
 
 
 def escape_markdown(text: str) -> str:
-    """Escape special characters for MarkdownV2."""
+    """Экранировать спецсимволы для MarkdownV2."""
     if text is None:
         return ""
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
@@ -114,17 +114,17 @@ def escape_markdown(text: str) -> str:
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Entry point for /admin command.
-    Shows admin menu if user is authorized admin.
+    Точка входа для команды /admin.
+    Показывает админ-меню, если пользователь — администратор.
     """
-    # Check if user is legitimate
+    # Проверяем, что пользователь легитимный
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return ConversationHandler.END
     
     update_user_info_from_telegram(update.effective_user)
     
-    # Check if user is admin
+    # Проверяем, что пользователь — администратор
     if not check_if_user_admin(update.effective_user.id):
         await update.message.reply_text(
             messages.MESSAGE_ADMIN_NOT_AUTHORIZED,
@@ -141,10 +141,10 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 
 async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle admin menu button presses."""
+    """Обработать нажатия кнопок админ-меню."""
     text = update.message.text
     
-    # Re-check admin status
+    # Повторно проверяем статус администратора
     if not check_if_user_admin(update.effective_user.id):
         await update.message.reply_text(
             messages.MESSAGE_ADMIN_NOT_AUTHORIZED,
@@ -190,10 +190,10 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ADMIN_MENU
 
 
-# ===== RULES LIST =====
+# ===== СПИСОК ПРАВИЛ =====
 
 async def show_rules_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Display list of all validation rules with inline buttons."""
+    """Показать список всех правил валидации с инлайн-кнопками."""
     try:
         rules = load_all_rules(include_inactive=True)
         
@@ -205,7 +205,7 @@ async def show_rules_list(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return ADMIN_MENU
         
-        # Build inline keyboard with rules
+        # Собираем инлайн-клавиатуру с правилами
         keyboard = []
         for rule in rules:
             status = "✅" if rule.active else "❌"
@@ -237,7 +237,7 @@ async def show_rules_list(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def handle_rule_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle inline button callbacks for rule management."""
+    """Обработать колбэки инлайн-кнопок для управления правилами."""
     query = update.callback_query
     await query.answer()
     
@@ -305,14 +305,14 @@ async def handle_rule_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def show_rule_details(query, context: ContextTypes.DEFAULT_TYPE, rule_id: int) -> int:
-    """Show detailed information about a rule."""
+    """Показать подробную информацию о правиле."""
     try:
         rule = load_rule_by_id(rule_id)
         if not rule:
             await query.edit_message_text("❌ Правило не найдено\\.")
             return ADMIN_MENU
         
-        # Get ticket types using this rule
+        # Получаем типы заявок, где используется это правило
         ticket_types = get_ticket_types_for_rule(rule_id)
         types_text = "\n".join([f"• {escape_markdown(t.type_name)}" for t in ticket_types]) if ticket_types else messages.MESSAGE_ADMIN_NOT_ASSIGNED
         
@@ -355,7 +355,7 @@ async def show_rule_details(query, context: ContextTypes.DEFAULT_TYPE, rule_id: 
 
 
 async def toggle_rule(query, context: ContextTypes.DEFAULT_TYPE, rule_id: int) -> int:
-    """Toggle rule active status."""
+    """Переключить активность правила."""
     try:
         rule = load_rule_by_id(rule_id)
         if not rule:
@@ -386,7 +386,7 @@ async def toggle_rule(query, context: ContextTypes.DEFAULT_TYPE, rule_id: int) -
 
 
 async def confirm_delete_rule(query, context: ContextTypes.DEFAULT_TYPE, rule_id: int) -> int:
-    """Show confirmation dialog for rule deletion."""
+    """Показать подтверждение удаления правила."""
     try:
         rule = load_rule_by_id(rule_id)
         if not rule:
@@ -419,7 +419,7 @@ async def confirm_delete_rule(query, context: ContextTypes.DEFAULT_TYPE, rule_id
 
 
 async def execute_delete_rule(query, context: ContextTypes.DEFAULT_TYPE, rule_id: int) -> int:
-    """Execute rule deletion."""
+    """Выполнить удаление правила."""
     try:
         rule = load_rule_by_id(rule_id)
         if not rule:
@@ -448,10 +448,10 @@ async def execute_delete_rule(query, context: ContextTypes.DEFAULT_TYPE, rule_id
         return ADMIN_MENU
 
 
-# ===== CREATE RULE =====
+# ===== СОЗДАНИЕ ПРАВИЛА =====
 
 async def start_create_rule(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start rule creation wizard."""
+    """Запустить мастер создания правила."""
     context.user_data['new_rule'] = {}
     await update.message.reply_text(
         messages.MESSAGE_ADMIN_CREATE_RULE_NAME,
@@ -462,7 +462,7 @@ async def start_create_rule(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def receive_rule_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive rule name from user."""
+    """Принять имя правила от пользователя."""
     text = update.message.text
     
     if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
@@ -477,7 +477,7 @@ async def receive_rule_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     context.user_data['new_rule']['name'] = text
     
-    # Show rule type selection
+    # Показываем выбор типа правила
     keyboard = []
     for rule_type in RULE_TYPES:
         keyboard.append([InlineKeyboardButton(rule_type, callback_data=f"ruletype_{rule_type}")])
@@ -492,7 +492,7 @@ async def receive_rule_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def handle_rule_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle rule type selection callback."""
+    """Обработать выбор типа правила."""
     query = update.callback_query
     await query.answer()
     
@@ -519,7 +519,7 @@ async def handle_rule_type_callback(update: Update, context: ContextTypes.DEFAUL
 
 
 async def receive_rule_pattern(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive rule pattern from user."""
+    """Принять паттерн правила от пользователя."""
     text = update.message.text
     
     if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
@@ -527,7 +527,7 @@ async def receive_rule_pattern(update: Update, context: ContextTypes.DEFAULT_TYP
     
     rule_type = context.user_data['new_rule'].get('type', 'regex')
     
-    # Validate pattern if it's a regex
+    # Валидируем паттерн, если это регулярное выражение
     if rule_type in ['regex', 'regex_not_match', 'regex_fullmatch', 'regex_not_fullmatch']:
         is_valid, message = test_regex_pattern(text)
         if not is_valid:
@@ -547,7 +547,7 @@ async def receive_rule_pattern(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def receive_rule_error_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive error message from user."""
+    """Принять сообщение об ошибке от пользователя."""
     text = update.message.text
     
     if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
@@ -570,7 +570,7 @@ async def receive_rule_error_msg(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def receive_rule_priority(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive priority and create the rule."""
+    """Принять приоритет и создать правило."""
     text = update.message.text
     
     if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
@@ -587,7 +587,7 @@ async def receive_rule_priority(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return CREATE_RULE_PRIORITY
     
-    # Create the rule
+    # Создаём правило
     new_rule = context.user_data.get('new_rule', {})
     
     try:
@@ -618,15 +618,15 @@ async def receive_rule_priority(update: Update, context: ContextTypes.DEFAULT_TY
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
     
-    # Clear user data
+    # Очищаем данные пользователя
     context.user_data.pop('new_rule', None)
     return ADMIN_MENU
 
 
-# ===== TICKET TYPES =====
+# ===== ТИПЫ ЗАЯВОК =====
 
 async def show_ticket_types(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show list of ticket types for rule management."""
+    """Показать список типов заявок для управления правилами."""
     try:
         ticket_types = load_all_ticket_types_admin(include_inactive=True)
         
@@ -666,7 +666,7 @@ async def show_ticket_types(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def show_ticket_types_inline(query, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show ticket types via inline query."""
+    """Показать типы заявок через инлайн-запрос."""
     try:
         ticket_types = load_all_ticket_types_admin(include_inactive=True)
         
@@ -694,7 +694,7 @@ async def show_ticket_types_inline(query, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def show_ticket_type_rules(query, context: ContextTypes.DEFAULT_TYPE, type_id: int) -> int:
-    """Show rules assigned to a ticket type."""
+    """Показать правила, назначенные типу заявки."""
     try:
         ticket_types = load_all_ticket_types_admin(include_inactive=True)
         ticket_type = next((t for t in ticket_types if t.id == type_id), None)
@@ -713,7 +713,7 @@ async def show_ticket_type_rules(query, context: ContextTypes.DEFAULT_TYPE, type
         else:
             rules_text = messages.MESSAGE_ADMIN_NO_ASSIGNED_RULES
         
-        # Format keywords with weights
+        # Форматируем ключевые слова с весами
         if ticket_type.detection_keywords:
             keywords_lines = []
             for kw in ticket_type.detection_keywords:
@@ -726,7 +726,7 @@ async def show_ticket_type_rules(query, context: ContextTypes.DEFAULT_TYPE, type
             keywords_text = messages.MESSAGE_ADMIN_NO_KEYWORDS
         
         keyboard = []
-        # Add remove buttons for existing rules
+        # Добавляем кнопки удаления для существующих правил
         for rule in rules:
             keyboard.append([
                 InlineKeyboardButton(
@@ -758,7 +758,7 @@ async def show_ticket_type_rules(query, context: ContextTypes.DEFAULT_TYPE, type
 
 
 async def show_available_rules_for_type(query, context: ContextTypes.DEFAULT_TYPE, type_id: int) -> int:
-    """Show available rules to add to a ticket type."""
+    """Показать доступные правила для добавления к типу заявки."""
     try:
         all_rules = load_all_rules(include_inactive=True)
         assigned_rules = get_rules_for_ticket_type(type_id)
@@ -793,7 +793,7 @@ async def show_available_rules_for_type(query, context: ContextTypes.DEFAULT_TYP
 
 
 async def add_rule_to_type(query, context: ContextTypes.DEFAULT_TYPE, type_id: int, rule_id: int) -> int:
-    """Add a rule to a ticket type."""
+    """Добавить правило к типу заявки."""
     try:
         success = add_rule_to_ticket_type(rule_id, type_id)
         
@@ -816,7 +816,7 @@ async def add_rule_to_type(query, context: ContextTypes.DEFAULT_TYPE, type_id: i
 
 
 async def remove_rule_from_type(query, context: ContextTypes.DEFAULT_TYPE, type_id: int, rule_id: int) -> int:
-    """Remove a rule from a ticket type."""
+    """Удалить правило из типа заявки."""
     try:
         success = remove_rule_from_ticket_type(rule_id, type_id)
         
@@ -834,7 +834,7 @@ async def remove_rule_from_type(query, context: ContextTypes.DEFAULT_TYPE, type_
 
 
 async def show_rule_ticket_types(query, context: ContextTypes.DEFAULT_TYPE, rule_id: int) -> int:
-    """Show which ticket types use a specific rule."""
+    """Показать, какие типы заявок используют правило."""
     try:
         rule = load_rule_by_id(rule_id)
         if not rule:
@@ -847,7 +847,7 @@ async def show_rule_ticket_types(query, context: ContextTypes.DEFAULT_TYPE, rule
         
         keyboard = []
         
-        # Show assigned types with remove option
+        # Показываем назначенные типы с возможностью удаления
         for tt in assigned_types:
             keyboard.append([
                 InlineKeyboardButton(
@@ -856,7 +856,7 @@ async def show_rule_ticket_types(query, context: ContextTypes.DEFAULT_TYPE, rule
                 )
             ])
         
-        # Show unassigned types with add option
+        # Показываем неназначенные типы с возможностью добавления
         for tt in all_types:
             if tt.id not in assigned_ids:
                 keyboard.append([
@@ -881,10 +881,10 @@ async def show_rule_ticket_types(query, context: ContextTypes.DEFAULT_TYPE, rule
         return ADMIN_MENU
 
 
-# ===== TEST REGEX =====
+# ===== ТЕСТ РЕГУЛЯРНОГО ВЫРАЖЕНИЯ =====
 
 async def start_test_regex(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start regex testing wizard."""
+    """Запустить мастер тестирования регулярного выражения."""
     await update.message.reply_text(
         messages.MESSAGE_ADMIN_TEST_REGEX,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -894,13 +894,13 @@ async def start_test_regex(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def receive_test_pattern(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive regex pattern for testing."""
+    """Принять паттерн регулярного выражения для тестирования."""
     text = update.message.text
     
     if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
-    # Validate the pattern first
+    # Сначала валидируем паттерн
     is_valid, message = test_regex_pattern(text)
     
     if not is_valid:
@@ -920,7 +920,7 @@ async def receive_test_pattern(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def receive_test_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive test text and show results."""
+    """Принять текст для теста и показать результаты."""
     text = update.message.text
     
     if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
@@ -943,10 +943,10 @@ async def receive_test_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     return ADMIN_MENU
 
 
-# ===== TEST TEMPLATES MANAGEMENT =====
+# ===== УПРАВЛЕНИЕ ТЕСТОВЫМИ ШАБЛОНАМИ =====
 
 async def show_templates_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Display test templates menu."""
+    """Показать меню тестовых шаблонов."""
     await update.message.reply_text(
         messages.MESSAGE_ADMIN_TEMPLATES_MENU,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -956,7 +956,7 @@ async def show_templates_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def show_templates_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Display list of all test templates with inline buttons."""
+    """Показать список всех тестовых шаблонов с инлайн-кнопками."""
     try:
         templates = list_all_test_templates(include_inactive=True)
         
@@ -968,7 +968,7 @@ async def show_templates_list(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return TEMPLATES_MENU
         
-        # Build inline keyboard with templates
+        # Собираем инлайн-клавиатуру с шаблонами
         keyboard = []
         for template in templates:
             status = "✅" if template['active'] else "❌"
@@ -1002,7 +1002,7 @@ async def show_templates_list(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def handle_template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle inline button callbacks for template management."""
+    """Обработать колбэки инлайн-кнопок для управления шаблонами."""
     query = update.callback_query
     await query.answer()
     
@@ -1076,14 +1076,14 @@ async def handle_template_callback(update: Update, context: ContextTypes.DEFAULT
 
 
 async def show_template_details(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
-    """Show detailed information about a template."""
+    """Показать подробную информацию о шаблоне."""
     try:
         template = load_test_template_by_id(template_id)
         if not template:
             await query.edit_message_text("❌ Шаблон не найден\\.")
             return TEMPLATES_MENU
         
-        # Get rule expectations
+        # Получаем ожидания по правилам
         expectations = get_template_rule_expectations(template_id)
         
         rules_list = ""
@@ -1134,7 +1134,7 @@ async def show_template_details(query, context: ContextTypes.DEFAULT_TYPE, templ
 
 
 async def toggle_template(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
-    """Toggle template active status."""
+    """Переключить активность шаблона."""
     try:
         template = load_test_template_by_id(template_id)
         if not template:
@@ -1165,7 +1165,7 @@ async def toggle_template(query, context: ContextTypes.DEFAULT_TYPE, template_id
 
 
 async def confirm_delete_template(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
-    """Ask for confirmation before deleting template."""
+    """Запросить подтверждение перед удалением шаблона."""
     try:
         template = load_test_template_by_id(template_id)
         if not template:
@@ -1196,7 +1196,7 @@ async def confirm_delete_template(query, context: ContextTypes.DEFAULT_TYPE, tem
 
 
 async def execute_delete_template(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
-    """Actually delete the template."""
+    """Фактически удалить шаблон."""
     try:
         template = load_test_template_by_id(template_id)
         template_name = template['template_name'] if template else messages.MESSAGE_ADMIN_UNKNOWN_TEMPLATE
@@ -1223,7 +1223,7 @@ async def execute_delete_template(query, context: ContextTypes.DEFAULT_TYPE, tem
 
 
 async def show_template_rules(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
-    """Show rules configured for a template with add/remove options."""
+    """Показать правила шаблона с возможностью добавления/удаления."""
     try:
         template = load_test_template_by_id(template_id)
         if not template:
@@ -1273,7 +1273,7 @@ async def show_template_rules(query, context: ContextTypes.DEFAULT_TYPE, templat
 
 
 async def show_available_rules_for_template(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
-    """Show rules that can be added to a template."""
+    """Показать правила, которые можно добавить в шаблон."""
     try:
         template = load_test_template_by_id(template_id)
         if not template:
@@ -1318,7 +1318,7 @@ async def show_available_rules_for_template(query, context: ContextTypes.DEFAULT
 
 
 async def ask_rule_expectation(query, context: ContextTypes.DEFAULT_TYPE, template_id: int, rule_id: int) -> int:
-    """Ask what the expected result should be for this rule."""
+    """Спросить ожидаемый результат для этого правила."""
     try:
         rule = load_rule_by_id(rule_id)
         if not rule:
@@ -1348,7 +1348,7 @@ async def ask_rule_expectation(query, context: ContextTypes.DEFAULT_TYPE, templa
 
 async def set_rule_expectation(query, context: ContextTypes.DEFAULT_TYPE, 
                                template_id: int, rule_id: int, expected_pass: bool) -> int:
-    """Set the expected result for a rule on a template."""
+    """Установить ожидаемый результат для правила в шаблоне."""
     try:
         rule = load_rule_by_id(rule_id)
         rule_name = rule.rule_name if rule else messages.MESSAGE_ADMIN_UNKNOWN_RULE
@@ -1367,7 +1367,7 @@ async def set_rule_expectation(query, context: ContextTypes.DEFAULT_TYPE,
         else:
             await query.edit_message_text("❌ Ошибка при добавлении правила\\.")
         
-        # Clean up
+        # Очистка
         context.user_data.pop('pending_rule_id', None)
         
         return TEMPLATES_MENU
@@ -1380,7 +1380,7 @@ async def set_rule_expectation(query, context: ContextTypes.DEFAULT_TYPE,
 
 async def remove_rule_from_template(query, context: ContextTypes.DEFAULT_TYPE, 
                                     template_id: int, rule_id: int) -> int:
-    """Remove a rule expectation from a template."""
+    """Удалить ожидаемый результат правила из шаблона."""
     try:
         rule = load_rule_by_id(rule_id)
         rule_name = rule.rule_name if rule else messages.MESSAGE_ADMIN_UNKNOWN_RULE
@@ -1406,7 +1406,7 @@ async def remove_rule_from_template(query, context: ContextTypes.DEFAULT_TYPE,
 
 
 async def run_single_template_test(query, context: ContextTypes.DEFAULT_TYPE, template_id: int) -> int:
-    """Run validation test for a single template."""
+    """Запустить проверку для одного шаблона."""
     try:
         admin_userid = query.from_user.id
         result = run_template_validation_test(template_id, admin_userid)
@@ -1428,7 +1428,7 @@ async def run_single_template_test(query, context: ContextTypes.DEFAULT_TYPE, te
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
         else:
-            # Build mismatches list
+            # Формируем список несовпадений
             mismatches = ""
             for detail in result['details']:
                 if not detail['matches_expectation']:
@@ -1456,11 +1456,11 @@ async def run_single_template_test(query, context: ContextTypes.DEFAULT_TYPE, te
 
 
 async def run_all_tests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Run all template validation tests."""
+    """Запустить проверку всех шаблонов."""
     try:
         admin_userid = update.effective_user.id
         
-        # Send "running" message
+        # Отправляем сообщение о запуске
         await update.message.reply_text(
             "🧪 *Запуск всех тестов\\.\\.\\.*",
             parse_mode=constants.ParseMode.MARKDOWN_V2
@@ -1476,7 +1476,7 @@ async def run_all_tests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             )
             return TEMPLATES_MENU
         
-        # Format results
+        # Форматируем результаты
         passed = results['templates_passed']
         failed = results['templates_failed']
         total = results['total_templates']
@@ -1494,7 +1494,7 @@ async def run_all_tests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         response += f"❌ Провалено: {failed}\n\n"
         response += f"*{status_text}*\n\n"
         
-        # Add details for each template
+        # Добавляем детали по каждому шаблону
         response += "*Детали:*\n"
         for r in results['results']:
             template_name = escape_markdown(r['template_name'])
@@ -1521,10 +1521,10 @@ async def run_all_tests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return TEMPLATES_MENU
 
 
-# ===== CREATE TEMPLATE =====
+# ===== СОЗДАНИЕ ШАБЛОНА =====
 
 async def start_create_template(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start the template creation process."""
+    """Запустить процесс создания шаблона."""
     context.user_data['new_template'] = {}
     
     await update.message.reply_text(
@@ -1536,7 +1536,7 @@ async def start_create_template(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def receive_template_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive template name."""
+    """Принять название шаблона."""
     text = update.message.text
     
     if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
@@ -1552,7 +1552,7 @@ async def receive_template_name(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def receive_template_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive template text (sample ticket)."""
+    """Принять текст шаблона (пример заявки)."""
     text = update.message.text
     
     if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
@@ -1568,7 +1568,7 @@ async def receive_template_text(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def receive_template_desc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive template description."""
+    """Принять описание шаблона."""
     text = update.message.text
     
     if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
@@ -1592,14 +1592,14 @@ async def receive_template_desc(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def handle_template_expected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle expected result selection for new template."""
+    """Обработать выбор ожидаемого результата для нового шаблона."""
     query = update.callback_query
     await query.answer()
     
     data = query.data
     expected_result = 'pass' if data == "template_expected_pass" else 'fail'
     
-    # Create the template
+    # Создаём шаблон
     template_data = context.user_data.get('new_template', {})
     
     try:
@@ -1628,11 +1628,11 @@ async def handle_template_expected_callback(update: Update, context: ContextType
     return TEMPLATES_MENU
 
 
-# ===== CANCEL AND HELPERS =====
+# ===== ОТМЕНА И ВСПОМОГАТЕЛЬНОЕ =====
 
 async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> int:
-    """Handle cancel/navigation buttons during conversation."""
-    # Clear any ongoing operation data
+    """Обработать кнопки отмены/навигации во время диалога."""
+    # Очищаем данные текущей операции
     context.user_data.pop('new_rule', None)
     context.user_data.pop('test_pattern', None)
     context.user_data.pop('manage_type_id', None)
@@ -1658,7 +1658,7 @@ async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, text
 
 
 async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancel admin conversation."""
+    """Отменить админский диалог."""
     context.user_data.pop('new_rule', None)
     context.user_data.pop('test_pattern', None)
     context.user_data.pop('manage_type_id', None)
@@ -1680,11 +1680,11 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return ConversationHandler.END
 
 
-# Build the conversation handler
+# Собираем обработчик диалога
 def get_admin_conversation_handler() -> ConversationHandler:
-    """Build and return the admin panel ConversationHandler."""
+    """Собрать и вернуть ConversationHandler для админ-панели."""
     
-    # Common handler for menu buttons that can be pressed in any state
+    # Общий обработчик кнопок меню, доступных в любом состоянии
     menu_buttons_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler)
     
     return ConversationHandler(
@@ -1703,7 +1703,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             ],
             CREATE_RULE_TYPE: [
                 CallbackQueryHandler(handle_rule_type_callback),
-                menu_buttons_handler  # Allow menu navigation
+                menu_buttons_handler  # Разрешаем навигацию по меню
             ],
             CREATE_RULE_PATTERN: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_rule_pattern)
@@ -1716,23 +1716,23 @@ def get_admin_conversation_handler() -> ConversationHandler:
             ],
             SELECT_RULE_FOR_ACTION: [
                 CallbackQueryHandler(handle_rule_callback),
-                menu_buttons_handler  # Allow menu navigation
+                menu_buttons_handler  # Разрешаем навигацию по меню
             ],
             CONFIRM_DELETE: [
                 CallbackQueryHandler(handle_rule_callback),
-                menu_buttons_handler  # Allow menu navigation
+                menu_buttons_handler  # Разрешаем навигацию по меню
             ],
             SELECT_TICKET_TYPE: [
                 CallbackQueryHandler(handle_rule_callback),
-                menu_buttons_handler  # Allow menu navigation
+                menu_buttons_handler  # Разрешаем навигацию по меню
             ],
             MANAGE_TYPE_RULES: [
                 CallbackQueryHandler(handle_rule_callback),
-                menu_buttons_handler  # Allow menu navigation
+                menu_buttons_handler  # Разрешаем навигацию по меню
             ],
             SELECT_RULE_FOR_TYPE: [
                 CallbackQueryHandler(handle_rule_callback),
-                menu_buttons_handler  # Allow menu navigation
+                menu_buttons_handler  # Разрешаем навигацию по меню
             ],
             TEST_REGEX_PATTERN: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_test_pattern)
@@ -1740,7 +1740,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             TEST_REGEX_TEXT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_test_text)
             ],
-            # Template management states
+            # Состояния управления шаблонами
             TEMPLATES_MENU: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
                 CallbackQueryHandler(handle_template_callback)
@@ -1756,23 +1756,23 @@ def get_admin_conversation_handler() -> ConversationHandler:
             ],
             CREATE_TEMPLATE_EXPECTED: [
                 CallbackQueryHandler(handle_template_expected_callback),
-                menu_buttons_handler  # Allow menu navigation
+                menu_buttons_handler  # Разрешаем навигацию по меню
             ],
             SELECT_TEMPLATE_FOR_ACTION: [
                 CallbackQueryHandler(handle_template_callback),
-                menu_buttons_handler  # Allow menu navigation
+                menu_buttons_handler  # Разрешаем навигацию по меню
             ],
             MANAGE_TEMPLATE_RULES: [
                 CallbackQueryHandler(handle_template_callback),
-                menu_buttons_handler  # Allow menu navigation
+                menu_buttons_handler  # Разрешаем навигацию по меню
             ],
             SELECT_RULE_FOR_TEMPLATE: [
                 CallbackQueryHandler(handle_template_callback),
-                menu_buttons_handler  # Allow menu navigation
+                menu_buttons_handler  # Разрешаем навигацию по меню
             ],
             SELECT_RULE_EXPECTATION: [
                 CallbackQueryHandler(handle_template_callback),
-                menu_buttons_handler  # Allow menu navigation
+                menu_buttons_handler  # Разрешаем навигацию по меню
             ],
         },
         fallbacks=[
@@ -1780,7 +1780,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CommandHandler("reset", cancel_admin),
             CommandHandler("menu", cancel_admin),
             MessageHandler(filters.Regex(f"^{re.escape(BUTTON_MAIN_MENU)}$"), cancel_admin),
-            MessageHandler(filters.COMMAND, cancel_admin),  # Handle /start and other commands
+            MessageHandler(filters.COMMAND, cancel_admin),  # Обрабатываем /start и другие команды
         ],
         name="admin_panel",
         persistent=False
@@ -1788,8 +1788,8 @@ def get_admin_conversation_handler() -> ConversationHandler:
 
 
 async def show_templates_menu_from_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Entry point for test templates from validator submenu."""
-    # Check if user is admin
+    """Точка входа для тестовых шаблонов из подменю валидатора."""
+    # Проверяем, что пользователь — администратор
     if not check_if_user_admin(update.effective_user.id):
         await update.message.reply_text(
             messages.MESSAGE_ADMIN_NOT_AUTHORIZED,

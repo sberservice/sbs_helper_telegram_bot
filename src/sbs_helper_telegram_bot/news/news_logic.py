@@ -21,7 +21,7 @@ from . import messages
 logger = logging.getLogger(__name__)
 
 
-# ===== SETTINGS HELPERS =====
+# ===== ПОМОЩНИКИ НАСТРОЕК =====
 
 
 def get_news_expiry_days() -> int:
@@ -52,7 +52,7 @@ def set_news_expiry_days(days: int, updated_by: Optional[int] = None) -> bool:
     return bot_settings.set_setting(settings.SETTING_NEWS_EXPIRY_DAYS, str(days), updated_by)
 
 
-# ===== CATEGORIES =====
+# ===== КАТЕГОРИИ =====
 
 
 def get_active_categories() -> List[Dict[str, Any]]:
@@ -205,7 +205,7 @@ def delete_category(category_id: int) -> Tuple[bool, str]:
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Check for articles
+                # Проверяем наличие статей
                 cursor.execute("""
                     SELECT COUNT(*) as count FROM news_articles WHERE category_id = %s
                 """, (category_id,))
@@ -221,7 +221,7 @@ def delete_category(category_id: int) -> Tuple[bool, str]:
         return False, str(e)
 
 
-# ===== ARTICLES =====
+# ===== СТАТЬИ =====
 
 
 def create_article(
@@ -302,13 +302,13 @@ def get_articles_by_status(
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Get total count
+                # Получаем общее количество
                 cursor.execute("""
                     SELECT COUNT(*) as count FROM news_articles WHERE status = %s
                 """, (status,))
                 total = cursor.fetchone()['count']
                 
-                # Get paginated results
+                # Получаем постраничные результаты
                 offset = page * per_page
                 cursor.execute("""
                     SELECT 
@@ -350,7 +350,7 @@ def get_published_news(
         
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Build WHERE clause
+                # Формируем WHERE-условие
                 if include_expired:
                     where_clause = "a.status = 'published' AND a.published_timestamp <= %s"
                     params = [expiry_timestamp]
@@ -358,13 +358,13 @@ def get_published_news(
                     where_clause = "a.status = 'published' AND a.published_timestamp > %s"
                     params = [expiry_timestamp]
                 
-                # Get total count
+                # Получаем общее количество
                 cursor.execute(f"""
                     SELECT COUNT(*) as count FROM news_articles a WHERE {where_clause}
                 """, params)
                 total = cursor.fetchone()['count']
                 
-                # Get paginated results
+                # Получаем постраничные результаты
                 offset = page * per_page
                 params.extend([per_page, offset])
                 cursor.execute(f"""
@@ -461,7 +461,7 @@ def delete_article(article_id: int) -> bool:
         return False
 
 
-# ===== SEARCH =====
+# ===== ПОИСК =====
 
 
 def search_news(
@@ -485,7 +485,7 @@ def search_news(
         
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Get total count
+                # Получаем общее количество
                 cursor.execute("""
                     SELECT COUNT(*) as count 
                     FROM news_articles a
@@ -494,7 +494,7 @@ def search_news(
                 """, (search_pattern, search_pattern))
                 total = cursor.fetchone()['count']
                 
-                # Get paginated results
+                # Получаем постраничные результаты
                 offset = page * per_page
                 cursor.execute("""
                     SELECT 
@@ -514,7 +514,7 @@ def search_news(
         return [], 0
 
 
-# ===== REACTIONS =====
+# ===== РЕАКЦИИ =====
 
 
 def get_article_reactions(article_id: int) -> Dict[str, int]:
@@ -576,7 +576,7 @@ def set_reaction(article_id: int, user_id: int, reaction_type: str) -> bool:
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Check existing reaction
+                # Проверяем существующую реакцию
                 cursor.execute("""
                     SELECT reaction_type FROM news_reactions
                     WHERE news_id = %s AND user_id = %s
@@ -584,7 +584,7 @@ def set_reaction(article_id: int, user_id: int, reaction_type: str) -> bool:
                 existing = cursor.fetchone()
                 
                 if existing and existing['reaction_type'] == reaction_type:
-                    # Toggle off - remove reaction
+                    # Выключаем — удаляем реакцию
                     cursor.execute("""
                         DELETE FROM news_reactions
                         WHERE news_id = %s AND user_id = %s
@@ -592,7 +592,7 @@ def set_reaction(article_id: int, user_id: int, reaction_type: str) -> bool:
                     conn.commit()
                     return False
                 else:
-                    # Add or change reaction
+                    # Добавляем или изменяем реакцию
                     cursor.execute("""
                         INSERT INTO news_reactions (news_id, user_id, reaction_type, created_timestamp)
                         VALUES (%s, %s, %s, %s)
@@ -605,7 +605,7 @@ def set_reaction(article_id: int, user_id: int, reaction_type: str) -> bool:
         return False
 
 
-# ===== READ TRACKING =====
+# ===== УЧЁТ ПРОЧТЕНИЙ =====
 
 
 def get_unread_count(user_id: int) -> int:
@@ -621,14 +621,14 @@ def get_unread_count(user_id: int) -> int:
         
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Get user's last read timestamp
+                # Получаем время последнего чтения пользователя
                 cursor.execute("""
                     SELECT last_read_timestamp FROM news_read_log WHERE user_id = %s
                 """, (user_id,))
                 result = cursor.fetchone()
                 last_read = result['last_read_timestamp'] if result else 0
                 
-                # Count news published after last read and not expired
+                # Считаем новости после последнего чтения и не истёкшие
                 cursor.execute("""
                     SELECT COUNT(*) as count FROM news_articles
                     WHERE status = 'published'
@@ -664,7 +664,7 @@ def mark_all_as_read(user_id: int) -> bool:
         return False
 
 
-# ===== MANDATORY NEWS =====
+# ===== ОБЯЗАТЕЛЬНЫЕ НОВОСТИ =====
 
 
 def get_unacked_mandatory_news(user_id: int) -> Optional[Dict[str, Any]]:
@@ -729,7 +729,7 @@ def has_unacked_mandatory_news(user_id: int) -> bool:
     return get_unacked_mandatory_news(user_id) is not None
 
 
-# ===== BROADCASTING =====
+# ===== РАССЫЛКА =====
 
 
 def get_all_user_ids() -> List[int]:
@@ -845,7 +845,7 @@ async def broadcast_news(
     results = {'sent': 0, 'failed': 0}
     total = len(user_ids)
     
-    # Format the article text
+    # Форматируем текст статьи
     title = messages.escape_markdown_v2(article['title'])
     content = messages.escape_markdown_v2(article['content'])
     category_emoji = article.get('category_emoji', '📰')
@@ -855,7 +855,7 @@ async def broadcast_news(
     published_date = datetime.fromtimestamp(published_ts).strftime('%d.%m.%Y')
     published_date = messages.escape_markdown_v2(published_date)
     
-    # Get reactions
+    # Получаем реакции
     reactions = get_article_reactions(article['id'])
     
     text = messages.format_news_article(
@@ -873,7 +873,7 @@ async def broadcast_news(
     for i, user_id in enumerate(user_ids):
         try:
             if article.get('image_file_id'):
-                # Send with image
+                # Отправляем с изображением
                 await bot.send_photo(
                     chat_id=user_id,
                     photo=article['image_file_id'],
@@ -882,7 +882,7 @@ async def broadcast_news(
                     reply_markup=reaction_keyboard
                 )
             else:
-                # Send text only
+                # Отправляем только текст
                 await bot.send_message(
                     chat_id=user_id,
                     text=text,
@@ -890,7 +890,7 @@ async def broadcast_news(
                     reply_markup=reaction_keyboard
                 )
             
-            # Send attachment if present
+            # Отправляем вложение, если есть
             if article.get('attachment_file_id'):
                 await bot.send_document(
                     chat_id=user_id,
@@ -910,17 +910,17 @@ async def broadcast_news(
             log_delivery(article['id'], user_id, 'failed', str(e)[:500])
             results['failed'] += 1
         
-        # Progress callback
+        # Колбэк прогресса
         if progress_callback and (i + 1) % settings.BROADCAST_PROGRESS_INTERVAL == 0:
             await progress_callback(results['sent'], results['failed'], total)
         
-        # Rate limiting - 0.1s delay = 10 messages/sec (safe margin)
+        # Ограничение скорости — 0.1с = 10 сообщений/с (безопасный запас)
         await asyncio.sleep(settings.BROADCAST_DELAY_SECONDS)
     
     return results
 
 
-# ===== UTILITY FUNCTIONS =====
+# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 
 def format_timestamp(timestamp: int) -> str:
@@ -949,13 +949,13 @@ def split_message(text: str, max_len: int = settings.MAX_MESSAGE_LENGTH) -> List
     
     chunks = []
     while len(text) > max_len:
-        # Try to find a good split point (newline)
+        # Пытаемся найти удачную точку разрыва (перевод строки)
         split_at = text.rfind('\n', 0, max_len)
         if split_at == -1 or split_at < max_len // 2:
-            # No good newline, split at space
+            # Нет хорошего перевода строки — делим по пробелу
             split_at = text.rfind(' ', 0, max_len)
         if split_at == -1:
-            # No space either, hard split
+            # Нет пробела — жёсткий разрез
             split_at = max_len
         
         chunks.append(text[:split_at])

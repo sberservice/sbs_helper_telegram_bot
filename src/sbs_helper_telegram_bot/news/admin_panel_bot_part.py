@@ -1,7 +1,7 @@
 """
-News Module Admin Handlers
+Админские обработчики модуля новостей
 
-Admin panel for creating, editing, publishing, and managing news articles and categories.
+Админ-панель для создания, редактирования, публикации и управления новостями и категориями.
 """
 
 import logging
@@ -28,20 +28,20 @@ from . import news_logic
 logger = logging.getLogger(__name__)
 
 
-# ===== AUTHORIZATION CHECK =====
+# ===== ПРОВЕРКА ДОСТУПА =====
 
 
 def _check_admin(user_id: int) -> bool:
-    """Check if user is admin."""
+    """Проверить, является ли пользователь администратором."""
     return check_if_user_admin(user_id)
 
 
-# ===== ENTRY POINT =====
+# ===== ТОЧКА ВХОДА =====
 
 
 async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Entry point for admin panel.
+    Точка входа в админ-панель.
     """
     user_id = update.effective_user.id
     
@@ -61,12 +61,12 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return settings.STATE_ADMIN_MENU
 
 
-# ===== DRAFTS LIST =====
+# ===== СПИСОК ЧЕРНОВИКОВ =====
 
 
 async def show_drafts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Show list of draft articles.
+    Показать список черновиков.
     """
     page = context.user_data.get(settings.ADMIN_LIST_PAGE_KEY, 0)
     
@@ -100,12 +100,12 @@ async def show_drafts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     return settings.STATE_ADMIN_DRAFTS_LIST
 
 
-# ===== PUBLISHED LIST =====
+# ===== СПИСОК ОПУБЛИКОВАННЫХ =====
 
 
 async def show_published(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Show list of published articles.
+    Показать список опубликованных статей.
     """
     page = context.user_data.get(settings.ADMIN_LIST_PAGE_KEY, 0)
     
@@ -139,12 +139,12 @@ async def show_published(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return settings.STATE_ADMIN_PUBLISHED_LIST
 
 
-# ===== ARTICLE DETAIL =====
+# ===== ДЕТАЛИ СТАТЬИ =====
 
 
 async def handle_admin_article_select(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle selection of an article from admin list.
+    Обработать выбор статьи из админского списка.
     """
     query = update.callback_query
     await query.answer()
@@ -161,7 +161,7 @@ async def handle_admin_article_select(update: Update, context: ContextTypes.DEFA
     
     context.user_data[settings.ADMIN_CURRENT_ARTICLE_KEY] = article_id
     
-    # Format article detail
+    # Форматируем детали статьи
     text = _format_admin_article_detail(article)
     keyboard = keyboards.get_admin_article_actions_keyboard(article_id, article['status'])
     
@@ -176,18 +176,18 @@ async def handle_admin_article_select(update: Update, context: ContextTypes.DEFA
 
 async def handle_admin_article_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle admin action on article (preview, publish, delete, etc.).
+    Обработать админ-действие над статьёй (превью, публикация, удаление и т. д.).
     """
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
     
-    # Parse action from callback data
+    # Разбираем действие из callback-данных
     action_data = query.data.replace(settings.CALLBACK_ADMIN_ACTION_PREFIX, '')
     
     if action_data == 'back':
-        # Go back to list
+        # Возвращаемся к списку
         return await _return_to_admin_list(update, context)
     
     parts = action_data.split('_')
@@ -206,16 +206,16 @@ async def handle_admin_article_action(update: Update, context: ContextTypes.DEFA
         return settings.STATE_ADMIN_MENU
     
     if action == 'preview':
-        # Send preview to admin
+        # Отправляем превью администратору
         await _send_preview(query, context, article)
         return settings.STATE_ADMIN_VIEW_ARTICLE
     
     elif action == 'publish':
-        # Show publish confirmation
+        # Показываем подтверждение публикации
         return await _show_publish_confirmation(query, context, article)
     
     elif action == 'delete':
-        # Delete article
+        # Удаляем статью
         news_logic.delete_article(article_id)
         await query.edit_message_text(
             messages.MESSAGE_ADMIN_ARTICLE_DELETED,
@@ -224,7 +224,7 @@ async def handle_admin_article_action(update: Update, context: ContextTypes.DEFA
         return await _return_to_admin_menu_callback(query, context)
     
     elif action == 'archive':
-        # Archive article
+        # Архивируем статью
         news_logic.update_article(article_id, status=settings.STATUS_ARCHIVED)
         await query.edit_message_text(
             messages.MESSAGE_ADMIN_ARTICLE_ARCHIVED,
@@ -233,7 +233,7 @@ async def handle_admin_article_action(update: Update, context: ContextTypes.DEFA
         return await _return_to_admin_menu_callback(query, context)
     
     elif action == 'rebroadcast':
-        # Re-broadcast published article
+        # Повторная рассылка опубликованной статьи
         return await _start_broadcast(query, context, article)
     
     return settings.STATE_ADMIN_VIEW_ARTICLE
@@ -241,18 +241,18 @@ async def handle_admin_article_action(update: Update, context: ContextTypes.DEFA
 
 async def _send_preview(query, context: ContextTypes.DEFAULT_TYPE, article: dict) -> None:
     """
-    Send preview of article to admin.
+    Отправить превью статьи администратору.
     """
     user_id = query.from_user.id
     bot = context.bot
     
-    # Format article as users would see it
+    # Форматируем статью так, как её увидят пользователи
     title = messages.escape_markdown_v2(article['title'])
     content = messages.escape_markdown_v2(article['content'])
     category_emoji = article.get('category_emoji', '📰')
     category_name = messages.escape_markdown_v2(article.get('category_name', ''))
     
-    # Use current time for preview
+    # Для превью используем текущее время
     published_date = messages.escape_markdown_v2(datetime.now().strftime('%d.%m.%Y'))
     
     reactions = {'like': 0, 'love': 0, 'dislike': 0}
@@ -268,7 +268,7 @@ async def _send_preview(query, context: ContextTypes.DEFAULT_TYPE, article: dict
     
     keyboard = keyboards.get_reaction_keyboard(article['id'], reactions)
     
-    # Send preview
+    # Отправляем превью
     if article.get('image_file_id'):
         await bot.send_photo(
             chat_id=user_id,
@@ -285,7 +285,7 @@ async def _send_preview(query, context: ContextTypes.DEFAULT_TYPE, article: dict
             reply_markup=keyboard
         )
     
-    # Send attachment if present
+    # Отправляем вложение, если оно есть
     if article.get('attachment_file_id'):
         await bot.send_document(
             chat_id=user_id,
@@ -294,7 +294,7 @@ async def _send_preview(query, context: ContextTypes.DEFAULT_TYPE, article: dict
             caption="📎 Прикреплённый файл"
         )
     
-    # Inform admin
+    # Уведомляем администратора
     await query.message.reply_text(
         messages.MESSAGE_ADMIN_PREVIEW_SENT,
         parse_mode=constants.ParseMode.MARKDOWN_V2
@@ -303,11 +303,11 @@ async def _send_preview(query, context: ContextTypes.DEFAULT_TYPE, article: dict
 
 async def _show_publish_confirmation(query, context: ContextTypes.DEFAULT_TYPE, article: dict) -> int:
     """
-    Show publish confirmation dialog.
+    Показать диалог подтверждения публикации.
     """
     context.user_data[settings.ADMIN_CURRENT_ARTICLE_KEY] = article['id']
     
-    # Build warning message based on article settings
+    # Формируем предупреждение на основе настроек статьи
     if article.get('is_silent'):
         broadcast_warning = messages.MESSAGE_ADMIN_BROADCAST_WARNING_SILENT
     else:
@@ -333,7 +333,7 @@ async def _show_publish_confirmation(query, context: ContextTypes.DEFAULT_TYPE, 
 
 async def handle_publish_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle publish confirmation callback.
+    Обработать callback подтверждения публикации.
     """
     query = update.callback_query
     await query.answer()
@@ -341,7 +341,7 @@ async def handle_publish_confirmation(update: Update, context: ContextTypes.DEFA
     action_data = query.data.replace(settings.CALLBACK_ADMIN_CONFIRM_PREFIX, '')
     
     if action_data.startswith('no_'):
-        # Cancelled
+        # Отменено
         await query.edit_message_text(
             messages.MESSAGE_CANCEL,
             parse_mode=constants.ParseMode.MARKDOWN_V2
@@ -361,21 +361,21 @@ async def handle_publish_confirmation(update: Update, context: ContextTypes.DEFA
             )
             return settings.STATE_ADMIN_MENU
         
-        # Publish the article
+        # Публикуем статью
         news_logic.publish_article(article_id)
         
-        # Reload article to get updated status
+        # Перезагружаем статью, чтобы получить обновлённый статус
         article = news_logic.get_article_by_id(article_id)
         
         if article.get('is_silent'):
-            # Silent publish - no broadcast
+            # Тихая публикация — без рассылки
             await query.edit_message_text(
                 messages.MESSAGE_ADMIN_PUBLISHED,
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
             return await _return_to_admin_menu_callback(query, context)
         else:
-            # Start broadcast
+            # Запускаем рассылку
             return await _start_broadcast(query, context, article)
     
     return settings.STATE_ADMIN_CONFIRM_PUBLISH
@@ -395,13 +395,13 @@ async def _start_broadcast(query, context: ContextTypes.DEFAULT_TYPE, article: d
         )
         return await _return_to_admin_menu_callback(query, context)
     
-    # Show initial progress
+    # Показываем начальный прогресс
     await query.edit_message_text(
         messages.MESSAGE_ADMIN_BROADCAST_STARTED.format(total=total),
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     
-    # Define progress callback
+    # Определяем коллбэк прогресса
     async def progress_callback(sent: int, failed: int, total: int):
         try:
             await query.edit_message_text(
@@ -411,13 +411,13 @@ async def _start_broadcast(query, context: ContextTypes.DEFAULT_TYPE, article: d
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
         except Exception:
-            pass  # Ignore edit errors
+            pass  # Игнорируем ошибки редактирования
     
-    # Run broadcast
+    # Запускаем рассылку
     bot = context.bot
     results = await news_logic.broadcast_news(bot, article, user_ids, progress_callback)
     
-    # Show final results
+    # Показываем итоговые результаты
     await query.message.reply_text(
         messages.MESSAGE_ADMIN_BROADCAST_COMPLETE.format(
             sent=results['sent'],
@@ -431,7 +431,7 @@ async def _start_broadcast(query, context: ContextTypes.DEFAULT_TYPE, article: d
     return settings.STATE_ADMIN_MENU
 
 
-# ===== CREATE NEWS =====
+# ===== СОЗДАНИЕ НОВОСТИ =====
 
 
 async def start_create_news(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -445,7 +445,7 @@ async def start_create_news(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return ConversationHandler.END
     
-    # Initialize draft data
+    # Инициализируем данные черновика
     context.user_data[settings.ADMIN_DRAFT_DATA_KEY] = {}
     
     await update.message.reply_text(
@@ -503,7 +503,7 @@ async def receive_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     Receive article image.
     """
     if update.message.photo:
-        # Get the largest photo
+        # Получаем самое большое фото
         photo = update.message.photo[-1]
         context.user_data[settings.ADMIN_DRAFT_DATA_KEY]['image_file_id'] = photo.file_id
     elif update.message.document and update.message.document.mime_type and update.message.document.mime_type.startswith('image/'):
@@ -647,7 +647,7 @@ async def receive_mandatory(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     draft_data = context.user_data.get(settings.ADMIN_DRAFT_DATA_KEY, {})
     draft_data['is_mandatory'] = is_mandatory
     
-    # Create the article
+    # Создаём статью
     user_id = query.from_user.id
     
     article_id = news_logic.create_article(
@@ -668,21 +668,21 @@ async def receive_mandatory(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         
-        # Show the created article
+        # Показываем созданную статью
         article = news_logic.get_article_by_id(article_id)
         if article:
             context.user_data[settings.ADMIN_CURRENT_ARTICLE_KEY] = article_id
             text = _format_admin_article_detail(article)
             inline_keyboard = keyboards.get_admin_article_actions_keyboard(article_id, article['status'])
             
-            # Update reply keyboard to show Back button
+            # Обновляем reply-клавиатуру, чтобы показать кнопку «Назад»
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text="👇 Используйте кнопки ниже для действий с черновиком",
                 reply_markup=keyboards.get_back_keyboard()
             )
             
-            # Send article detail with inline actions keyboard
+            # Отправляем детали статьи с inline-клавиатурой действий
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text=text,
@@ -699,7 +699,7 @@ async def receive_mandatory(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     return await _return_to_admin_menu_callback(query, context)
 
 
-# ===== EDIT ARTICLE =====
+# ===== РЕДАКТИРОВАНИЕ СТАТЬИ =====
 
 
 async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -709,7 +709,7 @@ async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     query = update.callback_query
     await query.answer()
     
-    # Parse callback data: news_adm_edit_{field}_{article_id}
+    # Разбираем callback-данные: news_adm_edit_{field}_{article_id}
     data = query.data.replace(settings.CALLBACK_ADMIN_EDIT_PREFIX, '')
     parts = data.split('_')
     
@@ -824,7 +824,7 @@ async def receive_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     
-    # Show updated article
+    # Показываем обновлённую статью
     article = news_logic.get_article_by_id(article_id)
     if article:
         text = _format_admin_article_detail(article)
@@ -840,7 +840,7 @@ async def receive_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return settings.STATE_ADMIN_MENU
 
 
-# ===== CATEGORY MANAGEMENT =====
+# ===== УПРАВЛЕНИЕ КАТЕГОРИЯМИ =====
 
 
 async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -929,7 +929,7 @@ async def handle_category_action(update: Update, context: ContextTypes.DEFAULT_T
         return settings.STATE_ADMIN_MENU
     
     if data.startswith('page_'):
-        # Pagination - not implemented for categories yet
+        # Пагинация — пока не реализована для категорий
         return settings.STATE_ADMIN_CATEGORIES_LIST
     
     parts = data.split('_')
@@ -990,7 +990,7 @@ async def handle_category_action(update: Update, context: ContextTypes.DEFAULT_T
         )
         return settings.STATE_ADMIN_CATEGORY_EDIT
     
-    # Refresh category list
+    # Обновляем список категорий
     categories = news_logic.get_all_categories()
     keyboard = keyboards.get_admin_category_list_keyboard(categories)
     
@@ -1028,7 +1028,7 @@ async def receive_category_edit(update: Update, context: ContextTypes.DEFAULT_TY
     return await show_categories(update, context)
 
 
-# ===== NAVIGATION =====
+# ===== НАВИГАЦИЯ =====
 
 
 async def back_to_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1090,7 +1090,7 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     """
     Cancel current operation and return to admin menu.
     """
-    # Clear temp data
+    # Очищаем временные данные
     context.user_data.pop(settings.ADMIN_DRAFT_DATA_KEY, None)
     context.user_data.pop(settings.ADMIN_EDIT_FIELD_KEY, None)
     
@@ -1102,7 +1102,7 @@ async def back_to_news_submenu(update: Update, context: ContextTypes.DEFAULT_TYP
     Return to news submenu from admin.
     """
     from . import news_bot_part
-    # Call the submenu display but return END to exit admin handler
+    # Вызываем показ подменю, но возвращаем END для выхода из админ-обработчика
     await news_bot_part.back_to_submenu(update, context)
     return ConversationHandler.END
 
@@ -1115,7 +1115,7 @@ async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     return await news_bot_part.back_to_main_menu(update, context)
 
 
-# ===== HELPER FUNCTIONS =====
+# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 
 def _format_admin_article_detail(article: dict) -> str:
@@ -1125,11 +1125,11 @@ def _format_admin_article_detail(article: dict) -> str:
     title = messages.escape_markdown_v2(article.get('title', 'Без названия'))
     content = article.get('content', '')
     
-    # Truncate content if too long
+    # Обрезаем контент, если он слишком длинный
     if len(content) > 500:
         content = content[:497] + "..."
     
-    # Escape content for MarkdownV2
+    # Экранируем контент для MarkdownV2
     content = messages.escape_markdown_v2(content)
     
     status_map = {
@@ -1158,7 +1158,7 @@ def _format_admin_article_detail(article: dict) -> str:
     image_line = "🖼️ *Изображение:* ✅" if article.get('image_file_id') else ""
     attachment_line = f"📎 *Файл:* {messages.escape_markdown_v2(article.get('attachment_filename', ''))}" if article.get('attachment_file_id') else ""
     
-    # Reactions section
+    # Раздел реакций
     if article.get('status') == settings.STATUS_PUBLISHED:
         reactions = news_logic.get_article_reactions(article['id'])
         delivery_stats = news_logic.get_delivery_stats(article['id'])
@@ -1189,7 +1189,7 @@ def _format_admin_article_detail(article: dict) -> str:
     )
 
 
-# ===== CONVERSATION HANDLER =====
+# ===== ОБРАБОТЧИК ДИАЛОГА =====
 
 
 def get_news_admin_handler() -> ConversationHandler:

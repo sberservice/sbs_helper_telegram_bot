@@ -22,34 +22,34 @@ from src.common.constants.os import IMAGES_DIR
 import logging
 from pathlib import Path  
 
-# Import module-specific messages, settings, and keyboards
+# Импорт сообщений, настроек и клавиатур модуля
 from . import messages
 from . import settings
 from src.sbs_helper_telegram_bot.ticket_validator import settings as validator_settings
 from .keyboards import get_submenu_keyboard
 from config.settings import DEBUG
 
-# Conversation states
+# Состояния диалога
 WAITING_FOR_SCREENSHOT = 1
 
 logging.basicConfig(
     level=logging.DEBUG if DEBUG else logging.INFO,
     format='%(asctime)s %(levelname)s %(name)s: %(message)s',
-    handlers=[logging.StreamHandler()]   # console
+    handlers=[logging.StreamHandler()]   # консоль
 )
-# set higher logging level for httpx to avoid all GET and POST requests being logged
+# Повышаем уровень логирования для httpx, чтобы не логировать все GET/POST
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 def get_number_of_jobs_in_the_queue() -> int:
     """
-        Returns the number of jobs currently pending or in progress.
+        Возвращает количество задач, ожидающих обработки или выполняющихся.
 
-        Counts all entries in the `imagequeue` table with status < 2
-        (i.e., not yet marked as finished).
+        Считает все записи в таблице `imagequeue` со статусом < 2
+        (то есть ещё не завершённые).
 
         Returns:
-            Total count of unfinished jobs.
+            Общее число незавершённых задач.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -60,13 +60,14 @@ def get_number_of_jobs_in_the_queue() -> int:
         
 def check_if_user_has_unprocessed_job(user_id) -> bool:
     """
-        Checks whether the user has any jobs that are not yet completed (status ≠ 2).
+        Проверяет, есть ли у пользователя незавершённые задачи (status ≠ 2).
 
         Args:
-            user_id: Telegram user ID to check.
+            user_id: ID пользователя Telegram для проверки.
 
         Returns:
-            True if the user has at least one pending or in-progress job, False otherwise.
+            True, если у пользователя есть хотя бы одна ожидающая или выполняемая задача,
+            иначе False.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -260,7 +261,7 @@ def get_menu_button_exit_pattern() -> str:
         Regex pattern string matching menu buttons that exit the module
     """
     import re
-    # Buttons that should exit the screenshot module
+    # Кнопки, которые должны выходить из модуля скриншотов
     exit_buttons = [
         BUTTON_MAIN_MENU,
         BUTTON_MODULES,

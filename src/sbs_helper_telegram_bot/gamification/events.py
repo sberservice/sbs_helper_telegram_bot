@@ -1,8 +1,8 @@
 """
-Gamification Events System
+Система событий геймификации
 
-Central event bus for tracking user actions across all modules.
-Modules emit events, and this system handles achievement/score processing.
+Центральная шина событий для отслеживания действий пользователей во всех модулях.
+Модули публикуют события, а эта система обрабатывает достижения и начисление очков.
 """
 
 import json
@@ -17,16 +17,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EventHandler:
-    """Handler configuration for an event type."""
-    achievement_codes: List[str] = field(default_factory=list)  # Achievement codes to increment
-    score_action: Optional[str] = None  # Score action to award points for
+    """Конфигурация обработчика для типа события."""
+    achievement_codes: List[str] = field(default_factory=list)  # Коды достижений для увеличения прогресса
+    score_action: Optional[str] = None  # Действие для начисления очков
 
 
-# Event handlers registry
-# Maps event_type -> EventHandler config
+# Реестр обработчиков событий
+# Сопоставляет event_type -> конфигурацию EventHandler
 _event_handlers: Dict[str, EventHandler] = {}
 
-# Custom handler functions (for complex logic)
+# Пользовательские обработчики (для сложной логики)
 _custom_handlers: Dict[str, Callable[[Dict[str, Any]], None]] = {}
 
 
@@ -36,12 +36,12 @@ def register_event(
     score_action: Optional[str] = None
 ) -> None:
     """
-    Register an event type with its achievement and score mappings.
+    Зарегистрировать тип события с его связями по достижениям и очкам.
     
     Args:
-        event_type: Event identifier (e.g., "ktr.lookup")
-        achievement_codes: List of achievement codes to increment progress for
-        score_action: Score action code for awarding points
+        event_type: Идентификатор события (например, "ktr.lookup")
+        achievement_codes: Список кодов достижений для увеличения прогресса
+        score_action: Код действия для начисления очков
     """
     _event_handlers[event_type] = EventHandler(
         achievement_codes=achievement_codes or [],
@@ -55,11 +55,11 @@ def register_custom_handler(
     handler: Callable[[Dict[str, Any]], None]
 ) -> None:
     """
-    Register a custom handler function for complex event processing.
+    Зарегистрировать пользовательский обработчик для сложной обработки событий.
     
     Args:
-        event_type: Event identifier
-        handler: Callable that receives event data dict
+        event_type: Идентификатор события
+        handler: Функция, принимающая словарь с данными события
     """
     _custom_handlers[event_type] = handler
     logger.debug(f"Registered custom handler: {event_type}")
@@ -71,39 +71,39 @@ def emit_event(
     data: Optional[Dict[str, Any]] = None
 ) -> None:
     """
-    Emit an event. This is called by modules when trackable actions occur.
+    Сгенерировать событие. Вызывается модулями при отслеживаемых действиях.
     
-    The event is:
-    1. Logged to the database for history/analytics
-    2. Processed for achievement progress
-    3. Processed for score points
-    4. Handled by custom handlers if registered
+    Событие:
+    1. Логируется в базе для истории/аналитики
+    2. Обрабатывается для прогресса достижений
+    3. Обрабатывается для начисления очков
+    4. Передаётся в пользовательские обработчики, если они зарегистрированы
     
     Args:
-        event_type: Event identifier (e.g., "ktr.lookup")
-        userid: Telegram user ID
-        data: Optional additional data payload
+        event_type: Идентификатор события (например, "ktr.lookup")
+        userid: ID пользователя Telegram
+        data: Дополнительные данные события (необязательно)
     """
     import time
     timestamp = int(time.time())
     
     try:
-        # 1. Log event to database
+        # 1. Логируем событие в базу
         _log_event(event_type, userid, data, timestamp)
         
-        # 2. Get handler config
+        # 2. Получаем конфигурацию обработчика
         handler = _event_handlers.get(event_type)
         
         if handler:
-            # 3. Process achievement progress
+            # 3. Обрабатываем прогресс достижений
             for achievement_code in handler.achievement_codes:
                 _increment_achievement_progress(userid, achievement_code)
             
-            # 4. Award score points
+            # 4. Начисляем очки
             if handler.score_action:
                 _award_score_for_action(userid, event_type.split('.')[0], handler.score_action)
         
-        # 5. Run custom handler if registered
+        # 5. Запускаем пользовательский обработчик, если он зарегистрирован
         custom = _custom_handlers.get(event_type)
         if custom:
             try:
@@ -129,7 +129,7 @@ def _log_event(
     data: Optional[Dict[str, Any]],
     timestamp: int
 ) -> None:
-    """Log event to database."""
+    """Записать событие в базу данных."""
     try:
         data_json = json.dumps(data) if data else None
         
@@ -146,9 +146,9 @@ def _log_event(
 
 def _increment_achievement_progress(userid: int, achievement_code: str) -> None:
     """
-    Increment achievement progress and check for level unlocks.
+    Увеличить прогресс достижения и проверить разблокировку уровней.
     """
-    # Import here to avoid circular imports
+    # Импортируем здесь, чтобы избежать циклических импортов
     from . import gamification_logic
     
     try:
@@ -159,9 +159,9 @@ def _increment_achievement_progress(userid: int, achievement_code: str) -> None:
 
 def _award_score_for_action(userid: int, module: str, action: str) -> None:
     """
-    Award score points based on action configuration.
+    Начислить очки в соответствии с конфигурацией действия.
     """
-    # Import here to avoid circular imports
+    # Импортируем здесь, чтобы избежать циклических импортов
     from . import gamification_logic
     
     try:
@@ -176,15 +176,15 @@ def get_event_count(
     since_timestamp: Optional[int] = None
 ) -> int:
     """
-    Get count of events for a user.
+    Получить количество событий пользователя.
     
     Args:
-        userid: Telegram user ID
-        event_type: Event type to count
-        since_timestamp: Optional timestamp to count from
+        userid: ID пользователя Telegram
+        event_type: Тип события для подсчёта
+        since_timestamp: Отметка времени, начиная с которой считать (необязательно)
     
     Returns:
-        Event count
+        Количество событий
     """
     try:
         with database.get_db_connection() as conn:
@@ -215,16 +215,16 @@ def get_unique_days_count(
     since_timestamp: Optional[int] = None
 ) -> int:
     """
-    Get count of unique days when user triggered an event.
-    Useful for "daily user" type achievements.
+    Получить количество уникальных дней, когда пользователь вызывал событие.
+    Полезно для достижений типа «ежедневный пользователь».
     
     Args:
-        userid: Telegram user ID
-        event_type: Event type to check
-        since_timestamp: Optional timestamp to count from
+        userid: ID пользователя Telegram
+        event_type: Тип события для проверки
+        since_timestamp: Отметка времени, начиная с которой считать (необязательно)
     
     Returns:
-        Number of unique days
+        Количество уникальных дней
     """
     try:
         with database.get_db_connection() as conn:
@@ -249,49 +249,49 @@ def get_unique_days_count(
         return 0
 
 
-# ===== KTR EVENT REGISTRATION =====
-# Register KTR module events
+# ===== РЕГИСТРАЦИЯ СОБЫТИЙ KTR =====
+# Регистрируем события модуля KTR
 
 def _init_ktr_events():
-    """Initialize KTR module event handlers."""
+    """Инициализировать обработчики событий модуля KTR."""
     
-    # Basic lookup event
+    # Базовое событие поиска
     register_event(
         event_type="ktr.lookup",
         achievement_codes=["ktr_lookup"],
         score_action="lookup"
     )
     
-    # Successful lookup (code found)
+    # Успешный поиск (код найден)
     register_event(
         event_type="ktr.lookup_found",
         achievement_codes=["ktr_lookup_found"],
         score_action="lookup_found"
     )
     
-    # Daily user achievement (custom handler)
+    # Достижение «ежедневный пользователь» (пользовательский обработчик)
     def handle_ktr_daily(event_data: Dict[str, Any]):
-        """Custom handler for daily user achievement."""
+        """Пользовательский обработчик для достижения «ежедневный пользователь»."""
         from . import gamification_logic
         
         userid = event_data.get('userid')
         if not userid:
             return
         
-        # Count unique days
+        # Считаем уникальные дни
         unique_days = get_unique_days_count(userid, "ktr.lookup")
         
-        # Update progress for daily achievement
+        # Обновляем прогресс дневного достижения
         gamification_logic.set_achievement_progress(userid, "ktr_daily_user", unique_days)
     
     register_custom_handler("ktr.lookup", handle_ktr_daily)
 
 
-# ===== CERTIFICATION EVENT REGISTRATION =====
-# Register certification module events
+# ===== РЕГИСТРАЦИЯ СОБЫТИЙ СЕРТИФИКАЦИИ =====
+# Регистрируем события модуля сертификации
 
 def _init_certification_events():
-    """Initialize certification module event handlers."""
+    """Инициализировать обработчики событий модуля сертификации."""
     register_event(
         event_type="certification.test_completed",
         achievement_codes=["cert_test_completed"],
@@ -315,7 +315,7 @@ def _init_certification_events():
     )
 
     def handle_cert_daily(event_data: Dict[str, Any]):
-        """Custom handler for certification daily user achievement."""
+        """Пользовательский обработчик для дневного достижения сертификации."""
         from . import gamification_logic
 
         userid = event_data.get('userid')
@@ -328,6 +328,6 @@ def _init_certification_events():
     register_custom_handler("certification.test_completed", handle_cert_daily)
 
 
-# Initialize events on module load
+# Инициализируем события при загрузке модуля
 _init_ktr_events()
 _init_certification_events()

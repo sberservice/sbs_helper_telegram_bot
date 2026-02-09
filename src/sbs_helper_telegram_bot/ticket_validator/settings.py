@@ -1,47 +1,47 @@
 """
-Ticket Validator Module Settings
+Настройки модуля валидации заявок
 
-Module-specific configuration settings for ticket validation.
+Параметры конфигурации для валидации заявок.
 """
 
 from typing import Final, List
 
 from src.common.messages import BUTTON_MAIN_MENU as COMMON_BUTTON_MAIN_MENU
 
-# Module metadata
+# Метаданные модуля
 MODULE_NAME: Final[str] = "Валидация заявок"
 MODULE_DESCRIPTION: Final[str] = "Проверка заявок на соответствие требованиям"
 MODULE_VERSION: Final[str] = "1.0.0"
 MODULE_AUTHOR: Final[str] = "SberService"
 
-# Main menu button for this module
+# Кнопка главного меню для этого модуля
 MENU_BUTTON_TEXT: Final[str] = "✅ Валидация заявок"
 
-# Submenu button texts
+# Тексты кнопок подменю
 BUTTON_VALIDATE_TICKET: Final[str] = "📋 Проверить заявку"
 BUTTON_FILE_VALIDATION: Final[str] = "📁 Валидация файла"
 BUTTON_HELP_VALIDATION: Final[str] = "ℹ️ Помощь по валидации"
 
-# Admin submenu button texts
+# Тексты кнопок админ-подменю
 BUTTON_TEST_TEMPLATES: Final[str] = "🧪 Тест шаблонов"
 BUTTON_ADMIN_PANEL: Final[str] = "🔐 Админ панель"
 BUTTON_ADMIN_MENU: Final[str] = "🔙 Админ меню"
 
-# Submenu button configuration
+# Конфигурация кнопок подменю
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
     [BUTTON_VALIDATE_TICKET, BUTTON_FILE_VALIDATION],
     [BUTTON_HELP_VALIDATION],
     [COMMON_BUTTON_MAIN_MENU]
 ]
 
-# Admin submenu (includes admin panel and test templates buttons)
+# Админ-подменю (включает админ-панель и тестовые шаблоны)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
     [BUTTON_VALIDATE_TICKET, BUTTON_FILE_VALIDATION],
     [BUTTON_TEST_TEMPLATES, BUTTON_HELP_VALIDATION],
     [BUTTON_ADMIN_PANEL, COMMON_BUTTON_MAIN_MENU]
 ]
 
-# Admin panel menu buttons
+# Кнопки меню админ-панели
 ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     ["📋 Список правил", "➕ Создать правило"],
     ["📁 Типы заявок", "🧪 Тест шаблоны"],
@@ -49,38 +49,38 @@ ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     [COMMON_BUTTON_MAIN_MENU]
 ]
 
-# Admin rules management submenu
+# Подменю управления правилами админа
 ADMIN_RULES_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все правила", "🔍 Найти правило"],
     ["➕ Создать правило", "🔬 Тест regex"],
     [BUTTON_ADMIN_MENU, COMMON_BUTTON_MAIN_MENU]
 ]
 
-# Admin test templates management submenu
+# Подменю управления тестовыми шаблонами админа
 ADMIN_TEMPLATES_BUTTONS: Final[List[List[str]]] = [
     ["📋 Все шаблоны", "➕ Создать шаблон"],
     ["▶️ Запустить все тесты"],
     [BUTTON_ADMIN_MENU, COMMON_BUTTON_MAIN_MENU]
 ]
 
-# User data keys
+# Ключи user_data
 DEBUG_MODE_KEY: Final[str] = 'validator_debug_mode'
 
-# Validation settings
-MAX_TICKET_LENGTH: Final[int] = 10000  # Maximum characters in ticket text
-MIN_TICKET_LENGTH: Final[int] = 20     # Minimum characters for valid ticket
+# Настройки валидации
+MAX_TICKET_LENGTH: Final[int] = 10000  # Максимум символов в тексте заявки
+MIN_TICKET_LENGTH: Final[int] = 20     # Минимум символов для валидной заявки
 
-# File upload settings
-MAX_FILE_SIZE_MB: Final[int] = 20  # Maximum file size in MB
+# Настройки загрузки файлов
+MAX_FILE_SIZE_MB: Final[int] = 20  # Максимальный размер файла в МБ
 SUPPORTED_FILE_EXTENSIONS: Final[List[str]] = ['.xls', '.xlsx']
 
-# File upload keyboard
+# Клавиатура загрузки файла
 FILE_UPLOAD_BUTTONS: Final[List[List[str]]] = [
     ["❌ Отмена"]
 ]
 
-# FIAS address validation settings
-# Provider to use for FIAS checks: "dadata" (default) or a custom provider
+# Настройки проверки адреса по ФИАС
+# Провайдер для проверок ФИАС: "dadata" (по умолчанию) или кастомный провайдер
 FIAS_PROVIDER: Final[str] = "dadata"
-# Default regex pattern to extract the address from ticket text
+# Шаблон regex по умолчанию для извлечения адреса из текста заявки
 FIAS_DEFAULT_ADDRESS_PATTERN: Final[str] = r"Адрес установки POS-терминала:\s*([\s\S]*?)(?=Тип пакета:|$)"

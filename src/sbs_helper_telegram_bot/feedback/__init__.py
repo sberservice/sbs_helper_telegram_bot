@@ -1,8 +1,8 @@
 """
-Feedback Module
+Модуль обратной связи
 
-Allows users to submit feedback and receive anonymous replies from admins.
-Admin identity is NEVER exposed to users.
+Позволяет пользователям отправлять отзывы и получать анонимные ответы от админов.
+Личность админа НИКОГДА не раскрывается пользователям.
 """
 
 from typing import List, Optional
@@ -24,52 +24,52 @@ from .admin_panel_bot_part import get_feedback_admin_handler
 
 class FeedbackModule(BotModule):
     """
-    Feedback module implementation.
+    Реализация модуля обратной связи.
     
-    Features:
-    - Users can submit categorized feedback
-    - Rate limiting (1 submission per hour)
-    - Link detection and blocking
-    - Admins can view and respond to feedback
-    - All admin responses are ANONYMOUS
-    - Users can track their feedback status
+    Возможности:
+    - Пользователи могут отправлять отзывы по категориям
+    - Ограничение частоты (1 отправка в час)
+    - Поиск ссылок и блокировка
+    - Админы могут просматривать и отвечать
+    - Все ответы админов АНОНИМНЫ
+    - Пользователи могут отслеживать статус обращения
     """
     
     @property
     def name(self) -> str:
-        """Return module name."""
+        """Вернуть название модуля."""
         return settings.MODULE_NAME
     
     @property
     def description(self) -> str:
-        """Return module description."""
+        """Вернуть описание модуля."""
         return settings.MODULE_DESCRIPTION
     
     @property
     def version(self) -> str:
-        """Return module version."""
+        """Вернуть версию модуля."""
         return settings.MODULE_VERSION
     
     @property
     def author(self) -> str:
-        """Return module author."""
+        """Вернуть автора модуля."""
         return settings.MODULE_AUTHOR
     
     def get_handlers(self) -> List[BaseHandler]:
         """
-        Return user-facing handlers for this module.
+        Вернуть обработчики пользовательских сценариев модуля.
         """
         return [get_feedback_user_handler()]
     
     def get_admin_handlers(self) -> List[BaseHandler]:
         """
-        Return admin handlers for this module.
+        Вернуть админ-обработчики для этого модуля.
         """
         return [get_feedback_admin_handler()]
     
     def get_menu_button(self) -> Optional[str]:
         """
-        Return menu button text for main menu.
+        Вернуть текст кнопки для главного меню.
         """
         return settings.MENU_BUTTON_TEXT
     
@@ -79,29 +79,29 @@ class FeedbackModule(BotModule):
         context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """
-        Handle menu button click.
-        Delegates to feedback_entry handler.
+        Обработать нажатие кнопки меню.
+        Делегирует обработчику feedback_entry.
         """
         await feedback_entry(update, context)
     
     def get_commands(self) -> List[BotCommand]:
         """
-        Return bot commands for this module.
+        Вернуть команды бота для этого модуля.
         """
         return [
             BotCommand("feedback", "Отправить отзыв или предложение")
         ]
     
     async def on_load(self) -> None:
-        """Called when module is loaded."""
-        # Module initialization - no setup required
+        """Вызывается при загрузке модуля."""
+        # Инициализация модуля — настройка не требуется
     
     async def on_unload(self) -> None:
-        """Called when module is unloaded."""
-        # Module cleanup - no cleanup required
+        """Вызывается при выгрузке модуля."""
+        # Очистка модуля — не требуется
 
 
-# Module exports
+# Экспорт модуля
 __all__ = [
     'FeedbackModule',
     'settings',

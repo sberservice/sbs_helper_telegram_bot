@@ -1,7 +1,7 @@
 """
-Ticket Validator Bot Handlers
+Обработчики бота для валидации заявок
 
-Telegram bot handlers for ticket validation functionality.
+Обработчики Telegram-бота для функционала валидации заявок.
 """
 
 from telegram import Update
@@ -24,7 +24,7 @@ from src.common.messages import (
     BUTTON_HELP,
 )
 
-# Import module-specific messages, settings, and keyboards
+# Импорт сообщений, настроек и клавиатур модуля
 from . import messages
 from . import settings
 from .keyboards import get_submenu_keyboard, get_admin_submenu_keyboard
@@ -35,41 +35,41 @@ from .validation_rules import (
 )
 from .validators import validate_ticket, detect_ticket_type
 
-# Import settings for menu button patterns
+# Импорт настроек для шаблонов кнопок меню
 from . import settings as validator_settings
 
-# Set up logging
+# Настройка логирования
 logger = logging.getLogger(__name__)
 
-# Conversation states
+# Состояния диалога
 WAITING_FOR_TICKET = 1
 
-# Debug mode key from settings
+# Ключ режима отладки из настроек
 DEBUG_MODE_KEY = settings.DEBUG_MODE_KEY
 
 
 async def validate_ticket_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Start ticket validation conversation.
-    Handler for /validate command.
+    Запустить диалог валидации заявки.
+    Обработчик команды /validate.
     
     Args:
-        update: Telegram update object
-        context: Telegram context
+        update: Объект обновления Telegram
+        context: Контекст Telegram
         
     Returns:
-        Next conversation state
+        Следующее состояние диалога
     """
-    # Check if user is authorized
+    # Проверяем, что пользователь авторизован
     user_id = update.effective_user.id
     if not check_if_user_legit(user_id):
         await update.message.reply_text(get_unauthorized_message(user_id))
         return ConversationHandler.END
     
-    # Update user info
+    # Обновляем данные пользователя
     update_user_info_from_telegram(update.effective_user)
     
-    # Ask for ticket text
+    # Запрашиваем текст заявки
     await update.message.reply_text(
         messages.MESSAGE_SEND_TICKET,
         parse_mode=constants.ParseMode.MARKDOWN_V2
@@ -80,32 +80,32 @@ async def validate_ticket_command(update: Update, context: ContextTypes.DEFAULT_
 
 async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Process and validate submitted ticket text.
+    Обработать и проверить присланный текст заявки.
     
     Args:
-        update: Telegram update object
-        context: Telegram context
+        update: Объект обновления Telegram
+        context: Контекст Telegram
         
     Returns:
-        ConversationHandler.END to finish conversation
+        ConversationHandler.END для завершения диалога
     """
     ticket_text = update.message.text
     user_id = update.effective_user.id
     
-    # Debug mode is automatically enabled for all admins
+    # Режим отладки автоматически включён для всех админов
     is_admin = check_if_user_admin(user_id)
     debug_enabled = is_admin
     
-    # Load ticket types and detect which type this ticket is
+    # Загружаем типы заявок и определяем тип текущей заявки
     try:
         ticket_types = load_all_ticket_types()
         detected_type, debug_info = detect_ticket_type(
             ticket_text, 
             ticket_types, 
-            debug=True  # Always get debug info to check for ambiguity
+            debug=True  # Всегда получаем debug-информацию для проверки неоднозначности
         ) if ticket_types else (None, None)
         
-        # Send debug info first if enabled
+        # Если отладка включена, сначала отправляем debug-информацию
         if debug_enabled and debug_info:
             debug_message = format_debug_info_for_telegram(debug_info)
             await update.message.reply_text(
@@ -113,7 +113,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
         
-        # Check for ambiguous detection (multiple types with same score)
+        # Проверяем неоднозначное определение (несколько типов с одинаковым баллом)
         if debug_info and debug_info.has_ambiguity:
             ambiguous_names = ", ".join([_escape_md(tt.type_name) for tt in debug_info.ambiguous_types])
             warning_message = messages.MESSAGE_AMBIGUOUS_TYPE_WARNING.format(
@@ -125,9 +125,9 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
         
-        # Check if ticket type was detected
+        # Проверяем, что тип заявки определён
         if not detected_type:
-            # Build list of supported ticket types
+            # Формируем список поддерживаемых типов заявок
             supported_types = "\n".join([
                 f"• _{_escape_md(tt.type_name)}_"
                 for tt in ticket_types
@@ -141,7 +141,7 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return ConversationHandler.END
         
-        # Load validation rules for detected type
+        # Загружаем правила валидации для определённого типа
         rules = load_rules_from_db(ticket_type_id=detected_type.id)
         
         if not rules:
@@ -151,15 +151,15 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return ConversationHandler.END
         
-        # Validate the ticket
+        # Валидируем заявку
         result = validate_ticket(ticket_text, rules, detected_ticket_type=detected_type)
         
-        # Determine which keyboard to show based on admin status
+        # Определяем, какую клавиатуру показать в зависимости от статуса админа
         reply_keyboard = get_admin_submenu_keyboard() if is_admin else get_submenu_keyboard()
         
-        # Send response to user
+        # Отправляем ответ пользователю
         if result.is_valid:
-            # Format list of passed rules
+            # Форматируем список пройденных правил
             passed_rules_text = ""
             if result.passed_rules:
                 passed_rules_formatted = "\n".join([
@@ -175,14 +175,14 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=reply_keyboard
             )
         else:
-            # Format error messages - properly escape all special characters for MarkdownV2
+            # Форматируем сообщения об ошибках — экранируем спецсимволы для MarkdownV2
             errors_formatted = "\n".join([
                 f"• {_escape_md(msg)}"
                 for msg in result.error_messages
             ])
             
             response = messages.MESSAGE_VALIDATION_FAILED.format(errors=errors_formatted)
-            # Add detected ticket type to error message
+            # Добавляем определённый тип заявки в сообщение об ошибке
             response = response.replace("*Заявка не прошла валидацию*", 
                                       f"*Заявка не прошла валидацию*\n\n🎫 Тип заявки: _{_escape_md(detected_type.type_name)}_")
             await update.message.reply_text(
@@ -203,21 +203,21 @@ async def process_ticket_text(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def run_test_templates_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Run all validation tests for test templates.
-    Admin-only command for testing validation rules.
+    Запустить все тесты валидации для тестовых шаблонов.
+    Команда только для админа.
     
     Args:
-        update: Telegram update object
-        context: Telegram context
+        update: Объект обновления Telegram
+        context: Контекст Telegram
     """
     user_id = update.effective_user.id
     
-    # Check if user is authorized
+    # Проверяем, что пользователь авторизован
     if not check_if_user_legit(user_id):
         await update.message.reply_text(get_unauthorized_message(user_id))
         return
     
-    # Check if user is admin
+    # Проверяем, что пользователь админ
     if not check_if_user_admin(user_id):
         await update.message.reply_text(
             messages.MESSAGE_ADMIN_NOT_AUTHORIZED,
@@ -225,17 +225,17 @@ async def run_test_templates_command(update: Update, context: ContextTypes.DEFAU
         )
         return
     
-    # Update user info
+    # Обновляем данные пользователя
     update_user_info_from_telegram(update.effective_user)
     
     try:
-        # Send "running tests" message
+        # Отправляем сообщение о запуске тестов
         await update.message.reply_text(
             messages.MESSAGE_RUNNING_TESTS,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
         
-        # Run all tests
+        # Запускаем все тесты
         results = run_all_template_tests(user_id)
         
         if not results['results']:
@@ -246,7 +246,7 @@ async def run_test_templates_command(update: Update, context: ContextTypes.DEFAU
             )
             return
         
-        # Format results
+        # Форматируем результаты
         passed = results['templates_passed']
         failed = results['templates_failed']
         total = results['total_templates']
@@ -264,7 +264,7 @@ async def run_test_templates_command(update: Update, context: ContextTypes.DEFAU
         response += f"❌ Провалено: {failed}\n\n"
         response += f"*{status_text}*\n\n"
         
-        # Add details for each template
+        # Добавляем детали по каждому шаблону
         response += "*Детали:*\n"
         for r in results['results']:
             template_name = _escape_md(r['template_name'])
@@ -291,20 +291,20 @@ async def run_test_templates_command(update: Update, context: ContextTypes.DEFAU
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Show validation help information.
-    Handler for /help_validate command.
+    Показать справку по валидации.
+    Обработчик команды /help_validate.
     
     Args:
-        update: Telegram update object
-        context: Telegram context
+        update: Объект обновления Telegram
+        context: Контекст Telegram
     """
-    # Check if user is authorized
+    # Проверяем, что пользователь авторизован
     user_id = update.effective_user.id
     if not check_if_user_legit(user_id):
         await update.message.reply_text(get_unauthorized_message(user_id))
         return
     
-    # Update user info
+    # Обновляем данные пользователя
     update_user_info_from_telegram(update.effective_user)
     
     await update.message.reply_text(
@@ -315,12 +315,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancel_validation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Cancel validation conversation.
-    Handler for /cancel command during validation.
+    Отменить диалог валидации.
+    Обработчик команды /cancel во время валидации.
     
     Args:
-        update: Telegram update object
-        context: Telegram context
+        update: Объект обновления Telegram
+        context: Контекст Telegram
         
     Returns:
         ConversationHandler.END
@@ -334,12 +334,12 @@ async def cancel_validation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def cancel_validation_on_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Cancel validation conversation when a menu button is pressed.
-    Notifies the user and returns END to exit conversation.
+    Отменить диалог валидации при нажатии кнопки меню.
+    Уведомляет пользователя и возвращает END для выхода из диалога.
     
     Args:
-        update: Telegram update object
-        context: Telegram context
+        update: Объект обновления Telegram
+        context: Контекст Telegram
         
     Returns:
         ConversationHandler.END
@@ -353,16 +353,16 @@ async def cancel_validation_on_menu(update: Update, context: ContextTypes.DEFAUL
 
 async def toggle_debug_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Toggle debug mode for ticket type detection.
-    Only available for admin users.
+    Переключить режим отладки для определения типа заявки.
+    Доступно только администраторам.
     
     Args:
-        update: Telegram update object
-        context: Telegram context
+        update: Объект обновления Telegram
+        context: Контекст Telegram
     """
     user_id = update.effective_user.id
     
-    # Check if user is authorized
+    # Проверяем, что пользователь авторизован
     if not check_if_user_legit(user_id):
         await update.message.reply_text(
             get_unauthorized_message(user_id),
@@ -370,7 +370,7 @@ async def toggle_debug_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Check if user is admin
+    # Проверяем, что пользователь админ
     if not check_if_user_admin(user_id):
         await update.message.reply_text(
             messages.MESSAGE_DEBUG_MODE_NOT_ADMIN,
@@ -378,7 +378,7 @@ async def toggle_debug_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Toggle debug mode
+    # Переключаем режим отладки
     current_state = context.user_data.get(DEBUG_MODE_KEY, False)
     new_state = not current_state
     context.user_data[DEBUG_MODE_KEY] = new_state
@@ -397,13 +397,13 @@ async def toggle_debug_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def format_debug_info_for_telegram(debug_info) -> str:
     """
-    Format DetectionDebugInfo for Telegram message.
+    Отформатировать DetectionDebugInfo для сообщения Telegram.
     
     Args:
-        debug_info: DetectionDebugInfo object
+        debug_info: Объект DetectionDebugInfo
         
     Returns:
-        Formatted string safe for MarkdownV2
+        Отформатированная строка, безопасная для MarkdownV2
     """
     lines = []
     lines.append("🔍 *DEBUG: Определение типа заявки*")
@@ -418,12 +418,12 @@ def format_debug_info_for_telegram(debug_info) -> str:
     lines.append("")
     lines.append("*Результаты по типам:*")
     
-    # Sort by score descending
+    # Сортируем по убыванию оценки
     sorted_scores = sorted(debug_info.all_scores, key=lambda x: x.total_score, reverse=True)
     
     for score_info in sorted_scores:
         type_name = _escape_md(score_info.ticket_type.type_name)
-        # Escape decimal points and minus signs in numeric values
+        # Экранируем точки и минусы в числовых значениях
         total_score_str = str(score_info.total_score).replace('.', '\\.').replace('-', '\\-')
         match_pct_str = f"{score_info.match_percentage:.1f}".replace('.', '\\.')
         
@@ -434,11 +434,11 @@ def format_debug_info_for_telegram(debug_info) -> str:
         
         if score_info.keyword_matches:
             lines.append("   Ключевые слова:")
-            for match in score_info.keyword_matches[:5]:  # Limit to 5 keywords to avoid too long messages
+            for match in score_info.keyword_matches[:5]:  # Ограничиваем до 5 ключевых слов, чтобы сообщение не было слишком длинным
                 keyword = _escape_md(match.keyword)
                 weight_str = str(match.weight).replace('.', '\\.')
                 score_str = str(match.weighted_score).replace('.', '\\.').replace('-', '\\-')
-                # Use different indicator for negative keywords
+                # Используем другой индикатор для негативных ключевых слов
                 indicator = "⊖" if match.is_negative else "⊕"
                 lines.append(f"     {indicator} '{keyword}': {match.count}x \\(вес: {weight_str}, счёт: {score_str}\\)")
             if len(score_info.keyword_matches) > 5:
@@ -448,7 +448,7 @@ def format_debug_info_for_telegram(debug_info) -> str:
 
 
 def _escape_md(text: str) -> str:
-    """Escape special characters for MarkdownV2."""
+    """Экранировать спецсимволы для MarkdownV2."""
     if text is None:
         return ""
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
@@ -459,14 +459,14 @@ def _escape_md(text: str) -> str:
 
 def get_menu_button_regex_pattern() -> str:
     """
-    Get regex pattern matching all menu buttons from this module.
-    Used to create fallback handlers for ConversationHandler.
+    Получить regex-шаблон, соответствующий всем кнопкам меню этого модуля.
+    Используется для fallback-обработчиков в ConversationHandler.
     
     Returns:
-        Regex pattern string matching all module menu buttons
+        Строка regex-шаблона, соответствующая всем кнопкам меню модуля
     """
     import re
-    # Collect all buttons from all menu configurations
+    # Собираем все кнопки из всех конфигураций меню
     all_buttons = set()
     
     for button_row in validator_settings.SUBMENU_BUTTONS:
@@ -480,7 +480,7 @@ def get_menu_button_regex_pattern() -> str:
     for button_row in validator_settings.ADMIN_TEMPLATES_BUTTONS:
         all_buttons.update(button_row)
     
-    # Add main menu navigation buttons that should also exit the conversation
+    # Добавляем кнопки главного меню, которые также завершают диалог
     all_buttons.add(BUTTON_MODULES)
     all_buttons.add(BUTTON_SETTINGS)
     all_buttons.add(BUTTON_UPOS_ERRORS)
@@ -488,11 +488,11 @@ def get_menu_button_regex_pattern() -> str:
     all_buttons.add(BUTTON_MY_INVITES)
     all_buttons.add(BUTTON_HELP)
     
-    # Remove the validation button itself as it shouldn't cancel itself
+    # Удаляем саму кнопку валидации, чтобы она не отменяла себя
     all_buttons.discard(validator_settings.BUTTON_VALIDATE_TICKET)
     
-    # Escape special regex characters in button texts
+    # Экранируем специальные regex-символы в текстах кнопок
     escaped_buttons = [re.escape(btn) for btn in all_buttons]
     
-    # Create pattern matching any of the buttons
+    # Создаём шаблон, соответствующий любой из кнопок
     return "^(" + "|".join(escaped_buttons) + ")$"

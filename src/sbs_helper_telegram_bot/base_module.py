@@ -1,22 +1,23 @@
 """
-Base Module for Telegram Bot
+Базовый модуль для Telegram-бота.
 
-This module provides the base class that all bot modules should inherit from.
-It defines the interface for creating modular, independent bot components.
+Этот модуль содержит базовый класс, от которого должны наследоваться все
+модули бота. Он определяет интерфейс для создания модульных и независимых
+компонентов.
 
-Users can create their own modules by:
-1. Creating a new directory under src/sbs_helper_telegram_bot/
-2. Creating required files: __init__.py, messages.py, settings.py, keyboards.py
-3. Creating a main bot part file that inherits from BotModule
-4. Registering the module in the main telegram_bot.py
+Как создать свой модуль:
+1. Создать каталог под src/sbs_helper_telegram_bot/
+2. Создать обязательные файлы: __init__.py, messages.py, settings.py, keyboards.py
+3. Создать основной файл обработчиков, наследующийся от BotModule
+4. Зарегистрировать модуль в основном telegram_bot.py
 
-Example module structure:
+Пример структуры модуля:
     my_module/
         __init__.py
-        messages.py          # Module-specific messages
-        settings.py          # Module-specific settings
-        keyboards.py         # Module-specific keyboards
-        my_module_bot_part.py  # Main bot handlers
+        messages.py          # Сообщения модуля
+        settings.py          # Настройки модуля
+        keyboards.py         # Клавиатуры модуля
+        my_module_bot_part.py  # Основные обработчики
 """
 
 from abc import ABC, abstractmethod
@@ -27,19 +28,19 @@ from telegram.ext import BaseHandler, ContextTypes
 
 class BotModule(ABC):
     """
-    Abstract base class for all bot modules.
+    Абстрактный базовый класс для всех модулей бота.
     
-    Each module should:
-    - Have its own messages, settings, and keyboards
-    - Implement get_handlers() to register Telegram handlers
-    - Implement get_menu_button() to add a button to main menu (optional)
-    - Be as independent as possible from other modules
+    Каждый модуль должен:
+    - иметь свои messages, settings и keyboards;
+    - реализовать `get_handlers()` для регистрации обработчиков;
+    - реализовать `get_menu_button()` для добавления кнопки в главное меню (опционально);
+    - быть максимально независимым от других модулей.
     
     Attributes:
-        name: Human-readable module name
-        description: Brief description of what the module does
-        version: Module version string
-        author: Module author
+        name: человекочитаемое имя модуля.
+        description: краткое описание назначения модуля.
+        version: строка версии модуля.
+        author: автор модуля.
     """
     
     def __init__(self):
@@ -48,126 +49,126 @@ class BotModule(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Human-readable module name."""
+        """Человекочитаемое имя модуля."""
         pass
     
     @property
     @abstractmethod
     def description(self) -> str:
-        """Brief description of what the module does."""
+        """Краткое описание назначения модуля."""
         pass
     
     @property
     def version(self) -> str:
-        """Module version string."""
+        """Строка версии модуля."""
         return "1.0.0"
     
     @property
     def author(self) -> str:
-        """Module author."""
+        """Автор модуля."""
         return "Unknown"
     
     @property
     def enabled(self) -> bool:
-        """Whether the module is enabled."""
+        """Флаг включения модуля."""
         return self._enabled
     
     @enabled.setter
     def enabled(self, value: bool):
-        """Enable or disable the module."""
+        """Включить или отключить модуль."""
         self._enabled = value
     
     @abstractmethod
     def get_handlers(self) -> List[BaseHandler]:
         """
-        Return a list of Telegram handlers for this module.
+        Вернуть список обработчиков Telegram для этого модуля.
         
-        These handlers will be registered with the Application.
-        Order matters - handlers are checked in order of registration.
+        Эти обработчики будут зарегистрированы в Application.
+        Порядок важен — обработчики проверяются в порядке регистрации.
         
         Returns:
-            List of telegram.ext handlers (CommandHandler, MessageHandler, etc.)
+            Список обработчиков telegram.ext (CommandHandler, MessageHandler и т. п.).
         """
         pass
     
     @abstractmethod
     def get_menu_button(self) -> Optional[str]:
         """
-        Return the text for main menu button, or None if no button needed.
+        Вернуть текст кнопки главного меню или None, если кнопка не нужна.
         
-        The button text should be unique and include an emoji for visual distinction.
-        Example: "✅ Валидация заявок"
+        Текст кнопки должен быть уникальным и содержать эмодзи для наглядности.
+        Пример: "✅ Валидация заявок".
         
         Returns:
-            Button text string or None
+            Текст кнопки или None.
         """
         pass
     
     @abstractmethod
     async def handle_menu_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         """
-        Handle when user clicks this module's menu button.
+        Обработать нажатие кнопки меню этого модуля.
         
         Args:
-            update: Telegram Update object
-            context: Telegram context
+            update: объект Telegram Update.
+            context: контекст Telegram.
             
         Returns:
-            True if this module handled the button, False otherwise
+            True, если модуль обработал кнопку, иначе False.
         """
         pass
     
     def get_commands(self) -> Dict[str, str]:
         """
-        Return a dict of commands and their descriptions for bot menu.
+        Вернуть словарь команд и их описаний для меню бота.
         
-        Override this to add commands to the Telegram bot menu.
+        Переопределите, чтобы добавить команды в меню Telegram-бота.
         
         Returns:
-            Dict mapping command name (without /) to description
-            Example: {"validate": "Проверить заявку"}
+            Словарь вида: имя команды (без /) -> описание.
+            Пример: {"validate": "Проверить заявку"}.
         """
         return {}
     
     def get_submenu_keyboard(self, user_id: int) -> Optional[ReplyKeyboardMarkup]:
         """
-        Return submenu keyboard for this module, if applicable.
+        Вернуть клавиатуру подменю для этого модуля, если она есть.
         
-        Override this if your module has a submenu.
-        user_id can be used to show different buttons to different users (e.g., admins).
+        Переопределите, если модуль имеет подменю.
+        `user_id` можно использовать для разных наборов кнопок (например, для админов).
         
         Args:
-            user_id: Telegram user ID
+            user_id: идентификатор пользователя Telegram.
             
         Returns:
-            ReplyKeyboardMarkup or None
+            ReplyKeyboardMarkup или None.
         """
         return None
     
     async def on_module_loaded(self):
         """
-        Called when the module is loaded.
+        Вызывается при загрузке модуля.
         
-        Override for initialization tasks like loading data from database.
+        Переопределите для инициализации, например, загрузки данных из БД.
         """
         pass
     
     async def on_module_unloaded(self):
         """
-        Called when the module is unloaded.
+        Вызывается при выгрузке модуля.
         
-        Override for cleanup tasks.
+        Переопределите для задач очистки.
         """
         pass
     
     def get_admin_handlers(self) -> List[BaseHandler]:
         """
-        Return admin-specific handlers for this module.
+        Вернуть админские обработчики для этого модуля.
         
-        Override if your module has admin functionality.
+        Переопределите, если модуль имеет функции администратора.
         
         Returns:
-            List of telegram.ext handlers for admin features
+            Список обработчиков telegram.ext для админских функций.
         """
         return []
     
@@ -177,9 +178,9 @@ class BotModule(ABC):
 
 class ModuleRegistry:
     """
-    Registry for managing bot modules.
+    Реестр для управления модулями бота.
     
-    Provides methods to register, unregister, and query modules.
+    Предоставляет методы регистрации, удаления и поиска модулей.
     """
     
     def __init__(self):
@@ -187,13 +188,13 @@ class ModuleRegistry:
     
     def register(self, module: BotModule) -> None:
         """
-        Register a module.
+        Зарегистрировать модуль.
         
         Args:
-            module: BotModule instance to register
+            module: экземпляр BotModule для регистрации.
             
         Raises:
-            ValueError: If module with same name already registered
+            ValueError: если модуль с таким именем уже зарегистрирован.
         """
         if module.name in self._modules:
             raise ValueError(f"Module '{module.name}' is already registered")
@@ -201,30 +202,30 @@ class ModuleRegistry:
     
     def unregister(self, name: str) -> Optional[BotModule]:
         """
-        Unregister a module by name.
+        Снять модуль с регистрации по имени.
         
         Args:
-            name: Module name to unregister
+            name: имя модуля для удаления.
             
         Returns:
-            The unregistered module, or None if not found
+            Удалённый модуль или None, если модуль не найден.
         """
         return self._modules.pop(name, None)
     
     def get(self, name: str) -> Optional[BotModule]:
-        """Get a module by name."""
+        """Получить модуль по имени."""
         return self._modules.get(name)
     
     def get_all(self) -> List[BotModule]:
-        """Get all registered modules."""
+        """Получить все зарегистрированные модули."""
         return list(self._modules.values())
     
     def get_enabled(self) -> List[BotModule]:
-        """Get all enabled modules."""
+        """Получить все включённые модули."""
         return [m for m in self._modules.values() if m.enabled]
     
     def get_menu_buttons(self) -> List[str]:
-        """Get menu buttons from all enabled modules."""
+        """Получить кнопки меню из всех включённых модулей."""
         buttons = []
         for module in self.get_enabled():
             button = module.get_menu_button()
@@ -233,7 +234,7 @@ class ModuleRegistry:
         return buttons
     
     def get_all_handlers(self) -> List[BaseHandler]:
-        """Get handlers from all enabled modules."""
+        """Получить обработчики из всех включённых модулей."""
         handlers = []
         for module in self.get_enabled():
             handlers.extend(module.get_handlers())
@@ -241,12 +242,12 @@ class ModuleRegistry:
         return handlers
     
     def get_all_commands(self) -> Dict[str, str]:
-        """Get commands from all enabled modules."""
+        """Получить команды из всех включённых модулей."""
         commands = {}
         for module in self.get_enabled():
             commands.update(module.get_commands())
         return commands
 
 
-# Global module registry
+# Глобальный реестр модулей
 module_registry = ModuleRegistry()

@@ -1,7 +1,7 @@
 """
-Validation Rules Management Module
+Модуль управления правилами валидации
 
-Handles loading and managing validation rules from the database.
+Загружает и управляет правилами валидации из базы данных.
 """
 
 import json
@@ -13,23 +13,23 @@ from .validators import ValidationRule, TicketType
 
 def _normalize_keyword_weights(weights: Dict[str, float]) -> Dict[str, float]:
     """
-    Normalize keyword_weights dictionary keys to lowercase.
+    Нормализовать ключи словаря keyword_weights в нижний регистр.
     
     Args:
-        weights: Dictionary mapping keywords to weights
+        weights: Словарь соответствия ключевых слов их весам
         
     Returns:
-        Dictionary with lowercase keys
+        Словарь с ключами в нижнем регистре
     """
     return {k.lower(): v for k, v in weights.items()}
 
 
 def load_all_ticket_types() -> List[TicketType]:
     """
-    Load all active ticket types from the database.
+    Загрузить все активные типы заявок из базы данных.
     
     Returns:
-        List of TicketType objects
+        Список объектов TicketType
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -44,7 +44,7 @@ def load_all_ticket_types() -> List[TicketType]:
             
             ticket_types = []
             for row in results:
-                # Parse detection keywords from JSON
+                # Разбираем ключевые слова для определения из JSON
                 keywords = []
                 if row['detection_keywords']:
                     try:
@@ -52,7 +52,7 @@ def load_all_ticket_types() -> List[TicketType]:
                     except json.JSONDecodeError:
                         keywords = []
                 
-                # Parse keyword weights from JSON (normalize keys to lowercase)
+                # Разбираем веса ключевых слов из JSON (нормализуем ключи в нижний регистр)
                 weights = {}
                 if row.get('keyword_weights'):
                     try:
@@ -75,13 +75,13 @@ def load_all_ticket_types() -> List[TicketType]:
 
 def load_ticket_type_by_id(ticket_type_id: int) -> Optional[TicketType]:
     """
-    Load a specific ticket type by ID.
+    Загрузить конкретный тип заявки по ID.
     
     Args:
-        ticket_type_id: ID of the ticket type
+        ticket_type_id: ID типа заявки
         
     Returns:
-        TicketType object or None if not found
+        Объект TicketType или None, если не найден
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -103,7 +103,7 @@ def load_ticket_type_by_id(ticket_type_id: int) -> Optional[TicketType]:
                 except json.JSONDecodeError:
                     keywords = []
             
-            # Parse keyword weights from JSON (normalize keys to lowercase)
+            # Разбираем веса ключевых слов из JSON (нормализуем ключи в нижний регистр)
             weights = {}
             if row.get('keyword_weights'):
                 try:
@@ -123,20 +123,20 @@ def load_ticket_type_by_id(ticket_type_id: int) -> Optional[TicketType]:
 
 def load_rules_from_db(ticket_type_id: Optional[int] = None) -> List[ValidationRule]:
     """
-    Load validation rules from the database.
-    If ticket_type_id is provided, load only rules for that ticket type.
-    Otherwise, load all active rules.
+    Загрузить правила валидации из базы данных.
+    Если передан ticket_type_id, загружаем правила только для этого типа.
+    Иначе загружаем все активные правила.
     
     Args:
-        ticket_type_id: Optional ticket type ID to filter rules
+        ticket_type_id: Необязательный ID типа заявки для фильтрации правил
         
     Returns:
-        List of ValidationRule objects sorted by priority
+        Список объектов ValidationRule, отсортированных по приоритету
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             if ticket_type_id is not None:
-                # Load rules for specific ticket type
+                # Загружаем правила для конкретного типа заявки
                 sql_query = """
                     SELECT vr.id, vr.rule_name, vr.pattern, vr.rule_type, vr.error_message, 
                            vr.active, vr.priority, vr.created_timestamp, vr.updated_timestamp
@@ -147,7 +147,7 @@ def load_rules_from_db(ticket_type_id: Optional[int] = None) -> List[ValidationR
                 """
                 cursor.execute(sql_query, (ticket_type_id,))
             else:
-                # Load all active rules
+                # Загружаем все активные правила
                 sql_query = """
                     SELECT id, rule_name, pattern, rule_type, error_message, 
                            active, priority, created_timestamp, updated_timestamp
@@ -253,7 +253,7 @@ def list_all_templates() -> List[dict]:
             return cursor.fetchall()
 
 
-# ===== ADMIN CRUD OPERATIONS =====
+# ===== АДМИНСКИЕ CRUD-ОПЕРАЦИИ =====
 
 def test_regex_pattern(pattern: str, test_text: str = None) -> Tuple[bool, str]:
     """
@@ -362,7 +362,7 @@ def load_all_ticket_types_admin(include_inactive: bool = False) -> List[TicketTy
                     except json.JSONDecodeError:
                         keywords = []
                 
-                # Parse keyword weights from JSON (normalize keys to lowercase)
+                # Разбираем веса ключевых слов из JSON (нормализуем ключи в нижний регистр)
                 weights = {}
                 if row.get('keyword_weights'):
                     try:
@@ -493,12 +493,12 @@ def delete_validation_rule(rule_id: int) -> Tuple[bool, int]:
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # First, delete associations
+            # Сначала удаляем связи
             sql_assoc = "DELETE FROM ticket_validator_ticket_type_rules WHERE validation_rule_id = %s"
             cursor.execute(sql_assoc, (rule_id,))
             deleted_associations = cursor.rowcount
             
-            # Then delete the rule
+            # Затем удаляем правило
             sql_rule = "DELETE FROM ticket_validator_validation_rules WHERE id = %s"
             cursor.execute(sql_rule, (rule_id,))
             
@@ -574,7 +574,7 @@ def get_ticket_types_for_rule(rule_id: int) -> List[TicketType]:
                     except json.JSONDecodeError:
                         keywords = []
                 
-                # Parse keyword weights from JSON (normalize keys to lowercase)
+                # Разбираем веса ключевых слов из JSON (нормализуем ключи в нижний регистр)
                 weights = {}
                 if row.get('keyword_weights'):
                     try:
@@ -617,7 +617,7 @@ def add_rule_to_ticket_type(rule_id: int, ticket_type_id: int) -> bool:
                 cursor.execute(sql, (ticket_type_id, rule_id))
                 return cursor.rowcount > 0
             except Exception:
-                # Duplicate key - association already exists
+                # Дублирующийся ключ — связь уже существует
                 return False
 
 
@@ -666,8 +666,8 @@ def get_rule_type_mapping() -> List[Dict[str, Any]]:
             return cursor.fetchall()
 
 
-# ===== TEST TEMPLATE MANAGEMENT =====
-# Templates are now used as test cases for validation rules (admin-only)
+# ===== УПРАВЛЕНИЕ ТЕСТОВЫМИ ШАБЛОНАМИ =====
+# Шаблоны теперь используются как тестовые кейсы для правил валидации (только для админа)
 
 def create_test_template(
     template_name: str, 
@@ -770,14 +770,14 @@ def delete_test_template(template_id: int) -> Tuple[bool, int]:
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # First count the rule expectations
+            # Сначала считаем ожидания по правилам
             cursor.execute(
                 "SELECT COUNT(*) as cnt FROM ticket_validator_template_rule_tests WHERE template_id = %s",
                 (template_id,)
             )
             rule_count = cursor.fetchone()['cnt']
             
-            # Delete template (cascade will delete rule expectations)
+            # Удаляем шаблон (каскадно удалятся ожидания по правилам)
             cursor.execute(
                 "DELETE FROM ticket_validator_ticket_templates WHERE id = %s",
                 (template_id,)
@@ -867,7 +867,7 @@ def list_all_test_templates(include_inactive: bool = False) -> List[dict]:
             return cursor.fetchall()
 
 
-# ===== TEMPLATE RULE EXPECTATIONS =====
+# ===== ОЖИДАНИЯ ПО ПРАВИЛАМ ШАБЛОНА =====
 
 def set_template_rule_expectation(
     template_id: int, 
@@ -889,7 +889,7 @@ def set_template_rule_expectation(
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # Use INSERT ... ON DUPLICATE KEY UPDATE for upsert
+            # Используем INSERT ... ON DUPLICATE KEY UPDATE для upsert
             sql = """
                 INSERT INTO ticket_validator_template_rule_tests 
                 (template_id, validation_rule_id, expected_pass, notes, created_timestamp)
@@ -988,7 +988,7 @@ def get_rules_not_in_template(template_id: int) -> List[ValidationRule]:
             ]
 
 
-# ===== VALIDATION TESTING =====
+# ===== ПРОВЕРКА ВАЛИДАЦИИ =====
 
 def run_template_validation_test(template_id: int, admin_userid: int) -> Dict[str, Any]:
     """
@@ -1015,17 +1015,17 @@ def run_template_validation_test(template_id: int, admin_userid: int) -> Dict[st
     """
     from .validators import validate_ticket
     
-    # Load template
+    # Загружаем шаблон
     template = load_test_template_by_id(template_id)
     if not template:
         return {'error': 'Template not found'}
     
-    # Load rule expectations
+    # Загружаем ожидания по правилам
     expectations = get_template_rule_expectations(template_id)
     if not expectations:
         return {'error': 'No rule expectations defined for this template'}
     
-    # Build rules list from expectations
+    # Формируем список правил из ожиданий
     rules = []
     for exp in expectations:
         rule = ValidationRule(
@@ -1034,31 +1034,31 @@ def run_template_validation_test(template_id: int, admin_userid: int) -> Dict[st
             pattern=exp['pattern'],
             rule_type=exp['rule_type'],
             error_message=exp['error_message'],
-            active=True,  # Test all rules regardless of active status
+            active=True,  # Тестируем все правила независимо от статуса активности
             priority=0
         )
         rules.append(rule)
     
-    # Run validation
+    # Запускаем валидацию
     result = validate_ticket(template['template_text'], rules)
     
-    # Compare with expectations
+    # Сравниваем с ожиданиями
     details = []
     rules_passed_as_expected = 0
     rules_failed_unexpectedly = 0
     
-    # Build set of failed rule IDs from validation result
+    # Формируем набор ID проваленных правил из результата валидации
     failed_rule_ids = set()
     for rule in rules:
-        # Check if this rule's error message is in the failed rules
+        # Проверяем, есть ли сообщение об ошибке этого правила среди проваленных
         if rule.rule_name in result.failed_rules or rule.error_message in result.error_messages:
             failed_rule_ids.add(rule.id)
     
-    # Also check validation_details if available
+    # Также проверяем validation_details, если они доступны
     if hasattr(result, 'validation_details') and result.validation_details:
         for rule_name, passed in result.validation_details.items():
             if not passed:
-                # Find rule ID by name
+                # Находим ID правила по имени
                 for rule in rules:
                     if rule.rule_name == rule_name:
                         failed_rule_ids.add(rule.id)
@@ -1087,7 +1087,7 @@ def run_template_validation_test(template_id: int, admin_userid: int) -> Dict[st
     
     overall_pass = rules_failed_unexpectedly == 0
     
-    # Store test result
+    # Сохраняем результат теста
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             sql = """

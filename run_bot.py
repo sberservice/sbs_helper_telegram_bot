@@ -2,8 +2,8 @@
 """
 run_bot.py
 
-Simple script to start both the Telegram bot and the image processing queue worker.
-Run this to start the entire application:
+Простой скрипт для запуска Telegram-бота и воркера очереди обработки изображений.
+Чтобы запустить всё приложение, выполните:
 
     python run_bot.py
 """
@@ -14,12 +14,12 @@ import signal
 import threading
 import time
 
-# Restart settings
-RESTART_DELAY_SECONDS = 5  # Wait N seconds before restarting a failed process
-MAX_RESTART_ATTEMPTS = 3   # Maximum number of restart attempts per process
+# Настройки перезапуска
+RESTART_DELAY_SECONDS = 5  # Ожидать N секунд перед перезапуском упавшего процесса
+MAX_RESTART_ATTEMPTS = 3   # Максимальное число попыток перезапуска для процесса
 
 def output_reader(process, prefix, stop_event):
-    """Read and print output from subprocess with a prefix."""
+    """Читать и печатать вывод подпроцесса с префиксом."""
     while not stop_event.is_set():
         line = process.stdout.readline()
         if line:
@@ -29,7 +29,7 @@ def output_reader(process, prefix, stop_event):
 
 
 def start_telegram_bot():
-    """Start the telegram bot subprocess."""
+    """Запустить подпроцесс Telegram-бота."""
     return subprocess.Popen(
         [sys.executable, "-m", "src.sbs_helper_telegram_bot.telegram_bot.telegram_bot"],
         stdout=subprocess.PIPE,
@@ -40,7 +40,7 @@ def start_telegram_bot():
 
 
 def start_queue_processor():
-    """Start the image queue processor subprocess."""
+    """Запустить подпроцесс обработчика очереди изображений."""
     return subprocess.Popen(
         [sys.executable, "-m", "src.sbs_helper_telegram_bot.vyezd_byl.processimagequeue"],
         stdout=subprocess.PIPE,
@@ -51,41 +51,41 @@ def start_queue_processor():
 
 
 def start_output_thread(process, prefix, stop_event):
-    """Start a thread to read output from a process."""
+    """Запустить поток для чтения вывода процесса."""
     thread = threading.Thread(target=output_reader, args=(process, prefix, stop_event), daemon=True)
     thread.start()
     return thread
 
 
 def run_bot():
-    """Start both the telegram bot and image queue processor."""
+    """Запустить Telegram-бота и обработчик очереди изображений."""
     
     print("🚀 Starting SPRINT Fake Location Overlay Bot...\n")
     
-    # Track restart attempts for each process
+    # Отслеживаем попытки перезапуска для каждого процесса
     telegram_restart_count = 0
     queue_restart_count = 0
     
-    # Stop events for output threads
+    # События остановки для потоков чтения вывода
     telegram_stop_event = threading.Event()
     queue_stop_event = threading.Event()
     
-    # Start telegram bot in a subprocess
+    # Запускаем Telegram-бота в подпроцессе
     print("📱 Starting Telegram Bot...")
     telegram_process = start_telegram_bot()
     
-    # Start image queue processor in a subprocess
+    # Запускаем обработчик очереди изображений в подпроцессе
     print("🖼️  Starting Image Queue Processor...")
     queue_process = start_queue_processor()
     
-    # Start threads to read output from both processes
+    # Запускаем потоки чтения вывода для обоих процессов
     telegram_thread = start_output_thread(telegram_process, "BOT", telegram_stop_event)
     queue_thread = start_output_thread(queue_process, "QUEUE", queue_stop_event)
     
     print("✅ Both services started!\n")
     print("Press Ctrl+C to stop all services.\n")
     
-    # Handle Ctrl+C gracefully
+    # Корректно обрабатываем Ctrl+C
     def signal_handler(sig, frame):
         print("\n\n🛑 Stopping services...")
         telegram_process.terminate()
@@ -101,13 +101,13 @@ def run_bot():
     
     signal.signal(signal.SIGINT, signal_handler)
     
-    # Wait for both processes
+    # Ждём оба процесса
     while True:
         telegram_poll = telegram_process.poll()
         queue_poll = queue_process.poll()
         
         if telegram_poll is not None and queue_poll is not None:
-            # Both processes stopped - try to restart both
+            # Оба процесса остановились — пробуем перезапустить оба
             if telegram_restart_count < MAX_RESTART_ATTEMPTS and queue_restart_count < MAX_RESTART_ATTEMPTS:
                 print(f"⚠️  Both services stopped. Restarting in {RESTART_DELAY_SECONDS} seconds...")
                 time.sleep(RESTART_DELAY_SECONDS)
@@ -164,7 +164,7 @@ def run_bot():
                 telegram_process.terminate()
                 sys.exit(1)
         
-        time.sleep(0.5)  # Small delay to prevent busy-waiting
+        time.sleep(0.5)  # Небольшая пауза, чтобы избежать активного ожидания
 
 
 if __name__ == "__main__":

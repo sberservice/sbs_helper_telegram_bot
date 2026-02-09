@@ -1,8 +1,8 @@
 """
-UPOS Error Bot Part
+Часть бота для ошибок UPOS
 
-Main bot handlers for UPOS error code lookup module.
-Includes user-facing lookup functionality and admin CRUD operations.
+Основные обработчики бота для модуля поиска кодов ошибок UPOS.
+Включает пользовательский поиск и админские CRUD-операции.
 """
 # pylint: disable=line-too-long
 
@@ -50,11 +50,11 @@ from src.sbs_helper_telegram_bot.ticket_validator import settings as validator_s
 
 logger = logging.getLogger(__name__)
 
-# Conversation states for user lookup
-SUBMENU = 0  # User is in the module submenu
+# Состояния диалога для пользовательского поиска
+SUBMENU = 0  # Пользователь находится в подменю модуля
 WAITING_FOR_ERROR_CODE = 1
 
-# Conversation states for admin operations
+# Состояния диалога для админских операций
 (
     ADMIN_MENU,
     ADMIN_ADD_ERROR_CODE,
@@ -75,17 +75,17 @@ WAITING_FOR_ERROR_CODE = 1
 ) = range(100, 116)
 
 
-# ===== DATABASE OPERATIONS =====
+# ===== ОПЕРАЦИИ С БАЗОЙ ДАННЫХ =====
 
 def get_error_code_by_code(error_code: str) -> Optional[dict]:
     """
-    Look up an error code in the database.
-    
+    Найти код ошибки в базе данных.
+
     Args:
-        error_code: The error code to look up
-        
+        error_code: Код ошибки для поиска.
+
     Returns:
-        Dict with error info or None if not found
+        Словарь с информацией об ошибке или None, если не найдено.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -100,7 +100,7 @@ def get_error_code_by_code(error_code: str) -> Optional[dict]:
 
 def get_error_code_by_id(error_id: int) -> Optional[dict]:
     """
-    Get error code by ID (for admin).
+    Получить код ошибки по ID (для админа).
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -115,10 +115,10 @@ def get_error_code_by_id(error_id: int) -> Optional[dict]:
 
 def get_all_error_codes(page: int = 1, per_page: int = None, include_inactive: bool = False) -> Tuple[List[dict], int]:
     """
-    Get paginated list of error codes.
-    
+    Получить постраничный список кодов ошибок.
+
     Returns:
-        Tuple of (error_codes_list, total_count)
+        Кортеж (список_кодов_ошибок, общее_количество).
     """
     if per_page is None:
         per_page = settings.ERRORS_PER_PAGE
@@ -128,11 +128,11 @@ def get_all_error_codes(page: int = 1, per_page: int = None, include_inactive: b
     
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # Get total count
+            # Получаем общее количество
             cursor.execute(f"SELECT COUNT(*) as cnt FROM upos_error_codes e {active_filter}")
             total = cursor.fetchone()['cnt']
             
-            # Get page
+            # Получаем страницу
             cursor.execute(f"""
                 SELECT e.*, c.name as category_name
                 FROM upos_error_codes e
@@ -147,10 +147,10 @@ def get_all_error_codes(page: int = 1, per_page: int = None, include_inactive: b
 
 def create_error_code(error_code: str, description: str, suggested_actions: str, category_id: Optional[int] = None) -> int:
     """
-    Create a new error code.
-    
+    Создать новый код ошибки.
+
     Returns:
-        The new error code ID
+        ID нового кода ошибки.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -164,7 +164,7 @@ def create_error_code(error_code: str, description: str, suggested_actions: str,
 
 def update_error_code(error_id: int, field: str, value: str, update_timestamp: bool = False) -> bool:
     """
-    Update a field of an error code.
+    Обновить поле кода ошибки.
     """
     allowed_fields = ['description', 'suggested_actions', 'category_id', 'active']
     if field not in allowed_fields:
@@ -189,7 +189,7 @@ def update_error_code(error_id: int, field: str, value: str, update_timestamp: b
 
 def delete_error_code(error_id: int) -> bool:
     """
-    Delete an error code (hard delete).
+    Удалить код ошибки (жёсткое удаление).
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -199,7 +199,7 @@ def delete_error_code(error_id: int) -> bool:
 
 def error_code_exists(error_code: str) -> bool:
     """
-    Check if error code already exists.
+    Проверить, существует ли код ошибки.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -207,11 +207,11 @@ def error_code_exists(error_code: str) -> bool:
             return cursor.fetchone() is not None
 
 
-# Category operations
+# Операции с категориями
 
 def get_all_categories(page: int = 1, per_page: int = None) -> Tuple[List[dict], int]:
     """
-    Get paginated list of categories.
+    Получить постраничный список категорий.
     """
     if per_page is None:
         per_page = settings.CATEGORIES_PER_PAGE
@@ -237,7 +237,7 @@ def get_all_categories(page: int = 1, per_page: int = None) -> Tuple[List[dict],
 
 def get_category_by_id(category_id: int) -> Optional[dict]:
     """
-    Get category by ID.
+    Получить категорию по ID.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -252,7 +252,7 @@ def get_category_by_id(category_id: int) -> Optional[dict]:
 
 def create_category(name: str, description: Optional[str] = None, display_order: int = 0) -> int:
     """
-    Create a new category.
+    Создать новую категорию.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -266,7 +266,7 @@ def create_category(name: str, description: Optional[str] = None, display_order:
 
 def update_category(category_id: int, field: str, value) -> bool:
     """
-    Update a category field.
+    Обновить поле категории.
     """
     allowed_fields = ['name', 'description', 'display_order', 'active']
     if field not in allowed_fields:
@@ -284,18 +284,18 @@ def update_category(category_id: int, field: str, value) -> bool:
 
 def delete_category(category_id: int) -> bool:
     """
-    Delete a category (sets error codes category_id to NULL).
+    Удалить категорию (у кодов ошибок category_id станет NULL).
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # FK constraint with ON DELETE SET NULL handles error codes
+            # Внешний ключ с ON DELETE SET NULL обработает связанные коды ошибок
             cursor.execute("DELETE FROM upos_error_categories WHERE id = %s", (category_id,))
             return cursor.rowcount > 0
 
 
 def category_exists(name: str) -> bool:
     """
-    Check if category name already exists.
+    Проверить, существует ли название категории.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -305,7 +305,7 @@ def category_exists(name: str) -> bool:
 
 def get_category_by_name(name: str) -> Optional[dict]:
     """
-    Get category by name.
+    Получить категорию по названию.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -313,11 +313,11 @@ def get_category_by_name(name: str) -> Optional[dict]:
             return cursor.fetchone()
 
 
-# CSV Import structures and functions
+# Структуры и функции импорта CSV
 
 @dataclass
 class CSVImportResult:
-    """Result of CSV import operation."""
+    """Результат операции импорта CSV."""
     success_count: int = 0
     skipped_count: int = 0
     error_count: int = 0
@@ -330,36 +330,36 @@ class CSVImportResult:
 
 def parse_csv_error_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[dict], List[str]]:
     """
-    Parse CSV content and validate error codes data.
-    
-    Expected CSV format:
+    Разобрать CSV и проверить данные кодов ошибок.
+
+    Ожидаемый формат CSV:
     error_code,description,suggested_actions,category (optional)
-    
+
     Args:
-        csv_content: Raw CSV content as string
-        delimiter: CSV delimiter character
-        
+        csv_content: Содержимое CSV в виде строки.
+        delimiter: Разделитель CSV.
+
     Returns:
-        Tuple of (valid_records, errors_list)
+        Кортеж (валидные_записи, список_ошибок).
     """
     valid_records = []
     errors = []
     
     try:
-        # Try to detect the delimiter if it's not comma
+        # Пытаемся определить разделитель, если это не запятая
         if delimiter == ',' and ';' in csv_content and ',' not in csv_content.split('\n')[0]:
             delimiter = ';'
         
         reader = csv.DictReader(io.StringIO(csv_content), delimiter=delimiter)
         
-        # Check for required fields
+        # Проверяем обязательные поля
         if not reader.fieldnames:
             errors.append("CSV файл пуст или имеет неверный формат")
             return [], errors
         
         fieldnames_lower = [f.lower().strip() if f else '' for f in reader.fieldnames]
         
-        # Map possible column names
+        # Сопоставляем возможные названия колонок
         code_col = None
         desc_col = None
         actions_col = None
@@ -385,14 +385,14 @@ def parse_csv_error_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[
             errors.append(messages.MESSAGE_CSV_ERROR_NO_ACTIONS_COLUMN)
             return [], errors
         
-        for row_num, row in enumerate(reader, start=2):  # Start from 2 (header is row 1)
+        for row_num, row in enumerate(reader, start=2):  # Начинаем с 2 (заголовок — строка 1)
             try:
                 error_code = (row.get(code_col) or '').strip()
                 description = (row.get(desc_col) or '').strip()
                 suggested_actions = (row.get(actions_col) or '').strip()
                 category_name = (row.get(category_col) or '').strip() if category_col else None
                 
-                # Validate required fields
+                # Валидируем обязательные поля
                 if not error_code:
                     errors.append(messages.MESSAGE_CSV_ERROR_EMPTY_CODE.format(row=row_num))
                     continue
@@ -429,14 +429,14 @@ def parse_csv_error_codes(csv_content: str, delimiter: str = ',') -> Tuple[List[
 
 def import_error_codes_from_csv(records: List[dict], skip_existing: bool = True) -> CSVImportResult:
     """
-    Import error codes from parsed CSV records.
-    
+    Импортировать коды ошибок из разобранных CSV-записей.
+
     Args:
-        records: List of validated record dicts
-        skip_existing: If True, skip existing codes; if False, update them
-        
+        records: Список валидированных словарей записей.
+        skip_existing: Если True, пропускать существующие коды; если False — обновлять их.
+
     Returns:
-        CSVImportResult with import statistics
+        CSVImportResult со статистикой импорта.
     """
     result = CSVImportResult()
     
@@ -447,7 +447,7 @@ def import_error_codes_from_csv(records: List[dict], skip_existing: bool = True)
             suggested_actions = record['suggested_actions']
             category_name = record.get('category_name')
             
-            # Check if code exists
+            # Проверяем, существует ли код
             existing = get_error_code_by_code(error_code)
             
             if existing:
@@ -455,7 +455,7 @@ def import_error_codes_from_csv(records: List[dict], skip_existing: bool = True)
                     result.skipped_count += 1
                     continue
                 else:
-                    # Update existing
+                    # Обновляем существующий
                     update_error_code(existing['id'], 'description', description)
                     update_error_code(existing['id'], 'suggested_actions', suggested_actions, update_timestamp=True)
                     if category_name:
@@ -465,17 +465,17 @@ def import_error_codes_from_csv(records: List[dict], skip_existing: bool = True)
                     result.success_count += 1
                     continue
             
-            # Get category ID if provided
+            # Получаем ID категории, если указана
             category_id = None
             if category_name:
                 cat = get_category_by_name(category_name)
                 if cat:
                     category_id = cat['id']
-                # If category doesn't exist, create it
+                # Если категории нет, создаём её
                 elif category_name:
                     category_id = create_category(category_name, None, 0)
             
-            # Create new error code
+            # Создаём новый код ошибки
             create_error_code(error_code, description, suggested_actions, category_id)
             result.success_count += 1
             
@@ -486,11 +486,11 @@ def import_error_codes_from_csv(records: List[dict], skip_existing: bool = True)
     return result
 
 
-# Unknown codes and statistics
+# Неизвестные коды и статистика
 
 def record_error_request(user_id: int, error_code: str, found: bool) -> None:
     """
-    Record an error code request in the log.
+    Записать запрос кода ошибки в лог.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -503,11 +503,11 @@ def record_error_request(user_id: int, error_code: str, found: bool) -> None:
 
 def record_unknown_code(error_code: str) -> None:
     """
-    Record or increment an unknown code request.
+    Записать или увеличить счётчик запроса неизвестного кода.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
-            # Try to update existing
+            # Пытаемся обновить существующую запись
             cursor.execute("""
                 UPDATE upos_error_unknown_codes 
                 SET times_requested = times_requested + 1,
@@ -516,7 +516,7 @@ def record_unknown_code(error_code: str) -> None:
             """, (error_code,))
             
             if cursor.rowcount == 0:
-                # Insert new
+                # Вставляем новую запись
                 cursor.execute("""
                     INSERT INTO upos_error_unknown_codes 
                     (error_code, times_requested, first_requested_timestamp, last_requested_timestamp)
@@ -526,7 +526,7 @@ def record_unknown_code(error_code: str) -> None:
 
 def get_unknown_codes(page: int = 1, per_page: int = None) -> Tuple[List[dict], int]:
     """
-    Get paginated list of unknown codes.
+    Получить постраничный список неизвестных кодов.
     """
     if per_page is None:
         per_page = settings.UNKNOWN_CODES_PER_PAGE
@@ -549,7 +549,7 @@ def get_unknown_codes(page: int = 1, per_page: int = None) -> Tuple[List[dict], 
 
 def get_unknown_code_by_id(unknown_id: int) -> Optional[dict]:
     """
-    Get unknown code by ID.
+    Получить неизвестный код по ID.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -559,7 +559,7 @@ def get_unknown_code_by_id(unknown_id: int) -> Optional[dict]:
 
 def delete_unknown_code(unknown_id: int) -> bool:
     """
-    Delete an unknown code entry (after adding it to known codes).
+    Удалить запись неизвестного кода (после добавления в известные).
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -569,7 +569,7 @@ def delete_unknown_code(unknown_id: int) -> bool:
 
 def get_popular_error_codes(limit: int = None) -> List[dict]:
     """
-    Get most requested error codes.
+    Получить самые запрашиваемые коды ошибок.
     """
     if limit is None:
         limit = settings.TOP_POPULAR_COUNT
@@ -590,13 +590,13 @@ def get_popular_error_codes(limit: int = None) -> List[dict]:
 
 def get_statistics() -> dict:
     """
-    Get module statistics.
+    Получить статистику модуля.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             stats = {}
             
-            # Total counts
+            # Общие количества
             cursor.execute("SELECT COUNT(*) as cnt FROM upos_error_codes WHERE active = 1")
             stats['total_codes'] = cursor.fetchone()['cnt']
             
@@ -606,7 +606,7 @@ def get_statistics() -> dict:
             cursor.execute("SELECT COUNT(*) as cnt FROM upos_error_unknown_codes")
             stats['unknown_codes'] = cursor.fetchone()['cnt']
             
-            # Last 7 days
+            # Последние 7 дней
             cursor.execute("""
                 SELECT 
                     COUNT(*) as total,
@@ -620,7 +620,7 @@ def get_statistics() -> dict:
             stats['found_7d'] = result['found'] or 0
             stats['not_found_7d'] = result['not_found'] or 0
             
-            # Top codes
+            # Топ кодов
             cursor.execute("""
                 SELECT error_code, COUNT(*) as cnt
                 FROM upos_error_request_log
@@ -634,12 +634,12 @@ def get_statistics() -> dict:
             return stats
 
 
-# ===== USER HANDLERS =====
+# ===== ОБРАБОТЧИКИ ПОЛЬЗОВАТЕЛЕЙ =====
 
 async def enter_upos_module(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Entry point for UPOS error module.
-    Shows the submenu.
+    Точка входа в модуль ошибок UPOS.
+    Показывает подменю.
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
@@ -655,12 +655,12 @@ async def enter_upos_module(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboard
     )
-    return SUBMENU  # Enter submenu state to accept direct error codes
+    return SUBMENU  # Входим в состояние подменю, чтобы принимать коды напрямую
 
 
 async def start_error_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Start error code search flow.
+    Запустить сценарий поиска кода ошибки.
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
@@ -675,12 +675,12 @@ async def start_error_search(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def process_error_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Process user's error code input and return result.
+    Обработать ввод кода ошибки пользователем и вернуть результат.
     """
     user_id = update.effective_user.id
     input_text = update.message.text.strip()
     
-    # Validate input - allow numeric and alphanumeric codes
+    # Валидируем ввод: допускаем числовые и буквенно-цифровые коды
     if not input_text or len(input_text) > 50:
         await update.message.reply_text(
             messages.MESSAGE_INVALID_ERROR_CODE,
@@ -688,11 +688,11 @@ async def process_error_code_input(update: Update, context: ContextTypes.DEFAULT
         )
         return WAITING_FOR_ERROR_CODE
     
-    # Look up the error code
+    # Ищем код ошибки
     error_info = get_error_code_by_code(input_text)
     
     if error_info:
-        # Found - log and display
+        # Найдено — логируем и показываем
         record_error_request(user_id, input_text, found=True)
         
         response = messages.format_error_code_response(
@@ -708,7 +708,7 @@ async def process_error_code_input(update: Update, context: ContextTypes.DEFAULT
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
     else:
-        # Not found - log and add to unknown
+        # Не найдено — логируем и добавляем в неизвестные
         record_error_request(user_id, input_text, found=False)
         record_unknown_code(input_text)
         
@@ -718,7 +718,7 @@ async def process_error_code_input(update: Update, context: ContextTypes.DEFAULT
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
     
-    # Return to submenu
+    # Возвращаемся в подменю
     if check_if_user_admin(user_id):
         keyboard = keyboards.get_admin_submenu_keyboard()
     else:
@@ -729,25 +729,25 @@ async def process_error_code_input(update: Update, context: ContextTypes.DEFAULT
         reply_markup=keyboard
     )
     
-    return SUBMENU  # Stay in submenu to allow more lookups
+    return SUBMENU  # Остаёмся в подменю для повторных запросов
 
 
 async def direct_error_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle direct error code input from submenu (without pressing search button).
-    This allows users to enter error codes directly.
+    Обработать прямой ввод кода ошибки из подменю (без нажатия кнопки поиска).
+    Это позволяет пользователям вводить коды напрямую.
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
-    # Reuse the same processing logic as process_error_code_input
+    # Переиспользуем логику обработки из process_error_code_input
     return await process_error_code_input(update, context)
 
 
 async def show_popular_errors(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Show most requested error codes.
+    Показать самые запрашиваемые коды ошибок.
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
@@ -781,7 +781,7 @@ async def show_popular_errors(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def cancel_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Cancel the error search flow.
+    Отменить сценарий поиска ошибки.
     """
     await update.message.reply_text(
         messages.MESSAGE_SEARCH_CANCELLED,
@@ -793,13 +793,13 @@ async def cancel_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 async def cancel_search_on_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Cancel search when menu button is pressed.
-    Shows appropriate response based on button pressed.
+    Отменить поиск при нажатии кнопки меню.
+    Показывает ответ в зависимости от нажатой кнопки.
     """
-    # Clear any context data
+    # Очищаем временные данные контекста
     context.user_data.pop('upos_temp', None)
     
-    # Check which button was pressed and respond accordingly
+    # Проверяем, какая кнопка нажата, и отвечаем соответствующим образом
     text = update.message.text if update.message else None
     user_id = update.effective_user.id
     is_admin = check_if_user_admin(user_id)
@@ -814,11 +814,11 @@ async def cancel_search_on_menu(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 
-# ===== ADMIN HANDLERS =====
+# ===== ОБРАБОТЧИКИ АДМИНА =====
 
 async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Show admin menu for UPOS errors.
+    Показать админ-меню для ошибок UPOS.
     """
     if not check_if_user_admin(update.effective_user.id):
         await update.message.reply_text(
@@ -837,7 +837,7 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle admin menu button presses.
+    Обработать нажатия кнопок админ-меню.
     """
     text = update.message.text
     
@@ -879,7 +879,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def admin_show_errors_list(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
     """
-    Show paginated list of error codes.
+    Показать постраничный список кодов ошибок.
     """
     errors, total = get_all_error_codes(page=page, include_inactive=True)
     
@@ -917,8 +917,8 @@ async def admin_show_errors_list(update: Update, context: ContextTypes.DEFAULT_T
 
 async def admin_start_search_error(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Start the flow to search for an error code by code.
-    Admin can type the error code directly instead of scrolling through the list.
+    Запустить сценарий поиска кода ошибки по коду.
+    Администратор может ввести код напрямую, не пролистывая список.
     """
     await update.message.reply_text(
         messages.MESSAGE_ADMIN_SEARCH_ERROR_CODE,
@@ -931,11 +931,11 @@ async def admin_start_search_error(update: Update, context: ContextTypes.DEFAULT
 
 async def admin_receive_search_error_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive error code for search and show it for editing.
+    Принять код ошибки для поиска и показать его для редактирования.
     """
     error_code = update.message.text.strip()
     
-    # Look up the error code in the database (include inactive)
+    # Ищем код ошибки в базе (включая неактивные)
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             cursor.execute("""
@@ -955,10 +955,10 @@ async def admin_receive_search_error_code(update: Update, context: ContextTypes.
         )
         return ADMIN_MENU
     
-    # Store error info for potential edit
+    # Сохраняем данные ошибки для возможного редактирования
     context.user_data['upos_temp'] = {'error_id': error['id']}
     
-    # Format error details
+    # Форматируем детали ошибки
     text = messages.format_error_code_response(
         error_code=error['error_code'],
         description=error['description'],
@@ -967,7 +967,7 @@ async def admin_receive_search_error_code(update: Update, context: ContextTypes.
         updated_timestamp=error.get('updated_timestamp')
     )
     
-    # Add status indicator
+    # Добавляем индикатор статуса
     status = "✅ Активна" if error['active'] else "🚫 Деактивирована"
     status_escaped = messages.escape_markdown_v2(status)
     text += f"\n\n📌 *Статус:* {status_escaped}"
@@ -985,7 +985,7 @@ async def admin_receive_search_error_code(update: Update, context: ContextTypes.
 
 async def admin_start_add_error(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Start the flow to add a new error code.
+    Запустить сценарий добавления нового кода ошибки.
     """
     context.user_data['upos_temp'] = {}
     
@@ -999,7 +999,7 @@ async def admin_start_add_error(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def admin_receive_error_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive error code for new error.
+    Принять код ошибки для новой записи.
     """
     error_code = update.message.text.strip()
     
@@ -1024,7 +1024,7 @@ async def admin_receive_error_code(update: Update, context: ContextTypes.DEFAULT
 
 async def admin_receive_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive description for new error.
+    Принять описание для новой ошибки.
     """
     description = update.message.text.strip()
     context.user_data['upos_temp']['description'] = description
@@ -1042,7 +1042,7 @@ async def admin_receive_description(update: Update, context: ContextTypes.DEFAUL
 
 async def admin_receive_actions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive suggested actions for new error, then show category selection.
+    Принять рекомендации для новой ошибки и показать выбор категории.
     """
     suggested_actions = update.message.text.strip()
     context.user_data['upos_temp']['suggested_actions'] = suggested_actions
@@ -1050,7 +1050,7 @@ async def admin_receive_actions(update: Update, context: ContextTypes.DEFAULT_TY
     error_code = context.user_data['upos_temp']['error_code']
     escaped = messages.escape_markdown_v2(error_code)
     
-    # Get categories for selection
+    # Получаем категории для выбора
     categories, total = get_all_categories(page=1, per_page=20)
     
     if categories:
@@ -1062,13 +1062,13 @@ async def admin_receive_actions(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return ADMIN_SELECT_CATEGORY
     else:
-        # No categories - create error without category
+        # Категорий нет — создаём ошибку без категории
         return await _create_error_code(update, context, category_id=None)
 
 
 async def admin_select_category_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle category selection callback.
+    Обработать callback выбора категории.
     """
     query = update.callback_query
     await query.answer()
@@ -1076,7 +1076,7 @@ async def admin_select_category_callback(update: Update, context: ContextTypes.D
     data = query.data
     
     if data == "upos_cat_skip":
-        # Skip category selection
+        # Пропускаем выбор категории
         return await _create_error_code(query, context, category_id=None)
     elif data.startswith("upos_cat_select_"):
         category_id = int(data.replace("upos_cat_select_", ""))
@@ -1087,7 +1087,7 @@ async def admin_select_category_callback(update: Update, context: ContextTypes.D
 
 async def _create_error_code(update_or_query, context: ContextTypes.DEFAULT_TYPE, category_id: Optional[int]) -> int:
     """
-    Helper to create the error code after all inputs collected.
+    Вспомогательная функция создания кода ошибки после сбора всех данных.
     """
     temp = context.user_data.get('upos_temp', {})
     error_code = temp.get('error_code')
@@ -1097,10 +1097,10 @@ async def _create_error_code(update_or_query, context: ContextTypes.DEFAULT_TYPE
     if not all([error_code, description, suggested_actions]):
         return ADMIN_MENU
     
-    # Create the error code
+    # Создаём код ошибки
     create_error_code(error_code, description, suggested_actions, category_id)
     
-    # Get category name for response
+    # Получаем название категории для ответа
     category_name = messages.MESSAGE_NO_CATEGORY
     if category_id:
         cat = get_category_by_id(category_id)
@@ -1117,7 +1117,7 @@ async def _create_error_code(update_or_query, context: ContextTypes.DEFAULT_TYPE
         description=escaped_desc
     )
     
-    # Check if this was a callback query or message
+    # Проверяем, это callback-запрос или сообщение
     if hasattr(update_or_query, 'message') and update_or_query.message:
         await update_or_query.message.reply_text(
             response,
@@ -1125,19 +1125,19 @@ async def _create_error_code(update_or_query, context: ContextTypes.DEFAULT_TYPE
             reply_markup=keyboards.get_admin_menu_keyboard()
         )
     else:
-        # It's a callback query
+        # Это callback-запрос
         await update_or_query.edit_message_text(
             response,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
-        # Send new message with keyboard
+        # Отправляем новое сообщение с клавиатурой
         await context.bot.send_message(
             chat_id=update_or_query.message.chat_id,
             text=messages.MESSAGE_SELECT_ACTION,
             reply_markup=keyboards.get_admin_menu_keyboard()
         )
     
-    # Clear temp data
+    # Очищаем временные данные
     context.user_data.pop('upos_temp', None)
     
     return ADMIN_MENU
@@ -1145,7 +1145,7 @@ async def _create_error_code(update_or_query, context: ContextTypes.DEFAULT_TYPE
 
 async def admin_show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
     """
-    Show categories list.
+    Показать список категорий.
     """
     categories, total = get_all_categories(page=page)
     
@@ -1187,7 +1187,7 @@ async def admin_show_categories(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def admin_show_unknown_codes(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
     """
-    Show unknown codes list.
+    Показать список неизвестных кодов.
     """
     codes, total = get_unknown_codes(page=page)
     
@@ -1226,11 +1226,11 @@ async def admin_show_unknown_codes(update: Update, context: ContextTypes.DEFAULT
 
 async def admin_show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Show module statistics.
+    Показать статистику модуля.
     """
     stats = get_statistics()
     
-    # Format top codes
+    # Форматируем топ-коды
     top_codes_text = ""
     if stats['top_codes']:
         for i, code_info in enumerate(stats['top_codes'], 1):
@@ -1260,19 +1260,19 @@ async def admin_show_statistics(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Handle admin inline keyboard callbacks.
+    Обработать callback-и inline-клавиатуры админа.
     """
     query = update.callback_query
     await query.answer()
     
     data = query.data
     
-    # View error details
+    # Просмотр деталей ошибки
     if data.startswith("upos_view_"):
         error_id = int(data.replace("upos_view_", ""))
         return await _show_error_details(query, context, error_id)
     
-    # Edit error description
+    # Редактировать описание ошибки
     elif data.startswith("upos_edit_desc_"):
         error_id = int(data.replace("upos_edit_desc_", ""))
         context.user_data['upos_temp'] = {'error_id': error_id, 'edit_field': 'description'}
@@ -1285,7 +1285,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
             return ADMIN_EDIT_DESCRIPTION
     
-    # Edit suggested actions
+    # Редактировать рекомендации
     elif data.startswith("upos_edit_actions_"):
         error_id = int(data.replace("upos_edit_actions_", ""))
         context.user_data['upos_temp'] = {'error_id': error_id, 'edit_field': 'suggested_actions'}
@@ -1298,7 +1298,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
             return ADMIN_EDIT_ACTIONS
     
-    # Edit category
+    # Редактировать категорию
     elif data.startswith("upos_edit_cat_"):
         error_id = int(data.replace("upos_edit_cat_", ""))
         context.user_data['upos_temp'] = {'error_id': error_id, 'edit_field': 'category_id'}
@@ -1310,7 +1310,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return ADMIN_SELECT_CATEGORY
     
-    # Activate/deactivate
+    # Активировать/деактивировать
     elif data.startswith("upos_activate_"):
         error_id = int(data.replace("upos_activate_", ""))
         update_error_code(error_id, 'active', 1)
@@ -1321,7 +1321,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         update_error_code(error_id, 'active', 0)
         return await _show_error_details(query, context, error_id)
     
-    # Delete error
+    # Удалить ошибку
     elif data.startswith("upos_delete_"):
         error_id = int(data.replace("upos_delete_", ""))
         keyboard = keyboards.get_confirm_delete_keyboard('error', error_id)
@@ -1332,7 +1332,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return ADMIN_MENU
     
-    # Confirm delete
+    # Подтвердить удаление
     elif data.startswith("upos_confirm_delete_error_"):
         error_id = int(data.replace("upos_confirm_delete_error_", ""))
         error = get_error_code_by_id(error_id)
@@ -1345,13 +1345,13 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
         return ADMIN_MENU
     
-    # Back to errors list
+    # Назад к списку ошибок
     elif data == "upos_errors_list":
-        # Can't show full list in callback, just acknowledge
+        # В callback нельзя показать полный список — просто подтверждаем
         await query.edit_message_text(messages.MESSAGE_USE_LIST_BUTTON)
         return ADMIN_MENU
     
-    # Back to admin menu
+    # Назад в админ-меню
     elif data == "upos_admin_menu":
         await query.edit_message_text(
             messages.MESSAGE_ADMIN_MENU,
@@ -1359,7 +1359,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return ADMIN_MENU
     
-    # Category callbacks
+    # Колбэки категорий
     elif data.startswith("upos_cat_view_"):
         category_id = int(data.replace("upos_cat_view_", ""))
         return await _show_category_details(query, context, category_id)
@@ -1386,7 +1386,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
         return ADMIN_MENU
     
-    # Add from unknown codes
+    # Добавление из неизвестных кодов
     elif data.startswith("upos_add_unknown_"):
         unknown_id = int(data.replace("upos_add_unknown_", ""))
         unknown = get_unknown_code_by_id(unknown_id)
@@ -1403,10 +1403,10 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             return ADMIN_ADD_DESCRIPTION
         return ADMIN_MENU
     
-    # Pagination
+    # Пагинация
     elif data.startswith("upos_page_"):
         page = int(data.replace("upos_page_", ""))
-        # Re-fetch and display
+        # Пере-запрашиваем и показываем
         errors, total = get_all_error_codes(page=page, include_inactive=True)
         total_pages = math.ceil(total / settings.ERRORS_PER_PAGE)
         
@@ -1429,7 +1429,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 async def _show_error_details(query, context: ContextTypes.DEFAULT_TYPE, error_id: int) -> int:
     """
-    Show error code details with edit options.
+    Показать детали кода ошибки с опциями редактирования.
     """
     error = get_error_code_by_id(error_id)
     if not error:
@@ -1654,11 +1654,11 @@ async def admin_receive_category_order(update: Update, context: ContextTypes.DEF
     return ADMIN_MENU
 
 
-# ===== CSV IMPORT HANDLERS =====
+# ===== ОБРАБОТЧИКИ ИМПОРТА CSV =====
 
 async def admin_start_csv_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Start CSV import flow.
+    Запустить процесс импорта CSV.
     """
     await update.message.reply_text(
         messages.MESSAGE_ADMIN_CSV_IMPORT_START,
@@ -1671,9 +1671,9 @@ async def admin_start_csv_import(update: Update, context: ContextTypes.DEFAULT_T
 
 async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Receive and process CSV file for import.
+    Получить и обработать CSV-файл для импорта.
     """
-    # Check if file was sent
+    # Проверяем, что файл был отправлен
     if not update.message.document:
         await update.message.reply_text(
             messages.MESSAGE_ADMIN_CSV_NO_FILE,
@@ -1683,7 +1683,7 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
     
     document = update.message.document
     
-    # Validate file type
+    # Проверяем тип файла
     file_name = document.file_name or ''
     if not file_name.lower().endswith('.csv'):
         await update.message.reply_text(
@@ -1692,7 +1692,7 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
         )
         return ADMIN_IMPORT_CSV_WAITING
     
-    # Check file size (max 5MB)
+    # Проверяем размер файла (максимум 5 МБ)
     if document.file_size > 5 * 1024 * 1024:
         await update.message.reply_text(
             messages.MESSAGE_ADMIN_CSV_TOO_LARGE,
@@ -1701,33 +1701,33 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
         return ADMIN_IMPORT_CSV_WAITING
     
     try:
-        # Download file
+        # Загружаем файл
         file = await context.bot.get_file(document.file_id)
         file_bytes = await file.download_as_bytearray()
         raw_bytes = bytes(file_bytes)
         
-        # Try to decode with different encodings
+        # Пытаемся декодировать разными кодировками
         csv_content = None
         
-        # Check for BOM (Byte Order Mark) first
+        # Сначала проверяем BOM (маркер порядка байтов)
         if raw_bytes.startswith(b'\xef\xbb\xbf'):
-            # UTF-8 with BOM
+            # UTF-8 с BOM
             csv_content = raw_bytes[3:].decode('utf-8')
         elif raw_bytes.startswith(b'\xff\xfe') or raw_bytes.startswith(b'\xfe\xff'):
             # UTF-16
             csv_content = raw_bytes.decode('utf-16')
         else:
-            # Try different encodings
-            # Order matters: utf-8 first, then Mac-specific, then Windows, then fallback
+            # Пробуем разные кодировки
+            # Порядок важен: сначала utf-8, затем Mac-специфичная, затем Windows, затем запасная
             for encoding in ['utf-8', 'mac_roman', 'cp1251', 'iso-8859-1']:
                 try:
                     csv_content = raw_bytes.decode(encoding)
-                    # Verify the content looks reasonable (has some Cyrillic or ASCII)
-                    # This helps detect wrong encoding
+                    # Проверяем, что содержимое похоже на текст (есть кириллица или ASCII)
+                    # Это помогает отсеять неверную кодировку
                     if encoding != 'utf-8':
-                        # For non-UTF8, check if result has garbage characters
+                        # Для не-UTF8 проверяем, нет ли «мусорных» символов
                         test_chars = set(csv_content[:500])
-                        # If we see replacement characters, try next encoding
+                        # Если видим символы замены, пробуем следующую кодировку
                         if '\ufffd' in test_chars:
                             continue
                     break
@@ -1741,14 +1741,14 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
             )
             return ADMIN_IMPORT_CSV_WAITING
         
-        # Normalize line endings (Mac uses \r, Windows uses \r\n, Unix uses \n)
+        # Нормализуем переводы строк (Mac использует \r, Windows — \r\n, Unix — \n)
         csv_content = csv_content.replace('\r\n', '\n').replace('\r', '\n')
         
-        # Parse CSV
+        # Разбираем CSV
         records, parse_errors = parse_csv_error_codes(csv_content)
         
         if parse_errors and not records:
-            # Only errors, no valid records
+            # Только ошибки, валидных записей нет
             escaped_errors = [messages.escape_markdown_v2(e) for e in parse_errors[:10]]
             error_text = messages.MESSAGE_ADMIN_CSV_PARSE_ERRORS.format(
                 error_count=len(parse_errors),
@@ -1769,17 +1769,17 @@ async def admin_receive_csv_file(update: Update, context: ContextTypes.DEFAULT_T
             )
             return ADMIN_IMPORT_CSV_WAITING
         
-        # Store parsed records in context for confirmation
+        # Сохраняем разобранные записи в контекст для подтверждения
         context.user_data['upos_temp'] = {
             'csv_records': records,
             'csv_parse_errors': parse_errors
         }
         
-        # Count existing codes
+        # Подсчитываем уже существующие коды
         existing_count = sum(1 for r in records if error_code_exists(r['error_code']))
         new_count = len(records) - existing_count
         
-        # Show preview and ask for confirmation
+        # Показываем превью и просим подтверждение
         preview_text = messages.MESSAGE_ADMIN_CSV_PREVIEW.format(
             total=len(records),
             new=new_count,
@@ -1837,11 +1837,11 @@ async def admin_csv_import_callback(update: Update, context: ContextTypes.DEFAUL
         return ADMIN_MENU
     
     elif data == "upos_csv_import_skip":
-        # Import, skip existing
+        # Импортировать, пропуская существующие
         return await _perform_csv_import(query, context, skip_existing=True)
     
     elif data == "upos_csv_import_update":
-        # Import, update existing
+        # Импортировать, обновляя существующие
         return await _perform_csv_import(query, context, skip_existing=False)
     
     return ADMIN_IMPORT_CSV_CONFIRM
@@ -1849,7 +1849,7 @@ async def admin_csv_import_callback(update: Update, context: ContextTypes.DEFAUL
 
 async def _perform_csv_import(query, context: ContextTypes.DEFAULT_TYPE, skip_existing: bool) -> int:
     """
-    Perform the actual CSV import.
+    Выполнить фактический импорт CSV.
     """
     temp = context.user_data.get('upos_temp', {})
     records = temp.get('csv_records', [])
@@ -1866,10 +1866,10 @@ async def _perform_csv_import(query, context: ContextTypes.DEFAULT_TYPE, skip_ex
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     
-    # Perform import
+    # Выполняем импорт
     result = import_error_codes_from_csv(records, skip_existing=skip_existing)
     
-    # Format result message
+    # Форматируем сообщение с результатом
     result_text = messages.MESSAGE_ADMIN_CSV_IMPORT_RESULT.format(
         success=result.success_count,
         skipped=result.skipped_count,
@@ -1900,7 +1900,7 @@ async def _perform_csv_import(query, context: ContextTypes.DEFAULT_TYPE, skip_ex
 
 async def admin_cancel_csv_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Cancel CSV import via button.
+    Отменить импорт CSV через кнопку.
     """
     context.user_data.pop('upos_temp', None)
     
@@ -1913,15 +1913,15 @@ async def admin_cancel_csv_import(update: Update, context: ContextTypes.DEFAULT_
     return ADMIN_MENU
 
 
-# ===== CONVERSATION HANDLER BUILDER =====
+# ===== СБОРКА CONVERSATION HANDLER =====
 
 def get_menu_button_regex_pattern() -> str:
     """
-    Get regex pattern matching UPOS module-specific buttons for fallback.
-    Also includes buttons from other modules to properly end conversation when switching modules.
+    Получить regex-шаблон для кнопок модуля UPOS в fallback.
+    Также включает кнопки других модулей, чтобы корректно завершать диалог при переключении.
     """
     buttons = []
-    # Include UPOS-specific buttons
+    # Добавляем кнопки, относящиеся к UPOS
     for row in settings.SUBMENU_BUTTONS:
         for button in row:
             buttons.append(button)
@@ -1934,8 +1934,8 @@ def get_menu_button_regex_pattern() -> str:
         for button in row:
             buttons.append(button)
     
-    # Add main navigation and other module buttons to properly end conversation when switching
-    # These buttons indicate user wants to leave UPOS module
+    # Добавляем кнопки основного меню и других модулей, чтобы завершать диалог при переключении
+    # Эти кнопки означают, что пользователь хочет выйти из модуля UPOS
     other_module_buttons = [
         BUTTON_MAIN_MENU,
         BUTTON_MODULES,
@@ -1953,7 +1953,7 @@ def get_menu_button_regex_pattern() -> str:
     ]
     buttons.extend(other_module_buttons)
     
-    # Remove duplicates and escape for regex
+    # Удаляем дубли и экранируем для regex
     unique_buttons = list(set(buttons))
     escaped = [b.replace("(", "\\(").replace(")", "\\)").replace("+", "\\+") for b in unique_buttons]
     
@@ -1962,21 +1962,21 @@ def get_menu_button_regex_pattern() -> str:
 
 def get_user_conversation_handler() -> ConversationHandler:
     """
-    Get ConversationHandler for user error lookup flow.
-    Users must press the search button to enter error codes.
+    Получить ConversationHandler для пользовательского поиска ошибок.
+    Пользователь должен нажать кнопку поиска, чтобы вводить коды ошибок.
     """
     menu_pattern = get_menu_button_regex_pattern()
     
     return ConversationHandler(
         entry_points=[
-            # Entry when user clicks on UPOS module button
+            # Вход при нажатии кнопки модуля UPOS
             MessageHandler(filters.Regex(f"^{re.escape(settings.MENU_BUTTON_TEXT)}$"), enter_upos_module),
         ],
         states={
             SUBMENU: [
-                # In submenu, accept button to start search
+                # В подменю принимаем кнопку запуска поиска
                 MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_FIND_ERROR)}$"), start_error_search),
-                # Popular errors button
+                # Кнопка популярных ошибок
                 MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_POPULAR_ERRORS)}$"), show_popular_errors),
             ],
             WAITING_FOR_ERROR_CODE: [
@@ -2067,6 +2067,6 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CommandHandler("menu", cancel_search_on_menu),
             MessageHandler(filters.Regex(f"^{re.escape(BUTTON_MAIN_MENU)}$"), cancel_search_on_menu),
             MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_BACK_TO_UPOS)}$"), enter_upos_module),
-            MessageHandler(filters.COMMAND, cancel_search_on_menu),  # Handle /start and other commands
+            MessageHandler(filters.COMMAND, cancel_search_on_menu),  # Обрабатываем /start и другие команды
         ]
     )

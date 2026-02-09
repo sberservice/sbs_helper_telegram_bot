@@ -1,29 +1,29 @@
 """
-FIAS Address Validation Providers
+Провайдеры проверки адресов по ФИАС.
 
-Provides a pluggable provider architecture for validating addresses against
-FIAS (Федеральная информационная адресная система) or similar address databases.
+Содержит подключаемую архитектуру провайдеров для проверки адресов в ФИАС
+(Федеральная информационная адресная система) или похожих базах адресов.
 
-The provider pattern allows swapping the underlying API without changing the
-validation rule logic. Currently supported providers:
+Паттерн провайдера позволяет менять API без изменения логики правил.
+Текущие провайдеры:
 
-- **DaDataFIASProvider** — uses the DaData Suggestions API (https://dadata.ru/api/suggest/address/).
-  Free tier: up to 10 000 requests/day. Requires an API key set via the
-  ``DADATA_API_KEY`` environment variable.
+- **DaDataFIASProvider** — использует DaData Suggestions API (https://dadata.ru/api/suggest/address/).
+    Бесплатный тариф: до 10 000 запросов в день. Требуется API-ключ в переменной
+    окружения ``DADATA_API_KEY``.
 
-To add a new provider, subclass :class:`BaseFIASProvider` and implement
-:meth:`validate_address`.
+Чтобы добавить новый провайдер, унаследуйтесь от :class:`BaseFIASProvider`
+и реализуйте :meth:`validate_address`.
 
-Usage example::
+Пример использования::
 
-    from .fias_providers import get_fias_provider
+        from .fias_providers import get_fias_provider
 
-    provider = get_fias_provider()          # returns the active provider
-    result   = provider.validate_address("Москва, ул Льва Толстого 16")
-    if result.is_valid:
-        print("Address found in FIAS:", result.suggested_address)
-    else:
-        print("Address not found:", result.error_message)
+        provider = get_fias_provider()          # возвращает активный провайдер
+        result   = provider.validate_address("Москва, ул Льва Толстого 16")
+        if result.is_valid:
+                print("Адрес найден в ФИАС:", result.suggested_address)
+        else:
+                print("Адрес не найден:", result.error_message)
 """
 
 import logging
@@ -38,23 +38,23 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Data classes
+# Датаклассы
 # ---------------------------------------------------------------------------
 
 @dataclass
 class FIASValidationResult:
-    """Result of an address validation against FIAS.
+    """Результат проверки адреса по ФИАС.
 
     Attributes:
-        is_valid: ``True`` when at least one suggestion was returned by the API.
-        address_query: The original address string that was checked.
-        suggested_address: The best suggestion returned by the API (if any).
-        suggestions_count: Total number of suggestions returned.
-        all_suggestions: Raw list of suggestion values (for debugging).
-        error_message: Human-readable error when validation failed or API error occurred.
-        provider_name: Name of the provider that performed the check.
-        fias_id: FIAS identifier of the best suggestion (if available).
-        fias_level: FIAS detail level of the best suggestion (if available).
+        is_valid: ``True``, если API вернул хотя бы одну подсказку.
+        address_query: исходная строка адреса, которую проверяли.
+        suggested_address: лучшая подсказка от API (если есть).
+        suggestions_count: общее количество подсказок.
+        all_suggestions: список сырых подсказок (для отладки).
+        error_message: человекочитаемая ошибка при провале проверки или сбое API.
+        provider_name: имя провайдера, выполнявшего проверку.
+        fias_id: идентификатор ФИАС для лучшей подсказки (если доступно).
+        fias_level: уровень детализации ФИАС для лучшей подсказки (если доступно).
     """
 
     is_valid: bool
@@ -69,77 +69,76 @@ class FIASValidationResult:
 
 
 # ---------------------------------------------------------------------------
-# Abstract base provider
+# Абстрактный базовый провайдер
 # ---------------------------------------------------------------------------
 
 class BaseFIASProvider(ABC):
-    """Abstract base class for FIAS address validation providers.
+        """Абстрактный базовый класс для провайдеров проверки адресов по ФИАС.
 
-    Every concrete provider **must** implement :meth:`validate_address`.
+        Каждый конкретный провайдер **обязан** реализовать :meth:`validate_address`.
 
-    Subclasses may also override:
-    * :attr:`provider_name` — human-readable label shown in logs / messages.
-    * :meth:`is_configured` — returns ``False`` when required credentials are
-      missing so the caller can fail early.
-    """
+        Дополнительно можно переопределить:
+        * :attr:`provider_name` — человекочитаемая метка для логов/сообщений.
+        * :meth:`is_configured` — возвращает ``False``, если не хватает учётных данных,
+            чтобы можно было завершить проверку заранее.
+        """
 
     provider_name: str = "base"
 
     @abstractmethod
     def validate_address(self, address: str) -> FIASValidationResult:
-        """Validate *address* against the FIAS database.
+        """Проверить *address* по базе ФИАС.
 
         Args:
-            address: Free-form address string to look up.
+            address: адрес в свободной форме для поиска.
 
         Returns:
-            A :class:`FIASValidationResult` describing the outcome.
+            :class:`FIASValidationResult` с результатом проверки.
         """
 
     def is_configured(self) -> bool:  # noqa: D401
-        """Return ``True`` when the provider has all the credentials it needs."""
+        """Вернуть ``True``, если провайдер настроен и есть все ключи."""
         return True
 
 
 # ---------------------------------------------------------------------------
-# DaData provider
+# Провайдер DaData
 # ---------------------------------------------------------------------------
 
 class DaDataFIASProvider(BaseFIASProvider):
-    """FIAS validation via the DaData Suggestions API.
+    """Проверка ФИАС через DaData Suggestions API.
 
-    API reference: https://dadata.ru/api/suggest/address/
+    Справка по API: https://dadata.ru/api/suggest/address/
 
-    The provider sends a POST request to the ``/suggest/address`` endpoint
-    and considers the address **valid** when the ``suggestions`` array in the
-    response is not empty.
+    Провайдер отправляет POST-запрос на ``/suggest/address`` и считает адрес
+    **валидным**, если массив ``suggestions`` в ответе не пуст.
 
-    Configuration (environment variables):
-        * ``DADATA_API_KEY`` — **required**.  Your DaData API key.
-        * ``DADATA_API_URL`` — *optional*.  Override the base URL
-          (default ``https://suggestions.dadata.ru/suggestions/api/4_1/rs``).
+    Настройка (переменные окружения):
+        * ``DADATA_API_KEY`` — **обязательно**. API-ключ DaData.
+        * ``DADATA_API_URL`` — *опционально*. Переопределяет базовый URL
+          (по умолчанию ``https://suggestions.dadata.ru/suggestions/api/4_1/rs``).
 
-    Rate limits (free tier):
-        * 10 000 requests / day
-        * 30 requests / second per IP
-        * 60 new connections / minute per IP
+    Лимиты (бесплатный тариф):
+        * 10 000 запросов / день
+        * 30 запросов / секунду на IP
+        * 60 новых соединений / минуту на IP
 
-    HTTP status codes to watch for:
-        * 403 — invalid key **or** daily quota exceeded
-        * 429 — per-second rate limit hit
+    Важные HTTP-статусы:
+        * 403 — неверный ключ **или** превышена суточная квота
+        * 429 — превышение лимита запросов в секунду
     """
 
     provider_name: str = "dadata"
 
-    # Default endpoint — the *address* suggest, not FIAS-only, per DaData's own
-    # recommendation (the ``/suggest/address`` endpoint is more complete).
+    # Эндпоинт по умолчанию — подсказки адресов, не только ФИАС,
+    # согласно рекомендации DaData (``/suggest/address`` более полный).
     DEFAULT_API_URL = (
         "https://suggestions.dadata.ru/suggestions/api/4_1/rs"
     )
 
     SUGGEST_ADDRESS_PATH = "/suggest/address"
 
-    # Timeout for each HTTP request (seconds).
+    # Таймаут каждого HTTP-запроса (сек.).
     REQUEST_TIMEOUT = 10
 
     def __init__(
@@ -155,19 +154,19 @@ class DaDataFIASProvider(BaseFIASProvider):
         )
 
     # ------------------------------------------------------------------
-    # Public API
+    # Публичный API
     # ------------------------------------------------------------------
 
     def is_configured(self) -> bool:
-        """Check that the API key is present."""
+        """Проверить, что API-ключ задан."""
         return bool(self.api_key)
 
     def validate_address(self, address: str) -> FIASValidationResult:
-        """Query DaData and return a :class:`FIASValidationResult`.
+        """Запросить DaData и вернуть :class:`FIASValidationResult`.
 
-        If the API key is missing or the request fails, the result is marked
-        as *valid* (fail-open) so that a misconfiguration does not block every
-        ticket.  The ``error_message`` field will contain the details.
+        Если API-ключ отсутствует или запрос завершился ошибкой, результат
+        помечается как *valid* (fail-open), чтобы ошибка конфигурации не
+        блокировала все заявки. Детали пишутся в ``error_message``.
         """
         if not self.is_configured():
             logger.warning("DaData API key is not configured — skipping FIAS check")
@@ -204,7 +203,7 @@ class DaDataFIASProvider(BaseFIASProvider):
                     "DaData API returned 403 — invalid key or daily quota exceeded"
                 )
                 return FIASValidationResult(
-                    is_valid=True,  # fail-open
+                    is_valid=True,  # Разрешаем по умолчанию
                     address_query=address,
                     error_message="Ошибка авторизации DaData (403) — проверка ФИАС пропущена",
                     provider_name=self.provider_name,
@@ -213,7 +212,7 @@ class DaDataFIASProvider(BaseFIASProvider):
             if response.status_code == 429:
                 logger.warning("DaData API rate-limit hit (429)")
                 return FIASValidationResult(
-                    is_valid=True,  # fail-open
+                    is_valid=True,  # Разрешаем по умолчанию
                     address_query=address,
                     error_message="Превышен лимит запросов DaData (429) — проверка ФИАС пропущена",
                     provider_name=self.provider_name,
@@ -248,7 +247,7 @@ class DaDataFIASProvider(BaseFIASProvider):
         except requests.exceptions.Timeout:
             logger.error("DaData API request timed out")
             return FIASValidationResult(
-                is_valid=True,  # fail-open
+                is_valid=True,  # Разрешаем по умолчанию
                 address_query=address,
                 error_message="Таймаут запроса к DaData — проверка ФИАС пропущена",
                 provider_name=self.provider_name,
@@ -257,7 +256,7 @@ class DaDataFIASProvider(BaseFIASProvider):
         except requests.exceptions.RequestException as exc:
             logger.error("DaData API request failed: %s", exc)
             return FIASValidationResult(
-                is_valid=True,  # fail-open
+                is_valid=True,  # Разрешаем по умолчанию
                 address_query=address,
                 error_message=f"Ошибка запроса к DaData: {exc}",
                 provider_name=self.provider_name,
@@ -266,7 +265,7 @@ class DaDataFIASProvider(BaseFIASProvider):
         except (ValueError, KeyError) as exc:
             logger.error("Failed to parse DaData response: %s", exc)
             return FIASValidationResult(
-                is_valid=True,  # fail-open
+                is_valid=True,  # Разрешаем по умолчанию
                 address_query=address,
                 error_message=f"Ошибка разбора ответа DaData: {exc}",
                 provider_name=self.provider_name,
@@ -274,31 +273,31 @@ class DaDataFIASProvider(BaseFIASProvider):
 
 
 # ---------------------------------------------------------------------------
-# Provider registry & factory
+# Реестр провайдеров и фабрика
 # ---------------------------------------------------------------------------
 
-# Maps provider names to classes.  Extend this dict when adding new providers.
+# Сопоставление имён провайдеров и классов. Расширяйте при добавлении новых.
 _PROVIDER_REGISTRY: dict[str, type[BaseFIASProvider]] = {
     "dadata": DaDataFIASProvider,
 }
 
-# Module-level singleton — lazily initialised by :func:`get_fias_provider`.
+# Синглтон уровня модуля — лениво инициализируется в :func:`get_fias_provider`.
 _active_provider: Optional[BaseFIASProvider] = None
 
 
 def get_fias_provider(
     provider_name: Optional[str] = None,
 ) -> BaseFIASProvider:
-    """Return the active FIAS provider (singleton).
+    """Вернуть активный провайдер ФИАС (синглтон).
 
-    The provider is selected in the following priority order:
+    Провайдер выбирается в следующем порядке приоритета:
 
-    1. *provider_name* argument (explicit override).
-    2. ``FIAS_PROVIDER`` environment variable.
-    3. Falls back to ``"dadata"``.
+    1. аргумент *provider_name* (явное переопределение).
+    2. переменная окружения ``FIAS_PROVIDER``.
+    3. значение по умолчанию ``"dadata"``.
 
-    The instance is cached so that subsequent calls return the same object
-    (and the same HTTP session, if the provider uses one).
+    Экземпляр кэшируется, поэтому последующие вызовы возвращают один
+    и тот же объект (и одну и ту же HTTP-сессию, если провайдер её использует).
     """
     global _active_provider  # noqa: PLW0603
 
@@ -308,7 +307,7 @@ def get_fias_provider(
         or "dadata"
     ).lower()
 
-    # Return cached instance if it matches
+    # Возвращаем кэшированный экземпляр, если имя совпадает
     if _active_provider is not None and _active_provider.provider_name == desired:
         return _active_provider
 
@@ -325,6 +324,6 @@ def get_fias_provider(
 
 
 def reset_fias_provider() -> None:
-    """Reset the cached provider (useful in tests)."""
+    """Сбросить кэш провайдера (полезно в тестах)."""
     global _active_provider  # noqa: PLW0603
     _active_provider = None

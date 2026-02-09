@@ -1,16 +1,16 @@
 """
-News Module
+Модуль новостей
 
-Module for publishing news and announcements with broadcast support.
+Модуль для публикации новостей и объявлений с поддержкой рассылок.
 
-Features:
-- Admin-managed categories
-- MarkdownV2 formatted content
-- Image and file attachments
-- Silent or broadcast publishing
-- Mandatory news with blocking
-- Reaction buttons (like/love/dislike)
-- Search and archive functionality
+Возможности:
+- Категории, управляемые администраторами
+- Контент в формате MarkdownV2
+- Вложения изображений и файлов
+- Публикация без уведомлений или с рассылкой
+- Обязательные новости с блокировкой
+- Кнопки реакций (лайк/любовь/дизлайк)
+- Поиск и архив
 """
 
 from typing import List, Optional
@@ -34,55 +34,55 @@ from .admin_panel_bot_part import get_news_admin_handler
 
 class NewsModule(BotModule):
     """
-    News module implementation.
+    Реализация модуля новостей.
     
-    Features:
-    - Create and publish news articles
-    - Categories for organizing news
-    - Silent or broadcast publishing
-    - Mandatory news with blocking
-    - Reaction buttons
-    - Archive and search
+    Возможности:
+    - Создание и публикация новостей
+    - Категории для группировки новостей
+    - Публикация без уведомлений или с рассылкой
+    - Обязательные новости с блокировкой
+    - Кнопки реакций
+    - Архив и поиск
     """
     
     @property
     def name(self) -> str:
-        """Return module name."""
+        """Вернуть название модуля."""
         return settings.MODULE_NAME
     
     @property
     def description(self) -> str:
-        """Return module description."""
+        """Вернуть описание модуля."""
         return settings.MODULE_DESCRIPTION
     
     @property
     def version(self) -> str:
-        """Return module version."""
+        """Вернуть версию модуля."""
         return settings.MODULE_VERSION
     
     @property
     def author(self) -> str:
-        """Return module author."""
+        """Вернуть автора модуля."""
         return settings.MODULE_AUTHOR
     
     def get_handlers(self) -> List[BaseHandler]:
         """
-        Return user-facing handlers for this module.
+        Вернуть обработчики пользовательских сценариев модуля.
         """
         return [
             get_news_user_handler(),
-            get_mandatory_ack_handler(),  # Global handler for mandatory news ack
+            get_mandatory_ack_handler(),  # Глобальный обработчик обязательных подтверждений новостей
         ]
     
     def get_admin_handlers(self) -> List[BaseHandler]:
         """
-        Return admin handlers for this module.
+        Вернуть админ-обработчики для этого модуля.
         """
         return [get_news_admin_handler()]
     
     def get_menu_button(self) -> Optional[str]:
         """
-        Return menu button text for main menu.
+        Вернуть текст кнопки для главного меню.
         """
         return settings.MENU_BUTTON_TEXT
     
@@ -92,65 +92,65 @@ class NewsModule(BotModule):
         context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """
-        Handle menu button click.
-        Delegates to news_entry handler.
+        Обработать нажатие кнопки меню.
+        Делегирует обработчику news_entry.
         """
         await news_entry(update, context)
     
     def get_commands(self) -> List[BotCommand]:
         """
-        Return bot commands for this module.
+        Вернуть команды бота для этого модуля.
         """
         return [
             BotCommand("news", "Просмотреть новости")
         ]
     
     async def on_load(self) -> None:
-        """Called when module is loaded."""
-        # Module initialization - no setup required
+        """Вызывается при загрузке модуля."""
+        # Инициализация модуля — настройка не требуется
     
     async def on_unload(self) -> None:
-        """Called when module is unloaded."""
-        # Module cleanup - no cleanup required
+        """Вызывается при выгрузке модуля."""
+        # Очистка модуля — не требуется
 
 
-# Module singleton for easier access
+# Синглтон модуля для удобного доступа
 _module_instance: Optional[NewsModule] = None
 
 
 def get_module() -> NewsModule:
-    """Get or create module instance."""
+    """Получить или создать экземпляр модуля."""
     global _module_instance
     if _module_instance is None:
         _module_instance = NewsModule()
     return _module_instance
 
 
-# Export convenience functions
+# Экспорт вспомогательных функций
 def get_unread_count(user_id: int) -> int:
-    """Get unread news count for a user."""
+    """Получить количество непрочитанных новостей для пользователя."""
     return news_logic.get_unread_count(user_id)
 
 
 def get_unacked_mandatory_news(user_id: int):
-    """Get unacknowledged mandatory news for a user."""
+    """Получить неподтверждённые обязательные новости для пользователя."""
     return news_logic.get_unacked_mandatory_news(user_id)
 
 
 def has_unacked_mandatory_news(user_id: int) -> bool:
-    """Check if user has unacknowledged mandatory news."""
+    """Проверить, есть ли у пользователя неподтверждённые обязательные новости."""
     return news_logic.has_unacked_mandatory_news(user_id)
 
 
 def get_menu_button_with_badge(user_id: int) -> str:
     """
-    Get menu button text with unread badge if applicable.
+    Получить текст кнопки меню с бейджем непрочитанных, если нужно.
     
     Args:
-        user_id: User ID to check unread count for
+        user_id: ID пользователя для проверки количества непрочитанных
         
     Returns:
-        Button text like "📰 Новости" or "📰 Новости (3)"
+        Текст кнопки вида "📰 Новости" или "📰 Новости (3)"
     """
     unread = get_unread_count(user_id)
     if unread > 0:

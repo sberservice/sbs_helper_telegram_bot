@@ -1,31 +1,31 @@
 """
 bot_settings.py
 
-Bot-wide settings management utilities.
+Утилиты управления настройками бота.
 
-Functions:
-- get_setting(key) -> str | None: Gets a setting value by key.
-- set_setting(key, value, updated_by) -> bool: Sets a setting value.
-- is_invite_system_enabled() -> bool: Checks if invite system is enabled.
-- set_invite_system_enabled(enabled, updated_by) -> bool: Enables/disables invite system.
-- is_module_enabled(module_key) -> bool: Checks if a module is enabled.
-- set_module_enabled(module_key, enabled, updated_by) -> bool: Enables/disables a module.
-- get_all_module_states() -> dict: Gets enabled/disabled state for all modules.
+Функции:
+- get_setting(key) -> str | None: Получить значение настройки по ключу.
+- set_setting(key, value, updated_by) -> bool: Установить значение настройки.
+- is_invite_system_enabled() -> bool: Проверить, включена ли инвайт-система.
+- set_invite_system_enabled(enabled, updated_by) -> bool: Включить/выключить инвайт-систему.
+- is_module_enabled(module_key) -> bool: Проверить, включён ли модуль.
+- set_module_enabled(module_key, enabled, updated_by) -> bool: Включить/выключить модуль.
+- get_all_module_states() -> dict: Получить состояние всех модулей (вкл/выкл).
 """
 
 from typing import Optional, Dict, List
 import src.common.database as database
 
-# Setting keys
+# Ключи настроек
 SETTING_INVITE_SYSTEM_ENABLED = 'invite_system_enabled'
 
-# Module configuration
-# Each module has:
-# - key: unique identifier for the module
-# - setting_key: database setting key for enable/disable
-# - button_label: text displayed on the module button
-# - order: display order (lower numbers appear first)
-# - columns: number of buttons per row (1 or 2)
+# Конфигурация модулей
+# Каждый модуль содержит:
+# - key: уникальный идентификатор модуля
+# - setting_key: ключ настройки в БД для вкл/выкл
+# - button_label: текст кнопки модуля
+# - order: порядок отображения (меньше — раньше)
+# - columns: число кнопок в строке (1 или 2)
 MODULE_CONFIG = [
     {
         'key': 'certification',
@@ -71,22 +71,22 @@ MODULE_CONFIG = [
     },
 ]
 
-# Build MODULE_KEYS from MODULE_CONFIG for backward compatibility
+# Формируем MODULE_KEYS из MODULE_CONFIG для обратной совместимости
 MODULE_KEYS = {module['key']: module['setting_key'] for module in MODULE_CONFIG}
 
-# Build MODULE_NAMES from MODULE_CONFIG for backward compatibility
+# Формируем MODULE_NAMES из MODULE_CONFIG для обратной совместимости
 MODULE_NAMES = {module['key']: module['button_label'] for module in MODULE_CONFIG}
 
 
 def get_setting(key: str) -> Optional[str]:
     """
-    Get a setting value by key.
-    
+    Получить значение настройки по ключу.
+
     Args:
-        key: The setting key to retrieve.
-        
+        key: Ключ настройки для получения.
+
     Returns:
-        The setting value as string, or None if not found.
+        Значение настройки в виде строки или None, если не найдено.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -100,15 +100,15 @@ def get_setting(key: str) -> Optional[str]:
 
 def set_setting(key: str, value: str, updated_by: Optional[int] = None) -> bool:
     """
-    Set a setting value (insert or update).
-    
+    Установить значение настройки (вставка или обновление).
+
     Args:
-        key: The setting key.
-        value: The setting value as string.
-        updated_by: User ID of admin making the change (optional).
-        
+        key: Ключ настройки.
+        value: Значение настройки в виде строки.
+        updated_by: ID администратора, вносящего изменения (опционально).
+
     Returns:
-        True if successful, False otherwise.
+        True при успехе, иначе False.
     """
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -128,17 +128,17 @@ def set_setting(key: str, value: str, updated_by: Optional[int] = None) -> bool:
 
 def is_invite_system_enabled() -> bool:
     """
-    Check if the invite system is enabled.
-    
-    When enabled: users who joined via invite have access.
-    When disabled: only users from chat_members (Telegram group) have access.
-    
+    Проверить, включена ли инвайт-система.
+
+    Когда включена: пользователи, вошедшие по инвайту, имеют доступ.
+    Когда выключена: доступ есть только у пользователей из chat_members (Telegram-группа).
+
     Returns:
-        True if invite system is enabled, False otherwise.
-        Defaults to True if setting is not found.
+        True если инвайт-система включена, иначе False.
+        По умолчанию True, если настройка не найдена.
     """
     value = get_setting(SETTING_INVITE_SYSTEM_ENABLED)
-    # Default to enabled if not set
+    # По умолчанию считаем включённой, если настройка не задана
     if value is None:
         return True
     return value == '1'
@@ -146,35 +146,35 @@ def is_invite_system_enabled() -> bool:
 
 def set_invite_system_enabled(enabled: bool, updated_by: Optional[int] = None) -> bool:
     """
-    Enable or disable the invite system.
-    
+    Включить или выключить инвайт-систему.
+
     Args:
-        enabled: True to enable, False to disable.
-        updated_by: User ID of admin making the change (optional).
-        
+        enabled: True — включить, False — выключить.
+        updated_by: ID администратора, вносящего изменения (опционально).
+
     Returns:
-        True if successful.
+        True при успехе.
     """
     return set_setting(SETTING_INVITE_SYSTEM_ENABLED, '1' if enabled else '0', updated_by)
 
 
 def is_module_enabled(module_key: str) -> bool:
     """
-    Check if a specific module is enabled.
-    
+    Проверить, включён ли конкретный модуль.
+
     Args:
-        module_key: The module key (e.g., 'ticket_validator', 'screenshot', etc.)
-        
+        module_key: Ключ модуля (например, 'ticket_validator', 'screenshot' и т. п.).
+
     Returns:
-        True if the module is enabled, False otherwise.
-        Defaults to True if setting is not found.
+        True если модуль включён, иначе False.
+        По умолчанию True, если настройка не найдена.
     """
     if module_key not in MODULE_KEYS:
-        return True  # Unknown modules are enabled by default
+        return True  # Неизвестные модули считаются включёнными по умолчанию
     
     setting_key = MODULE_KEYS[module_key]
     value = get_setting(setting_key)
-    # Default to enabled if not set
+    # По умолчанию считаем включённым, если настройка не задана
     if value is None:
         return True
     return value == '1'
@@ -182,15 +182,15 @@ def is_module_enabled(module_key: str) -> bool:
 
 def set_module_enabled(module_key: str, enabled: bool, updated_by: Optional[int] = None) -> bool:
     """
-    Enable or disable a specific module.
-    
+    Включить или выключить конкретный модуль.
+
     Args:
-        module_key: The module key (e.g., 'ticket_validator', 'screenshot', etc.)
-        enabled: True to enable, False to disable.
-        updated_by: User ID of admin making the change (optional).
-        
+        module_key: Ключ модуля (например, 'ticket_validator', 'screenshot' и т. п.).
+        enabled: True — включить, False — выключить.
+        updated_by: ID администратора, вносящего изменения (опционально).
+
     Returns:
-        True if successful, False if module key is invalid.
+        True при успехе, False если ключ модуля некорректен.
     """
     if module_key not in MODULE_KEYS:
         return False
@@ -201,40 +201,40 @@ def set_module_enabled(module_key: str, enabled: bool, updated_by: Optional[int]
 
 def get_all_module_states() -> Dict[str, bool]:
     """
-    Get enabled/disabled state for all modules.
-    
+    Получить состояние (вкл/выкл) для всех модулей.
+
     Returns:
-        Dictionary mapping module_key to enabled state (True/False).
+        Словарь соответствий module_key -> состояние (True/False).
     """
     return {key: is_module_enabled(key) for key in MODULE_KEYS.keys()}
 
 
 def get_enabled_modules() -> List[str]:
     """
-    Get list of enabled module keys.
-    
+    Получить список ключей включённых модулей.
+
     Returns:
-        List of module keys that are currently enabled.
+        Список ключей модулей, которые сейчас включены.
     """
     return [key for key, enabled in get_all_module_states().items() if enabled]
 
 
 def get_modules_config(enabled_only: bool = True) -> List[Dict[str, any]]:
     """
-    Get module configuration in display order.
-    
+    Получить конфигурацию модулей в порядке отображения.
+
     Args:
-        enabled_only: If True, return only enabled modules. If False, return all modules.
-    
+        enabled_only: Если True, вернуть только включённые модули. Если False, вернуть все.
+
     Returns:
-        List of module configuration dictionaries, sorted by order field.
-        Each dictionary contains: key, setting_key, button_label, order, columns.
+        Список словарей конфигурации, отсортированный по полю order.
+        Каждый словарь содержит: key, setting_key, button_label, order, columns.
     """
-    # Sort modules by order field
+    # Сортируем модули по полю order
     sorted_modules = sorted(MODULE_CONFIG, key=lambda x: x['order'])
     
     if enabled_only:
-        # Filter to only enabled modules
+        # Оставляем только включённые модули
         return [module for module in sorted_modules if is_module_enabled(module['key'])]
     
     return sorted_modules
@@ -242,19 +242,19 @@ def get_modules_config(enabled_only: bool = True) -> List[Dict[str, any]]:
 
 def check_if_user_from_invite(telegram_id: int) -> bool:
     """
-    Check if a user gained access through the invite system (not pre-invited).
-    
-    A user is considered "from invite" if:
-    1. They consumed an invite code, AND
-    2. They are NOT in the chat_members table (pre-invited)
-    
+    Проверить, получил ли пользователь доступ через инвайт-систему (не пред-добавлен).
+
+    Пользователь считается "по инвайту", если:
+    1. Он использовал инвайт-код, И
+    2. Его нет в таблице chat_members (пред-добавленные).
+
     Args:
-        telegram_id: The user's Telegram ID.
-        
+        telegram_id: Telegram ID пользователя.
+
     Returns:
-        True if user is from invite system only, False otherwise.
+        True, если пользователь только из инвайт-системы, иначе False.
     """
-    # Check if user has consumed an invite
+    # Проверяем, использовал ли пользователь инвайт
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             cursor.execute(
@@ -264,7 +264,7 @@ def check_if_user_from_invite(telegram_id: int) -> bool:
             result = cursor.fetchone()
             has_consumed_invite = result['count'] > 0
 
-    # Check if user is pre-invited (in chat_members table)
+    # Проверяем, является ли пользователь пред-добавленным (таблица chat_members)
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             cursor.execute(
@@ -274,5 +274,5 @@ def check_if_user_from_invite(telegram_id: int) -> bool:
             result = cursor.fetchone()
             is_pre_invited = result['count'] > 0
     
-    # User is "from invite" if they used invite AND are not pre-invited
+    # Пользователь "по инвайту", если использовал инвайт И не пред-добавлен
     return has_consumed_invite and not is_pre_invited
