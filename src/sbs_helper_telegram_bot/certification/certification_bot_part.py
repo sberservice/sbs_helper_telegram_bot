@@ -688,12 +688,22 @@ async def handle_learning_answer(update: Update, context: ContextTypes.DEFAULT_T
         f"{settings.ANSWER_EMOJIS.get(displayed_correct, displayed_correct)} {correct_text}"
     )
 
+    user_answer_line = ""
+    if not is_correct:
+        user_index = display_letters.index(user_answer.upper()) if user_answer.upper() in display_letters else 0
+        user_text = logic.escape_markdown(shuffled[user_index])
+        user_answer_display = (
+            f"{settings.ANSWER_EMOJIS.get(user_answer.upper(), user_answer.upper())} {user_text}"
+        )
+        user_answer_line = f"\n\n❌ *Ваш ответ:* {user_answer_display}"
+
     comment = question.get('explanation')
     comment_text = logic.escape_markdown(comment) if comment else "—"
 
     feedback_text = messages.MESSAGE_LEARNING_ANSWER_FEEDBACK.format(
         result=result_text,
         correct_answer=correct_answer,
+        user_answer_line=user_answer_line,
         comment=comment_text
     )
 
