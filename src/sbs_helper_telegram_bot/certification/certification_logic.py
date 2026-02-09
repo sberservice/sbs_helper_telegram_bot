@@ -1,11 +1,11 @@
 """
-Employee Certification Module - Business Logic
+Модуль аттестации сотрудников — бизнес-логика
 
-Contains all database operations and business logic for the certification module:
-- Question and category management
-- Test attempt creation and scoring
-- Rankings and statistics
-- Settings management
+Содержит операции с БД и бизнес-логику модуля аттестации:
+- Управление вопросами и категориями
+- Создание попыток и расчёт результатов
+- Рейтинги и статистика
+- Управление настройками
 """
 
 import logging
@@ -23,12 +23,12 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# Data Classes
+# Классы данных
 # ============================================================================
 
 @dataclass
 class Category:
-    """Certification category data class."""
+    """Класс данных категории аттестации."""
     id: int
     name: str
     description: Optional[str]
@@ -41,7 +41,7 @@ class Category:
 
 @dataclass
 class Question:
-    """Certification question data class."""
+    """Класс данных вопроса аттестации."""
     id: int
     question_text: str
     option_a: str
@@ -60,7 +60,7 @@ class Question:
 
 @dataclass
 class TestAttempt:
-    """Test attempt data class."""
+    """Класс данных попытки теста."""
     id: int
     userid: int
     category_id: Optional[int]
@@ -77,7 +77,7 @@ class TestAttempt:
 
 @dataclass
 class UserRanking:
-    """User ranking data class."""
+    """Класс данных рейтинга пользователя."""
     rank: int
     userid: int
     first_name: str
@@ -88,19 +88,19 @@ class UserRanking:
 
 
 # ============================================================================
-# Settings Management
+# Управление настройками
 # ============================================================================
 
 def get_setting(key: str, default: Any = None) -> Any:
     """
-    Get a certification setting value from database.
+    Получить значение настройки аттестации из БД.
     
-    Args:
-        key: Setting key
-        default: Default value if not found
+    Аргументы:
+        key: Ключ настройки
+        default: Значение по умолчанию, если запись не найдена
         
-    Returns:
-        Setting value or default
+    Возвращает:
+        Значение настройки или default
     """
     try:
         with database.get_db_connection() as conn:
@@ -120,15 +120,15 @@ def get_setting(key: str, default: Any = None) -> Any:
 
 def set_setting(key: str, value: Any, description: str = None) -> bool:
     """
-    Set a certification setting value in database.
+    Установить значение настройки аттестации в БД.
     
-    Args:
-        key: Setting key
-        value: Setting value
-        description: Optional description
+    Аргументы:
+        key: Ключ настройки
+        value: Значение настройки
+        description: Необязательное описание
         
-    Returns:
-        True if successful
+    Возвращает:
+        True при успехе
     """
     try:
         with database.get_db_connection() as conn:
@@ -151,10 +151,10 @@ def set_setting(key: str, value: Any, description: str = None) -> bool:
 
 def get_test_settings() -> Dict[str, int]:
     """
-    Get all test configuration settings.
+    Получить все настройки теста.
     
-    Returns:
-        Dict with questions_count, time_limit_minutes, passing_score_percent, show_correct_answer
+    Возвращает:
+        Словарь с questions_count, time_limit_minutes, passing_score_percent, show_correct_answer
     """
     return {
         'questions_count': int(get_setting(
@@ -181,18 +181,18 @@ def get_test_settings() -> Dict[str, int]:
 
 
 # ============================================================================
-# Category Management
+# Управление категориями
 # ============================================================================
 
 def get_all_categories(active_only: bool = False) -> List[Dict]:
     """
-    Get all certification categories.
+    Получить все категории аттестации.
     
-    Args:
-        active_only: If True, return only active categories
+    Аргументы:
+        active_only: Если True, вернуть только активные категории
         
-    Returns:
-        List of category dicts
+    Возвращает:
+        Список словарей категорий
     """
     try:
         with database.get_db_connection() as conn:
@@ -217,13 +217,13 @@ def get_all_categories(active_only: bool = False) -> List[Dict]:
 
 def get_category_by_id(category_id: int) -> Optional[Dict]:
     """
-    Get a category by ID.
+    Получить категорию по ID.
     
-    Args:
-        category_id: Category ID
+    Аргументы:
+        category_id: ID категории
         
-    Returns:
-        Category dict or None
+    Возвращает:
+        Словарь категории или None
     """
     try:
         with database.get_db_connection() as conn:
@@ -244,15 +244,15 @@ def get_category_by_id(category_id: int) -> Optional[Dict]:
 
 def create_category(name: str, description: str = None, display_order: int = 0) -> Optional[int]:
     """
-    Create a new category.
+    Создать новую категорию.
     
-    Args:
-        name: Category name
-        description: Optional description
-        display_order: Display order
+    Аргументы:
+        name: Название категории
+        description: Описание (необязательно)
+        display_order: Порядок отображения
         
-    Returns:
-        New category ID or None
+    Возвращает:
+        ID новой категории или None
     """
     try:
         with database.get_db_connection() as conn:
@@ -271,14 +271,14 @@ def create_category(name: str, description: str = None, display_order: int = 0) 
 
 def update_category(category_id: int, **kwargs) -> bool:
     """
-    Update a category.
+    Обновить категорию.
     
-    Args:
-        category_id: Category ID
-        **kwargs: Fields to update (name, description, display_order, active)
+    Аргументы:
+        category_id: ID категории
+        **kwargs: Поля для обновления (name, description, display_order, active)
         
-    Returns:
-        True if successful
+    Возвращает:
+        True при успехе
     """
     if not kwargs:
         return False
@@ -309,13 +309,13 @@ def update_category(category_id: int, **kwargs) -> bool:
 
 def delete_category(category_id: int) -> bool:
     """
-    Delete a category.
+    Удалить категорию.
     
-    Args:
-        category_id: Category ID
+    Аргументы:
+        category_id: ID категории
         
-    Returns:
-        True if successful
+    Возвращает:
+        True при успехе
     """
     try:
         with database.get_db_connection() as conn:
@@ -332,13 +332,13 @@ def delete_category(category_id: int) -> bool:
 
 def toggle_category_active(category_id: int) -> Optional[bool]:
     """
-    Toggle category active status.
+    Переключить статус активности категории.
     
-    Args:
-        category_id: Category ID
+    Аргументы:
+        category_id: ID категории
         
-    Returns:
-        New active status or None on error
+    Возвращает:
+        Новый статус активности или None при ошибке
     """
     try:
         with database.get_db_connection() as conn:
@@ -364,17 +364,17 @@ def toggle_category_active(category_id: int) -> Optional[bool]:
 
 def update_category_field(category_id: int, field: str, value: Optional[str]) -> bool:
     """
-    Update a specific field of a category.
+    Обновить конкретное поле категории.
     
-    Args:
-        category_id: Category ID
-        field: Field name to update (name, description)
-        value: New value for the field
+    Аргументы:
+        category_id: ID категории
+        field: Имя поля (name, description)
+        value: Новое значение поля
         
-    Returns:
-        True on success, False on error
+    Возвращает:
+        True при успехе, False при ошибке
     """
-    # Validate field name to prevent SQL injection
+    # Проверить имя поля для защиты от SQL-инъекций
     allowed_fields = {'name', 'description'}
     
     if field not in allowed_fields:
@@ -397,24 +397,26 @@ def update_category_field(category_id: int, field: str, value: Optional[str]) ->
 
 
 # ============================================================================
-# Question Management
+# Управление вопросами
 # ============================================================================
 
 def get_all_questions(
     active_only: bool = False,
     category_id: Optional[int] = None,
-    include_outdated: bool = True
+    include_outdated: bool = True,
+    difficulty: Optional[str] = None
 ) -> List[Dict]:
     """
-    Get all questions with optional filtering.
+    Получить все вопросы с дополнительными фильтрами.
     
-    Args:
-        active_only: If True, return only active questions
-        category_id: Filter by category ID
-        include_outdated: If False, exclude questions past relevance date
+    Аргументы:
+        active_only: Если True, вернуть только активные вопросы
+        category_id: Фильтр по ID категории
+        include_outdated: Если False, исключить устаревшие вопросы
+        difficulty: Необязательный фильтр сложности (easy, medium, hard)
         
-    Returns:
-        List of question dicts
+    Возвращает:
+        Список словарей вопросов
     """
     try:
         with database.get_db_connection() as conn:
@@ -438,6 +440,10 @@ def get_all_questions(
                 
                 if not include_outdated:
                     conditions.append("q.relevance_date >= CURDATE()")
+
+                if difficulty:
+                    conditions.append("q.difficulty = %s")
+                    params.append(difficulty)
                 
                 if conditions:
                     query += " WHERE " + " AND ".join(conditions)
@@ -453,13 +459,13 @@ def get_all_questions(
 
 def get_question_by_id(question_id: int) -> Optional[Dict]:
     """
-    Get a question by ID with its categories.
+    Получить вопрос по ID вместе со списком категорий.
     
-    Args:
-        question_id: Question ID
+    Аргументы:
+        question_id: ID вопроса
         
-    Returns:
-        Question dict with categories list or None
+    Возвращает:
+        Словарь вопроса с категориями или None
     """
     try:
         with database.get_db_connection() as conn:
@@ -488,10 +494,10 @@ def get_question_by_id(question_id: int) -> Optional[Dict]:
 
 def get_outdated_questions() -> List[Dict]:
     """
-    Get all questions with relevance_date in the past.
+    Получить все вопросы с истёкшей датой актуальности.
     
-    Returns:
-        List of outdated question dicts
+    Возвращает:
+        Список словарей устаревших вопросов
     """
     try:
         with database.get_db_connection() as conn:
@@ -521,20 +527,20 @@ def create_question(
     category_ids: List[int] = None
 ) -> Optional[int]:
     """
-    Create a new question.
+    Создать новый вопрос.
     
-    Args:
-        question_text: Question text
-        option_a through option_d: Answer options
-        correct_option: Correct answer (A, B, C, D)
-        explanation: Optional explanation
-        difficulty: easy, medium, or hard
-        relevance_months: Months until question becomes outdated
-        relevance_date: Explicit relevance date (overrides months)
-        category_ids: List of category IDs to link
+    Аргументы:
+        question_text: Текст вопроса
+        option_a–option_d: Варианты ответа
+        correct_option: Правильный ответ (A, B, C, D)
+        explanation: Пояснение (необязательно)
+        difficulty: easy, medium или hard
+        relevance_months: Количество месяцев до устаревания
+        relevance_date: Явная дата актуальности (переопределяет months)
+        category_ids: Список ID категорий для привязки
         
-    Returns:
-        New question ID or None
+    Возвращает:
+        ID нового вопроса или None
     """
     if relevance_date is None:
         months = relevance_months or settings.DEFAULT_RELEVANCE_MONTHS
@@ -555,7 +561,7 @@ def create_question(
                 )
                 question_id = cursor.lastrowid
                 
-                # Link to categories
+                # Привязать к категориям
                 if category_ids:
                     for cat_id in category_ids:
                         cursor.execute(
@@ -573,14 +579,14 @@ def create_question(
 
 def update_question(question_id: int, **kwargs) -> bool:
     """
-    Update a question.
+    Обновить вопрос.
     
-    Args:
-        question_id: Question ID
-        **kwargs: Fields to update
+    Аргументы:
+        question_id: ID вопроса
+        **kwargs: Поля для обновления
         
-    Returns:
-        True if successful
+    Возвращает:
+        True при успехе
     """
     allowed_fields = {
         'question_text', 'option_a', 'option_b', 'option_c', 'option_d',
@@ -605,7 +611,7 @@ def update_question(question_id: int, **kwargs) -> bool:
                         values
                     )
                 
-                # Update categories if provided
+                # Обновить категории при необходимости
                 if category_ids is not None:
                     cursor.execute(
                         "DELETE FROM certification_question_categories WHERE question_id = %s",
@@ -627,13 +633,13 @@ def update_question(question_id: int, **kwargs) -> bool:
 
 def delete_question(question_id: int) -> bool:
     """
-    Delete a question.
+    Удалить вопрос.
     
-    Args:
-        question_id: Question ID
+    Аргументы:
+        question_id: ID вопроса
         
-    Returns:
-        True if successful
+    Возвращает:
+        True при успехе
     """
     try:
         with database.get_db_connection() as conn:
@@ -650,13 +656,13 @@ def delete_question(question_id: int) -> bool:
 
 def toggle_question_active(question_id: int) -> Optional[bool]:
     """
-    Toggle question active status.
+    Переключить статус активности вопроса.
     
-    Args:
-        question_id: Question ID
+    Аргументы:
+        question_id: ID вопроса
         
-    Returns:
-        New active status or None on error
+    Возвращает:
+        Новый статус активности или None при ошибке
     """
     try:
         with database.get_db_connection() as conn:
@@ -682,18 +688,18 @@ def toggle_question_active(question_id: int) -> Optional[bool]:
 
 def update_question_field(question_id: int, field: str, value: Optional[str]) -> bool:
     """
-    Update a specific field of a question.
+    Обновить конкретное поле вопроса.
     
-    Args:
-        question_id: Question ID
-        field: Field name to update (question_text, option_a, option_b, option_c, option_d,
+    Аргументы:
+        question_id: ID вопроса
+        field: Имя поля (question_text, option_a, option_b, option_c, option_d,
                correct_option, explanation, difficulty)
-        value: New value for the field
+        value: Новое значение поля
         
-    Returns:
-        True on success, False on error
+    Возвращает:
+        True при успехе, False при ошибке
     """
-    # Validate field name to prevent SQL injection
+    # Проверить имя поля для защиты от SQL-инъекций
     allowed_fields = {
         'question_text', 'option_a', 'option_b', 'option_c', 'option_d',
         'correct_option', 'explanation', 'difficulty'
@@ -720,15 +726,15 @@ def update_question_field(question_id: int, field: str, value: Optional[str]) ->
 
 def update_question_relevance(question_id: int, months: int = None, new_date: date = None) -> bool:
     """
-    Update question relevance date.
+    Обновить дату актуальности вопроса.
     
-    Args:
-        question_id: Question ID
-        months: Extend by this many months from today
-        new_date: Set to this specific date
+    Аргументы:
+        question_id: ID вопроса
+        months: Продлить на указанное число месяцев от текущей даты
+        new_date: Установить конкретную дату
         
-    Returns:
-        True if successful
+    Возвращает:
+        True при успехе
     """
     if new_date is None:
         months = months or settings.DEFAULT_RELEVANCE_MONTHS
@@ -739,13 +745,13 @@ def update_question_relevance(question_id: int, months: int = None, new_date: da
 
 def update_all_outdated_relevance(months: int = None) -> int:
     """
-    Update relevance date for all outdated questions.
+    Обновить дату актуальности для всех устаревших вопросов.
     
-    Args:
-        months: Extend by this many months from today
+    Аргументы:
+        months: Продлить на указанное число месяцев от текущей даты
         
-    Returns:
-        Number of questions updated
+    Возвращает:
+        Количество обновлённых вопросов
     """
     months = months or settings.DEFAULT_RELEVANCE_MONTHS
     new_date = date.today() + relativedelta(months=months)
@@ -767,13 +773,13 @@ def update_all_outdated_relevance(months: int = None) -> int:
 
 def search_questions(search_text: str) -> List[Dict]:
     """
-    Search questions by text.
+    Поиск вопросов по тексту.
     
-    Args:
-        search_text: Text to search for
+    Аргументы:
+        search_text: Текст для поиска
         
-    Returns:
-        List of matching question dicts
+    Возвращает:
+        Список подходящих вопросов
     """
     try:
         with database.get_db_connection() as conn:
@@ -797,10 +803,10 @@ def search_questions(search_text: str) -> List[Dict]:
 
 def get_uncategorized_questions() -> List[Dict]:
     """
-    Get all questions that are not assigned to any category.
+    Получить все вопросы без категорий.
     
-    Returns:
-        List of question dicts without category assignments
+    Возвращает:
+        Список вопросов без привязки к категориям
     """
     try:
         with database.get_db_connection() as conn:
@@ -818,27 +824,30 @@ def get_uncategorized_questions() -> List[Dict]:
 
 
 # ============================================================================
-# Test Attempt Management
+# Управление попытками теста
 # ============================================================================
 
 def get_random_questions(
     count: int,
-    category_id: Optional[int] = None
+    category_id: Optional[int] = None,
+    difficulty: Optional[str] = None
 ) -> List[Dict]:
     """
-    Get random questions for a test.
+    Получить случайные вопросы для теста.
     
-    Args:
-        count: Number of questions to get
-        category_id: Optional category filter
+    Аргументы:
+        count: Количество вопросов
+        category_id: Фильтр по категории (необязательно)
+        difficulty: Фильтр сложности (easy, medium, hard)
         
-    Returns:
-        List of question dicts
+    Возвращает:
+        Список вопросов
     """
     questions = get_all_questions(
         active_only=True,
         category_id=category_id,
-        include_outdated=False
+        include_outdated=False,
+        difficulty=difficulty
     )
     
     if len(questions) <= count:
@@ -855,16 +864,16 @@ def create_test_attempt(
     category_id: Optional[int] = None
 ) -> Optional[int]:
     """
-    Create a new test attempt.
+    Создать новую попытку теста.
     
-    Args:
-        userid: Telegram user ID
-        total_questions: Total number of questions
-        time_limit_seconds: Time limit in seconds
-        category_id: Optional category ID
+    Аргументы:
+        userid: Telegram ID пользователя
+        total_questions: Общее количество вопросов
+        time_limit_seconds: Лимит времени в секундах
+        category_id: ID категории (необязательно)
         
-    Returns:
-        New attempt ID or None
+    Возвращает:
+        ID новой попытки или None
     """
     try:
         with database.get_db_connection() as conn:
@@ -890,17 +899,17 @@ def save_answer(
     is_correct: Optional[bool]
 ) -> bool:
     """
-    Save a user's answer to a question.
+    Сохранить ответ пользователя на вопрос.
     
-    Args:
-        attempt_id: Attempt ID
-        question_id: Question ID
-        question_order: Order in test (1-based)
-        user_answer: User's answer (A, B, C, D) or None if timed out
-        is_correct: Whether answer was correct
+    Аргументы:
+        attempt_id: ID попытки
+        question_id: ID вопроса
+        question_order: Порядок вопроса в тесте (с 1)
+        user_answer: Ответ пользователя (A, B, C, D) или None при таймауте
+        is_correct: Был ли ответ правильным
         
-    Returns:
-        True if successful
+    Возвращает:
+        True при успехе
     """
     try:
         with database.get_db_connection() as conn:
@@ -928,19 +937,19 @@ def complete_test_attempt(
     status: str = 'completed'
 ) -> Optional[Dict]:
     """
-    Complete a test attempt and calculate results.
+    Завершить попытку теста и рассчитать результат.
     
-    Args:
-        attempt_id: Attempt ID
-        status: Final status ('completed', 'expired', 'cancelled')
+    Аргументы:
+        attempt_id: ID попытки
+        status: Итоговый статус ('completed', 'expired', 'cancelled')
         
-    Returns:
-        Dict with results or None
+    Возвращает:
+        Словарь с результатом или None
     """
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Get attempt info
+                # Получить данные попытки
                 cursor.execute(
                     "SELECT * FROM certification_attempts WHERE id = %s",
                     (attempt_id,)
@@ -950,7 +959,7 @@ def complete_test_attempt(
                 if not attempt:
                     return None
                 
-                # Count correct answers
+                # Посчитать правильные ответы
                 cursor.execute(
                     """SELECT COUNT(*) as correct_count 
                        FROM certification_answers 
@@ -960,19 +969,19 @@ def complete_test_attempt(
                 result = cursor.fetchone()
                 correct_answers = result['correct_count'] if result else 0
                 
-                # Calculate score
+                # Рассчитать результат
                 total_questions = attempt['total_questions']
                 score_percent = (correct_answers / total_questions * 100) if total_questions > 0 else 0
                 
-                # Get passing score
+                # Получить проходной балл
                 test_settings = get_test_settings()
                 passed = score_percent >= test_settings['passing_score_percent']
                 
-                # Calculate time spent
+                # Рассчитать затраченное время
                 completed_timestamp = int(time.time())
                 time_spent = completed_timestamp - attempt['started_timestamp']
                 
-                # Update attempt
+                # Обновить попытку
                 cursor.execute(
                     """UPDATE certification_attempts 
                        SET correct_answers = %s,
@@ -1002,13 +1011,13 @@ def complete_test_attempt(
 
 def get_attempt_by_id(attempt_id: int) -> Optional[Dict]:
     """
-    Get a test attempt by ID.
+    Получить попытку теста по ID.
     
-    Args:
-        attempt_id: Attempt ID
+    Аргументы:
+        attempt_id: ID попытки
         
-    Returns:
-        Attempt dict or None
+    Возвращает:
+        Словарь попытки или None
     """
     try:
         with database.get_db_connection() as conn:
@@ -1025,13 +1034,13 @@ def get_attempt_by_id(attempt_id: int) -> Optional[Dict]:
 
 def get_user_in_progress_attempt(userid: int) -> Optional[Dict]:
     """
-    Get user's current in-progress attempt if any.
+    Получить текущую активную попытку пользователя, если есть.
     
-    Args:
-        userid: Telegram user ID
+    Аргументы:
+        userid: Telegram ID пользователя
         
-    Returns:
-        Attempt dict or None
+    Возвращает:
+        Словарь попытки или None
     """
     try:
         with database.get_db_connection() as conn:
@@ -1050,13 +1059,13 @@ def get_user_in_progress_attempt(userid: int) -> Optional[Dict]:
 
 def cancel_user_attempts(userid: int) -> int:
     """
-    Cancel all in-progress attempts for a user.
+    Отменить все активные попытки пользователя.
     
-    Args:
-        userid: Telegram user ID
+    Аргументы:
+        userid: Telegram ID пользователя
         
-    Returns:
-        Number of cancelled attempts
+    Возвращает:
+        Количество отменённых попыток
     """
     try:
         with database.get_db_connection() as conn:
@@ -1074,19 +1083,19 @@ def cancel_user_attempts(userid: int) -> int:
 
 
 # ============================================================================
-# Rankings and Statistics
+# Рейтинги и статистика
 # ============================================================================
 
 def get_user_test_history(userid: int, limit: int = 10) -> List[Dict]:
     """
-    Get user's test history.
+    Получить историю тестов пользователя.
     
-    Args:
-        userid: Telegram user ID
-        limit: Maximum number of records
+    Аргументы:
+        userid: Telegram ID пользователя
+        limit: Максимальное число записей
         
-    Returns:
-        List of attempt dicts
+    Возвращает:
+        Список попыток
     """
     try:
         with database.get_db_connection() as conn:
@@ -1108,13 +1117,13 @@ def get_user_test_history(userid: int, limit: int = 10) -> List[Dict]:
 
 def get_user_stats(userid: int) -> Optional[Dict]:
     """
-    Get user's overall statistics.
+    Получить общую статистику пользователя.
     
-    Args:
-        userid: Telegram user ID
+    Аргументы:
+        userid: Telegram ID пользователя
         
-    Returns:
-        Dict with stats or None
+    Возвращает:
+        Словарь статистики или None
     """
     try:
         with database.get_db_connection() as conn:
@@ -1132,7 +1141,7 @@ def get_user_stats(userid: int) -> Optional[Dict]:
                 result = cursor.fetchone()
                 
                 if result and result['total_tests'] > 0:
-                    # Get last test details
+                    # Получить данные последнего теста
                     cursor.execute(
                         """SELECT score_percent, completed_timestamp
                            FROM certification_attempts 
@@ -1157,13 +1166,13 @@ def get_user_stats(userid: int) -> Optional[Dict]:
 
 def get_user_stats_light(userid: int) -> Optional[Dict]:
     """
-    Get lightweight user stats for main menu (single query).
+    Получить облегчённую статистику для главного меню (одним запросом).
 
-    Args:
-        userid: Telegram user ID
+    Аргументы:
+        userid: Telegram ID пользователя
 
-    Returns:
-        Dict with stats or None
+    Возвращает:
+        Словарь статистики или None
     """
     try:
         with database.get_db_connection() as conn:
@@ -1209,21 +1218,21 @@ def get_monthly_ranking(
     limit: int = 10
 ) -> List[Dict]:
     """
-    Get monthly ranking of top users.
+    Получить ежемесячный рейтинг лучших пользователей.
     
-    Args:
-        year: Year (default: current)
-        month: Month (default: current)
-        limit: Maximum number of users
+    Аргументы:
+        year: Год (по умолчанию — текущий)
+        month: Месяц (по умолчанию — текущий)
+        limit: Максимальное число пользователей
         
-    Returns:
-        List of ranking dicts
+    Возвращает:
+        Список записей рейтинга
     """
     now = datetime.now()
     year = year or now.year
     month = month or now.month
     
-    # Calculate month start and end timestamps
+    # Рассчитать границы месяца
     month_start = datetime(year, month, 1)
     if month == 12:
         month_end = datetime(year + 1, 1, 1)
@@ -1257,7 +1266,7 @@ def get_monthly_ranking(
                 )
                 results = cursor.fetchall()
                 
-                # Add rank numbers
+                # Добавить номера мест
                 for i, row in enumerate(results, 1):
                     row['rank'] = i
                 
@@ -1273,15 +1282,15 @@ def get_user_monthly_rank(
     month: int = None
 ) -> Optional[Dict]:
     """
-    Get user's rank in monthly ranking.
+    Получить место пользователя в ежемесячном рейтинге.
     
-    Args:
-        userid: Telegram user ID
-        year: Year (default: current)
-        month: Month (default: current)
+    Аргументы:
+        userid: Telegram ID пользователя
+        year: Год (по умолчанию — текущий)
+        month: Месяц (по умолчанию — текущий)
         
-    Returns:
-        Dict with rank info or None if not in ranking
+    Возвращает:
+        Словарь с информацией о месте или None
     """
     now = datetime.now()
     year = year or now.year
@@ -1299,7 +1308,7 @@ def get_user_monthly_rank(
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Get user's best score this month
+                # Получить лучший результат пользователя за месяц
                 cursor.execute(
                     """SELECT MAX(score_percent) as best_score, COUNT(*) as tests_count
                        FROM certification_attempts
@@ -1315,7 +1324,7 @@ def get_user_monthly_rank(
                 if not user_result or user_result['best_score'] is None:
                     return None
                 
-                # Count users with higher score
+                # Посчитать пользователей с более высоким результатом
                 cursor.execute(
                     """SELECT COUNT(DISTINCT userid) as higher_count
                        FROM certification_attempts
@@ -1329,7 +1338,7 @@ def get_user_monthly_rank(
                     (start_ts, end_ts, userid, user_result['best_score'])
                 )
                 
-                # User's rank is higher_count + 1
+                # Место пользователя = higher_count + 1
                 higher = cursor.fetchall()
                 rank = len(higher) + 1
                 
@@ -1350,23 +1359,22 @@ def get_monthly_ranking_by_category(
     limit: int = 10
 ) -> List[Dict]:
     """
-    Get monthly ranking filtered by category.
+    Получить ежемесячный рейтинг с фильтром по категории.
     
-    Args:
-        category_id: Category ID to filter by. None for all tests combined (full test).
-                     Use "all" string converted to handle all attempts.
-        year: Year (default: current)
-        month: Month (default: current)
-        limit: Maximum number of users
+    Аргументы:
+        category_id: ID категории. None — общий рейтинг (все тесты).
+        year: Год (по умолчанию — текущий)
+        month: Месяц (по умолчанию — текущий)
+        limit: Максимальное число пользователей
         
-    Returns:
-        List of ranking dicts
+    Возвращает:
+        Список записей рейтинга
     """
     now = datetime.now()
     year = year or now.year
     month = month or now.month
     
-    # Calculate month start and end timestamps
+    # Рассчитать границы месяца
     month_start = datetime(year, month, 1)
     if month == 12:
         month_end = datetime(year + 1, 1, 1)
@@ -1380,7 +1388,7 @@ def get_monthly_ranking_by_category(
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
                 if category_id is None:
-                    # Combined top - all tests regardless of category
+                    # Общий ТОП — все тесты без учёта категории
                     cursor.execute(
                         """SELECT 
                                a.userid,
@@ -1401,7 +1409,7 @@ def get_monthly_ranking_by_category(
                         (start_ts, end_ts, limit)
                     )
                 else:
-                    # Filter by specific category
+                    # Фильтр по конкретной категории
                     cursor.execute(
                         """SELECT 
                                a.userid,
@@ -1425,7 +1433,7 @@ def get_monthly_ranking_by_category(
                 
                 results = cursor.fetchall()
                 
-                # Add rank numbers
+                # Добавить номера мест
                 for i, row in enumerate(results, 1):
                     row['rank'] = i
                 
@@ -1442,16 +1450,16 @@ def get_user_monthly_rank_by_category(
     month: int = None
 ) -> Optional[Dict]:
     """
-    Get user's rank in monthly ranking for a specific category.
+    Получить место пользователя в рейтинге по категории.
     
-    Args:
-        userid: Telegram user ID
-        category_id: Category ID to filter by. None for all tests combined.
-        year: Year (default: current)
-        month: Month (default: current)
+    Аргументы:
+        userid: Telegram ID пользователя
+        category_id: ID категории. None — общий рейтинг.
+        year: Год (по умолчанию — текущий)
+        month: Месяц (по умолчанию — текущий)
         
-    Returns:
-        Dict with rank info or None if not in ranking
+    Возвращает:
+        Словарь с информацией о месте или None
     """
     now = datetime.now()
     year = year or now.year
@@ -1469,7 +1477,7 @@ def get_user_monthly_rank_by_category(
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Get user's best score this month for the category
+                # Получить лучший результат пользователя за месяц по категории
                 if category_id is None:
                     cursor.execute(
                         """SELECT MAX(score_percent) as best_score, COUNT(*) as tests_count
@@ -1499,7 +1507,7 @@ def get_user_monthly_rank_by_category(
                 if not user_result or user_result['best_score'] is None:
                     return None
                 
-                # Count users with higher score in this category
+                # Посчитать пользователей с более высоким результатом в этой категории
                 if category_id is None:
                     cursor.execute(
                         """SELECT COUNT(DISTINCT userid) as higher_count
@@ -1547,16 +1555,16 @@ def get_user_categories_this_month(
     month: int = None
 ) -> List[Dict]:
     """
-    Get list of categories where user has completed tests this month.
-    Includes stats for each category.
+    Получить список категорий, где пользователь проходил тесты в этом месяце.
+    Содержит статистику по каждой категории.
     
-    Args:
-        userid: Telegram user ID
-        year: Year (default: current)
-        month: Month (default: current)
+    Аргументы:
+        userid: Telegram ID пользователя
+        year: Год (по умолчанию — текущий)
+        month: Месяц (по умолчанию — текущий)
         
-    Returns:
-        List of dicts with category info and user stats
+    Возвращает:
+        Список словарей с информацией о категории и статистике
     """
     now = datetime.now()
     year = year or now.year
@@ -1574,7 +1582,7 @@ def get_user_categories_this_month(
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Get categories where user has attempts this month
+                # Получить категории, где есть попытки за месяц
                 cursor.execute(
                     """SELECT 
                            a.category_id,
@@ -1595,7 +1603,7 @@ def get_user_categories_this_month(
                 
                 results = cursor.fetchall()
                 
-                # Add rank for each category
+                # Добавить место по каждой категории
                 for row in results:
                     rank_info = get_user_monthly_rank_by_category(
                         userid, 
@@ -1613,14 +1621,14 @@ def get_user_categories_this_month(
 
 def get_user_stats_by_category(userid: int, category_id: Optional[int] = None) -> Optional[Dict]:
     """
-    Get user's statistics for a specific category.
+    Получить статистику пользователя по конкретной категории.
     
-    Args:
-        userid: Telegram user ID
-        category_id: Category ID to filter by. None for all tests combined.
+    Аргументы:
+        userid: Telegram ID пользователя
+        category_id: ID категории. None — общий вариант.
         
-    Returns:
-        Dict with stats or None
+    Возвращает:
+        Словарь статистики или None
     """
     try:
         with database.get_db_connection() as conn:
@@ -1665,18 +1673,18 @@ def get_user_stats_by_category(userid: int, category_id: Optional[int] = None) -
 
 
 # ============================================================================
-# Utility Functions
+# Вспомогательные функции
 # ============================================================================
 
 def format_time_remaining(seconds: int) -> str:
     """
-    Format remaining time as MM:SS.
+    Сформировать оставшееся время в формате ММ:СС.
     
-    Args:
-        seconds: Remaining seconds
+    Аргументы:
+        seconds: Количество оставшихся секунд
         
-    Returns:
-        Formatted time string
+    Возвращает:
+        Строка времени
     """
     if seconds <= 0:
         return "00:00"
@@ -1688,14 +1696,14 @@ def format_time_remaining(seconds: int) -> str:
 
 def format_time_spent(seconds: int) -> str:
     """
-    Format time spent as human-readable string.
-    Escaped for MarkdownV2.
+    Сформировать затраченное время в читаемом виде.
+    Экранировано для MarkdownV2.
     
-    Args:
-        seconds: Time in seconds
+    Аргументы:
+        seconds: Время в секундах
         
-    Returns:
-        Formatted time string (MarkdownV2 escaped)
+    Возвращает:
+        Строка времени (MarkdownV2 экранирована)
     """
     if seconds < 60:
         return f"{seconds} сек\\."
@@ -1713,13 +1721,13 @@ def format_time_spent(seconds: int) -> str:
 
 def get_month_name(month: int) -> str:
     """
-    Get Russian month name.
+    Получить название месяца по-русски.
     
-    Args:
-        month: Month number (1-12)
+    Аргументы:
+        month: Номер месяца (1-12)
         
-    Returns:
-        Russian month name
+    Возвращает:
+        Название месяца на русском
     """
     months = {
         1: "январь", 2: "февраль", 3: "март", 4: "апрель",
@@ -1731,13 +1739,13 @@ def get_month_name(month: int) -> str:
 
 def escape_markdown(text: str) -> str:
     """
-    Escape special characters for Telegram MarkdownV2.
+    Экранировать специальные символы для Telegram MarkdownV2.
     
-    Args:
-        text: Text to escape
+    Аргументы:
+        text: Текст для экранирования
         
-    Returns:
-        Escaped text
+    Возвращает:
+        Экранированный текст
     """
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     result = str(text)
@@ -1748,10 +1756,10 @@ def escape_markdown(text: str) -> str:
 
 def get_questions_count() -> int:
     """
-    Get total count of active questions.
+    Получить количество активных вопросов.
     
-    Returns:
-        Number of active questions
+    Возвращает:
+        Число активных вопросов
     """
     try:
         with database.get_db_connection() as conn:
@@ -1769,30 +1777,30 @@ def get_questions_count() -> int:
 
 def get_certification_statistics() -> Dict[str, Any]:
     """
-    Get comprehensive certification statistics.
+    Получить полную статистику по аттестации.
     
-    Returns:
-        Dict with total_questions, total_categories, active_categories,
-        and categories_stats (list of category names with question counts)
+    Возвращает:
+        Словарь с total_questions, total_categories, active_categories
+        и categories_stats (список категорий с числом вопросов)
     """
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                # Get total active questions count
+                # Получить общее число активных вопросов
                 cursor.execute(
                     """SELECT COUNT(*) as cnt FROM certification_questions 
                        WHERE active = 1 AND relevance_date >= CURDATE()"""
                 )
                 total_questions = cursor.fetchone()['cnt'] or 0
                 
-                # Get total and active categories count
+                # Получить общее и активное число категорий
                 cursor.execute("SELECT COUNT(*) as total FROM certification_categories")
                 total_categories = cursor.fetchone()['total'] or 0
                 
                 cursor.execute("SELECT COUNT(*) as active FROM certification_categories WHERE active = 1")
                 active_categories = cursor.fetchone()['active'] or 0
                 
-                # Get questions per category
+                # Получить количество вопросов по категориям
                 cursor.execute("""
                     SELECT c.id, c.name, c.active,
                            COUNT(DISTINCT CASE 

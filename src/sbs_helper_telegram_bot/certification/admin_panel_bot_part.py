@@ -1,10 +1,10 @@
 """
-Employee Certification Module - Admin Panel
+Модуль аттестации сотрудников — админ-панель
 
-Telegram handlers for admin functionality:
-- CRUD operations for categories and questions
-- Outdated questions management
-- Test settings configuration
+Telegram-хендлеры для административного функционала:
+- CRUD-операции для категорий и вопросов
+- Управление устаревшими вопросами
+- Настройка параметров тестирования
 """
 
 import logging
@@ -24,8 +24,9 @@ from telegram.ext import (
     filters
 )
 
-from src.common.telegram_user import check_if_user_legit, check_if_user_admin, get_unauthorized_message
+from src.common.telegram_user import check_if_user_legit, check_if_user_admin
 from src.common.messages import (
+    MESSAGE_PLEASE_ENTER_INVITE,
     get_main_menu_keyboard,
     get_main_menu_message,
     BUTTON_MAIN_MENU,
@@ -38,10 +39,10 @@ from . import certification_logic as logic
 
 logger = logging.getLogger(__name__)
 
-# Conversation states for admin panel
+# Состояния диалога админ-панели
 (
     ADMIN_MENU,
-    # Category management
+    # Управление категориями
     CAT_LIST,
     CAT_VIEW,
     CAT_CREATE_NAME,
@@ -50,7 +51,7 @@ logger = logging.getLogger(__name__)
     CAT_EDIT_NAME,
     CAT_EDIT_DESC,
     CAT_CONFIRM_DELETE,
-    # Question management
+    # Управление вопросами
     Q_LIST,
     Q_VIEW,
     Q_CREATE_TEXT,
@@ -68,22 +69,22 @@ logger = logging.getLogger(__name__)
     Q_CONFIRM_DELETE,
     Q_UPDATE_RELEVANCE,
     Q_SEARCH,
-    # Settings
+    # Настройки
     SETTINGS_MENU,
     SETTINGS_QUESTIONS_COUNT,
     SETTINGS_TIME_LIMIT,
     SETTINGS_PASSING_SCORE,
-    # Outdated questions
+    # Устаревшие вопросы
     OUTDATED_LIST,
 ) = range(31)
 
 
 # ============================================================================
-# Helper Functions
+# Вспомогательные функции
 # ============================================================================
 
 def get_admin_menu_text() -> str:
-    """Get admin menu text with statistics."""
+    """Получить текст админ-меню со статистикой."""
     stats = logic.get_certification_statistics()
     if stats['total_questions'] > 0 or stats['total_categories'] > 0:
         return messages.MESSAGE_ADMIN_MENU.format(
@@ -95,13 +96,13 @@ def get_admin_menu_text() -> str:
 
 
 # ============================================================================
-# Entry Point and Main Menu
+# Точка входа и главное меню
 # ============================================================================
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle admin panel entry."""
+    """Обработать вход в админ-панель."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return ConversationHandler.END
     
     if not check_if_user_admin(update.effective_user.id):
@@ -121,27 +122,27 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 
 async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle admin menu button presses."""
+    """Обработать нажатия кнопок админ-меню."""
     text = update.message.text
     
-    if text == settings.BUTTON_ADMIN_QUESTIONS:
+    if text == "❓ Вопросы":
         return await show_questions_list(update, context)
-    elif text == settings.BUTTON_ADMIN_CATEGORIES:
+    elif text == "📁 Категории":
         return await show_categories_list(update, context)
-    elif text == settings.BUTTON_ADMIN_OUTDATED:
+    elif text == "⚠️ Устаревшие вопросы":
         return await show_outdated_questions(update, context)
-    elif text == settings.BUTTON_ADMIN_STATS:
+    elif text == "📊 Статистика":
         return await show_statistics(update, context)
-    elif text == settings.BUTTON_ADMIN_SETTINGS:
+    elif text == "⚙️ Настройки теста":
         return await show_settings(update, context)
-    elif text == settings.BUTTON_ADMIN_ALL_QUESTIONS:
-        # Handle from questions submenu
+    elif text == "📋 Все вопросы":
+        # Переход из подменю вопросов
         return await show_questions_list(update, context)
-    elif text == settings.BUTTON_ADMIN_ALL_CATEGORIES:
-        # Handle from categories submenu
+    elif text == "📋 Все категории":
+        # Переход из подменю категорий
         return await show_categories_list(update, context)
-    elif text == settings.BUTTON_ADMIN_BACK:
-        # Go back to certification submenu
+    elif text == "🔙 Назад":
+        # Вернуться в подменю аттестации
         if check_if_user_admin(update.effective_user.id):
             keyboard = keyboards.get_admin_submenu_keyboard()
         else:
@@ -153,8 +154,8 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=keyboard
         )
         return ConversationHandler.END
-    elif text == settings.BUTTON_ADMIN_MENU:
-        # Go back to admin menu from questions/categories submenu
+    elif text == "🔙 Админ меню":
+        # Вернуться в админ-меню из подменю вопросов/категорий
         await update.message.reply_text(
             get_admin_menu_text(),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -174,7 +175,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle admin inline button callbacks."""
+    """Обработать колбэки инлайн-кнопок админ-панели."""
     query = update.callback_query
     await query.answer()
     
@@ -189,9 +190,9 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         return ADMIN_MENU
     
     if data == "cert_noop":
-        return None  # No operation, keep current state
+        return None  # Без операции, сохраняем текущее состояние
     
-    # Category callbacks
+    # Колбэки категорий
     if data == "cert_cat_list":
         return await show_categories_list_callback(update, context)
     
@@ -216,7 +217,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         page = int(data.replace("cert_cat_page_", ""))
         return await show_categories_page(update, context, page)
     
-    # Category edit - show edit menu
+    # Редактирование категории — показать меню
     if data.startswith("cert_cat_edit_") and not any(
         data.startswith(f"cert_cat_edit_{field}_") 
         for field in ["name", "desc"]
@@ -228,9 +229,9 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboards.get_category_edit_keyboard(cat_id)
         )
-        return CAT_EDIT_NAME  # Using this state for category edit
+        return CAT_EDIT_NAME  # Используем это состояние для редактирования категории
     
-    # Category edit - specific field handlers
+    # Редактирование категории — обработчики полей
     if data.startswith("cert_cat_edit_name_"):
         cat_id = int(data.replace("cert_cat_edit_name_", ""))
         context.user_data[settings.ADMIN_EDITING_CATEGORY_KEY] = cat_id
@@ -258,7 +259,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return ADMIN_MENU
     
-    # Question callbacks
+    # Колбэки вопросов
     if data == "cert_q_list":
         return await show_questions_list_callback(update, context)
     
@@ -288,7 +289,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return Q_UPDATE_RELEVANCE
     
-    # Question edit - show edit menu
+    # Редактирование вопроса — показать меню
     if data.startswith("cert_q_edit_") and not any(
         data.startswith(f"cert_q_edit_{field}_") 
         for field in ["text", "opt_a", "opt_b", "opt_c", "opt_d", "correct", "expl", "diff", "cats"]
@@ -317,7 +318,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return Q_EDIT_FIELD
     
-    # Question edit - specific field handlers
+    # Редактирование вопроса — обработчики полей
     if data.startswith("cert_q_edit_text_"):
         q_id = int(data.replace("cert_q_edit_text_", ""))
         context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
@@ -416,12 +417,12 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         q_id = int(data.replace("cert_q_edit_cats_", ""))
         context.user_data[settings.ADMIN_EDITING_QUESTION_KEY] = q_id
         
-        # Get current categories for the question
+        # Получить текущие категории вопроса
         question = logic.get_question_by_id(q_id)
         current_cat_ids = [c['id'] for c in question.get('categories', [])] if question else []
         context.user_data['editing_question_categories'] = current_cat_ids
         
-        # Get all active categories
+        # Получить все активные категории
         categories = logic.get_all_categories(active_only=True)
         
         await query.edit_message_text(
@@ -431,7 +432,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return Q_EDIT_CATEGORIES
     
-    # Question category editing callbacks
+    # Колбэки редактирования категорий вопроса
     if data.startswith("cert_q_cat_toggle_"):
         cat_id = int(data.replace("cert_q_cat_toggle_", ""))
         return await toggle_question_category(update, context, cat_id)
@@ -443,11 +444,11 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         page = int(data.replace("cert_q_page_", ""))
         return await show_questions_page(update, context, page)
     
-    # Outdated questions
+    # Устаревшие вопросы
     if data == "cert_outdated_update_all":
         return await update_all_outdated(update, context)
     
-    # Settings callbacks
+    # Колбэки настроек
     if data == "cert_set_questions":
         await query.edit_message_text(
             messages.MESSAGE_ENTER_QUESTIONS_COUNT,
@@ -470,12 +471,12 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         return SETTINGS_PASSING_SCORE
     
     if data == "cert_set_show_correct":
-        # Toggle show_correct_answer setting
+        # Переключить настройку show_correct_answer
         test_settings = logic.get_test_settings()
         new_value = not test_settings['show_correct_answer']
         logic.set_setting(settings.DB_SETTING_SHOW_CORRECT, str(new_value), "Show correct answer after each question")
         
-        # Refresh settings display
+        # Обновить отображение настроек
         test_settings = logic.get_test_settings()
         show_correct_text = "✅ Да" if test_settings['show_correct_answer'] else "❌ Нет"
         obfuscate_text = "✅ Да" if test_settings['obfuscate_names'] else "❌ Нет"
@@ -499,12 +500,12 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         return SETTINGS_MENU
     
     if data == "cert_set_obfuscate":
-        # Toggle obfuscate_names setting
+        # Переключить настройку obfuscate_names
         test_settings = logic.get_test_settings()
         new_value = not test_settings['obfuscate_names']
         logic.set_setting(settings.DB_SETTING_OBFUSCATE_NAMES, str(new_value), "Obfuscate names in ranking")
         
-        # Refresh settings display
+        # Обновить отображение настроек
         test_settings = logic.get_test_settings()
         show_correct_text = "✅ Да" if test_settings['show_correct_answer'] else "❌ Нет"
         obfuscate_text = "✅ Да" if test_settings['obfuscate_names'] else "❌ Нет"
@@ -527,17 +528,17 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return SETTINGS_MENU
     
-    # Question creation - correct answer selection
+    # Создание вопроса — выбор правильного ответа
     if data.startswith("cert_correct_"):
         answer = data.replace("cert_correct_", "")
         return await receive_correct_answer(update, context, answer)
     
-    # Question creation - difficulty selection
+    # Создание вопроса — выбор сложности
     if data.startswith("cert_diff_"):
         difficulty = data.replace("cert_diff_", "")
         return await receive_difficulty(update, context, difficulty)
     
-    # Question creation - category selection
+    # Создание вопроса — выбор категорий
     if data.startswith("cert_catsel_"):
         if data == "cert_catsel_done":
             return await finish_category_selection(update, context)
@@ -548,11 +549,11 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 
 # ============================================================================
-# Category Management
+# Управление категориями
 # ============================================================================
 
 async def show_categories_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show categories list."""
+    """Показать список категорий."""
     categories = logic.get_all_categories()
     
     if not categories:
@@ -561,7 +562,7 @@ async def show_categories_list(update: Update, context: ContextTypes.DEFAULT_TYP
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboards.get_admin_categories_keyboard()
         )
-        return CAT_LIST  # Changed from ADMIN_MENU to CAT_LIST
+        return CAT_LIST  # Изменено с ADMIN_MENU на CAT_LIST
     
     await update.message.reply_text(
         "📁 *Категории тестов*",
@@ -569,7 +570,7 @@ async def show_categories_list(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=keyboards.get_categories_list_keyboard(categories)
     )
     
-    # Also show reply keyboard for add button
+    # Также показываем reply-клавиатуру для кнопки добавления
     await update.message.reply_text(
         "Выберите действие из меню:",
         reply_markup=keyboards.get_admin_categories_keyboard()
@@ -579,7 +580,7 @@ async def show_categories_list(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def show_categories_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show categories list (callback version)."""
+    """Показать список категорий (версия для callback)."""
     query = update.callback_query
     categories = logic.get_all_categories()
     
@@ -588,12 +589,12 @@ async def show_categories_list_callback(update: Update, context: ContextTypes.DE
             messages.MESSAGE_NO_CATEGORIES,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
-        # Send reply keyboard
+        # Отправить reply-клавиатуру
         await query.message.reply_text(
             "Выберите действие из меню:",
             reply_markup=keyboards.get_admin_categories_keyboard()
         )
-        return CAT_LIST  # Changed from ADMIN_MENU
+        return CAT_LIST  # Изменено с ADMIN_MENU
     
     await query.edit_message_text(
         "📁 *Категории тестов*",
@@ -601,7 +602,7 @@ async def show_categories_list_callback(update: Update, context: ContextTypes.DE
         reply_markup=keyboards.get_categories_list_keyboard(categories)
     )
     
-    # Send reply keyboard
+    # Отправить reply-клавиатуру
     await query.message.reply_text(
         "Выберите действие из меню:",
         reply_markup=keyboards.get_admin_categories_keyboard()
@@ -611,7 +612,7 @@ async def show_categories_list_callback(update: Update, context: ContextTypes.DE
 
 
 async def show_categories_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int) -> int:
-    """Show specific page of categories list."""
+    """Показать конкретную страницу списка категорий."""
     query = update.callback_query
     categories = logic.get_all_categories()
     
@@ -623,7 +624,7 @@ async def show_categories_page(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def show_category_details(update: Update, context: ContextTypes.DEFAULT_TYPE, category_id: int) -> int:
-    """Show category details."""
+    """Показать детали категории."""
     query = update.callback_query
     category = logic.get_category_by_id(category_id)
     
@@ -656,7 +657,7 @@ async def show_category_details(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def receive_category_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive and save edited category field value."""
+    """Принять и сохранить отредактированное поле категории."""
     text = update.message.text
     cat_id = context.user_data.get(settings.ADMIN_EDITING_CATEGORY_KEY)
     field = context.user_data.get("edit_field")
@@ -668,11 +669,11 @@ async def receive_category_edit(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return ADMIN_MENU
     
-    # Handle /skip for description field
+    # Обработать /skip для поля описания
     if field == "description" and text == "/skip":
         text = None
     
-    # Update the category field
+    # Обновить поле категории
     success = logic.update_category_field(cat_id, field, text)
     
     if success:
@@ -680,7 +681,7 @@ async def receive_category_edit(update: Update, context: ContextTypes.DEFAULT_TY
             "✅ *Поле успешно обновлено\\!*",
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
-        # Show category details again
+        # Показать детали категории снова
         category = logic.get_category_by_id(cat_id)
         if category:
             status = "✅ Активна" if category['active'] else "❌ Неактивна"
@@ -706,14 +707,14 @@ async def receive_category_edit(update: Update, context: ContextTypes.DEFAULT_TY
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
     
-    # Clean up
+    # Очистка
     context.user_data.pop("edit_field", None)
     
     return CAT_VIEW
 
 
 async def toggle_category(update: Update, context: ContextTypes.DEFAULT_TYPE, category_id: int) -> int:
-    """Toggle category active status."""
+    """Переключить статус активности категории."""
     query = update.callback_query
     
     new_status = logic.toggle_category_active(category_id)
@@ -725,12 +726,12 @@ async def toggle_category(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
     status_text = "✅ Активна" if new_status else "❌ Неактивна"
     await query.answer(f"Статус изменен: {status_text}")
     
-    # Refresh details
+    # Обновить детали
     return await show_category_details(update, context, category_id)
 
 
 async def confirm_delete_category(update: Update, context: ContextTypes.DEFAULT_TYPE, category_id: int) -> int:
-    """Show delete confirmation for category."""
+    """Показать подтверждение удаления категории."""
     query = update.callback_query
     
     await query.edit_message_text(
@@ -746,7 +747,7 @@ async def confirm_delete_category(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def delete_category(update: Update, context: ContextTypes.DEFAULT_TYPE, category_id: int) -> int:
-    """Delete a category."""
+    """Удалить категорию."""
     query = update.callback_query
     
     category = logic.get_category_by_id(category_id)
@@ -768,7 +769,7 @@ async def delete_category(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
 
 
 async def create_category_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start category creation flow."""
+    """Начать процесс создания категории."""
     await update.message.reply_text(
         messages.MESSAGE_CREATE_CATEGORY_NAME,
         parse_mode=constants.ParseMode.MARKDOWN_V2
@@ -780,7 +781,7 @@ async def create_category_start(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def receive_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive category name."""
+    """Принять название категории."""
     name = update.message.text.strip()
     
     if len(name) < 2:
@@ -801,7 +802,7 @@ async def receive_category_name(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def receive_category_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive category description."""
+    """Принять описание категории."""
     text = update.message.text.strip()
     
     if text == "-":
@@ -820,7 +821,7 @@ async def receive_category_description(update: Update, context: ContextTypes.DEF
 
 
 async def receive_category_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive category display order and create category."""
+    """Принять порядок отображения и создать категорию."""
     text = update.message.text.strip()
     
     try:
@@ -855,12 +856,12 @@ async def receive_category_order(update: Update, context: ContextTypes.DEFAULT_T
 
 
 # ============================================================================
-# Question Management
+# Управление вопросами
 # ============================================================================
 
 async def show_questions_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show questions list."""
-    # Clear search query when viewing all questions
+    """Показать список вопросов."""
+    # Очистить поисковый запрос при показе всех вопросов
     context.user_data.pop('cert_search_query', None)
     
     questions = logic.get_all_questions()
@@ -871,7 +872,7 @@ async def show_questions_list(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboards.get_admin_questions_keyboard()
         )
-        return Q_LIST  # Changed from ADMIN_MENU to Q_LIST
+        return Q_LIST  # Изменено с ADMIN_MENU на Q_LIST
     
     await update.message.reply_text(
         "❓ *Вопросы*",
@@ -879,7 +880,7 @@ async def show_questions_list(update: Update, context: ContextTypes.DEFAULT_TYPE
         reply_markup=keyboards.get_questions_list_keyboard(questions)
     )
     
-    # Also show reply keyboard for add/search buttons
+    # Также показываем reply-клавиатуру для кнопок добавления/поиска
     await update.message.reply_text(
         "Выберите действие из меню:",
         reply_markup=keyboards.get_admin_questions_keyboard()
@@ -889,10 +890,10 @@ async def show_questions_list(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def show_questions_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show questions list (callback version)."""
+    """Показать список вопросов (версия для callback)."""
     query = update.callback_query
     
-    # Clear search query when viewing all questions
+    # Очистить поисковый запрос при показе всех вопросов
     context.user_data.pop('cert_search_query', None)
     
     questions = logic.get_all_questions()
@@ -902,12 +903,12 @@ async def show_questions_list_callback(update: Update, context: ContextTypes.DEF
             messages.MESSAGE_NO_QUESTIONS_ADMIN,
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
-        # Send reply keyboard
+        # Отправить reply-клавиатуру
         await query.message.reply_text(
             "Выберите действие из меню:",
             reply_markup=keyboards.get_admin_questions_keyboard()
         )
-        return Q_LIST  # Already was correct, but ensure consistency
+        return Q_LIST  # Уже корректно, но для единообразия
     
     await query.edit_message_text(
         "❓ *Вопросы*",
@@ -915,7 +916,7 @@ async def show_questions_list_callback(update: Update, context: ContextTypes.DEF
         reply_markup=keyboards.get_questions_list_keyboard(questions)
     )
     
-    # Send reply keyboard
+    # Отправить reply-клавиатуру
     await query.message.reply_text(
         "Выберите действие из меню:",
         reply_markup=keyboards.get_admin_questions_keyboard()
@@ -925,10 +926,10 @@ async def show_questions_list_callback(update: Update, context: ContextTypes.DEF
 
 
 async def show_questions_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int) -> int:
-    """Show specific page of questions list."""
+    """Показать конкретную страницу списка вопросов."""
     query = update.callback_query
     
-    # Check if we're in search mode
+    # Проверить, находимся ли в режиме поиска
     search_query = context.user_data.get('cert_search_query')
     if search_query:
         questions = logic.search_questions(search_query)
@@ -943,7 +944,7 @@ async def show_questions_page(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def show_question_details(update: Update, context: ContextTypes.DEFAULT_TYPE, question_id: int) -> int:
-    """Show question details."""
+    """Показать детали вопроса."""
     query = update.callback_query
     question = logic.get_question_by_id(question_id)
     
@@ -957,13 +958,13 @@ async def show_question_details(update: Update, context: ContextTypes.DEFAULT_TY
     status = "✅ Активен" if question['active'] else "❌ Неактивен"
     difficulty = settings.DIFFICULTY_LABELS.get(question['difficulty'], question['difficulty'])
     
-    # Format categories
+    # Сформировать строку категорий
     if question.get('categories'):
         categories_str = ", ".join(logic.escape_markdown(c['name']) for c in question['categories'])
     else:
         categories_str = "—"
     
-    # Format relevance date
+    # Сформировать дату актуальности
     rel_date = question['relevance_date']
     if isinstance(rel_date, str):
         relevance_str = logic.escape_markdown(rel_date)
@@ -995,7 +996,7 @@ async def show_question_details(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def receive_question_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive and save edited question field value."""
+    """Принять и сохранить отредактированное поле вопроса."""
     text = update.message.text
     q_id = context.user_data.get(settings.ADMIN_EDITING_QUESTION_KEY)
     field = context.user_data.get("edit_field")
@@ -1007,11 +1008,11 @@ async def receive_question_edit(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return ADMIN_MENU
     
-    # Handle /skip for explanation field
+    # Обработать /skip для поля пояснения
     if field == "explanation" and text == "/skip":
         text = None
     
-    # Update the question field
+    # Обновить поле вопроса
     success = logic.update_question_field(q_id, field, text)
     
     if success:
@@ -1019,7 +1020,7 @@ async def receive_question_edit(update: Update, context: ContextTypes.DEFAULT_TY
             "✅ *Поле успешно обновлено\\!*",
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
-        # Show question details again
+        # Показать детали вопроса снова
         question = logic.get_question_by_id(q_id)
         if question:
             status = "✅ Активен" if question['active'] else "❌ Неактивен"
@@ -1062,14 +1063,14 @@ async def receive_question_edit(update: Update, context: ContextTypes.DEFAULT_TY
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
     
-    # Clean up
+    # Очистка
     context.user_data.pop("edit_field", None)
     
     return Q_VIEW
 
 
 async def receive_question_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle correct answer or difficulty selection during edit."""
+    """Обработать выбор правильного ответа или сложности при редактировании."""
     query = update.callback_query
     await query.answer()
     
@@ -1084,7 +1085,7 @@ async def receive_question_edit_callback(update: Update, context: ContextTypes.D
         )
         return ADMIN_MENU
     
-    # Determine the value based on callback
+    # Определить значение на основе колбэка
     value = None
     if field == "correct_option" and data.startswith("cert_correct_"):
         value = data.replace("cert_correct_", "")
@@ -1105,15 +1106,15 @@ async def receive_question_edit_callback(update: Update, context: ContextTypes.D
                 parse_mode=constants.ParseMode.MARKDOWN_V2
             )
     
-    # Clean up
+    # Очистка
     context.user_data.pop("edit_field", None)
     
-    # Return to question details
+    # Вернуться к деталям вопроса
     return await show_question_details(update, context, q_id)
 
 
 async def toggle_question_category(update: Update, context: ContextTypes.DEFAULT_TYPE, category_id: int) -> int:
-    """Toggle category selection for question being edited."""
+    """Переключить выбор категории для редактируемого вопроса."""
     query = update.callback_query
     
     q_id = context.user_data.get(settings.ADMIN_EDITING_QUESTION_KEY)
@@ -1136,7 +1137,7 @@ async def toggle_question_category(update: Update, context: ContextTypes.DEFAULT
 
 
 async def save_question_categories(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Save updated question categories."""
+    """Сохранить обновлённые категории вопроса."""
     query = update.callback_query
     await query.answer()
     
@@ -1163,15 +1164,15 @@ async def save_question_categories(update: Update, context: ContextTypes.DEFAULT
             parse_mode=constants.ParseMode.MARKDOWN_V2
         )
     
-    # Clean up
+    # Очистка
     context.user_data.pop('editing_question_categories', None)
     
-    # Return to question details
+    # Вернуться к деталям вопроса
     return await show_question_details(update, context, q_id)
 
 
 async def toggle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, question_id: int) -> int:
-    """Toggle question active status."""
+    """Переключить статус активности вопроса."""
     query = update.callback_query
     
     new_status = logic.toggle_question_active(question_id)
@@ -1187,7 +1188,7 @@ async def toggle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
 
 
 async def confirm_delete_question(update: Update, context: ContextTypes.DEFAULT_TYPE, question_id: int) -> int:
-    """Show delete confirmation for question."""
+    """Показать подтверждение удаления вопроса."""
     query = update.callback_query
     
     await query.edit_message_text(
@@ -1203,7 +1204,7 @@ async def confirm_delete_question(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def delete_question(update: Update, context: ContextTypes.DEFAULT_TYPE, question_id: int) -> int:
-    """Delete a question."""
+    """Удалить вопрос."""
     query = update.callback_query
     
     success = logic.delete_question(question_id)
@@ -1223,11 +1224,11 @@ async def delete_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
 
 
 # ============================================================================
-# Question Creation Flow
+# Процесс создания вопроса
 # ============================================================================
 
 async def create_question_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start question creation flow."""
+    """Начать процесс создания вопроса."""
     await update.message.reply_text(
         messages.MESSAGE_CREATE_QUESTION_TEXT,
         parse_mode=constants.ParseMode.MARKDOWN_V2
@@ -1239,7 +1240,7 @@ async def create_question_start(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def receive_question_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive question text."""
+    """Принять текст вопроса."""
     text = update.message.text.strip()
     
     if len(text) < 10:
@@ -1260,7 +1261,7 @@ async def receive_question_text(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def receive_option_a(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive option A."""
+    """Принять вариант A."""
     text = update.message.text.strip()
     
     if len(text) < 1:
@@ -1281,7 +1282,7 @@ async def receive_option_a(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def receive_option_b(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive option B."""
+    """Принять вариант B."""
     text = update.message.text.strip()
     
     if len(text) < 1:
@@ -1302,7 +1303,7 @@ async def receive_option_b(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def receive_option_c(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive option C."""
+    """Принять вариант C."""
     text = update.message.text.strip()
     
     if len(text) < 1:
@@ -1323,7 +1324,7 @@ async def receive_option_c(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def receive_option_d(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive option D."""
+    """Принять вариант D."""
     text = update.message.text.strip()
     
     if len(text) < 1:
@@ -1345,7 +1346,7 @@ async def receive_option_d(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def receive_correct_answer(update: Update, context: ContextTypes.DEFAULT_TYPE, answer: str) -> int:
-    """Receive correct answer selection."""
+    """Принять выбор правильного ответа."""
     query = update.callback_query
     
     context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY]['correct_option'] = answer
@@ -1359,7 +1360,7 @@ async def receive_correct_answer(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def receive_explanation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive explanation."""
+    """Принять пояснение."""
     text = update.message.text.strip()
     
     if text == "-":
@@ -1379,12 +1380,12 @@ async def receive_explanation(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def receive_difficulty(update: Update, context: ContextTypes.DEFAULT_TYPE, difficulty: str) -> int:
-    """Receive difficulty selection."""
+    """Принять выбор сложности."""
     query = update.callback_query
     
     context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY]['difficulty'] = difficulty
     
-    # Get categories for selection
+    # Получить категории для выбора
     categories = logic.get_all_categories(active_only=True)
     context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY]['selected_categories'] = []
     
@@ -1396,7 +1397,7 @@ async def receive_difficulty(update: Update, context: ContextTypes.DEFAULT_TYPE,
         )
         return Q_CREATE_CATEGORIES
     else:
-        # No categories, skip to relevance
+        # Категорий нет — перейти к дате актуальности
         await query.edit_message_text(
             messages.MESSAGE_CREATE_QUESTION_RELEVANCE,
             parse_mode=constants.ParseMode.MARKDOWN_V2
@@ -1405,7 +1406,7 @@ async def receive_difficulty(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 
 async def toggle_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, category_id: int) -> int:
-    """Toggle category selection for new question."""
+    """Переключить выбор категории для нового вопроса."""
     query = update.callback_query
     
     selected = context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY].get('selected_categories', [])
@@ -1427,7 +1428,7 @@ async def toggle_category_selection(update: Update, context: ContextTypes.DEFAUL
 
 
 async def finish_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Finish category selection and move to relevance date."""
+    """Завершить выбор категорий и перейти к дате актуальности."""
     query = update.callback_query
     
     await query.edit_message_text(
@@ -1439,19 +1440,19 @@ async def finish_category_selection(update: Update, context: ContextTypes.DEFAUL
 
 
 async def receive_relevance_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive relevance date and create question."""
+    """Принять дату актуальности и создать вопрос."""
     text = update.message.text.strip()
     
     relevance_date = None
     relevance_months = None
     
-    # Try parsing as number of months
+    # Попробовать распарсить как количество месяцев
     try:
         months = int(text)
         if 1 <= months <= 120:
             relevance_months = months
     except ValueError:
-        # Try parsing as date
+        # Попробовать распарсить как дату
         try:
             relevance_date = datetime.strptime(text, "%d.%m.%Y").date()
         except ValueError:
@@ -1461,7 +1462,7 @@ async def receive_relevance_date(update: Update, context: ContextTypes.DEFAULT_T
             )
             return Q_CREATE_RELEVANCE
     
-    # Create the question
+    # Создать вопрос
     q_data = context.user_data.get(settings.ADMIN_NEW_QUESTION_DATA_KEY, {})
     
     question_id = logic.create_question(
@@ -1497,14 +1498,14 @@ async def receive_relevance_date(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def receive_relevance_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive new relevance date for existing question."""
+    """Принять новую дату актуальности для существующего вопроса."""
     text = update.message.text.strip()
     question_id = context.user_data.get(settings.ADMIN_EDITING_QUESTION_KEY)
     
     if not question_id:
         return ADMIN_MENU
     
-    # Try parsing
+    # Попробовать распарсить
     try:
         months = int(text)
         if 1 <= months <= 120:
@@ -1542,11 +1543,11 @@ async def receive_relevance_update(update: Update, context: ContextTypes.DEFAULT
 
 
 # ============================================================================
-# Outdated Questions
+# Устаревшие вопросы
 # ============================================================================
 
 async def show_outdated_questions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show list of outdated questions."""
+    """Показать список устаревших вопросов."""
     questions = logic.get_outdated_questions()
     
     if not questions:
@@ -1567,7 +1568,7 @@ async def show_outdated_questions(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def update_all_outdated(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Update relevance date for all outdated questions."""
+    """Обновить дату актуальности для всех устаревших вопросов."""
     query = update.callback_query
     
     count = logic.update_all_outdated_relevance()
@@ -1587,14 +1588,14 @@ async def update_all_outdated(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # ============================================================================
-# Statistics
+# Статистика
 # ============================================================================
 
 async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show detailed certification statistics by category."""
+    """Показать детальную статистику аттестации по категориям."""
     stats = logic.get_certification_statistics()
     
-    # Build categories statistics text
+    # Сформировать текст статистики по категориям
     if stats['categories_stats']:
         categories_lines = []
         for cat in stats['categories_stats']:
@@ -1624,11 +1625,11 @@ async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 # ============================================================================
-# Settings
+# Настройки
 # ============================================================================
 
 async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show certification settings."""
+    """Показать настройки аттестации."""
     test_settings = logic.get_test_settings()
     
     show_correct_text = "✅ Да" if test_settings['show_correct_answer'] else "❌ Нет"
@@ -1655,7 +1656,7 @@ async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 
 async def receive_questions_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive new questions count setting."""
+    """Принять новое значение количества вопросов."""
     text = update.message.text.strip()
     
     try:
@@ -1681,7 +1682,7 @@ async def receive_questions_count(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def receive_time_limit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive new time limit setting."""
+    """Принять новое значение лимита времени."""
     text = update.message.text.strip()
     
     try:
@@ -1707,7 +1708,7 @@ async def receive_time_limit(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def receive_passing_score(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive new passing score setting."""
+    """Принять новое значение проходного балла."""
     text = update.message.text.strip()
     
     try:
@@ -1733,11 +1734,11 @@ async def receive_passing_score(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 # ============================================================================
-# Search
+# Поиск
 # ============================================================================
 
 async def search_question_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start question search."""
+    """Начать поиск вопросов."""
     await update.message.reply_text(
         messages.MESSAGE_SEARCH_QUESTION,
         parse_mode=constants.ParseMode.MARKDOWN_V2
@@ -1747,7 +1748,7 @@ async def search_question_start(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def search_question_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive search query and show results."""
+    """Принять поисковый запрос и показать результаты."""
     search_query = update.message.text.strip()
     questions = logic.search_questions(search_query)
     
@@ -1759,7 +1760,7 @@ async def search_question_receive(update: Update, context: ContextTypes.DEFAULT_
         )
         return ADMIN_MENU
     
-    # Store search query for pagination
+    # Сохранить запрос для пагинации
     context.user_data['cert_search_query'] = search_query
     
     await update.message.reply_text(
@@ -1772,7 +1773,7 @@ async def search_question_receive(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def show_uncategorized_questions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show questions that are not assigned to any category."""
+    """Показать вопросы без категории."""
     questions = logic.get_uncategorized_questions()
     
     if not questions:
@@ -1793,12 +1794,12 @@ async def show_uncategorized_questions(update: Update, context: ContextTypes.DEF
 
 
 # ============================================================================
-# Cancel Handler
+# Обработчик отмены
 # ============================================================================
 
 async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancel admin operation."""
-    # Clear admin context
+    """Отменить административную операцию."""
+    # Очистить контекст админа
     context.user_data.pop(settings.ADMIN_NEW_QUESTION_DATA_KEY, None)
     context.user_data.pop(settings.ADMIN_NEW_CATEGORY_DATA_KEY, None)
     context.user_data.pop(settings.ADMIN_EDITING_QUESTION_KEY, None)
@@ -1824,8 +1825,8 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 
 async def back_to_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Go back to certification submenu from admin panel."""
-    # Clear admin context
+    """Вернуться в подменю аттестации из админ-панели."""
+    # Очистить контекст админа
     context.user_data.pop(settings.ADMIN_NEW_QUESTION_DATA_KEY, None)
     context.user_data.pop(settings.ADMIN_NEW_CATEGORY_DATA_KEY, None)
     context.user_data.pop(settings.ADMIN_EDITING_QUESTION_KEY, None)
@@ -1847,8 +1848,8 @@ async def back_to_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def back_to_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Go back to admin menu from questions/categories submenu."""
-    # Clear admin context
+    """Вернуться в админ-меню из подменю вопросов/категорий."""
+    # Очистить контекст админа
     context.user_data.pop(settings.ADMIN_NEW_QUESTION_DATA_KEY, None)
     context.user_data.pop(settings.ADMIN_NEW_CATEGORY_DATA_KEY, None)
     context.user_data.pop(settings.ADMIN_EDITING_QUESTION_KEY, None)
@@ -1865,29 +1866,29 @@ async def back_to_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # ============================================================================
-# Conversation Handler Builder
+# Сборка ConversationHandler
 # ============================================================================
 
 def get_admin_conversation_handler() -> ConversationHandler:
     """
-    Build and return the admin conversation handler.
+    Создать и вернуть административный ConversationHandler.
     
-    Returns:
-        ConversationHandler for admin panel
+    Возвращает:
+        ConversationHandler для админ-панели
     """
     return ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_PANEL)}$"), admin_command),
+            MessageHandler(filters.Regex("^⚙️ Управление$"), admin_command),
         ],
         states={
             ADMIN_MENU: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
                 CallbackQueryHandler(admin_callback_handler, pattern="^cert_"),
             ],
-            # Category states
+            # Состояния категорий
             CAT_LIST: [
                 CallbackQueryHandler(admin_callback_handler, pattern="^cert_"),
-                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_ADD_CATEGORY)}$"), create_category_start),
+                MessageHandler(filters.Regex("^➕ Добавить категорию$"), create_category_start),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
             ],
             CAT_VIEW: [
@@ -1913,12 +1914,12 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CAT_CONFIRM_DELETE: [
                 CallbackQueryHandler(admin_callback_handler, pattern="^cert_"),
             ],
-            # Question states
+            # Состояния вопросов
             Q_LIST: [
                 CallbackQueryHandler(admin_callback_handler, pattern="^cert_"),
-                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_ADD_QUESTION)}$"), create_question_start),
-                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_SEARCH_QUESTION)}$"), search_question_start),
-                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_NO_CATEGORY)}$"), show_uncategorized_questions),
+                MessageHandler(filters.Regex("^➕ Добавить вопрос$"), create_question_start),
+                MessageHandler(filters.Regex("^🔍 Найти вопрос$"), search_question_start),
+                MessageHandler(filters.Regex("^📂 Без категории$"), show_uncategorized_questions),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
             ],
             Q_VIEW: [
@@ -1975,7 +1976,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             Q_SEARCH: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, search_question_receive),
             ],
-            # Settings states
+            # Состояния настроек
             SETTINGS_MENU: [
                 CallbackQueryHandler(admin_callback_handler, pattern="^cert_"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
@@ -1989,7 +1990,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             SETTINGS_PASSING_SCORE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_passing_score),
             ],
-            # Outdated questions
+            # Устаревшие вопросы
             OUTDATED_LIST: [
                 CallbackQueryHandler(admin_callback_handler, pattern="^cert_"),
             ],
@@ -1999,9 +2000,9 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CommandHandler("reset", cancel_admin),
             CommandHandler("menu", cancel_admin),
             MessageHandler(filters.Regex(f"^{re.escape(BUTTON_MAIN_MENU)}$"), cancel_admin),
-            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_BACK)}$"), back_to_submenu),
-            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_MENU)}$"), back_to_admin_menu),
-            MessageHandler(filters.COMMAND, cancel_admin),  # Handle /start and other commands
+            MessageHandler(filters.Regex("^🔙 Назад$"), back_to_submenu),
+            MessageHandler(filters.Regex("^🔙 Админ меню$"), back_to_admin_menu),
+            MessageHandler(filters.COMMAND, cancel_admin),  # Обработать /start и другие команды
         ],
         name="certification_admin",
         persistent=False,

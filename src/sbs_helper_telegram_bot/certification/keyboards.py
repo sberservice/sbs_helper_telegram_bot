@@ -1,7 +1,7 @@
 """
-Employee Certification Module Keyboards
+Клавиатуры модуля аттестации сотрудников
 
-Telegram keyboard builders for the certification module.
+Сборщики Telegram-клавиатур для модуля аттестации.
 """
 
 from typing import List, Optional
@@ -11,10 +11,10 @@ from . import settings
 
 def get_submenu_keyboard() -> ReplyKeyboardMarkup:
     """
-    Build certification submenu keyboard for regular users.
+    Сформировать клавиатуру подменю аттестации для обычных пользователей.
     
-    Returns:
-        ReplyKeyboardMarkup for certification submenu
+    Возвращает:
+        ReplyKeyboardMarkup для подменю аттестации
     """
     return ReplyKeyboardMarkup(
         settings.SUBMENU_BUTTONS,
@@ -26,10 +26,10 @@ def get_submenu_keyboard() -> ReplyKeyboardMarkup:
 
 def get_admin_submenu_keyboard() -> ReplyKeyboardMarkup:
     """
-    Build certification submenu keyboard with admin panel button.
+    Сформировать клавиатуру подменю аттестации с кнопкой админ-панели.
     
-    Returns:
-        ReplyKeyboardMarkup for admin certification submenu
+    Возвращает:
+        ReplyKeyboardMarkup для админского подменю аттестации
     """
     return ReplyKeyboardMarkup(
         settings.ADMIN_SUBMENU_BUTTONS,
@@ -41,10 +41,10 @@ def get_admin_submenu_keyboard() -> ReplyKeyboardMarkup:
 
 def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
     """
-    Build admin panel main menu keyboard.
+    Сформировать клавиатуру главного меню админ-панели.
     
-    Returns:
-        ReplyKeyboardMarkup for admin menu
+    Возвращает:
+        ReplyKeyboardMarkup для меню администратора
     """
     return ReplyKeyboardMarkup(
         settings.ADMIN_MENU_BUTTONS,
@@ -56,10 +56,10 @@ def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
 
 def get_admin_questions_keyboard() -> ReplyKeyboardMarkup:
     """
-    Build admin questions management keyboard.
+    Сформировать клавиатуру управления вопросами для администратора.
     
-    Returns:
-        ReplyKeyboardMarkup for questions management
+    Возвращает:
+        ReplyKeyboardMarkup для управления вопросами
     """
     return ReplyKeyboardMarkup(
         settings.ADMIN_QUESTIONS_BUTTONS,
@@ -71,10 +71,10 @@ def get_admin_questions_keyboard() -> ReplyKeyboardMarkup:
 
 def get_admin_categories_keyboard() -> ReplyKeyboardMarkup:
     """
-    Build admin categories management keyboard.
+    Сформировать клавиатуру управления категориями для администратора.
     
-    Returns:
-        ReplyKeyboardMarkup for categories management
+    Возвращает:
+        ReplyKeyboardMarkup для управления категориями
     """
     return ReplyKeyboardMarkup(
         settings.ADMIN_CATEGORIES_BUTTONS,
@@ -86,14 +86,14 @@ def get_admin_categories_keyboard() -> ReplyKeyboardMarkup:
 
 def get_category_selection_keyboard(categories: List[dict], include_all: bool = True) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for category selection before starting a test.
+    Сформировать inline-клавиатуру выбора категории перед тестом.
     
-    Args:
-        categories: List of category dicts with 'id' and 'name'
-        include_all: Whether to include "All categories" option
+    Аргументы:
+        categories: Список словарей категорий с полями 'id' и 'name'
+        include_all: Добавлять ли пункт «Все категории»
         
-    Returns:
-        InlineKeyboardMarkup for category selection
+    Возвращает:
+        InlineKeyboardMarkup для выбора категории
     """
     keyboard = []
     
@@ -122,14 +122,14 @@ def get_learning_category_selection_keyboard(
     include_all: bool = True
 ) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for category selection before starting learning mode.
+    Сформировать inline-клавиатуру выбора категории перед началом обучения.
     
-    Args:
-        categories: List of category dicts with 'id' and 'name'
-        include_all: Whether to include "All categories" option
+    Аргументы:
+        categories: Список словарей категорий с полями 'id' и 'name'
+        include_all: Добавлять ли пункт «Все категории»
         
-    Returns:
-        InlineKeyboardMarkup for learning category selection
+    Возвращает:
+        InlineKeyboardMarkup для выбора категории в обучении
     """
     keyboard = []
     
@@ -153,12 +153,37 @@ def get_learning_category_selection_keyboard(
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_learning_difficulty_keyboard() -> InlineKeyboardMarkup:
+    """
+    Сформировать inline-клавиатуру выбора сложности для обучения.
+    
+    Возвращает:
+        InlineKeyboardMarkup для выбора сложности
+    """
+    keyboard = [
+        [
+            InlineKeyboardButton("🟢 Легкий", callback_data="cert_learn_diff_easy"),
+            InlineKeyboardButton("🟡 Средний", callback_data="cert_learn_diff_medium"),
+        ],
+        [
+            InlineKeyboardButton("🔴 Сложный", callback_data="cert_learn_diff_hard"),
+        ],
+        [
+            InlineKeyboardButton("📚 Любой", callback_data="cert_learn_diff_all"),
+        ],
+        [
+            InlineKeyboardButton("❌ Отмена", callback_data="cert_learn_diff_cancel"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_answer_keyboard() -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for answering a question.
+    Сформировать inline-клавиатуру для ответа на вопрос.
     
-    Returns:
-        InlineKeyboardMarkup with answer options A, B, C, D
+    Возвращает:
+        InlineKeyboardMarkup с вариантами ответов A, B, C, D
     """
     keyboard = [
         [
@@ -175,10 +200,10 @@ def get_answer_keyboard() -> InlineKeyboardMarkup:
 
 def get_learning_answer_keyboard() -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for answering a learning question.
+    Сформировать inline-клавиатуру для ответа в режиме обучения.
     
-    Returns:
-        InlineKeyboardMarkup with answer options A, B, C, D and cancel button
+    Возвращает:
+        InlineKeyboardMarkup с вариантами A, B, C, D и кнопкой отмены
     """
     keyboard = [
         [
@@ -198,10 +223,10 @@ def get_learning_answer_keyboard() -> InlineKeyboardMarkup:
 
 def get_test_control_keyboard() -> InlineKeyboardMarkup:
     """
-    Build inline keyboard with test control buttons.
+    Сформировать inline-клавиатуру управления тестом.
     
-    Returns:
-        InlineKeyboardMarkup with cancel test option
+    Возвращает:
+        InlineKeyboardMarkup с кнопкой отмены теста
     """
     keyboard = [
         [InlineKeyboardButton("❌ Завершить тест", callback_data="cert_cancel_test")]
@@ -211,10 +236,10 @@ def get_test_control_keyboard() -> InlineKeyboardMarkup:
 
 def get_next_question_keyboard() -> InlineKeyboardMarkup:
     """
-    Build inline keyboard to proceed to next question.
+    Сформировать inline-клавиатуру перехода к следующему вопросу.
     
-    Returns:
-        InlineKeyboardMarkup with next question button
+    Возвращает:
+        InlineKeyboardMarkup с кнопкой следующего вопроса
     """
     keyboard = [
         [InlineKeyboardButton("➡️ Следующий вопрос", callback_data="cert_next_question")]
@@ -224,10 +249,10 @@ def get_next_question_keyboard() -> InlineKeyboardMarkup:
 
 def get_learning_next_question_keyboard() -> InlineKeyboardMarkup:
     """
-    Build inline keyboard to proceed to next learning question.
+    Сформировать inline-клавиатуру перехода к следующему учебному вопросу.
     
-    Returns:
-        InlineKeyboardMarkup with next question button
+    Возвращает:
+        InlineKeyboardMarkup с кнопкой следующего вопроса
     """
     keyboard = [
         [InlineKeyboardButton("➡️ Следующий вопрос", callback_data="cert_learn_next_question")]
@@ -237,14 +262,14 @@ def get_learning_next_question_keyboard() -> InlineKeyboardMarkup:
 
 def get_confirmation_keyboard(confirm_data: str, cancel_data: str = "cert_cancel") -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for confirmation dialogs.
+    Сформировать inline-клавиатуру для диалогов подтверждения.
     
-    Args:
-        confirm_data: Callback data for confirm button
-        cancel_data: Callback data for cancel button
+    Аргументы:
+        confirm_data: Callback data для кнопки подтверждения
+        cancel_data: Callback data для кнопки отмены
         
-    Returns:
-        InlineKeyboardMarkup with confirm/cancel buttons
+    Возвращает:
+        InlineKeyboardMarkup с кнопками подтверждения/отмены
     """
     keyboard = [
         [
@@ -257,22 +282,22 @@ def get_confirmation_keyboard(confirm_data: str, cancel_data: str = "cert_cancel
 
 def get_top_category_selector_keyboard(categories: List[dict]) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for selecting category to view monthly top.
+    Сформировать inline-клавиатуру выбора категории для просмотра топа месяца.
     
-    Args:
-        categories: List of category dicts with 'id' and 'name'
+    Аргументы:
+        categories: Список словарей категорий с полями 'id' и 'name'
         
-    Returns:
-        InlineKeyboardMarkup for top category selection
+    Возвращает:
+        InlineKeyboardMarkup для выбора категории топа
     """
     keyboard = []
     
-    # Combined top option
+    # Общий рейтинг
     keyboard.append([
         InlineKeyboardButton("📊 Общий рейтинг", callback_data="cert_top_all")
     ])
     
-    # Individual categories
+    # Отдельные категории
     for category in categories:
         keyboard.append([
             InlineKeyboardButton(
@@ -290,10 +315,10 @@ def get_top_category_selector_keyboard(categories: List[dict]) -> InlineKeyboard
 
 def get_top_back_keyboard() -> InlineKeyboardMarkup:
     """
-    Build inline keyboard with back button for top view.
+    Сформировать inline-клавиатуру с кнопкой возврата для топа.
     
-    Returns:
-        InlineKeyboardMarkup with back to category selection
+    Возвращает:
+        InlineKeyboardMarkup с возвратом к выбору категории
     """
     keyboard = [
         [InlineKeyboardButton("🔙 К выбору категории", callback_data="cert_top_select")]
@@ -302,20 +327,20 @@ def get_top_back_keyboard() -> InlineKeyboardMarkup:
 
 
 # ============================================================================
-# Admin Keyboards
+# Клавиатуры администратора
 # ============================================================================
 
 def get_categories_list_keyboard(categories: List[dict], page: int = 1, per_page: int = 10) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for categories list with pagination.
+    Сформировать inline-клавиатуру списка категорий с пагинацией.
     
-    Args:
-        categories: List of category dicts
-        page: Current page number
-        per_page: Items per page
+    Аргументы:
+        categories: Список словарей категорий
+        page: Номер текущей страницы
+        per_page: Количество элементов на странице
         
-    Returns:
-        InlineKeyboardMarkup for categories list
+    Возвращает:
+        InlineKeyboardMarkup для списка категорий
     """
     keyboard = []
     
@@ -332,7 +357,7 @@ def get_categories_list_keyboard(categories: List[dict], page: int = 1, per_page
             )
         ])
     
-    # Pagination
+    # Пагинация
     nav_buttons = []
     total_pages = (len(categories) + per_page - 1) // per_page
     
@@ -351,14 +376,14 @@ def get_categories_list_keyboard(categories: List[dict], page: int = 1, per_page
 
 def get_category_actions_keyboard(category_id: int, is_active: bool) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for category actions.
+    Сформировать inline-клавиатуру действий с категорией.
     
-    Args:
-        category_id: Category ID
-        is_active: Current active status
+    Аргументы:
+        category_id: ID категории
+        is_active: Текущий статус активности
         
-    Returns:
-        InlineKeyboardMarkup with category actions
+    Возвращает:
+        InlineKeyboardMarkup с действиями категории
     """
     toggle_text = "❌ Деактивировать" if is_active else "✅ Активировать"
     toggle_data = f"cert_cat_toggle_{category_id}"
@@ -380,13 +405,13 @@ def get_category_actions_keyboard(category_id: int, is_active: bool) -> InlineKe
 
 def get_category_edit_keyboard(category_id: int) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for selecting which category field to edit.
+    Сформировать inline-клавиатуру выбора поля категории для редактирования.
     
-    Args:
-        category_id: Category ID
+    Аргументы:
+        category_id: ID категории
         
-    Returns:
-        InlineKeyboardMarkup with field edit options
+    Возвращает:
+        InlineKeyboardMarkup с вариантами редактирования полей
     """
     keyboard = [
         [
@@ -404,15 +429,15 @@ def get_category_edit_keyboard(category_id: int) -> InlineKeyboardMarkup:
 
 def get_questions_list_keyboard(questions: List[dict], page: int = 1, per_page: int = 8) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for questions list with pagination.
+    Сформировать inline-клавиатуру списка вопросов с пагинацией.
     
-    Args:
-        questions: List of question dicts
-        page: Current page number
-        per_page: Items per page
+    Аргументы:
+        questions: Список словарей вопросов
+        page: Номер текущей страницы
+        per_page: Количество элементов на странице
         
-    Returns:
-        InlineKeyboardMarkup for questions list
+    Возвращает:
+        InlineKeyboardMarkup для списка вопросов
     """
     keyboard = []
     
@@ -431,7 +456,7 @@ def get_questions_list_keyboard(questions: List[dict], page: int = 1, per_page: 
             )
         ])
     
-    # Pagination
+    # Пагинация
     nav_buttons = []
     total_pages = (len(questions) + per_page - 1) // per_page
     
@@ -453,14 +478,14 @@ def get_questions_list_keyboard(questions: List[dict], page: int = 1, per_page: 
 
 def get_question_actions_keyboard(question_id: int, is_active: bool) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for question actions.
+    Сформировать inline-клавиатуру действий с вопросом.
     
-    Args:
-        question_id: Question ID
-        is_active: Current active status
+    Аргументы:
+        question_id: ID вопроса
+        is_active: Текущий статус активности
         
-    Returns:
-        InlineKeyboardMarkup with question actions
+    Возвращает:
+        InlineKeyboardMarkup с действиями вопроса
     """
     toggle_text = "❌ Деактивировать" if is_active else "✅ Активировать"
     
@@ -482,13 +507,13 @@ def get_question_actions_keyboard(question_id: int, is_active: bool) -> InlineKe
 
 def get_question_edit_keyboard(question_id: int) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for selecting which question field to edit.
+    Сформировать inline-клавиатуру выбора поля вопроса для редактирования.
     
-    Args:
-        question_id: Question ID
+    Аргументы:
+        question_id: ID вопроса
         
-    Returns:
-        InlineKeyboardMarkup with field edit options
+    Возвращает:
+        InlineKeyboardMarkup с вариантами редактирования полей
     """
     keyboard = [
         [
@@ -519,10 +544,10 @@ def get_question_edit_keyboard(question_id: int) -> InlineKeyboardMarkup:
 
 def get_difficulty_keyboard() -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for difficulty selection.
+    Сформировать inline-клавиатуру выбора сложности.
     
-    Returns:
-        InlineKeyboardMarkup with difficulty options
+    Возвращает:
+        InlineKeyboardMarkup с вариантами сложности
     """
     keyboard = [
         [
@@ -536,10 +561,10 @@ def get_difficulty_keyboard() -> InlineKeyboardMarkup:
 
 def get_correct_answer_keyboard() -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for selecting correct answer.
+    Сформировать inline-клавиатуру выбора правильного ответа.
     
-    Returns:
-        InlineKeyboardMarkup with answer options
+    Возвращает:
+        InlineKeyboardMarkup с вариантами ответов
     """
     keyboard = [
         [
@@ -557,14 +582,14 @@ def get_category_multiselect_keyboard(
     selected_ids: Optional[List[int]] = None
 ) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for multi-selecting categories.
+    Сформировать inline-клавиатуру множественного выбора категорий.
     
-    Args:
-        categories: List of category dicts
-        selected_ids: List of already selected category IDs
+    Аргументы:
+        categories: Список словарей категорий
+        selected_ids: Список уже выбранных ID категорий
         
-    Returns:
-        InlineKeyboardMarkup for category multi-selection
+    Возвращает:
+        InlineKeyboardMarkup для множественного выбора категорий
     """
     selected_ids = selected_ids or []
     keyboard = []
@@ -593,15 +618,15 @@ def get_category_edit_multiselect_keyboard(
     question_id: int = None
 ) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for editing question categories.
+    Сформировать inline-клавиатуру редактирования категорий вопроса.
     
-    Args:
-        categories: List of category dicts
-        selected_ids: List of already selected category IDs
-        question_id: Question ID being edited
+    Аргументы:
+        categories: Список словарей категорий
+        selected_ids: Список уже выбранных ID категорий
+        question_id: ID редактируемого вопроса
         
-    Returns:
-        InlineKeyboardMarkup for category multi-selection during edit
+    Возвращает:
+        InlineKeyboardMarkup для множественного выбора категорий при редактировании
     """
     selected_ids = selected_ids or []
     keyboard = []
@@ -626,17 +651,17 @@ def get_category_edit_multiselect_keyboard(
 
 def get_outdated_questions_keyboard(questions: List[dict]) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for outdated questions management.
+    Сформировать inline-клавиатуру управления устаревшими вопросами.
     
-    Args:
-        questions: List of outdated question dicts
+    Аргументы:
+        questions: Список словарей устаревших вопросов
         
-    Returns:
-        InlineKeyboardMarkup for outdated questions
+    Возвращает:
+        InlineKeyboardMarkup для устаревших вопросов
     """
     keyboard = []
     
-    for q in questions[:10]:  # Limit to 10 items
+    for q in questions[:10]:  # Ограничить до 10 элементов
         text_preview = q['question_text'][:25] + "..." if len(q['question_text']) > 25 else q['question_text']
         keyboard.append([
             InlineKeyboardButton(
@@ -657,14 +682,14 @@ def get_outdated_questions_keyboard(questions: List[dict]) -> InlineKeyboardMark
 
 def get_settings_keyboard(show_correct: bool = True, obfuscate_names: bool = False) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for certification settings.
+    Сформировать inline-клавиатуру настроек аттестации.
     
-    Args:
-        show_correct: Current value of show_correct_answer setting
-        obfuscate_names: Current value of obfuscate_names setting
+    Аргументы:
+        show_correct: Текущее значение настройки show_correct_answer
+        obfuscate_names: Текущее значение настройки obfuscate_names
     
-    Returns:
-        InlineKeyboardMarkup for settings
+    Возвращает:
+        InlineKeyboardMarkup для настроек
     """
     show_correct_text = "✅ Показывать ответ" if show_correct else "❌ Показывать ответ"
     obfuscate_text = "✅ Скрывать имена" if obfuscate_names else "❌ Скрывать имена"
@@ -681,14 +706,14 @@ def get_settings_keyboard(show_correct: bool = True, obfuscate_names: bool = Fal
 
 def get_history_pagination_keyboard(page: int, total_pages: int) -> InlineKeyboardMarkup:
     """
-    Build inline keyboard for history pagination.
+    Сформировать inline-клавиатуру пагинации истории.
     
-    Args:
-        page: Current page
-        total_pages: Total pages
+    Аргументы:
+        page: Текущая страница
+        total_pages: Общее число страниц
         
-    Returns:
-        InlineKeyboardMarkup for pagination
+    Возвращает:
+        InlineKeyboardMarkup для пагинации
     """
     keyboard = []
     nav_buttons = []

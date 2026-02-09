@@ -1,10 +1,10 @@
 """
-Employee Certification Module - User Bot Part
+Модуль аттестации сотрудников — пользовательская часть
 
-Telegram handlers for the user-facing certification functionality:
-- Starting and taking tests
-- Viewing results and history
-- Monthly rankings
+Telegram-хендлеры для пользовательского функционала аттестации:
+- Запуск и прохождение тестов
+- Просмотр результатов и истории
+- Ежемесячные рейтинги
 """
 
 import logging
@@ -24,8 +24,8 @@ from telegram.ext import (
     filters
 )
 
-from src.common.telegram_user import check_if_user_legit, check_if_user_admin, get_unauthorized_message
-from src.common.messages import BUTTON_MAIN_MENU
+from src.common.telegram_user import check_if_user_legit, check_if_user_admin
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
 from src.sbs_helper_telegram_bot.gamification.events import emit_event
 
 from . import settings
@@ -35,25 +35,26 @@ from . import certification_logic as logic
 
 logger = logging.getLogger(__name__)
 
-# Conversation states
+# Состояния диалога
 (
     SELECTING_CATEGORY,
     ANSWERING_QUESTION,
     VIEWING_RESULT,
+    SELECTING_LEARNING_DIFFICULTY,
     SELECTING_LEARNING_CATEGORY,
     LEARNING_ANSWERING_QUESTION,
-) = range(5)
+) = range(6)
 
 
 def obfuscate_name(name: str) -> str:
     """
-    Obfuscate a name by keeping only the first letter and replacing rest with dots.
+    Скрыть имя, оставив только первую букву и заменив остальное точками.
     
-    Args:
-        name: The name to obfuscate (e.g., "Иван")
+    Аргументы:
+        name: Имя для скрытия (например, "Иван")
         
-    Returns:
-        Obfuscated name (e.g., "И...")
+    Возвращает:
+        Скрытое имя (например, "И...")
     """
     if not name:
         return ""
@@ -62,15 +63,15 @@ def obfuscate_name(name: str) -> str:
 
 def shuffle_question_options(question: dict) -> dict:
     """
-    Shuffle the answer options for a question and track the mapping.
+    Перемешать варианты ответа и сохранить отображение.
     
-    Args:
-        question: Question dict with option_a, option_b, option_c, option_d, correct_option
+    Аргументы:
+        question: Словарь вопроса с option_a, option_b, option_c, option_d, correct_option
         
-    Returns:
-        Question dict with shuffled_options list and option_mapping dict
+    Возвращает:
+        Словарь вопроса с shuffled_options и option_mapping
     """
-    # Create list of (original_letter, option_text) tuples
+    # Сформировать список пар (исходная буква, текст варианта)
     options = [
         ('A', question['option_a']),
         ('B', question['option_b']),
@@ -78,21 +79,21 @@ def shuffle_question_options(question: dict) -> dict:
         ('D', question['option_d']),
     ]
     
-    # Shuffle the options
+    # Перемешать варианты
     random.shuffle(options)
     
-    # Create mapping: displayed_letter -> original_letter
-    # e.g., if original B is now shown as A, mapping['A'] = 'B'
+    # Создать отображение: показанная буква -> исходная буква
+    # Например, если исходный B показан как A, то mapping['A'] = 'B'
     display_letters = ['A', 'B', 'C', 'D']
-    option_mapping = {}  # displayed -> original
-    shuffled_options = []  # list of option texts in display order
+    option_mapping = {}  # отображаемая -> исходная
+    shuffled_options = []  # список текстов вариантов в порядке показа
     
     for i, (original_letter, option_text) in enumerate(options):
         display_letter = display_letters[i]
         option_mapping[display_letter] = original_letter
         shuffled_options.append(option_text)
     
-    # Store in question
+    # Сохранить в вопросе
     question['shuffled_options'] = shuffled_options
     question['option_mapping'] = option_mapping
     
@@ -100,13 +101,13 @@ def shuffle_question_options(question: dict) -> dict:
 
 
 # ============================================================================
-# Entry Points and Navigation
+# Точки входа и навигация
 # ============================================================================
 
 async def certification_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show certification submenu."""
+    """Показать подменю аттестации."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return ConversationHandler.END
     
     if check_if_user_admin(update.effective_user.id):
@@ -114,7 +115,7 @@ async def certification_submenu(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         keyboard = keyboards.get_submenu_keyboard()
     
-    # Get statistics for the submenu
+    # Получить статистику для подменю
     stats = logic.get_certification_statistics()
     questions_count = int(stats.get('total_questions', 0) or 0)
     categories_count = int(stats.get('active_categories', 0) or 0)
@@ -133,16 +134,16 @@ async def certification_submenu(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def start_test_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle 'Start Test' button - show category selection."""
+    """Обработать кнопку «Начать тест» и показать выбор категории."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return ConversationHandler.END
     
-    # Cancel any existing in-progress attempts
+    # Отменить все текущие попытки
     logic.cancel_user_attempts(update.effective_user.id)
     clear_learning_context(context)
     
-    # Check if there are any questions
+    # Проверить наличие вопросов
     questions_count = logic.get_questions_count()
     if questions_count == 0:
         await update.message.reply_text(
@@ -151,13 +152,13 @@ async def start_test_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return ConversationHandler.END
     
-    # Get test settings
+    # Получить настройки теста
     test_settings = logic.get_test_settings()
     
-    # Get active categories
+    # Получить активные категории
     categories = logic.get_all_categories(active_only=True)
     
-    # Show test intro with category selection
+    # Показать вступление к тесту и выбор категории
     intro_text = messages.MESSAGE_TEST_INTRO.format(
         questions_count=test_settings['questions_count'],
         time_limit=test_settings['time_limit_minutes'],
@@ -174,17 +175,17 @@ async def start_test_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def start_learning_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle 'Learning Mode' button - show category selection."""
+    """Обработать кнопку «Режим обучения» и показать выбор сложности."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return ConversationHandler.END
 
-    # Cancel any existing in-progress attempts
+    # Отменить все текущие попытки
     logic.cancel_user_attempts(update.effective_user.id)
     clear_test_context(context)
     clear_learning_context(context)
 
-    # Check if there are any questions
+    # Проверить наличие вопросов
     questions_count = logic.get_questions_count()
     if questions_count == 0:
         await update.message.reply_text(
@@ -193,18 +194,48 @@ async def start_learning_command(update: Update, context: ContextTypes.DEFAULT_T
         )
         return ConversationHandler.END
 
-    # Get test settings for question count
-    test_settings = logic.get_test_settings()
+    await update.message.reply_text(
+        messages.MESSAGE_LEARNING_SELECT_DIFFICULTY,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_learning_difficulty_keyboard()
+    )
 
-    # Get active categories
+    return SELECTING_LEARNING_DIFFICULTY
+
+
+async def handle_learning_difficulty_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Обработать выбор сложности в режиме обучения."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+
+    if data == "cert_learn_diff_cancel":
+        await query.edit_message_text(
+            messages.MESSAGE_LEARNING_CANCELLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return ConversationHandler.END
+
+    difficulty = None
+    if data == "cert_learn_diff_all":
+        difficulty = None
+    elif data.startswith("cert_learn_diff_"):
+        difficulty = data.replace("cert_learn_diff_", "")
+    else:
+        return SELECTING_LEARNING_DIFFICULTY
+
+    context.user_data[settings.LEARNING_SELECTED_DIFFICULTY_KEY] = difficulty
+
+    # Получить настройки теста (количество вопросов)
+    test_settings = logic.get_test_settings()
     categories = logic.get_all_categories(active_only=True)
 
-    # Show learning intro with category selection
     intro_text = messages.MESSAGE_LEARNING_INTRO.format(
         questions_count=test_settings['questions_count']
     )
 
-    await update.message.reply_text(
+    await query.edit_message_text(
         intro_text,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.get_learning_category_selection_keyboard(categories)
@@ -214,7 +245,7 @@ async def start_learning_command(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def handle_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle category selection callback."""
+    """Обработать выбор категории для теста."""
     query = update.callback_query
     await query.answer()
     
@@ -235,14 +266,14 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
     else:
         return SELECTING_CATEGORY
     
-    # Get test settings
+    # Получить настройки теста
     test_settings = logic.get_test_settings()
     questions_count = test_settings['questions_count']
     time_limit_minutes = test_settings['time_limit_minutes']
     time_limit_seconds = time_limit_minutes * 60
     passing_score = test_settings['passing_score_percent']
     
-    # Get random questions
+    # Получить случайные вопросы
     questions = logic.get_random_questions(questions_count, category_id)
     
     if not questions:
@@ -252,7 +283,7 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
         )
         return ConversationHandler.END
     
-    # Create test attempt
+    # Создать попытку теста
     attempt_id = logic.create_test_attempt(
         userid=update.effective_user.id,
         total_questions=len(questions),
@@ -267,9 +298,9 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
         )
         return ConversationHandler.END
     
-    # Store test data in context
+    # Сохранить данные теста в контексте
     context.user_data[settings.CURRENT_ATTEMPT_ID_KEY] = attempt_id
-    # Shuffle options for each question
+    # Перемешать варианты ответа для каждого вопроса
     shuffled_questions = [shuffle_question_options(q) for q in questions]
     context.user_data[settings.TEST_QUESTIONS_KEY] = shuffled_questions
     context.user_data[settings.CURRENT_QUESTION_INDEX_KEY] = 0
@@ -277,7 +308,7 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
     context.user_data[settings.SELECTED_CATEGORY_KEY] = category_id
     context.user_data[settings.TEST_IN_PROGRESS_KEY] = True
     
-    # Show test started message
+    # Показать сообщение о старте теста
     await query.edit_message_text(
         messages.MESSAGE_TEST_STARTED.format(
             total_questions=len(questions),
@@ -287,14 +318,14 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     
-    # Send first question
+    # Отправить первый вопрос
     await send_question(update, context, is_callback=True)
     
     return ANSWERING_QUESTION
 
 
 async def handle_learning_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle learning category selection callback."""
+    """Обработать выбор категории для обучения."""
     query = update.callback_query
     await query.answer()
 
@@ -318,7 +349,12 @@ async def handle_learning_category_selection(update: Update, context: ContextTyp
     test_settings = logic.get_test_settings()
     questions_count = test_settings['questions_count']
 
-    questions = logic.get_random_questions(questions_count, category_id)
+    difficulty = context.user_data.get(settings.LEARNING_SELECTED_DIFFICULTY_KEY)
+    questions = logic.get_random_questions(
+        questions_count,
+        category_id,
+        difficulty=difficulty
+    )
 
     if not questions:
         await query.edit_message_text(
@@ -327,7 +363,7 @@ async def handle_learning_category_selection(update: Update, context: ContextTyp
         )
         return ConversationHandler.END
 
-    # Store learning data in context
+    # Сохранить данные обучения в контексте
     shuffled_questions = [shuffle_question_options(q) for q in questions]
     context.user_data[settings.LEARNING_QUESTIONS_KEY] = shuffled_questions
     context.user_data[settings.LEARNING_CURRENT_QUESTION_INDEX_KEY] = 0
@@ -350,25 +386,25 @@ async def send_question(
     context: ContextTypes.DEFAULT_TYPE,
     is_callback: bool = False
 ) -> None:
-    """Send current question to user."""
+    """Отправить пользователю текущий вопрос теста."""
     questions = context.user_data.get(settings.TEST_QUESTIONS_KEY, [])
     current_index = context.user_data.get(settings.CURRENT_QUESTION_INDEX_KEY, 0)
     start_time = context.user_data.get(settings.TEST_START_TIME_KEY, time.time())
     attempt_id = context.user_data.get(settings.CURRENT_ATTEMPT_ID_KEY)
     
     if current_index >= len(questions):
-        # Test completed
+        # Тест завершён
         await finish_test(update, context, is_callback=is_callback)
         return
     
-    # Check time
+    # Проверить время
     attempt = logic.get_attempt_by_id(attempt_id)
     if attempt:
         elapsed = time.time() - start_time
         remaining = attempt['time_limit_seconds'] - int(elapsed)
         
         if remaining <= 0:
-            # Time expired
+            # Время истекло
             await finish_test(update, context, status='expired', is_callback=is_callback)
             return
         
@@ -378,10 +414,10 @@ async def send_question(
     
     question = questions[current_index]
     
-    # Format question text
+    # Подготовить текст вопроса
     question_text = logic.escape_markdown(question['question_text'])
     
-    # Build options text using shuffled options
+    # Сформировать текст вариантов с учётом перемешивания
     shuffled = question.get('shuffled_options', [
         question['option_a'], question['option_b'], 
         question['option_c'], question['option_d']
@@ -402,7 +438,7 @@ async def send_question(
         time_remaining=time_remaining_str
     )
     
-    # Add time warning if needed
+    # Добавить предупреждение о времени при необходимости
     if attempt and (attempt['time_limit_seconds'] - int(time.time() - start_time)) < 120:
         full_message = messages.MESSAGE_TIME_WARNING + "\n\n" + full_message
     
@@ -425,7 +461,7 @@ async def send_learning_question(
     context: ContextTypes.DEFAULT_TYPE,
     is_callback: bool = False
 ) -> None:
-    """Send current learning question to user."""
+    """Отправить пользователю текущий вопрос обучения."""
     questions = context.user_data.get(settings.LEARNING_QUESTIONS_KEY, [])
     current_index = context.user_data.get(settings.LEARNING_CURRENT_QUESTION_INDEX_KEY, 0)
 
@@ -471,19 +507,19 @@ async def send_learning_question(
 
 
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle user's answer to a question."""
+    """Обработать ответ пользователя на вопрос теста."""
     query = update.callback_query
     await query.answer()
     
     data = query.data
     
     if data == "cert_cancel_test":
-        # Cancel test
+        # Отменить тест
         attempt_id = context.user_data.get(settings.CURRENT_ATTEMPT_ID_KEY)
         if attempt_id:
             logic.complete_test_attempt(attempt_id, status='cancelled')
         
-        # Clear context
+        # Очистить контекст
         clear_test_context(context)
         
         await query.edit_message_text(
@@ -498,7 +534,7 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     user_answer = data.replace("cert_answer_", "")
     
-    # Check time first
+    # Сначала проверить время
     start_time = context.user_data.get(settings.TEST_START_TIME_KEY, time.time())
     attempt_id = context.user_data.get(settings.CURRENT_ATTEMPT_ID_KEY)
     attempt = logic.get_attempt_by_id(attempt_id)
@@ -509,7 +545,7 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             await finish_test(update, context, status='expired', is_callback=True)
             return ConversationHandler.END
     
-    # Get current question
+    # Получить текущий вопрос
     questions = context.user_data.get(settings.TEST_QUESTIONS_KEY, [])
     current_index = context.user_data.get(settings.CURRENT_QUESTION_INDEX_KEY, 0)
     
@@ -520,20 +556,20 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     question = questions[current_index]
     correct_option = question['correct_option']
     
-    # Map user's displayed answer to original option letter
+    # Преобразовать выбранную букву в исходную
     option_mapping = question.get('option_mapping', {'A': 'A', 'B': 'B', 'C': 'C', 'D': 'D'})
     original_answer = option_mapping.get(user_answer.upper(), user_answer.upper())
     is_correct = original_answer == correct_option.upper()
     
-    # Find which displayed letter corresponds to the correct answer
-    # (reverse mapping: original -> displayed)
-    displayed_correct = user_answer.upper()  # default
+    # Найти отображаемую букву правильного ответа
+    # (обратное отображение: исходная -> отображаемая)
+    displayed_correct = user_answer.upper()  # по умолчанию
     for displayed, original in option_mapping.items():
         if original == correct_option.upper():
             displayed_correct = displayed
             break
     
-    # Save answer (save the original letter for consistency)
+    # Сохранить ответ (исходную букву для согласованности)
     logic.save_answer(
         attempt_id=attempt_id,
         question_id=question['id'],
@@ -542,24 +578,24 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         is_correct=is_correct
     )
     
-    # Check if we should show correct answer
+    # Нужно ли показывать правильный ответ
     test_settings = logic.get_test_settings()
     show_correct = test_settings.get('show_correct_answer', True)
     
-    # Move to next question
+    # Перейти к следующему вопросу
     context.user_data[settings.CURRENT_QUESTION_INDEX_KEY] = current_index + 1
     
-    # Show result or proceed automatically
+    # Показать результат или перейти автоматически
     if show_correct:
         if is_correct:
             result_text = messages.MESSAGE_ANSWER_CORRECT
         else:
-            # Show the displayed letter of the correct answer
+            # Показать отображаемую букву правильного ответа
             result_text = messages.MESSAGE_ANSWER_INCORRECT.format(
                 correct_option=settings.ANSWER_EMOJIS.get(displayed_correct, displayed_correct)
             )
         
-        # Add explanation if available
+        # Добавить пояснение при наличии
         if question.get('explanation'):
             result_text = messages.MESSAGE_ANSWER_WITH_EXPLANATION.format(
                 result=result_text,
@@ -574,12 +610,12 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         
         return ANSWERING_QUESTION
     else:
-        # Auto-proceed to next question without showing result
+        # Перейти к следующему вопросу без показа результата
         new_index = context.user_data.get(settings.CURRENT_QUESTION_INDEX_KEY, 0)
         questions = context.user_data.get(settings.TEST_QUESTIONS_KEY, [])
         
         if new_index >= len(questions):
-            # Test finished
+            # Тест завершён
             await query.edit_message_text(
                 "⏳ Завершаем тест\\.\\.\\.",
                 parse_mode=constants.ParseMode.MARKDOWN_V2
@@ -587,17 +623,17 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             await finish_test(update, context, is_callback=True)
             return ConversationHandler.END
         
-        # Send next question and delete the old message
+        # Отправить следующий вопрос и удалить старое сообщение
         await send_question(update, context, is_callback=True)
         try:
             await query.message.delete()
         except Exception:
-            pass  # Ignore if message cannot be deleted
+            pass  # Игнорировать, если сообщение нельзя удалить
         return ANSWERING_QUESTION
 
 
 async def handle_learning_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle user's answer to a learning question."""
+    """Обработать ответ пользователя в режиме обучения."""
     query = update.callback_query
     await query.answer()
 
@@ -687,14 +723,14 @@ async def handle_learning_answer(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def handle_next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle 'Next question' button."""
+    """Обработать кнопку «Следующий вопрос» в тесте."""
     query = update.callback_query
     await query.answer()
     
     if query.data != "cert_next_question":
         return ANSWERING_QUESTION
     
-    # Check if test is still in progress
+    # Проверить, что тест ещё идёт
     if not context.user_data.get(settings.TEST_IN_PROGRESS_KEY):
         return ConversationHandler.END
     
@@ -710,7 +746,7 @@ async def handle_next_question(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def handle_learning_next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle 'Next question' button in learning mode."""
+    """Обработать кнопку «Следующий вопрос» в обучении."""
     query = update.callback_query
     await query.answer()
 
@@ -741,7 +777,7 @@ async def finish_test(
     status: str = 'completed',
     is_callback: bool = False
 ) -> int:
-    """Finish test and show results."""
+    """Завершить тест и показать результат."""
     attempt_id = context.user_data.get(settings.CURRENT_ATTEMPT_ID_KEY)
     
     if not attempt_id:
@@ -749,16 +785,16 @@ async def finish_test(
     
     user_id = update.effective_user.id
 
-    # Complete the attempt
+    # Завершить попытку
     result = logic.complete_test_attempt(attempt_id, status=status)
     
     if not result:
         return ConversationHandler.END
     
-    # Format time spent
+    # Сформировать строку времени
     time_spent_str = logic.format_time_spent(result['time_spent_seconds'])
     
-    # Get rank info
+    # Получить информацию о месте в рейтинге
     rank_info = ""
     if result['passed']:
         user_rank = logic.get_user_monthly_rank(update.effective_user.id)
@@ -769,7 +805,7 @@ async def finish_test(
     else:
         rank_info = messages.MESSAGE_NO_RANK_YET
     
-    # Format status
+    # Сформировать статус
     if status == 'expired':
         status_text = "⏰ Время истекло"
         message_template = messages.MESSAGE_TIME_EXPIRED
@@ -777,7 +813,7 @@ async def finish_test(
         status_text = messages.MESSAGE_TEST_PASSED if result['passed'] else messages.MESSAGE_TEST_FAILED
         message_template = messages.MESSAGE_TEST_COMPLETED
     
-    # Format score - use integer if whole number, otherwise escape the decimal point
+    # Сформировать результат: целое без дробной части, иначе экранировать точку
     score = result['score_percent']
     if score == int(score):
         score_str = str(int(score))
@@ -793,7 +829,7 @@ async def finish_test(
         rank_info=rank_info
     )
     
-    # Emit gamification events
+    # Отправить события геймификации
     attempt = logic.get_attempt_by_id(attempt_id)
     event_data = {
         'attempt_id': attempt_id,
@@ -808,7 +844,7 @@ async def finish_test(
     if result['passed'] and status == 'completed':
         emit_event("certification.test_passed", user_id, data=event_data)
 
-    # Clear context
+    # Очистить контекст
     clear_test_context(context)
     
     if is_callback:
@@ -830,7 +866,7 @@ async def finish_learning(
     context: ContextTypes.DEFAULT_TYPE,
     is_callback: bool = False
 ) -> int:
-    """Finish learning session and show summary."""
+    """Завершить обучение и показать итог."""
     questions = context.user_data.get(settings.LEARNING_QUESTIONS_KEY, [])
     correct_count = context.user_data.get(settings.LEARNING_CORRECT_COUNT_KEY, 0)
     total_count = len(questions)
@@ -867,7 +903,7 @@ async def finish_learning(
 
 
 def clear_test_context(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Clear test-related data from context."""
+    """Очистить данные теста из контекста."""
     keys_to_clear = [
         settings.CURRENT_ATTEMPT_ID_KEY,
         settings.TEST_QUESTIONS_KEY,
@@ -881,11 +917,12 @@ def clear_test_context(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def clear_learning_context(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Clear learning-related data from context."""
+    """Очистить данные обучения из контекста."""
     keys_to_clear = [
         settings.LEARNING_QUESTIONS_KEY,
         settings.LEARNING_CURRENT_QUESTION_INDEX_KEY,
         settings.LEARNING_SELECTED_CATEGORY_KEY,
+        settings.LEARNING_SELECTED_DIFFICULTY_KEY,
         settings.LEARNING_IN_PROGRESS_KEY,
         settings.LEARNING_CORRECT_COUNT_KEY,
     ]
@@ -894,19 +931,19 @@ def clear_learning_context(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # ============================================================================
-# Rankings and History
+# Рейтинги и история
 # ============================================================================
 
 async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show user's ranking and statistics per category for current month."""
+    """Показать рейтинг пользователя и статистику по категориям за месяц."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return
     
     now = datetime.now()
     month_name = logic.get_month_name(now.month)
     
-    # Get categories where user has tests this month
+    # Получить категории, где пользователь проходил тесты в этом месяце
     user_categories = logic.get_user_categories_this_month(update.effective_user.id)
     
     if not user_categories:
@@ -916,13 +953,13 @@ async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
     
-    # Build message with per-category ratings
+    # Сформировать сообщение с рейтингами по категориям
     message_parts = [messages.MESSAGE_MY_RANKING_HEADER.format(month=logic.escape_markdown(month_name))]
     
-    # Get overall stats for last test info
+    # Получить общую статистику для данных последнего теста
     user_stats = logic.get_user_stats(update.effective_user.id)
     
-    # Add combined rating first (if user has any passed tests)
+    # Добавить общий рейтинг (если есть успешные тесты)
     combined_rank = logic.get_user_monthly_rank(update.effective_user.id)
     if combined_rank:
         message_parts.append(messages.MESSAGE_MY_RANKING_ALL_ITEM.format(
@@ -931,9 +968,9 @@ async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             tests_count=combined_rank['tests_count']
         ))
     
-    # Add each category's rating
+    # Добавить рейтинг по каждой категории
     for cat_info in user_categories:
-        # Skip if this is a "full test" (category_id is None) - already shown in combined
+        # Пропустить полный тест (category_id=None) — он уже в общем рейтинге
         if cat_info['category_id'] is None:
             continue
         
@@ -947,7 +984,7 @@ async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             tests_count=cat_info['tests_count']
         ))
     
-    # Add footer with last test info
+    # Добавить подвал с информацией о последнем тесте
     if user_stats and user_stats['last_test_timestamp']:
         last_test_date = datetime.fromtimestamp(user_stats['last_test_timestamp']).strftime('%d\\.%m\\.%Y')
         message_parts.append(messages.MESSAGE_MY_RANKING_FOOTER.format(
@@ -962,9 +999,9 @@ async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def show_test_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show user's test history."""
+    """Показать историю тестов пользователя."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return
     
     history = logic.get_user_test_history(update.effective_user.id, limit=10)
@@ -976,7 +1013,7 @@ async def show_test_history(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
     
-    # Format history list
+    # Сформировать список истории
     history_items = []
     for i, attempt in enumerate(history, 1):
         date_str = datetime.fromtimestamp(attempt['completed_timestamp']).strftime('%d\\.%m\\.%Y')
@@ -1003,15 +1040,15 @@ async def show_test_history(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def show_monthly_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show category selector for monthly top ranking."""
+    """Показать выбор категории для ТОПа месяца."""
     if not check_if_user_legit(update.effective_user.id):
-        await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return
     
     now = datetime.now()
     month_name = logic.get_month_name(now.month)
     
-    # Get active categories
+    # Получить активные категории
     categories = logic.get_all_categories(active_only=True)
     
     await update.message.reply_text(
@@ -1022,19 +1059,19 @@ async def show_monthly_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def handle_top_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle callback for top category selection."""
+    """Обработать выбор категории для ТОПа месяца."""
     query = update.callback_query
     await query.answer()
     
     data = query.data
     
     if data == "cert_top_back":
-        # Just close the message
+        # Просто закрыть сообщение
         await query.message.delete()
         return
     
     if data == "cert_top_select":
-        # Show category selector again
+        # Показать выбор категории снова
         now = datetime.now()
         month_name = logic.get_month_name(now.month)
         categories = logic.get_all_categories(active_only=True)
@@ -1046,7 +1083,7 @@ async def handle_top_category_selection(update: Update, context: ContextTypes.DE
         )
         return
     
-    # Determine category filter
+    # Определить фильтр по категории
     category_id = None
     category_name = None
     is_combined = False
@@ -1064,7 +1101,7 @@ async def handle_top_category_selection(update: Update, context: ContextTypes.DE
     now = datetime.now()
     month_name = logic.get_month_name(now.month)
     
-    # Get ranking for the selected category
+    # Получить рейтинг для выбранной категории
     ranking = logic.get_monthly_ranking_by_category(category_id=category_id, limit=10)
     
     if not ranking:
@@ -1082,11 +1119,11 @@ async def handle_top_category_selection(update: Update, context: ContextTypes.DE
             )
         return
     
-    # Check if names should be obfuscated
+    # Проверить, нужно ли скрывать имена
     test_settings = logic.get_test_settings()
     should_obfuscate = test_settings.get('obfuscate_names', False)
     
-    # Format top list
+    # Сформировать список ТОПа
     top_items = []
     for user in ranking:
         if should_obfuscate:
@@ -1105,14 +1142,14 @@ async def handle_top_category_selection(update: Update, context: ContextTypes.DE
             tests_count=user['tests_count']
         ))
     
-    # Get current user's position
+    # Получить позицию текущего пользователя
     user_rank = logic.get_user_monthly_rank_by_category(
         update.effective_user.id, 
         category_id=category_id
     )
     
     if user_rank and user_rank['rank'] <= 10:
-        your_position = ""  # Already in top 10
+        your_position = ""  # Уже в ТОП-10
     elif user_rank:
         your_position = messages.MESSAGE_YOUR_POSITION.format(
             rank=user_rank['rank'],
@@ -1121,7 +1158,7 @@ async def handle_top_category_selection(update: Update, context: ContextTypes.DE
     else:
         your_position = messages.MESSAGE_NOT_IN_TOP
     
-    # Use appropriate message template
+    # Использовать подходящий шаблон сообщения
     if is_combined:
         message = messages.MESSAGE_MONTHLY_TOP_ALL.format(
             month=logic.escape_markdown(month_name),
@@ -1144,7 +1181,7 @@ async def handle_top_category_selection(update: Update, context: ContextTypes.DE
 
 
 async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show certification help."""
+    """Показать справку по модулю аттестации."""
     await update.message.reply_text(
         messages.MESSAGE_HELP,
         parse_mode=constants.ParseMode.MARKDOWN_V2
@@ -1152,11 +1189,11 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # ============================================================================
-# Cancel and Fallback Handlers
+# Отмена и обработчики выхода
 # ============================================================================
 
 async def cancel_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancel current test."""
+    """Отменить текущий тест."""
     attempt_id = context.user_data.get(settings.CURRENT_ATTEMPT_ID_KEY)
     
     if attempt_id:
@@ -1174,7 +1211,7 @@ async def cancel_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 
 async def cancel_on_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancel test when user navigates to menu."""
+    """Отменить тест при переходе в меню."""
     attempt_id = context.user_data.get(settings.CURRENT_ATTEMPT_ID_KEY)
     
     if attempt_id:
@@ -1187,19 +1224,19 @@ async def cancel_on_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 # ============================================================================
-# Conversation Handler Builder
+# Сборка ConversationHandler
 # ============================================================================
 
 def get_user_conversation_handler() -> ConversationHandler:
     """
-    Build and return the user conversation handler for certification.
+    Создать и вернуть пользовательский ConversationHandler для аттестации.
     
-    Returns:
-        ConversationHandler for certification test flow
+    Возвращает:
+        ConversationHandler для тестирования
     """
     return ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex("^📝 Начать тест$"), start_test_command),
+            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_START_TEST)}$"), start_test_command),
             MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_LEARNING_MODE)}$"), start_learning_command),
         ],
         states={
@@ -1210,6 +1247,9 @@ def get_user_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(handle_answer, pattern="^cert_answer_"),
                 CallbackQueryHandler(handle_answer, pattern="^cert_cancel_test$"),
                 CallbackQueryHandler(handle_next_question, pattern="^cert_next_question$"),
+            ],
+            SELECTING_LEARNING_DIFFICULTY: [
+                CallbackQueryHandler(handle_learning_difficulty_selection, pattern="^cert_learn_diff_"),
             ],
             SELECTING_LEARNING_CATEGORY: [
                 CallbackQueryHandler(handle_learning_category_selection, pattern="^cert_learn_|^cert_learn_cancel$"),
@@ -1227,7 +1267,7 @@ def get_user_conversation_handler() -> ConversationHandler:
             CommandHandler("cancel", cancel_test),
             CommandHandler("reset", cancel_on_menu),
             CommandHandler("menu", cancel_on_menu),
-            MessageHandler(filters.Regex(f"^{re.escape(BUTTON_MAIN_MENU)}$"), cancel_on_menu),
+            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_MAIN_MENU)}$"), cancel_on_menu),
             MessageHandler(filters.COMMAND, cancel_on_menu),
         ],
         name="certification_test",
@@ -1238,18 +1278,18 @@ def get_user_conversation_handler() -> ConversationHandler:
 
 def get_menu_button_regex_pattern() -> str:
     """
-    Get regex pattern for all menu buttons that should exit the conversation.
+    Получить regex-паттерн для кнопок меню, завершающих диалог.
     
-    Returns:
-        Regex pattern string
+    Возвращает:
+        Строка regex-паттерна
     """
     buttons = [
-        BUTTON_MAIN_MENU,
+        settings.BUTTON_MAIN_MENU,
         settings.BUTTON_MY_RANKING,
         settings.BUTTON_TEST_HISTORY,
         settings.BUTTON_MONTHLY_TOP,
         settings.BUTTON_LEARNING_MODE,
         settings.BUTTON_ADMIN_PANEL,
     ]
-    escaped_buttons = [re.escape(b) for b in buttons]
+    escaped_buttons = [b.replace("(", "\\(").replace(")", "\\)") for b in buttons]
     return "^(" + "|".join(escaped_buttons) + ")$"

@@ -17,13 +17,9 @@ from telegram.ext import (
     filters
 )
 
-from src.common.telegram_user import (
-    check_if_user_legit,
-    check_if_user_admin,
-    update_user_info_from_telegram,
-    get_unauthorized_message,
-)
+from src.common.telegram_user import check_if_user_legit, check_if_user_admin, update_user_info_from_telegram
 from src.common.messages import (
+    MESSAGE_PLEASE_ENTER_INVITE,
     get_main_menu_message,
     get_main_menu_keyboard,
     BUTTON_MAIN_MENU,
@@ -31,7 +27,6 @@ from src.common.messages import (
 
 # Import module-specific messages and keyboards
 from . import messages
-from . import settings
 from .keyboards import (
     get_admin_menu_keyboard,
     get_admin_rules_keyboard,
@@ -123,9 +118,8 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     Shows admin menu if user is authorized admin.
     """
     # Check if user is legitimate
-    user_id = update.effective_user.id
-    if not check_if_user_legit(user_id):
-        await update.message.reply_text(get_unauthorized_message(user_id))
+    if not check_if_user_legit(update.effective_user.id):
+        await update.message.reply_text(MESSAGE_PLEASE_ENTER_INVITE)
         return ConversationHandler.END
     
     update_user_info_from_telegram(update.effective_user)
@@ -166,7 +160,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await show_ticket_types(update, context)
     elif text == "🔬 Тест regex":
         return await start_test_regex(update, context)
-    elif text == settings.BUTTON_TEST_TEMPLATES:
+    elif text == "🧪 Тест шаблоны":
         return await show_templates_menu(update, context)
     elif text == "📋 Все шаблоны":
         return await show_templates_list(update, context)
@@ -174,7 +168,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await start_create_template(update, context)
     elif text == "▶️ Запустить все тесты":
         return await run_all_tests(update, context)
-    elif text == settings.BUTTON_ADMIN_MENU:
+    elif text == "🔙 Админ меню":
         await update.message.reply_text(
             messages.MESSAGE_ADMIN_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -471,7 +465,7 @@ async def receive_rule_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Receive rule name from user."""
     text = update.message.text
     
-    if text in [BUTTON_MAIN_MENU, settings.BUTTON_ADMIN_MENU]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     if len(text) < 3:
@@ -528,7 +522,7 @@ async def receive_rule_pattern(update: Update, context: ContextTypes.DEFAULT_TYP
     """Receive rule pattern from user."""
     text = update.message.text
     
-    if text in [BUTTON_MAIN_MENU, settings.BUTTON_ADMIN_MENU]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     rule_type = context.user_data['new_rule'].get('type', 'regex')
@@ -556,7 +550,7 @@ async def receive_rule_error_msg(update: Update, context: ContextTypes.DEFAULT_T
     """Receive error message from user."""
     text = update.message.text
     
-    if text in [BUTTON_MAIN_MENU, settings.BUTTON_ADMIN_MENU]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     if len(text) < 5:
@@ -579,7 +573,7 @@ async def receive_rule_priority(update: Update, context: ContextTypes.DEFAULT_TY
     """Receive priority and create the rule."""
     text = update.message.text
     
-    if text in [BUTTON_MAIN_MENU, settings.BUTTON_ADMIN_MENU]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     try:
@@ -903,7 +897,7 @@ async def receive_test_pattern(update: Update, context: ContextTypes.DEFAULT_TYP
     """Receive regex pattern for testing."""
     text = update.message.text
     
-    if text in [BUTTON_MAIN_MENU, settings.BUTTON_ADMIN_MENU]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     # Validate the pattern first
@@ -929,7 +923,7 @@ async def receive_test_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Receive test text and show results."""
     text = update.message.text
     
-    if text in [BUTTON_MAIN_MENU, settings.BUTTON_ADMIN_MENU]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     pattern = context.user_data.get('test_pattern', '')
@@ -1545,7 +1539,7 @@ async def receive_template_name(update: Update, context: ContextTypes.DEFAULT_TY
     """Receive template name."""
     text = update.message.text
     
-    if text in [BUTTON_MAIN_MENU, settings.BUTTON_ADMIN_MENU]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     context.user_data['new_template']['name'] = text
@@ -1561,7 +1555,7 @@ async def receive_template_text(update: Update, context: ContextTypes.DEFAULT_TY
     """Receive template text (sample ticket)."""
     text = update.message.text
     
-    if text in [BUTTON_MAIN_MENU, settings.BUTTON_ADMIN_MENU]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     context.user_data['new_template']['text'] = text
@@ -1577,7 +1571,7 @@ async def receive_template_desc(update: Update, context: ContextTypes.DEFAULT_TY
     """Receive template description."""
     text = update.message.text
     
-    if text in [BUTTON_MAIN_MENU, settings.BUTTON_ADMIN_MENU]:
+    if text in [BUTTON_MAIN_MENU, "🔙 Админ меню"]:
         return await handle_cancel(update, context, text)
     
     context.user_data['new_template']['description'] = text
@@ -1652,7 +1646,7 @@ async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, text
             reply_markup=get_main_menu_keyboard(is_admin=check_if_user_admin(update.effective_user.id))
         )
         return ConversationHandler.END
-    elif text == settings.BUTTON_ADMIN_MENU:
+    elif text == "🔙 Админ меню":
         await update.message.reply_text(
             messages.MESSAGE_ADMIN_MENU,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -1696,8 +1690,8 @@ def get_admin_conversation_handler() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[
             CommandHandler("admin", admin_command),
-            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_PANEL)}$"), admin_command),
-            MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_TEST_TEMPLATES)}$"), show_templates_menu_from_submenu)
+            MessageHandler(filters.Regex("^🔐 Админ панель$"), admin_command),
+            MessageHandler(filters.Regex("^🧪 Тест шаблонов$"), show_templates_menu_from_submenu)
         ],
         states={
             ADMIN_MENU: [
