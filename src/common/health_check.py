@@ -44,6 +44,13 @@ def _safe_int(value: Optional[str]) -> Optional[int]:
         return None
 
 
+def _escape_markdown_v2(text: str) -> str:
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
+
+
 def record_health_status(is_healthy: bool, checked_at: int) -> None:
     """
     Сохранить статус здоровья и временные метки в настройках бота.
@@ -91,13 +98,13 @@ def get_tax_health_status_lines() -> list[str]:
 
     if snapshot.status == HEALTH_STATUS_HEALTHY:
         return [
-            f"*Статус налоговой:* 🟢 работает. Время проверки: {checked_at}",
-            f"*Последний сбой:* {last_broken}",
+            f"*Статус налоговой:* {_escape_markdown_v2(f'работает. Время проверки: {checked_at}')}",
+            f"*Последний сбой:* {_escape_markdown_v2(last_broken)}",
         ]
     if snapshot.status == HEALTH_STATUS_BROKEN:
         return [
-            f"*Статус налоговой:* 🔴 проблемы. Время проверки: {checked_at}",
-            f"*Последний успех:* {last_healthy}",
+            f"*Статус налоговой:* {_escape_markdown_v2(f'🔴 проблемы. Время проверки: {checked_at}')}",
+            f"*Последний успех:* {_escape_markdown_v2(last_healthy)}",
         ]
 
-    return [f"*Статус налоговой:* нет данных. Время проверки: {checked_at}"]
+    return [f"*Статус налоговой:* {_escape_markdown_v2(f'нет данных. Время проверки: {checked_at}')}" ]
