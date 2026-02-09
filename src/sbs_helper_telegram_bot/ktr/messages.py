@@ -267,23 +267,21 @@ def format_ktr_code_response(
     minutes: int,
     category_name: Optional[str] = None,
     updated_timestamp: Optional[int] = None,
-            Сформировать код для отображения в списке.
+    date_updated: Optional[str] = None
+) -> str:
+    """
+    Сформировать ответ по КТР-коду.
     
-            Args:
-                code: Код КТР
-                description: Краткое описание (будет обрезано)
-                minutes: Трудозатраты в минутах
-                category_name: Необязательная категория
-                times_requested: Количество запросов (для популярного списка)
-        
-            Returns:
-                Отформатированная строка для списка
-        category_name: Optional category name
-        updated_timestamp: Optional Unix timestamp of last update
-        date_updated: Optional date when minutes value was updated (dd.mm.yyyy)
+    Args:
+        code: Код КТР.
+        description: Описание кода.
+        minutes: Трудозатраты в минутах.
+        category_name: Название категории (если есть).
+        updated_timestamp: Unix-время последнего обновления.
+        date_updated: Дата обновления значения минут (dd.mm.yyyy).
         
     Returns:
-        Formatted MarkdownV2 message
+        Форматированное сообщение MarkdownV2.
     """
     escaped_code = escape_markdown_v2(code)
     escaped_desc = escape_markdown_v2(description)
