@@ -247,6 +247,22 @@ def get_bot_statistics() -> dict:
             }
 
 
+def get_new_feedback_count() -> int:
+    """Get count of new (unanswered) feedback entries."""
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute("""
+                    SELECT COUNT(*) as count
+                    FROM feedback_entries
+                    WHERE status = %s
+                """, ("new",))
+                return cursor.fetchone()['count']
+    except Exception as e:
+        logger.error("Error getting new feedback count: %s", e)
+        return 0
+
+
 # ============================================================================
 # Entry Point and Main Menu
 # ============================================================================
@@ -303,8 +319,12 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return ADMIN_MENU
     elif text == BUTTON_MAIN_MENU:
+        main_menu_message = get_main_menu_message(update.effective_user.id, update.effective_user.first_name)
+        new_feedback_count = get_new_feedback_count()
+        if new_feedback_count > 0:
+            main_menu_message += f"\n\n🔔 *Новые обращения:* *{new_feedback_count}*"
         await update.message.reply_text(
-            get_main_menu_message(update.effective_user.id, update.effective_user.first_name),
+            main_menu_message,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_main_menu_keyboard(is_admin=check_if_user_admin(update.effective_user.id))
         )
