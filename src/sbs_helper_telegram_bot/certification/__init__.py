@@ -1,12 +1,12 @@
 """
-Employee Certification Module
+Модуль аттестации сотрудников
 
-A Telegram bot module for employee certification testing with:
-- Timed multiple-choice tests
-- Category-based questions
-- Monthly rankings
-- Test history tracking
-- Admin panel for question/category management
+Модуль Telegram-бота для аттестации сотрудников с возможностями:
+- Тестирование с ограничением времени
+- Вопросы по категориям
+- Ежемесячные рейтинги
+- История попыток
+- Админ-панель для управления вопросами и категориями
 """
 
 from typing import List, Optional, Dict
@@ -33,13 +33,13 @@ from .admin_panel_bot_part import get_admin_conversation_handler
 
 class CertificationModule(BotModule):
     """
-    Employee Certification Module.
+    Модуль аттестации сотрудников.
     
-    Provides functionality for:
-    - Taking timed certification tests
-    - Viewing personal rankings and history
-    - Monthly leaderboards
-    - Admin management of questions and categories
+    Возможности:
+    - Прохождение тестов с ограничением времени
+    - Просмотр личного рейтинга и истории
+    - Ежемесячные лидерборды
+    - Админ-управление вопросами и категориями
     """
     
     @property
@@ -60,18 +60,18 @@ class CertificationModule(BotModule):
     
     def get_handlers(self) -> List[BaseHandler]:
         """
-        Return user-facing handlers for certification.
+        Вернуть пользовательские хендлеры модуля аттестации.
         
-        Returns:
-            List of handlers for test taking and viewing results
+        Возвращает:
+            Список хендлеров для тестирования и просмотра результатов
         """
         import re
         from telegram.ext import MessageHandler, CallbackQueryHandler, filters
         
         return [
-            # User conversation handler for test taking
+            # Пользовательский хендлер диалога прохождения теста
             get_user_conversation_handler(),
-            # Direct menu button handlers
+            # Прямые обработчики кнопок меню
             MessageHandler(
                 filters.Regex(f"^{re.escape(settings.MENU_BUTTON_TEXT)}$"),
                 certification_submenu
@@ -88,7 +88,7 @@ class CertificationModule(BotModule):
                 filters.Regex(f"^{re.escape(settings.BUTTON_MONTHLY_TOP)}$"),
                 show_monthly_top
             ),
-            # Callback handler for top category selection
+            # Колбэк-обработчик выбора категории топа
             CallbackQueryHandler(
                 handle_top_category_selection,
                 pattern="^cert_top_"
@@ -97,10 +97,10 @@ class CertificationModule(BotModule):
     
     def get_admin_handlers(self) -> List[BaseHandler]:
         """
-        Return admin handlers for certification management.
+        Вернуть административные хендлеры управления аттестацией.
         
-        Returns:
-            List of admin handlers
+        Возвращает:
+            Список административных хендлеров
         """
         return [
             get_admin_conversation_handler(),
@@ -108,23 +108,23 @@ class CertificationModule(BotModule):
     
     def get_menu_button(self) -> Optional[str]:
         """
-        Return menu button text for main menu.
+        Вернуть текст кнопки модуля для главного меню.
         
-        Returns:
-            Button text with emoji
+        Возвращает:
+            Текст кнопки с эмодзи
         """
         return settings.MENU_BUTTON_TEXT
     
     async def handle_menu_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         """
-        Handle when user clicks the certification menu button.
+        Обработать нажатие кнопки аттестации в меню.
         
-        Args:
-            update: Telegram Update object
-            context: Telegram context
+        Аргументы:
+            update: Объект Telegram Update
+            context: Контекст Telegram
             
-        Returns:
-            True if handled
+        Возвращает:
+            True, если обработано
         """
         if update.message and update.message.text == settings.MENU_BUTTON_TEXT:
             await certification_submenu(update, context)
@@ -133,13 +133,13 @@ class CertificationModule(BotModule):
     
     def get_submenu_keyboard(self, user_id: int) -> Optional[ReplyKeyboardMarkup]:
         """
-        Return submenu keyboard for this module.
+        Вернуть клавиатуру подменю для этого модуля.
         
-        Args:
-            user_id: Telegram user ID
+        Аргументы:
+            user_id: Telegram ID пользователя
             
-        Returns:
-            ReplyKeyboardMarkup appropriate for user's role
+        Возвращает:
+            ReplyKeyboardMarkup в зависимости от роли пользователя
         """
         if check_if_user_admin(user_id):
             return keyboards.get_admin_submenu_keyboard()
@@ -147,17 +147,17 @@ class CertificationModule(BotModule):
     
     def get_commands(self) -> Dict[str, str]:
         """
-        Return commands for bot menu.
+        Вернуть команды для меню бота.
         
-        Returns:
-            Dict of command -> description
+        Возвращает:
+            Словарь команда -> описание
         """
         return {
             "certification": "Начать аттестацию",
         }
 
 
-# Export the module class and key components
+# Экспорт класса модуля и ключевых компонентов
 __all__ = [
     'CertificationModule',
     'settings',
