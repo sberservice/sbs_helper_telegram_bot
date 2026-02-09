@@ -21,20 +21,20 @@ MENU_BUTTON_TEXT: Final[str] = "📰 Новости"
 
 # Кнопки подменю пользователя
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    ["📋 Последние новости"],
+    ["📋 Все новости"],
     ["📂 Архив", "🔍 Поиск"],
     [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Кнопки подменю админа (включая админ-панель)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    ["📋 Последние новости"],
+    ["📋 Все новости"],
     ["📂 Архив", "🔍 Поиск"],
     ["⚙️ Управление новостями", COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Тексты кнопок
-BUTTON_LATEST_NEWS: Final[str] = "📋 Последние новости"
+BUTTON_LATEST_NEWS: Final[str] = "📋 Все новости"
 BUTTON_ARCHIVE: Final[str] = "📂 Архив"
 BUTTON_SEARCH: Final[str] = "🔍 Поиск"
 BUTTON_ADMIN_PANEL: Final[str] = "⚙️ Управление новостями"

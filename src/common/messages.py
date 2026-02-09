@@ -9,6 +9,7 @@
 # pylint: disable=line-too-long
 
 from typing import Optional
+from datetime import datetime
 
 from src.common.constants.sync import SYNC_INTERVAL_HOURS
 
@@ -95,6 +96,8 @@ def _format_main_menu_message(
     safe_rank = _escape_markdown_v2(rank_name)
     safe_next = _escape_markdown_v2(next_rank_name) if next_rank_name else None
 
+    latest_preview = _get_latest_news_preview_text()
+
     message = (
         f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\n"
         f"С возвращением, *{safe_name}*\\!\n\n"
@@ -118,6 +121,9 @@ def _format_main_menu_message(
             message += f"\n📝 *Аттестация:* *{cert_total_tests}* тест\(ов\)"
     else:
         message += "\n📝 *Аттестация:* начните тест, чтобы попасть в рейтинг"
+
+    if latest_preview:
+        message += latest_preview
 
     message += "\n\nВыберите действие из меню:"
     return message
@@ -144,6 +150,7 @@ def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str
         if not profile:
             safe_name = _escape_markdown_v2(display_name)
             base = f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\nС возвращением, *{safe_name}*\\!"
+            latest_preview = _get_latest_news_preview_text()
             if cert_stats and cert_stats.get('total_tests'):
                 last_score = cert_stats.get('last_test_score')
                 if last_score is not None:
@@ -156,7 +163,11 @@ def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str
                     cert_line = f"\n\n📝 *Аттестация:* *{cert_stats['total_tests']}* тест\(ов\)"
             else:
                 cert_line = "\n\n📝 *Аттестация:* начните тест, чтобы попасть в рейтинг"
-            return base + cert_line + "\n\nВыберите действие из меню:"
+            if latest_preview:
+                base = base + cert_line + latest_preview
+            else:
+                base = base + cert_line
+            return base + "\n\nВыберите действие из меню:"
 
         return _format_main_menu_message(
             display_name=display_name,
@@ -172,6 +183,47 @@ def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str
         )
     except Exception:
         return MESSAGE_MAIN_MENU
+
+
+def _get_latest_news_preview_text() -> Optional[str]:
+    """
+    Получить превью последней новости для главного меню.
+
+    Returns:
+        Строка превью или None, если новостей нет.
+    """
+    try:
+        from src.sbs_helper_telegram_bot.news import news_logic
+
+        articles, _ = news_logic.get_published_news(page=0, per_page=1, include_expired=False)
+        if not articles:
+            return None
+
+        article = articles[0]
+        title = _escape_markdown_v2(article.get('title', 'Без названия'))
+        published_ts = article.get('published_timestamp', 0)
+        if published_ts:
+            published_date = datetime.fromtimestamp(published_ts).strftime('%d.%m.%Y')
+            published_date = _escape_markdown_v2(published_date)
+        else:
+            published_date = _escape_markdown_v2("без даты")
+
+        content = article.get('content', '')
+        if len(content) > 200:
+            content = content[:197] + "..."
+        content = _escape_markdown_v2(content)
+
+        category_emoji = article.get('category_emoji', '📰')
+
+        preview = (
+            "\n\n📰 *Последняя новость*\n"
+            f"{category_emoji} *{title}*\n"
+            f"_{published_date}_\n"
+            f"{content}"
+        )
+        return preview
+    except Exception:
+        return None
 
 # Сообщение справки — обзор всех модулей
 MESSAGE_MAIN_HELP = """❓ *Помощь*

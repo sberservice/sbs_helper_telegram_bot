@@ -240,6 +240,34 @@ def get_news_list_keyboard(
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_latest_preview_keyboard(articles: List[dict]) -> InlineKeyboardMarkup:
+    """
+    Собрать inline-клавиатуру для превью последних новостей.
+
+    Args:
+        articles: Список словарей статей с 'id', 'title'
+
+    Returns:
+        Разметка inline-клавиатуры
+    """
+    keyboard = []
+
+    for article in articles:
+        title = article.get('title', 'Без названия')
+        if len(title) > 30:
+            title = title[:27] + "..."
+        article_id = article.get('id', 0)
+
+        keyboard.append([
+            InlineKeyboardButton(
+                f"📖 Читать: {title}",
+                callback_data=f"{settings.CALLBACK_ARTICLE_PREFIX}{article_id}"
+            )
+        ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_category_keyboard(categories: List[dict]) -> InlineKeyboardMarkup:
     """
     Собрать inline-клавиатуру для выбора категории.
