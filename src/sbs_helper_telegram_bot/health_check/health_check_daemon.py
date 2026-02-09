@@ -21,6 +21,16 @@ HEALTHCHECK_URL = (
 )
 CHECK_INTERVAL_SECONDS = 300
 REQUEST_TIMEOUT_SECONDS = 10
+REQUEST_HEADERS = {
+    "Accept": "application/json,text/plain,*/*",
+    "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Referer": "https://kkt-online.nalog.ru/",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+}
 
 logging.basicConfig(
     level=logging.DEBUG if DEBUG else logging.INFO,
@@ -46,7 +56,7 @@ def _check_once() -> None:
         response = requests.get(
             HEALTHCHECK_URL,
             timeout=REQUEST_TIMEOUT_SECONDS,
-            headers={"Accept": "application/json"},
+            headers=REQUEST_HEADERS,
         )
         response.raise_for_status()
         payload = response.json()
