@@ -11,12 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from src.common import bot_settings
-
-SETTING_TAX_HEALTH_LAST_STATUS = "tax_health_last_status"
-SETTING_TAX_HEALTH_LAST_CHECKED_AT = "tax_health_last_checked_at"
-SETTING_TAX_HEALTH_LAST_HEALTHY_AT = "tax_health_last_healthy_at"
-SETTING_TAX_HEALTH_LAST_BROKEN_AT = "tax_health_last_broken_at"
+import src.common.database as database
 
 HEALTH_STATUS_HEALTHY = "healthy"
 HEALTH_STATUS_BROKEN = "broken"
@@ -60,26 +55,52 @@ def record_health_status(is_healthy: bool, checked_at: int) -> None:
         checked_at: Временная метка UTC (секунды).
     """
     status_value = HEALTH_STATUS_HEALTHY if is_healthy else HEALTH_STATUS_BROKEN
-    bot_settings.set_setting(SETTING_TAX_HEALTH_LAST_STATUS, status_value)
-    bot_settings.set_setting(SETTING_TAX_HEALTH_LAST_CHECKED_AT, str(checked_at))
-    if is_healthy:
-        bot_settings.set_setting(SETTING_TAX_HEALTH_LAST_HEALTHY_AT, str(checked_at))
-    else:
-        bot_settings.set_setting(SETTING_TAX_HEALTH_LAST_BROKEN_AT, str(checked_at))
+    last_healthy_at = checked_at if is_healthy else None
+    last_broken_at = checked_at if not is_healthy else None
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO tax_service_health
+                    (id, last_status, last_checked_at, last_healthy_at, last_broken_at, updated_timestamp)
+                VALUES (1, %s, %s, %s, %s, UNIX_TIMESTAMP())
+                ON DUPLICATE KEY UPDATE
+                    last_status = VALUES(last_status),
+                    last_checked_at = VALUES(last_checked_at),
+                    last_healthy_at = COALESCE(VALUES(last_healthy_at), last_healthy_at),
+                    last_broken_at = COALESCE(VALUES(last_broken_at), last_broken_at),
+                    updated_timestamp = UNIX_TIMESTAMP()
+                """,
+                (status_value, checked_at, last_healthy_at, last_broken_at),
+            )
 
 
 def get_health_status_snapshot() -> HealthStatusSnapshot:
     """Прочитать текущий снимок статуса из настроек."""
-    status = bot_settings.get_setting(SETTING_TAX_HEALTH_LAST_STATUS)
-    last_checked_at = _safe_int(bot_settings.get_setting(SETTING_TAX_HEALTH_LAST_CHECKED_AT))
-    last_healthy_at = _safe_int(bot_settings.get_setting(SETTING_TAX_HEALTH_LAST_HEALTHY_AT))
-    last_broken_at = _safe_int(bot_settings.get_setting(SETTING_TAX_HEALTH_LAST_BROKEN_AT))
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            cursor.execute(
+                """
+                SELECT last_status, last_checked_at, last_healthy_at, last_broken_at
+                FROM tax_service_health
+                WHERE id = 1
+                """
+            )
+            row = cursor.fetchone()
+
+    if not row:
+        return HealthStatusSnapshot(
+            status=None,
+            last_checked_at=None,
+            last_healthy_at=None,
+            last_broken_at=None,
+        )
 
     return HealthStatusSnapshot(
-        status=status,
-        last_checked_at=last_checked_at,
-        last_healthy_at=last_healthy_at,
-        last_broken_at=last_broken_at,
+        status=row.get("last_status"),
+        last_checked_at=_safe_int(row.get("last_checked_at")),
+        last_healthy_at=_safe_int(row.get("last_healthy_at")),
+        last_broken_at=_safe_int(row.get("last_broken_at")),
     )
 
 
