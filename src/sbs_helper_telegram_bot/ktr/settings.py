@@ -41,14 +41,12 @@ BUTTON_ADMIN_ALL_CODES: Final[str] = "📋 Все коды"
 
 # Конфигурация кнопок подменю (обычные пользователи)
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    [BUTTON_FIND_CODE],
     [BUTTON_POPULAR_CODES, BUTTON_ACHIEVEMENTS],
     [COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Админское подменю (включает кнопку админ-панели)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    [BUTTON_FIND_CODE],
     [BUTTON_POPULAR_CODES, BUTTON_ACHIEVEMENTS],
     [BUTTON_ADMIN_PANEL, COMMON_BUTTON_MAIN_MENU]
 ]
