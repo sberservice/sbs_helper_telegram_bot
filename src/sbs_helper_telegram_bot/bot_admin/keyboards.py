@@ -151,6 +151,54 @@ def get_modules_management_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def get_planned_outages_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Build planned outages submenu keyboard.
+
+    Returns:
+        ReplyKeyboardMarkup for planned outages menu
+    """
+    return ReplyKeyboardMarkup(
+        settings.PLANNED_OUTAGES_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True
+    )
+
+
+def get_planned_outage_type_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Build outage type selection keyboard.
+
+    Returns:
+        ReplyKeyboardMarkup for outage type selection
+    """
+    return ReplyKeyboardMarkup(
+        settings.PLANNED_OUTAGE_TYPE_BUTTONS,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True
+    )
+
+
+def get_confirm_delete_outage_keyboard(outage_id: int) -> InlineKeyboardMarkup:
+    """
+    Build confirmation keyboard for deleting a planned outage.
+
+    Args:
+        outage_id: Outage ID to delete
+
+    Returns:
+        InlineKeyboardMarkup for confirmation
+    """
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Да, удалить", callback_data=f"bot_admin_outage_confirm_delete_{outage_id}"),
+            InlineKeyboardButton("❌ Отмена", callback_data="bot_admin_outage_cancel_delete"),
+        ]
+    ])
+
+
 def get_modules_toggle_keyboard(module_states: dict) -> InlineKeyboardMarkup:
     """
     Build inline keyboard for toggling modules on/off.

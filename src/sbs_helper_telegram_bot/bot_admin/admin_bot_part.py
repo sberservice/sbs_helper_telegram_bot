@@ -33,6 +33,16 @@ from src.common.messages import (
 from src.common import invites as invites_module
 from src.common import database
 from src.common import bot_settings
+from src.common.health_check import (
+    OUTAGE_TYPE_BLUE_LONG,
+    OUTAGE_TYPE_BLUE_SHORT,
+    OUTAGE_TYPE_LABELS,
+    OUTAGE_TYPE_RED,
+    create_planned_outage,
+    delete_planned_outage,
+    get_planned_outage_by_id,
+    list_planned_outages,
+)
 
 from . import settings
 from . import messages
@@ -77,7 +87,13 @@ logger = logging.getLogger(__name__)
     INVITE_SYSTEM_SETTINGS,
     # Состояния управления модулями
     MODULES_MANAGEMENT_MENU,
-) = range(28)
+    # Состояния плановых работ
+    PLANNED_OUTAGES_MENU,
+    PLANNED_OUTAGES_LIST,
+    PLANNED_OUTAGE_ADD_DATE,
+    PLANNED_OUTAGE_ADD_TYPE,
+    PLANNED_OUTAGE_CONFIRM_DELETE,
+) = range(33)
 
 
 # ============================================================================
@@ -369,8 +385,14 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await show_invite_system_settings(update, context)
     elif text == "🧩 Модули":
         return await show_modules_management_menu(update, context)
+    elif text == settings.BUTTON_PLANNED_OUTAGES:
+        return await show_planned_outages_menu(update, context)
     elif text == "🔙 Настройки бота":
         return await show_bot_settings_menu(update, context)
+    elif text == settings.BUTTON_OUTAGE_LIST:
+        return await show_planned_outages_list(update, context)
+    elif text == settings.BUTTON_OUTAGE_ADD:
+        return await start_add_planned_outage(update, context)
     
     return ADMIN_MENU
 
@@ -1248,6 +1270,133 @@ async def toggle_module(query, context: ContextTypes.DEFAULT_TYPE, module_key: s
 
 
 # ============================================================================
+# Плановые работы
+# ============================================================================
+
+def _format_outage_label(outage) -> str:
+    date_text = outage.outage_date.strftime("%d.%m.%Y")
+    window = OUTAGE_TYPE_LABELS.get(outage.outage_type, outage.outage_type)
+    return f"{date_text} — {window}"
+
+
+async def show_planned_outages_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Показать подменю плановых работ."""
+    await update.message.reply_text(
+        messages.MESSAGE_PLANNED_OUTAGES_MENU,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_planned_outages_keyboard()
+    )
+    return PLANNED_OUTAGES_MENU
+
+
+async def show_planned_outages_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Показать список плановых работ с возможностью удаления."""
+    outages = list_planned_outages(limit=40, include_past=False)
+    if not outages:
+        await update.message.reply_text(
+            messages.MESSAGE_PLANNED_OUTAGES_EMPTY,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_planned_outages_keyboard()
+        )
+        return PLANNED_OUTAGES_MENU
+
+    keyboard = []
+    for outage in outages:
+        label = _format_outage_label(outage)
+        keyboard.append([
+            InlineKeyboardButton(
+                f"🗑️ {label}",
+                callback_data=f"bot_admin_outage_delete_{outage.outage_id}"
+            )
+        ])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="bot_admin_planned_outages_menu")])
+
+    await update.message.reply_text(
+        messages.MESSAGE_PLANNED_OUTAGES_LIST,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return PLANNED_OUTAGES_LIST
+
+
+async def start_add_planned_outage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Запросить дату плановых работ."""
+    await update.message.reply_text(
+        messages.MESSAGE_PLANNED_OUTAGE_ADD_DATE,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_planned_outages_keyboard()
+    )
+    return PLANNED_OUTAGE_ADD_DATE
+
+
+async def receive_planned_outage_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Принять дату плановых работ."""
+    text = update.message.text.strip()
+    if text in [settings.BUTTON_BACK_SETTINGS, BUTTON_MAIN_MENU, settings.BUTTON_OUTAGE_LIST, settings.BUTTON_OUTAGE_ADD]:
+        return await admin_menu_handler(update, context)
+    try:
+        outage_date = datetime.strptime(text, "%d.%m.%Y").date()
+    except ValueError:
+        await update.message.reply_text(
+            messages.MESSAGE_PLANNED_OUTAGE_INVALID_DATE,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_planned_outages_keyboard()
+        )
+        return PLANNED_OUTAGE_ADD_DATE
+
+    context.user_data["planned_outage_date"] = outage_date
+    await update.message.reply_text(
+        messages.MESSAGE_PLANNED_OUTAGE_SELECT_TYPE,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_planned_outage_type_keyboard()
+    )
+    return PLANNED_OUTAGE_ADD_TYPE
+
+
+async def receive_planned_outage_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Принять тип плановых работ и сохранить запись."""
+    text = update.message.text.strip()
+    if text in [settings.BUTTON_BACK_SETTINGS, BUTTON_MAIN_MENU]:
+        return await admin_menu_handler(update, context)
+
+    outage_date = context.user_data.get("planned_outage_date")
+    if not outage_date:
+        await update.message.reply_text(
+            messages.MESSAGE_ERROR,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_planned_outages_keyboard()
+        )
+        return PLANNED_OUTAGES_MENU
+
+    type_map = {
+        settings.BUTTON_OUTAGE_TYPE_BLUE_SHORT: OUTAGE_TYPE_BLUE_SHORT,
+        settings.BUTTON_OUTAGE_TYPE_BLUE_LONG: OUTAGE_TYPE_BLUE_LONG,
+        settings.BUTTON_OUTAGE_TYPE_RED: OUTAGE_TYPE_RED,
+    }
+    outage_type = type_map.get(text)
+    if not outage_type:
+        await update.message.reply_text(
+            messages.MESSAGE_INVALID_INPUT,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_planned_outage_type_keyboard()
+        )
+        return PLANNED_OUTAGE_ADD_TYPE
+
+    create_planned_outage(outage_date, outage_type, update.effective_user.id)
+    window = OUTAGE_TYPE_LABELS.get(outage_type, outage_type)
+    await update.message.reply_text(
+        messages.MESSAGE_PLANNED_OUTAGE_ADDED.format(
+            date=outage_date.strftime("%d.%m.%Y"),
+            window=window,
+        ),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_planned_outages_keyboard()
+    )
+    context.user_data.pop("planned_outage_date", None)
+    return PLANNED_OUTAGES_MENU
+
+
+# ============================================================================
 # Обработчик колбэков
 # ============================================================================
 
@@ -1529,6 +1678,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             reply_markup=keyboards.get_bot_settings_keyboard()
         )
         return BOT_SETTINGS_MENU
+
+    if data == "bot_admin_planned_outages_menu":
+        await query.message.reply_text(
+            messages.MESSAGE_PLANNED_OUTAGES_MENU,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_planned_outages_keyboard()
+        )
+        return PLANNED_OUTAGES_MENU
     
     if data == "bot_admin_invite_system_enable":
         return await toggle_invite_system(query, context, True)
@@ -1544,6 +1701,41 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data.startswith("bot_admin_module_disable_"):
         module_key = data.replace("bot_admin_module_disable_", "")
         return await toggle_module(query, context, module_key, False)
+
+    # Колбэки плановых работ
+    if data.startswith("bot_admin_outage_delete_"):
+        outage_id = int(data.replace("bot_admin_outage_delete_", ""))
+        outage = get_planned_outage_by_id(outage_id)
+        if not outage:
+            await query.edit_message_text(
+                messages.MESSAGE_ERROR,
+                parse_mode=constants.ParseMode.MARKDOWN_V2
+            )
+            return PLANNED_OUTAGES_MENU
+        label = _format_outage_label(outage)
+        date_text, window = label.split(" — ")
+        await query.edit_message_text(
+            messages.MESSAGE_PLANNED_OUTAGE_CONFIRM_DELETE.format(date=date_text, window=window),
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_confirm_delete_outage_keyboard(outage_id)
+        )
+        return PLANNED_OUTAGE_CONFIRM_DELETE
+
+    if data.startswith("bot_admin_outage_confirm_delete_"):
+        outage_id = int(data.replace("bot_admin_outage_confirm_delete_", ""))
+        delete_planned_outage(outage_id)
+        await query.edit_message_text(
+            messages.MESSAGE_PLANNED_OUTAGE_DELETED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return PLANNED_OUTAGES_MENU
+
+    if data == "bot_admin_outage_cancel_delete":
+        await query.edit_message_text(
+            messages.MESSAGE_OPERATION_CANCELLED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+        return PLANNED_OUTAGES_MENU
     
     return None
 
@@ -1698,6 +1890,25 @@ def get_admin_conversation_handler() -> ConversationHandler:
             MODULES_MANAGEMENT_MENU: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
                 CallbackQueryHandler(handle_callback)
+            ],
+            # Состояния плановых работ
+            PLANNED_OUTAGES_MENU: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
+                CallbackQueryHandler(handle_callback)
+            ],
+            PLANNED_OUTAGES_LIST: [
+                CallbackQueryHandler(handle_callback),
+                menu_buttons_handler
+            ],
+            PLANNED_OUTAGE_ADD_DATE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_planned_outage_date)
+            ],
+            PLANNED_OUTAGE_ADD_TYPE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_planned_outage_type)
+            ],
+            PLANNED_OUTAGE_CONFIRM_DELETE: [
+                CallbackQueryHandler(handle_callback),
+                menu_buttons_handler
             ],
         },
         fallbacks=[
