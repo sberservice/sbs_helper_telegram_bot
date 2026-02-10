@@ -39,6 +39,7 @@ class HealthStatusSnapshot:
     last_checked_at: Optional[int]
     last_healthy_at: Optional[int]
     last_broken_at: Optional[int]
+    last_broken_started_at: Optional[int]
 
 
 @dataclass(frozen=True)
@@ -329,21 +330,41 @@ def record_health_status(is_healthy: bool, checked_at: int) -> None:
     status_value = HEALTH_STATUS_HEALTHY if is_healthy else HEALTH_STATUS_BROKEN
     last_healthy_at = checked_at if is_healthy else None
     last_broken_at = checked_at if not is_healthy else None
+    last_broken_started_at = None
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             cursor.execute(
                 """
+                SELECT last_status, last_broken_started_at
+                FROM tax_service_health
+                WHERE id = 1
+                """
+            )
+            row = cursor.fetchone()
+            prev_status = row.get("last_status") if row else None
+            prev_broken_started_at = _safe_int(row.get("last_broken_started_at")) if row else None
+            if status_value == HEALTH_STATUS_BROKEN:
+                if prev_status != HEALTH_STATUS_BROKEN or not prev_broken_started_at:
+                    last_broken_started_at = checked_at
+                else:
+                    last_broken_started_at = prev_broken_started_at
+            else:
+                last_broken_started_at = prev_broken_started_at
+            cursor.execute(
+                """
                 INSERT INTO tax_service_health
-                    (id, last_status, last_checked_at, last_healthy_at, last_broken_at, updated_timestamp)
-                VALUES (1, %s, %s, %s, %s, UNIX_TIMESTAMP())
+                    (id, last_status, last_checked_at, last_healthy_at, last_broken_at, last_broken_started_at,
+                     updated_timestamp)
+                VALUES (1, %s, %s, %s, %s, %s, UNIX_TIMESTAMP())
                 ON DUPLICATE KEY UPDATE
                     last_status = VALUES(last_status),
                     last_checked_at = VALUES(last_checked_at),
                     last_healthy_at = COALESCE(VALUES(last_healthy_at), last_healthy_at),
                     last_broken_at = COALESCE(VALUES(last_broken_at), last_broken_at),
+                    last_broken_started_at = COALESCE(VALUES(last_broken_started_at), last_broken_started_at),
                     updated_timestamp = UNIX_TIMESTAMP()
                 """,
-                (status_value, checked_at, last_healthy_at, last_broken_at),
+                (status_value, checked_at, last_healthy_at, last_broken_at, last_broken_started_at),
             )
 
 
@@ -353,7 +374,7 @@ def get_health_status_snapshot() -> HealthStatusSnapshot:
         with database.get_cursor(conn) as cursor:
             cursor.execute(
                 """
-                SELECT last_status, last_checked_at, last_healthy_at, last_broken_at
+                SELECT last_status, last_checked_at, last_healthy_at, last_broken_at, last_broken_started_at
                 FROM tax_service_health
                 WHERE id = 1
                 """
@@ -366,6 +387,7 @@ def get_health_status_snapshot() -> HealthStatusSnapshot:
             last_checked_at=None,
             last_healthy_at=None,
             last_broken_at=None,
+            last_broken_started_at=None,
         )
 
     return HealthStatusSnapshot(
@@ -373,6 +395,7 @@ def get_health_status_snapshot() -> HealthStatusSnapshot:
         last_checked_at=_safe_int(row.get("last_checked_at")),
         last_healthy_at=_safe_int(row.get("last_healthy_at")),
         last_broken_at=_safe_int(row.get("last_broken_at")),
+        last_broken_started_at=_safe_int(row.get("last_broken_started_at")),
     )
 
 
@@ -410,8 +433,8 @@ def get_tax_health_status_lines() -> list[str]:
     lines: list[str] = []
     if snapshot.status == HEALTH_STATUS_HEALTHY:
         last_outage_seconds = None
-        if snapshot.last_broken_at and snapshot.last_healthy_at:
-            last_outage_seconds = snapshot.last_healthy_at - snapshot.last_broken_at
+        if snapshot.last_broken_at and snapshot.last_broken_started_at:
+            last_outage_seconds = snapshot.last_broken_at - snapshot.last_broken_started_at
         last_outage_text = _format_duration_hm(last_outage_seconds)
         lines = [
             f"*Статус налоговой:* {_escape_markdown_v2(f'🟢 работает {checked_at}')}",
@@ -421,8 +444,8 @@ def get_tax_health_status_lines() -> list[str]:
             lines.append(f"*Длительность последнего сбоя:* {_escape_markdown_v2(last_outage_text)}")
     elif snapshot.status == HEALTH_STATUS_BROKEN:
         ongoing_seconds = None
-        if snapshot.last_broken_at:
-            ongoing_seconds = now_ts - snapshot.last_broken_at
+        if snapshot.last_broken_started_at:
+            ongoing_seconds = now_ts - snapshot.last_broken_started_at
         ongoing_text = _format_duration_hm(ongoing_seconds)
         lines = [
             f"*Статус налоговой:* {_escape_markdown_v2(f'🔴 проблемы {checked_at}')}",
