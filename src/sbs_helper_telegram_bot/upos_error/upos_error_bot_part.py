@@ -1980,7 +1980,7 @@ def get_user_conversation_handler() -> ConversationHandler:
                 MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_POPULAR_ERRORS)}$"), show_popular_errors),
             ],
             WAITING_FOR_ERROR_CODE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, process_error_code_input)
+                MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(menu_pattern), process_error_code_input)
             ]
         },
         fallbacks=[
