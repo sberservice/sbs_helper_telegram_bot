@@ -129,6 +129,7 @@
 - **Управление инвайтами** — просмотр всех инвайтов, выдача новых
 - **Статистика** — общая и за период
 - **Настройки бота** — включение/отключение инвайт-системы и модулей
+- **Плановые работы** — ручное ведение календаря плановых отключений
 
 ### Система доступа
 - **Инвайт-коды** — регистрация по уникальным 6-символьным кодам
@@ -193,6 +194,8 @@
    mysql -u root -p sprint_db < scripts/feedback_setup.sql
    mysql -u root -p sprint_db < scripts/news_setup.sql
    mysql -u root -p sprint_db < scripts/chat_members_setup.sql
+   mysql -u root -p sprint_db < scripts/health_check_setup.sql
+   mysql -u root -p sprint_db < scripts/health_outage_calendar_setup.sql
    ```
 
 ## Структура проекта

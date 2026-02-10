@@ -49,6 +49,14 @@ BUTTON_INVITES_ISSUE: Final[str] = "🎁 Выдать инвайты"
 # Тексты кнопок настроек бота
 BUTTON_INVITE_SYSTEM: Final[str] = "🔐 Инвайт-система"
 BUTTON_MODULES: Final[str] = "🧩 Модули"
+BUTTON_PLANNED_OUTAGES: Final[str] = "🗓️ Плановые работы"
+
+# Тексты кнопок плановых работ
+BUTTON_OUTAGE_LIST: Final[str] = "📋 Список дат"
+BUTTON_OUTAGE_ADD: Final[str] = "➕ Добавить дату"
+BUTTON_OUTAGE_TYPE_BLUE_SHORT: Final[str] = "🟦 22:00-01:00"
+BUTTON_OUTAGE_TYPE_BLUE_LONG: Final[str] = "🟦_ 22:00-05:00"
+BUTTON_OUTAGE_TYPE_RED: Final[str] = "🟥 20:00-20:00"
 
 # Кнопки главного админ-меню бота
 ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
@@ -99,11 +107,27 @@ INVITE_MANAGEMENT_BUTTONS: Final[List[List[str]]] = [
 BOT_SETTINGS_BUTTONS: Final[List[List[str]]] = [
     [BUTTON_INVITE_SYSTEM],
     [BUTTON_MODULES],
+    [BUTTON_PLANNED_OUTAGES],
     [BUTTON_BACK_ADMIN, COMMON_BUTTON_MAIN_MENU]
 ]
 
 # Подменю управления модулями
 MODULES_MANAGEMENT_BUTTONS: Final[List[List[str]]] = [
+    [BUTTON_BACK_SETTINGS, COMMON_BUTTON_MAIN_MENU]
+]
+
+# Подменю плановых работ
+PLANNED_OUTAGES_BUTTONS: Final[List[List[str]]] = [
+    [BUTTON_OUTAGE_LIST],
+    [BUTTON_OUTAGE_ADD],
+    [BUTTON_BACK_SETTINGS, COMMON_BUTTON_MAIN_MENU]
+]
+
+# Кнопки выбора типа работ
+PLANNED_OUTAGE_TYPE_BUTTONS: Final[List[List[str]]] = [
+    [BUTTON_OUTAGE_TYPE_BLUE_SHORT],
+    [BUTTON_OUTAGE_TYPE_BLUE_LONG],
+    [BUTTON_OUTAGE_TYPE_RED],
     [BUTTON_BACK_SETTINGS, COMMON_BUTTON_MAIN_MENU]
 ]
 
