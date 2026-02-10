@@ -2263,7 +2263,7 @@ def get_user_conversation_handler() -> ConversationHandler:
                 MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ACHIEVEMENTS)}$"), show_ktr_achievements),
             ],
             WAITING_FOR_CODE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, process_code_input)
+                MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(menu_pattern), process_code_input)
             ]
         },
         fallbacks=[
