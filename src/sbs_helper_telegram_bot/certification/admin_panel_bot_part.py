@@ -1227,6 +1227,28 @@ async def delete_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
 # Процесс создания вопроса
 # ============================================================================
 
+async def _reset_question_creation_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Сбросить данные создания вопроса и запросить текст заново."""
+    context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY] = {}
+    await update.effective_message.reply_text(
+        messages.MESSAGE_QUESTION_CREATION_RESET,
+        parse_mode=constants.ParseMode.MARKDOWN_V2
+    )
+    await update.effective_message.reply_text(
+        messages.MESSAGE_CREATE_QUESTION_TEXT,
+        parse_mode=constants.ParseMode.MARKDOWN_V2
+    )
+    return Q_CREATE_TEXT
+
+
+async def _ensure_new_question_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[dict]:
+    """Проверить наличие данных создания вопроса и восстановить сценарий при сбросе."""
+    data = context.user_data.get(settings.ADMIN_NEW_QUESTION_DATA_KEY)
+    if isinstance(data, dict):
+        return data
+    await _reset_question_creation_flow(update, context)
+    return None
+
 async def create_question_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Начать процесс создания вопроса."""
     await update.message.reply_text(
@@ -1242,6 +1264,9 @@ async def create_question_start(update: Update, context: ContextTypes.DEFAULT_TY
 async def receive_question_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Принять текст вопроса."""
     text = update.message.text.strip()
+
+    if not isinstance(context.user_data.get(settings.ADMIN_NEW_QUESTION_DATA_KEY), dict):
+        context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY] = {}
     
     if len(text) < 10:
         await update.message.reply_text(
@@ -1262,6 +1287,10 @@ async def receive_question_text(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def receive_option_a(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Принять вариант A."""
+    data = await _ensure_new_question_data(update, context)
+    if data is None:
+        return Q_CREATE_TEXT
+
     text = update.message.text.strip()
     
     if len(text) < 1:
@@ -1271,7 +1300,7 @@ async def receive_option_a(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return Q_CREATE_OPT_A
     
-    context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY]['option_a'] = text
+    data['option_a'] = text
     
     await update.message.reply_text(
         messages.MESSAGE_CREATE_QUESTION_OPTION_B,
@@ -1283,6 +1312,10 @@ async def receive_option_a(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def receive_option_b(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Принять вариант B."""
+    data = await _ensure_new_question_data(update, context)
+    if data is None:
+        return Q_CREATE_TEXT
+
     text = update.message.text.strip()
     
     if len(text) < 1:
@@ -1292,7 +1325,7 @@ async def receive_option_b(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return Q_CREATE_OPT_B
     
-    context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY]['option_b'] = text
+    data['option_b'] = text
     
     await update.message.reply_text(
         messages.MESSAGE_CREATE_QUESTION_OPTION_C,
@@ -1304,6 +1337,10 @@ async def receive_option_b(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def receive_option_c(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Принять вариант C."""
+    data = await _ensure_new_question_data(update, context)
+    if data is None:
+        return Q_CREATE_TEXT
+
     text = update.message.text.strip()
     
     if len(text) < 1:
@@ -1313,7 +1350,7 @@ async def receive_option_c(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return Q_CREATE_OPT_C
     
-    context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY]['option_c'] = text
+    data['option_c'] = text
     
     await update.message.reply_text(
         messages.MESSAGE_CREATE_QUESTION_OPTION_D,
@@ -1325,6 +1362,10 @@ async def receive_option_c(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def receive_option_d(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Принять вариант D."""
+    data = await _ensure_new_question_data(update, context)
+    if data is None:
+        return Q_CREATE_TEXT
+
     text = update.message.text.strip()
     
     if len(text) < 1:
@@ -1334,7 +1375,7 @@ async def receive_option_d(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return Q_CREATE_OPT_D
     
-    context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY]['option_d'] = text
+    data['option_d'] = text
     
     await update.message.reply_text(
         messages.MESSAGE_CREATE_QUESTION_CORRECT,
@@ -1348,8 +1389,12 @@ async def receive_option_d(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def receive_correct_answer(update: Update, context: ContextTypes.DEFAULT_TYPE, answer: str) -> int:
     """Принять выбор правильного ответа."""
     query = update.callback_query
+
+    data = await _ensure_new_question_data(update, context)
+    if data is None:
+        return Q_CREATE_TEXT
     
-    context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY]['correct_option'] = answer
+    data['correct_option'] = answer
     
     await query.edit_message_text(
         messages.MESSAGE_CREATE_QUESTION_EXPLANATION,
@@ -1361,6 +1406,10 @@ async def receive_correct_answer(update: Update, context: ContextTypes.DEFAULT_T
 
 async def receive_explanation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Принять пояснение."""
+    data = await _ensure_new_question_data(update, context)
+    if data is None:
+        return Q_CREATE_TEXT
+
     text = update.message.text.strip()
     
     if text == "-":
@@ -1368,7 +1417,7 @@ async def receive_explanation(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         explanation = text
     
-    context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY]['explanation'] = explanation
+    data['explanation'] = explanation
     
     await update.message.reply_text(
         messages.MESSAGE_CREATE_QUESTION_DIFFICULTY,
@@ -1382,12 +1431,16 @@ async def receive_explanation(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def receive_difficulty(update: Update, context: ContextTypes.DEFAULT_TYPE, difficulty: str) -> int:
     """Принять выбор сложности."""
     query = update.callback_query
+
+    data = await _ensure_new_question_data(update, context)
+    if data is None:
+        return Q_CREATE_TEXT
     
-    context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY]['difficulty'] = difficulty
+    data['difficulty'] = difficulty
     
     # Получить категории для выбора
     categories = logic.get_all_categories(active_only=True)
-    context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY]['selected_categories'] = []
+    data['selected_categories'] = []
     
     if categories:
         await query.edit_message_text(
@@ -1408,15 +1461,19 @@ async def receive_difficulty(update: Update, context: ContextTypes.DEFAULT_TYPE,
 async def toggle_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, category_id: int) -> int:
     """Переключить выбор категории для нового вопроса."""
     query = update.callback_query
+
+    data = await _ensure_new_question_data(update, context)
+    if data is None:
+        return Q_CREATE_TEXT
     
-    selected = context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY].get('selected_categories', [])
+    selected = data.get('selected_categories', [])
     
     if category_id in selected:
         selected.remove(category_id)
     else:
         selected.append(category_id)
     
-    context.user_data[settings.ADMIN_NEW_QUESTION_DATA_KEY]['selected_categories'] = selected
+    data['selected_categories'] = selected
     
     categories = logic.get_all_categories(active_only=True)
     
@@ -1430,6 +1487,10 @@ async def toggle_category_selection(update: Update, context: ContextTypes.DEFAUL
 async def finish_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Завершить выбор категорий и перейти к дате актуальности."""
     query = update.callback_query
+
+    data = await _ensure_new_question_data(update, context)
+    if data is None:
+        return Q_CREATE_TEXT
     
     await query.edit_message_text(
         messages.MESSAGE_CREATE_QUESTION_RELEVANCE,
@@ -1441,6 +1502,10 @@ async def finish_category_selection(update: Update, context: ContextTypes.DEFAUL
 
 async def receive_relevance_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Принять дату актуальности и создать вопрос."""
+    data = await _ensure_new_question_data(update, context)
+    if data is None:
+        return Q_CREATE_TEXT
+
     text = update.message.text.strip()
     
     relevance_date = None
@@ -1463,20 +1528,18 @@ async def receive_relevance_date(update: Update, context: ContextTypes.DEFAULT_T
             return Q_CREATE_RELEVANCE
     
     # Создать вопрос
-    q_data = context.user_data.get(settings.ADMIN_NEW_QUESTION_DATA_KEY, {})
-    
     question_id = logic.create_question(
-        question_text=q_data.get('question_text', ''),
-        option_a=q_data.get('option_a', ''),
-        option_b=q_data.get('option_b', ''),
-        option_c=q_data.get('option_c', ''),
-        option_d=q_data.get('option_d', ''),
-        correct_option=q_data.get('correct_option', 'A'),
-        explanation=q_data.get('explanation'),
-        difficulty=q_data.get('difficulty', 'medium'),
+        question_text=data.get('question_text', ''),
+        option_a=data.get('option_a', ''),
+        option_b=data.get('option_b', ''),
+        option_c=data.get('option_c', ''),
+        option_d=data.get('option_d', ''),
+        correct_option=data.get('correct_option', 'A'),
+        explanation=data.get('explanation'),
+        difficulty=data.get('difficulty', 'medium'),
         relevance_months=relevance_months,
         relevance_date=relevance_date,
-        category_ids=q_data.get('selected_categories', [])
+        category_ids=data.get('selected_categories', [])
     )
     
     if question_id:
