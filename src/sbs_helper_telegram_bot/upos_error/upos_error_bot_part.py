@@ -810,7 +810,12 @@ async def cancel_search_on_menu(update: Update, context: ContextTypes.DEFAULT_TY
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=get_main_menu_keyboard(is_admin=is_admin)
         )
-    
+        return ConversationHandler.END
+
+    if text:
+        from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import text_entered
+        await text_entered(update, context)
+
     return ConversationHandler.END
 
 
