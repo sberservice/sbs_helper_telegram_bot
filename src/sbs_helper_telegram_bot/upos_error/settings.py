@@ -40,14 +40,12 @@ BUTTON_ADMIN_ALL_ERRORS: Final[str] = "📋 Все ошибки"
 
 # Конфигурация кнопок подменю (обычные пользователи)
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    [BUTTON_FIND_ERROR],
     [BUTTON_POPULAR_ERRORS],
     [BUTTON_MAIN_MENU]
 ]
 
 # Админское подменю (включает кнопку админ-панели)
 ADMIN_SUBMENU_BUTTONS: Final[List[List[str]]] = [
-    [BUTTON_FIND_ERROR],
     [BUTTON_POPULAR_ERRORS],
     [BUTTON_ADMIN_PANEL, BUTTON_MAIN_MENU]
 ]
