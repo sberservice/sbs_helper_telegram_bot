@@ -14,7 +14,7 @@
 
 **What you'll get:**
 ```
-/validate_file → Upload Excel → Select column → Get validated file back
+Menu → "📁 Валидация файла" → Upload Excel → Select column → Get validated file back
 ```
 
 **Implementation Effort:** ~2 weeks
@@ -100,7 +100,7 @@ Perfect for:
 **Goal:** Get file validation working quickly
 
 1. **Bot File Upload** (2 weeks)
-   - Add `/validate_file` command
+  - Add menu button entry point for file validation
    - Upload .xls/.xlsx files
    - Select column with tickets
    - Download results with validation column
@@ -192,7 +192,7 @@ All tools should support:
 ### Scenario 1: Engineer validates single ticket
 **Tool:** Telegram Bot (existing)
 ```
-/validate → Paste ticket → Get result
+Menu → "📋 Проверить заявку" → Paste ticket → Get result
 ```
 **Time:** 10 seconds
 
@@ -201,7 +201,7 @@ All tools should support:
 ### Scenario 2: Manager validates weekly reports (50 tickets)
 **Tool:** Telegram Bot (new feature)
 ```
-/validate_file → Upload Excel → Select column → Download results
+Menu → "📁 Валидация файла" → Upload Excel → Select column → Download results
 ```
 **Time:** 30 seconds
 

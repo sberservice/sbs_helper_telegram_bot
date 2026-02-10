@@ -9,6 +9,7 @@
 
 from typing import List, Tuple
 import src.common.database as database
+from . import settings
 
 # ===== СООБЩЕНИЯ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ =====
 
@@ -162,13 +163,12 @@ def get_validation_help_message() -> str:
     else:
         rules_text = "*Проверяемые правила:* не настроены\n"
     
+    button_text = _escape_markdown_v2(settings.BUTTON_VALIDATE_TICKET)
+
     return f"""*Проверка заявок*
 
-*Доступные команды:*
-• /validate \\- начать проверку заявки
-
 *Как пользоваться:*
-1\\. Введите команду /validate
+1\\. Нажмите кнопку *{button_text}* в меню
 2\\. Скопируйте текст заявки
 3\\. Отправьте текст в чат
 4\\. Получите результат проверки

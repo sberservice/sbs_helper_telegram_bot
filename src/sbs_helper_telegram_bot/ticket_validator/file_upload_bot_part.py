@@ -82,7 +82,7 @@ def _cleanup_temp_file(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def validate_file_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Запустить диалог проверки файла.
-    Обработчик команды /validate_file и кнопки меню.
+    Обработчик кнопки меню.
     
     Args:
         update: объект Telegram Update.
@@ -542,7 +542,6 @@ def get_file_validation_handler() -> ConversationHandler:
     
     return ConversationHandler(
         entry_points=[
-            CommandHandler("validate_file", validate_file_command),
             MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_FILE_VALIDATION)}$"), validate_file_command),
         ],
         states={

@@ -51,7 +51,7 @@ DEBUG_MODE_KEY = settings.DEBUG_MODE_KEY
 async def validate_ticket_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Запустить диалог валидации заявки.
-    Обработчик команды /validate.
+    Обработчик запуска проверки заявки.
     
     Args:
         update: Объект обновления Telegram
@@ -292,7 +292,7 @@ async def run_test_templates_command(update: Update, context: ContextTypes.DEFAU
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Показать справку по валидации.
-    Обработчик команды /help_validate.
+    Обработчик справки по валидации.
     
     Args:
         update: Объект обновления Telegram

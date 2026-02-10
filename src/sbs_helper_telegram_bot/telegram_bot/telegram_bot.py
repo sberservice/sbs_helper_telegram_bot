@@ -867,8 +867,6 @@ def main() -> None:
             /start          → start
             /menu           → menu_command
             /invite         → invite_command
-            /validate       → validate_ticket_command (ConversationHandler)
-            /help_validate  → help_command
             /debug          → toggle_debug_mode (только админы)
             /admin          → админ-панель (только админы)
             Документы-изображения → handle_incoming_document
@@ -888,14 +886,13 @@ def main() -> None:
     )
 
     # Создаём ConversationHandler для проверки заявок
-    # Входные точки: команда /validate и кнопка меню
+    # Входная точка: кнопка меню
     # Фолбэки: /cancel, любая команда и кнопки меню модуля валидатора
     menu_button_pattern = get_menu_button_regex_pattern()
     # Исключаем кнопки меню из WAITING_FOR_TICKET, чтобы они попадали в фолбэки
     menu_button_filter = filters.Regex(menu_button_pattern)
     ticket_validator_handler = ConversationHandler(
         entry_points=[
-            CommandHandler("validate", validate_ticket_command),
             MessageHandler(filters.Regex(f"^{re.escape(validator_settings.BUTTON_VALIDATE_TICKET)}$"), validate_ticket_command)
         ],
         states={
@@ -976,7 +973,6 @@ def main() -> None:
     application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("help", help_main_command))
     application.add_handler(CommandHandler("invite", invite_command))
-    application.add_handler(CommandHandler("help_validate", help_command))
     application.add_handler(CommandHandler("debug", toggle_debug_mode))
     application.add_handler(bot_admin_handler)  # Основная админ-панель (до админов модулей)
     application.add_handler(admin_handler)
