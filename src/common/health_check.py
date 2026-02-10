@@ -388,24 +388,48 @@ def format_moscow_time(timestamp: Optional[int]) -> str:
     return dt.strftime("%d.%m.%Y %H:%M") + " МСК"
 
 
+def _format_duration_hm(seconds: Optional[int]) -> Optional[str]:
+    if seconds is None or seconds < 0:
+        return "нет данных"
+    if seconds == 0:
+        return None
+    minutes_total = seconds // 60
+    hours = minutes_total // 60
+    minutes = minutes_total % 60
+    return f"{hours} ч {minutes} мин"
+
+
 def get_tax_health_status_lines() -> list[str]:
     """Сформировать строки статуса для главного меню."""
     snapshot = get_health_status_snapshot()
+    now_ts = int(time.time())
     checked_at = format_moscow_time(snapshot.last_checked_at)
     last_healthy = format_moscow_time(snapshot.last_healthy_at)
     last_broken = format_moscow_time(snapshot.last_broken_at)
 
     lines: list[str] = []
     if snapshot.status == HEALTH_STATUS_HEALTHY:
+        last_outage_seconds = None
+        if snapshot.last_broken_at and snapshot.last_healthy_at:
+            last_outage_seconds = snapshot.last_healthy_at - snapshot.last_broken_at
+        last_outage_text = _format_duration_hm(last_outage_seconds)
         lines = [
             f"*Статус налоговой:* {_escape_markdown_v2(f'🟢 работает {checked_at}')}",
             f"*Последний сбой:* {_escape_markdown_v2(last_broken)}",
         ]
+        if last_outage_text is not None:
+            lines.append(f"*Длительность последнего сбоя:* {_escape_markdown_v2(last_outage_text)}")
     elif snapshot.status == HEALTH_STATUS_BROKEN:
+        ongoing_seconds = None
+        if snapshot.last_broken_at:
+            ongoing_seconds = now_ts - snapshot.last_broken_at
+        ongoing_text = _format_duration_hm(ongoing_seconds)
         lines = [
             f"*Статус налоговой:* {_escape_markdown_v2(f'🔴 проблемы {checked_at}')}",
             f"*Последняя работоспособность:* {_escape_markdown_v2(last_healthy)}",
         ]
+        if ongoing_text is not None:
+            lines.append(f"*Длительность текущего сбоя:* {_escape_markdown_v2(ongoing_text)}")
     else:
         lines = [f"*Статус налоговой:* {_escape_markdown_v2(f'нет данных {checked_at}')}" ]
 
