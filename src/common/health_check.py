@@ -256,12 +256,13 @@ def _find_current_outage(now_ts: int) -> Optional[tuple[str, int, int]]:
     return row["outage_type"], _safe_int(row["start_timestamp"]) or 0, _safe_int(row["end_timestamp"]) or 0
 
 
-def _find_next_outage(after_ts: int) -> Optional[tuple[str, int, int]]:
-    next_red = None
+def _find_next_outages(after_ts: int, limit: int = 2) -> list[tuple[str, int, int]]:
+    next_red: list[tuple[str, int, int]] = []
     for start_ts, end_ts in _get_red_outage_ranges(after_ts):
         if start_ts > after_ts:
-            next_red = (OUTAGE_TYPE_RED, start_ts, end_ts)
-            break
+            next_red.append((OUTAGE_TYPE_RED, start_ts, end_ts))
+            if len(next_red) >= limit:
+                break
 
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
@@ -272,38 +273,47 @@ def _find_next_outage(after_ts: int) -> Optional[tuple[str, int, int]]:
                 WHERE outage_type IN (%s, %s)
                   AND start_timestamp > %s
                 ORDER BY start_timestamp ASC
-                LIMIT 1
+                LIMIT %s
                 """,
-                (OUTAGE_TYPE_BLUE_SHORT, OUTAGE_TYPE_BLUE_LONG, after_ts),
+                (OUTAGE_TYPE_BLUE_SHORT, OUTAGE_TYPE_BLUE_LONG, after_ts, limit * 2),
             )
-            row = cursor.fetchone()
-    next_blue = None
-    if row:
-        next_blue = (row["outage_type"], _safe_int(row["start_timestamp"]) or 0, _safe_int(row["end_timestamp"]) or 0)
+            rows = cursor.fetchall()
 
-    candidates = [item for item in [next_red, next_blue] if item]
+    next_blue: list[tuple[str, int, int]] = []
+    for row in rows or []:
+        next_blue.append(
+            (
+                row["outage_type"],
+                _safe_int(row["start_timestamp"]) or 0,
+                _safe_int(row["end_timestamp"]) or 0,
+            )
+        )
+
+    candidates = [*next_red, *next_blue]
     if not candidates:
-        return None
-    return min(candidates, key=lambda item: item[1])
+        return []
+    candidates.sort(key=lambda item: item[1])
+    return candidates[:limit]
 
 
 def get_planned_outage_status_lines() -> list[str]:
     now_ts = int(time.time())
     lines: list[str] = []
     current_outage = _find_current_outage(now_ts)
-    next_outage = None
+    next_outages: list[tuple[str, int, int]] = []
     if current_outage:
         outage_type, start_ts, end_ts = current_outage
         current_text = _format_outage_window(start_ts, end_ts, outage_type)
-        lines.append(f"*Плановые работы:* {_escape_markdown_v2(f'сейчас {current_text}')}" )
-        next_outage = _find_next_outage(end_ts)
+        lines.append(f"*Идут плановые работы:*🟠 {_escape_markdown_v2(f'сейчас {current_text}')}" )
+        next_outages = _find_next_outages(end_ts)
     else:
-        next_outage = _find_next_outage(now_ts)
+        next_outages = _find_next_outages(now_ts)
 
-    if next_outage:
-        outage_type, start_ts, end_ts = next_outage
-        next_text = _format_outage_window(start_ts, end_ts, outage_type)
-        lines.append(f"*Следующие работы:* {_escape_markdown_v2(next_text)}")
+    if next_outages:
+        next_texts = []
+        for outage_type, start_ts, end_ts in next_outages:
+            next_texts.append(_format_outage_window(start_ts, end_ts, outage_type))
+        lines.append(f"*Следующие плановые работы:* {_escape_markdown_v2('; '.join(next_texts))}")
 
     return lines
 
