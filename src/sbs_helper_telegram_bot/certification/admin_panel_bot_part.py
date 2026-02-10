@@ -1758,7 +1758,7 @@ async def search_question_receive(update: Update, context: ContextTypes.DEFAULT_
             parse_mode=constants.ParseMode.MARKDOWN_V2,
             reply_markup=keyboards.get_admin_questions_keyboard()
         )
-        return ADMIN_MENU
+        return Q_LIST
     
     # Сохранить запрос для пагинации
     context.user_data['cert_search_query'] = search_query
