@@ -639,7 +639,7 @@ def get_statistics() -> dict:
 async def enter_upos_module(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Точка входа в модуль ошибок UPOS.
-    Показывает подменю.
+    Сразу ожидает ввод кода ошибки.
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
@@ -651,11 +651,11 @@ async def enter_upos_module(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         keyboard = keyboards.get_submenu_keyboard()
     
     await update.message.reply_text(
-        messages.MESSAGE_SUBMENU,
+        messages.MESSAGE_ENTER_ERROR_CODE,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboard
     )
-    return SUBMENU  # Входим в состояние подменю, чтобы принимать коды напрямую
+    return WAITING_FOR_ERROR_CODE
 
 
 async def start_error_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -666,9 +666,15 @@ async def start_error_search(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
+    if check_if_user_admin(update.effective_user.id):
+        keyboard = keyboards.get_admin_submenu_keyboard()
+    else:
+        keyboard = keyboards.get_submenu_keyboard()
+
     await update.message.reply_text(
         messages.MESSAGE_ENTER_ERROR_CODE,
-        parse_mode=constants.ParseMode.MARKDOWN_V2
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboard
     )
     return WAITING_FOR_ERROR_CODE
 
@@ -725,11 +731,12 @@ async def process_error_code_input(update: Update, context: ContextTypes.DEFAULT
         keyboard = keyboards.get_submenu_keyboard()
     
     await update.message.reply_text(
-        messages.MESSAGE_SELECT_ACTION,
+        messages.MESSAGE_ENTER_ERROR_CODE,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboard
     )
     
-    return SUBMENU  # Остаёмся в подменю для повторных запросов
+    return WAITING_FOR_ERROR_CODE
 
 
 async def direct_error_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -776,7 +783,7 @@ async def show_popular_errors(update: Update, context: ContextTypes.DEFAULT_TYPE
         text,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
-    return SUBMENU
+    return WAITING_FOR_ERROR_CODE
 
 
 async def cancel_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1968,7 +1975,7 @@ def get_menu_button_regex_pattern() -> str:
 def get_user_conversation_handler() -> ConversationHandler:
     """
     Получить ConversationHandler для пользовательского поиска ошибок.
-    Пользователь должен нажать кнопку поиска, чтобы вводить коды ошибок.
+    Пользователь вводит коды сразу после входа в модуль.
     """
     menu_pattern = get_menu_button_regex_pattern()
     
@@ -1978,13 +1985,9 @@ def get_user_conversation_handler() -> ConversationHandler:
             MessageHandler(filters.Regex(f"^{re.escape(settings.MENU_BUTTON_TEXT)}$"), enter_upos_module),
         ],
         states={
-            SUBMENU: [
-                # В подменю принимаем кнопку запуска поиска
-                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_FIND_ERROR)}$"), start_error_search),
-                # Кнопка популярных ошибок
-                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_POPULAR_ERRORS)}$"), show_popular_errors),
-            ],
             WAITING_FOR_ERROR_CODE: [
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_FIND_ERROR)}$"), start_error_search),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_POPULAR_ERRORS)}$"), show_popular_errors),
                 MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(menu_pattern), process_error_code_input)
             ]
         },

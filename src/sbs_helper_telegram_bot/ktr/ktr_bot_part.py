@@ -824,7 +824,7 @@ def get_statistics() -> dict:
 async def enter_ktr_module(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Точка входа в модуль КТР.
-    Показывает подменю.
+    Сразу ожидает ввод кода.
     """
     if not check_if_user_legit(update.effective_user.id):
         await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
@@ -836,11 +836,11 @@ async def enter_ktr_module(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         keyboard = keyboards.get_submenu_keyboard()
     
     await update.message.reply_text(
-        messages.MESSAGE_SUBMENU,
+        messages.MESSAGE_ENTER_CODE,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboard
     )
-    return SUBMENU  # Переходим в состояние подменю для прямого ввода кодов
+    return WAITING_FOR_CODE
 
 
 async def start_code_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -851,9 +851,15 @@ async def start_code_search(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(get_unauthorized_message(update.effective_user.id))
         return ConversationHandler.END
     
+    if check_if_user_admin(update.effective_user.id):
+        keyboard = keyboards.get_admin_submenu_keyboard()
+    else:
+        keyboard = keyboards.get_submenu_keyboard()
+
     await update.message.reply_text(
         messages.MESSAGE_ENTER_CODE,
-        parse_mode=constants.ParseMode.MARKDOWN_V2
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboard
     )
     return WAITING_FOR_CODE
 
@@ -920,11 +926,12 @@ async def process_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard = keyboards.get_submenu_keyboard()
     
     await update.message.reply_text(
-        messages.MESSAGE_SELECT_ACTION,
+        messages.MESSAGE_ENTER_CODE,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboard
     )
     
-    return SUBMENU  # Остаёмся в подменю для дальнейших поисков
+    return WAITING_FOR_CODE
 
 
 async def direct_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -972,7 +979,7 @@ async def show_popular_codes(update: Update, context: ContextTypes.DEFAULT_TYPE)
         text,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
-    return SUBMENU
+    return WAITING_FOR_CODE
 
 
 async def show_ktr_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1026,7 +1033,7 @@ async def show_ktr_achievements(update: Update, context: ContextTypes.DEFAULT_TY
         text,
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
-    return SUBMENU
+    return WAITING_FOR_CODE
 
 
 async def cancel_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -2249,7 +2256,7 @@ def get_menu_button_regex_pattern() -> str:
 def get_user_conversation_handler() -> ConversationHandler:
     """
     Получить ConversationHandler для пользовательского поиска кодов КТР.
-    Пользователь должен нажать кнопку поиска, чтобы вводить коды КТР.
+    Пользователь вводит коды сразу после входа в модуль.
     """
     menu_pattern = get_menu_button_regex_pattern()
     
@@ -2259,15 +2266,10 @@ def get_user_conversation_handler() -> ConversationHandler:
             MessageHandler(filters.Regex(f"^{re.escape(settings.MENU_BUTTON_TEXT)}$"), enter_ktr_module),
         ],
         states={
-            SUBMENU: [
-                # В подменю принимаем кнопку запуска поиска
-                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_FIND_CODE)}$"), start_code_search),
-                # Кнопка популярных кодов
-                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_POPULAR_CODES)}$"), show_popular_codes),
-                # Кнопка достижений
-                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ACHIEVEMENTS)}$"), show_ktr_achievements),
-            ],
             WAITING_FOR_CODE: [
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_FIND_CODE)}$"), start_code_search),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_POPULAR_CODES)}$"), show_popular_codes),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ACHIEVEMENTS)}$"), show_ktr_achievements),
                 MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(menu_pattern), process_code_input)
             ]
         },
