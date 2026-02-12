@@ -9,6 +9,7 @@ ERR_ALREADY_HAS_TRIANGLE = 104
 ERR_ALREADY_HAS_DARK_TRIANGLE = 107
 ERR_UNSUPPORTED_SCREEN = 105
 ERR_FILE_NOT_FOUND = 108
+ERR_TELEGRAM_UPLOAD_FAILED = 109
 
 
 ERROR_MESSAGES = {
@@ -20,6 +21,7 @@ ERROR_MESSAGES = {
     ERR_ALREADY_HAS_DARK_CIRCLE: "ВНИМАНИЕ!\n\nВозможно на скрине уже присутствует кружочек с местоположением (темный режим)!\n\nЗагрузите другой файл.",
     ERR_ALREADY_HAS_TRIANGLE: "ВНИМАНИЕ!\n\nВозможно на скрине уже присутствует треугольник с местоположением!\n\nЗагрузите другой файл.",
     ERR_UNSUPPORTED_SCREEN: "ВНИМАНИЕ! Этот тип экрана пока не поддерживается.",
+    ERR_TELEGRAM_UPLOAD_FAILED: "ВНИМАНИЕ! Медленное или нестабильное соединение с Telegram. Попробуйте отправить скриншот ещё раз через пару минут.",
 }
 
 
