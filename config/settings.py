@@ -13,6 +13,24 @@ load_dotenv()
 DEBUG: Final[bool] = os.getenv("DEBUG", "0") == "1"
 INVITES_PER_NEW_USER: Final[int] = int(os.getenv("INVITES_PER_NEW_USER", "2"))
 
+# Telegram API network settings
+TELEGRAM_HTTP_MAX_RETRIES: Final[int] = int(os.getenv("TELEGRAM_HTTP_MAX_RETRIES", "3"))
+TELEGRAM_HTTP_RETRY_BACKOFF_SECONDS: Final[int] = int(
+    os.getenv("TELEGRAM_HTTP_RETRY_BACKOFF_SECONDS", "2")
+)
+TELEGRAM_SEND_MSG_CONNECT_TIMEOUT_SECONDS: Final[int] = int(
+    os.getenv("TELEGRAM_SEND_MSG_CONNECT_TIMEOUT_SECONDS", "30")
+)
+TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS: Final[int] = int(
+    os.getenv("TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS", "20")
+)
+TELEGRAM_SEND_DOC_CONNECT_TIMEOUT_SECONDS: Final[int] = int(
+    os.getenv("TELEGRAM_SEND_DOC_CONNECT_TIMEOUT_SECONDS", "120")
+)
+TELEGRAM_SEND_DOC_READ_TIMEOUT_SECONDS: Final[int] = int(
+    os.getenv("TELEGRAM_SEND_DOC_READ_TIMEOUT_SECONDS", "180")
+)
+
 # =============================================
 # DEPRECATED: Module-specific settings below
 # These are kept for backwards compatibility but
