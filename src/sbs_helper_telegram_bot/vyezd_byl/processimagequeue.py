@@ -27,6 +27,7 @@ import random
 from pathlib import Path
 
 import requests
+from requests.exceptions import RequestException
 from PIL import Image
 import src.common.database as database
 
@@ -39,6 +40,7 @@ from src.common.constants.errorcodes import (
     ERR_ALREADY_HAS_TRIANGLE,
     ERR_FILE_NOT_FOUND,
     ERR_NO_TRIGGER_PIXEL,
+    ERR_TELEGRAM_UPLOAD_FAILED,
     ERR_TOO_SMALL,
     ERROR_MESSAGES,
     ERR_UNKNOWN_FORMAT,
@@ -77,6 +79,68 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+TELEGRAM_HTTP_MAX_RETRIES = 3
+TELEGRAM_HTTP_RETRY_BACKOFF_SECONDS = 2
+TELEGRAM_SEND_MSG_TIMEOUT_SECONDS = (5, 20)
+TELEGRAM_SEND_DOC_TIMEOUT_SECONDS = (10, 120)
+
+
+def post_with_retries(
+    url: str,
+    *,
+    params: dict | None = None,
+    data: dict | None = None,
+    files: dict | None = None,
+    timeout: int | float | tuple[int | float, int | float] = 20,
+    max_retries: int = TELEGRAM_HTTP_MAX_RETRIES,
+) -> requests.Response:
+    """
+    Выполняет POST-запрос к Telegram API с повторами при временных сетевых ошибках.
+
+    Args:
+        url: URL Telegram Bot API.
+        params: query-параметры запроса.
+        data: form-data поля запроса.
+        files: файловые поля запроса.
+        timeout: таймаут `requests` (одно значение или кортеж connect/read).
+        max_retries: максимальное количество попыток отправки.
+
+    Returns:
+        Успешный HTTP-ответ.
+
+    Raises:
+        RequestException: если все попытки исчерпаны.
+    """
+    last_exception: RequestException | None = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            return requests.post(
+                url,
+                params=params,
+                data=data,
+                files=files,
+                timeout=timeout,
+            )
+        except RequestException as exc:
+            last_exception = exc
+            if attempt == max_retries:
+                break
+
+            sleep_seconds = TELEGRAM_HTTP_RETRY_BACKOFF_SECONDS ** (attempt - 1)
+            logger.warning(
+                "Ошибка сети при запросе к Telegram API (попытка %s/%s): %s. Повтор через %s c.",
+                attempt,
+                max_retries,
+                exc,
+                sleep_seconds,
+            )
+            time.sleep(sleep_seconds)
+
+    assert last_exception is not None
+    raise last_exception
+
+
 def send_msg(user_id, text) -> None:
     """
     Отправляет текстовое сообщение пользователю Telegram через Bot API.
@@ -88,8 +152,15 @@ def send_msg(user_id, text) -> None:
     Логирует JSON-ответ API для отладки.
     """
     url_req = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    results = requests.post(url_req, params={"chat_id": user_id, "text": text},timeout=5)
-    logger.info(results.json())
+    try:
+        results = post_with_retries(
+            url_req,
+            params={"chat_id": user_id, "text": text},
+            timeout=TELEGRAM_SEND_MSG_TIMEOUT_SECONDS,
+        )
+        logger.info(results.json())
+    except RequestException as exc:
+        logger.error("Не удалось отправить сообщение пользователю %s: %s", user_id, exc)
 
 
 def is_color_close(
@@ -297,15 +368,25 @@ def generate_image(user_id, file_name) -> bool:
 
     api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument"
 
-    with open(local_image_path, "rb") as photo_file:
-        files = {"document": photo_file, "file_name": file_name, "filename": file_name}
-        data = {
-            #            "file_name": file_name,
-            "chat_id": chat_id,
-            "caption": caption,
-            "filename": file_name,
-        }
-        response = requests.post(api_url, files=files, data=data,timeout=20)
+    try:
+        with open(local_image_path, "rb") as photo_file:
+            files = {"document": photo_file, "file_name": file_name, "filename": file_name}
+            data = {
+                #            "file_name": file_name,
+                "chat_id": chat_id,
+                "caption": caption,
+                "filename": file_name,
+            }
+            response = post_with_retries(
+                api_url,
+                files=files,
+                data=data,
+                timeout=TELEGRAM_SEND_DOC_TIMEOUT_SECONDS,
+            )
+    except RequestException as exc:
+        logger.error("Не удалось отправить изображение %s пользователю %s: %s", file_name, user_id, exc)
+        return False, ERR_TELEGRAM_UPLOAD_FAILED
+
     logger.info(api_url)
     logger.info(file_name)
     logger.info(response.json())

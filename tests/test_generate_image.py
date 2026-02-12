@@ -13,11 +13,13 @@
 import shutil
 
 import pytest
+import requests
 
 from PIL import Image
+import src.sbs_helper_telegram_bot.vyezd_byl.processimagequeue as processimagequeue
 from src.sbs_helper_telegram_bot.vyezd_byl.processimagequeue import generate_image
 from src.common.constants.os import TEST_SAMPLES_DIR,IMAGES_DIR
-from src.common.constants.errorcodes import ERR_ALREADY_HAS_CIRCLE,ERR_ALREADY_HAS_DARK_CIRCLE,ERR_ALREADY_HAS_DARK_TRIANGLE,ERR_ALREADY_HAS_TRIANGLE,ERR_TOO_SMALL,ERR_NO_TRIGGER_PIXEL,ERR_UNKNOWN_FORMAT
+from src.common.constants.errorcodes import ERR_ALREADY_HAS_CIRCLE,ERR_ALREADY_HAS_DARK_CIRCLE,ERR_ALREADY_HAS_DARK_TRIANGLE,ERR_ALREADY_HAS_TRIANGLE,ERR_TELEGRAM_UPLOAD_FAILED,ERR_TOO_SMALL,ERR_NO_TRIGGER_PIXEL,ERR_UNKNOWN_FORMAT
 
 
 @pytest.fixture
@@ -102,3 +104,16 @@ def test_complete_cycle_dark_mode(cleanup):
     success, error_code = generate_image("test_dark_mode_screen", "test_deleteme.jpg")
     assert success is False
     assert error_code == ERR_ALREADY_HAS_DARK_CIRCLE
+
+
+def test_upload_timeout_returns_network_error(cleanup, monkeypatch):
+    shutil.copy2(TEST_SAMPLES_DIR / "dark_mode_screen.jpg", IMAGES_DIR / "test_999.jpg")
+
+    def raise_timeout(*args, **kwargs):
+        raise requests.exceptions.ConnectionError("network timeout")
+
+    monkeypatch.setattr(processimagequeue, "post_with_retries", raise_timeout)
+
+    success, error_code = generate_image("test_999", "test_network_timeout.jpg")
+    assert success is False
+    assert error_code == ERR_TELEGRAM_UPLOAD_FAILED
