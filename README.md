@@ -156,7 +156,14 @@
    pip install -r requirements.txt
    ```
 
-2. **Конфигурация** (создайте файл `.env`):
+2. **Конфигурация**:
+
+   Скопируйте шаблон:
+   ```bash
+   cp .env.example .env
+   ```
+
+   Затем заполните обязательные переменные (`TELEGRAM_TOKEN`, `MYSQL_*`) и при необходимости выберите сетевой профиль:
    ```env
    # Telegram Bot
    TELEGRAM_TOKEN=your_bot_token_here
@@ -171,13 +178,22 @@
    # Отладка
    DEBUG=1
 
-   # Сеть Telegram API (для медленного канала)
-   TELEGRAM_HTTP_MAX_RETRIES=3
+   # Сеть Telegram API
+   # Профиль 1 (умеренно медленная сеть)
+   TELEGRAM_HTTP_MAX_RETRIES=4
    TELEGRAM_HTTP_RETRY_BACKOFF_SECONDS=2
    TELEGRAM_SEND_MSG_CONNECT_TIMEOUT_SECONDS=5
-   TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS=20
-   TELEGRAM_SEND_DOC_CONNECT_TIMEOUT_SECONDS=10
-   TELEGRAM_SEND_DOC_READ_TIMEOUT_SECONDS=180
+   TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS=30
+   TELEGRAM_SEND_DOC_CONNECT_TIMEOUT_SECONDS=20
+   TELEGRAM_SEND_DOC_READ_TIMEOUT_SECONDS=300
+
+   # Профиль 2 (очень медленная/нестабильная сеть)
+   # TELEGRAM_HTTP_MAX_RETRIES=6
+   # TELEGRAM_HTTP_RETRY_BACKOFF_SECONDS=2
+   # TELEGRAM_SEND_MSG_CONNECT_TIMEOUT_SECONDS=10
+   # TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS=60
+   # TELEGRAM_SEND_DOC_CONNECT_TIMEOUT_SECONDS=30
+   # TELEGRAM_SEND_DOC_READ_TIMEOUT_SECONDS=600
 
    # Инвайты
    INVITES_PER_NEW_USER=2
@@ -188,6 +204,8 @@
    SYNC_CHAT_ID=your_chat_id
    SYNC_INTERVAL_HOURS=24
    ```
+
+   После изменения параметров `.env` перезапустите бота, чтобы новые значения вступили в силу.
 
 3. **Настройка базы данных**:
    ```bash
