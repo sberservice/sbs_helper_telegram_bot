@@ -1,0 +1,73 @@
+name: Release on Tag
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run syntax smoke test
+        run: PYTHONPATH=. pytest -q tests/test_syntax_compilation.py
+
+  create_release:
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract release notes from changelog
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          ref = os.environ["GITHUB_REF_NAME"]
+          version = ref[1:] if ref.startswith("v") else ref
+          changelog = Path("CHANGELOG.md")
+
+          notes = ""
+          if changelog.exists():
+              text = changelog.read_text(encoding="utf-8")
+              pattern = re.compile(
+                  rf"^## \[{re.escape(version)}\].*$([\s\S]*?)(?=^## \[|\Z)",
+                  re.MULTILINE,
+              )
+              match = pattern.search(text)
+              if match:
+                  notes = match.group(1).strip()
+
+          if not notes:
+              notes = "Релиз без отдельной секции в CHANGELOG.md."
+
+          Path("release_notes.md").write_text(notes + "\n", encoding="utf-8")
+          PY
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release_notes.md
+          generate_release_notes: true
