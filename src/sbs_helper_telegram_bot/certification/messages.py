@@ -17,19 +17,36 @@ MESSAGE_SUBMENU_BASE = "📝 *Погдотовка к аттестации*\n\n�
 MESSAGE_SUBMENU_NO_STATS = MESSAGE_SUBMENU_BASE + "\n\nВыберите действие из меню:"
 
 
-def get_submenu_message(questions_count: int, categories_count: int) -> str:
+def get_submenu_message(
+    questions_count: int,
+    categories_count: int,
+    rank_icon: str,
+    rank_name: str,
+    progress_bar: str,
+    progress_percent: int,
+    certification_points: int,
+    max_achievable_points: int,
+) -> str:
     """
     Сформировать сообщение подменю со статистикой.
     
     Аргументы:
         questions_count: Количество вопросов в базе
         categories_count: Количество активных категорий
+        rank_icon: Иконка текущего ранга
+        rank_name: Название текущего ранга \(экранированное\)
+        progress_bar: Текстовый прогресс-бар \(экранированный\)
+        progress_percent: Процент прогресса
+        certification_points: Набранные очки аттестации
+        max_achievable_points: Максимально достижимые очки
         
     Возвращает:
         Отформатированное сообщение для MarkdownV2
     """
     return (
-        MESSAGE_SUBMENU_BASE + 
+        MESSAGE_SUBMENU_BASE +
+        f"\n\n{rank_icon} *Аттестационный ранг:* *{rank_name}*" +
+        f"\n📊 Прогресс аттестации : {progress_bar} {progress_percent}% {certification_points}/{max_achievable_points}" +
         f"\n\n📊 В базе: *{questions_count}* вопросов в *{categories_count}* категориях" +
         "\n\nВыберите действие из меню:"
     )

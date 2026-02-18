@@ -307,6 +307,25 @@ class TestCertificationMessages(unittest.TestCase):
         self.assertIn("{total}", messages.MESSAGE_TEST_COMPLETED)
         self.assertIn("{score}", messages.MESSAGE_TEST_COMPLETED)
 
+    def test_submenu_message_contains_rank_and_progress(self):
+        """Проверка, что подменю содержит строку ранга и прогресса аттестации."""
+        from src.sbs_helper_telegram_bot.certification import messages
+
+        text = messages.get_submenu_message(
+            questions_count=120,
+            categories_count=6,
+            rank_icon="🏅",
+            rank_name="Эксперт",
+            progress_bar="[■■■■■■■■□□]",
+            progress_percent=77,
+            certification_points=388,
+            max_achievable_points=500,
+        )
+
+        self.assertIn("Аттестационный ранг", text)
+        self.assertIn("Прогресс аттестации", text)
+        self.assertIn("77% 388/500", text)
+
 
 class TestCertificationModuleInit(unittest.TestCase):
     """Tests for module initialization."""
