@@ -120,11 +120,37 @@ async def certification_submenu(update: Update, context: ContextTypes.DEFAULT_TY
     stats = logic.get_certification_statistics()
     questions_count = int(stats.get('total_questions', 0) or 0)
     categories_count = int(stats.get('active_categories', 0) or 0)
+    cert_summary = logic.get_user_certification_summary(update.effective_user.id)
+
+    rank_icon = cert_summary.get('rank_icon', '🌱')
+    rank_name = logic.escape_markdown(str(cert_summary.get('rank_name', 'Новичок')))
+    progress_bar = logic.escape_markdown(str(cert_summary.get('overall_progress_bar', '[□□□□□□□□□□]')))
+    progress_percent = int(cert_summary.get('overall_progress_percent') or 0)
+    certification_points = int(cert_summary.get('certification_points') or 0)
+    max_achievable_points = int(cert_summary.get('max_achievable_points') or 0)
     
     if questions_count > 0 or categories_count > 0:
-        submenu_text = messages.get_submenu_message(questions_count, categories_count)
+        submenu_text = messages.get_submenu_message(
+            questions_count=questions_count,
+            categories_count=categories_count,
+            rank_icon=rank_icon,
+            rank_name=rank_name,
+            progress_bar=progress_bar,
+            progress_percent=progress_percent,
+            certification_points=certification_points,
+            max_achievable_points=max_achievable_points,
+        )
     else:
-        submenu_text = messages.MESSAGE_SUBMENU_NO_STATS
+        submenu_text = messages.get_submenu_message(
+            questions_count=questions_count,
+            categories_count=categories_count,
+            rank_icon=rank_icon,
+            rank_name=rank_name,
+            progress_bar=progress_bar,
+            progress_percent=progress_percent,
+            certification_points=certification_points,
+            max_achievable_points=max_achievable_points,
+        )
     
     await update.message.reply_text(
         submenu_text,
@@ -1072,20 +1098,6 @@ async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             tests_count=cat_info['tests_count']
         ))
     
-    # Добавить подвал с информацией о последнем тесте
-    if user_stats and user_stats['last_test_timestamp']:
-        last_test_date = datetime.fromtimestamp(user_stats['last_test_timestamp']).strftime('%d\\.%m\\.%Y')
-        message_parts.append(messages.MESSAGE_MY_RANKING_FOOTER.format(
-            last_test_date=last_test_date,
-            last_test_score=int(user_stats['last_test_score']) if user_stats['last_test_score'] else 0
-        ))
-
-    expiry_lines = [
-        messages.MESSAGE_CATEGORY_RESULT_POLICY_LINE.format(
-            days=settings.CATEGORY_RESULT_VALIDITY_DAYS
-        )
-    ]
-
     nearest_expiry_timestamp = cert_summary.get('nearest_category_expiry_timestamp')
     if nearest_expiry_timestamp:
         nearest_expiry_date = datetime.fromtimestamp(nearest_expiry_timestamp).strftime('%d\\.%m\\.%Y')
