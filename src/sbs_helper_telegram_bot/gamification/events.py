@@ -14,6 +14,23 @@ import src.common.database as database
 
 logger = logging.getLogger(__name__)
 
+# Временное ограничение источников геймификации:
+# пока поддерживаем только события модуля аттестации.
+ALLOWED_GAMIFICATION_EVENT_PREFIXES = ("certification.",)
+
+
+def _is_event_allowed_for_gamification(event_type: str) -> bool:
+    """
+    Проверить, разрешён ли тип события для обработки геймификацией.
+
+    Аргументы:
+        event_type: Идентификатор события
+
+    Возвращает:
+        True, если событие разрешено для обработки.
+    """
+    return any(event_type.startswith(prefix) for prefix in ALLOWED_GAMIFICATION_EVENT_PREFIXES)
+
 
 @dataclass
 class EventHandler:
@@ -86,6 +103,14 @@ def emit_event(
     """
     import time
     timestamp = int(time.time())
+
+    if not _is_event_allowed_for_gamification(event_type):
+        logger.info(
+            "Gamification event ignored by temporary module filter: event_type=%s, userid=%s",
+            event_type,
+            userid,
+        )
+        return
     
     try:
         # 1. Логируем событие в базу
