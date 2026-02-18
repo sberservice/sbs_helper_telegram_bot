@@ -5,6 +5,17 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.0.9] - 2026-02-18
+
+### Added
+- Добавлен регрессионный async-тест на обработчик `show_my_ranking`, чтобы исключить повторный `NameError` по `expiry_lines`.
+
+### Changed
+- Нет изменений.
+
+### Fixed
+- Исправлена инициализация `expiry_lines` в `show_my_ranking` \(модуль аттестации\).
+
 ## [0.0.8] - 2026-02-18
 
 ### Added
