@@ -84,14 +84,13 @@ def _escape_markdown_v2(text: str) -> str:
 
 def _format_main_menu_message(
     display_name: str,
-    total_score: int,
+    certification_points: int,
     rank_name: str,
     rank_icon: str,
-    total_achievements: int,
-    max_achievements: int,
+    passed_tests_count: int,
+    passed_categories_count: int,
     next_rank_name: Optional[str],
-    next_rank_threshold: Optional[int],
-    cert_total_tests: Optional[int],
+    points_to_next_rank: Optional[int],
     cert_last_score: Optional[float],
 ) -> str:
     safe_name = _escape_markdown_v2(display_name)
@@ -103,26 +102,24 @@ def _format_main_menu_message(
     message = (
         f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\n"
         f"С возвращением, *{safe_name}*\\!\n\n"
-        f"{rank_icon} *Ранг:* *{safe_rank}*\n"
-        f"⭐ *Очки:* *{total_score}*\n"
-        f"🎖️ *Достижения:* *{total_achievements}* из *{max_achievements}*"
+        f"{rank_icon} *Аттестационный ранг:* *{safe_rank}*\n"
+        f"📈 *Баллы аттестации:* *{certification_points}*\n"
+        f"✅ *Пройдено тестов:* *{passed_tests_count}*\n"
+        f"📚 *Освоено категорий:* *{passed_categories_count}*"
     )
 
-    if next_rank_threshold is not None and safe_next:
-        remaining = max(next_rank_threshold - total_score, 0)
-        message += f"\n🎯 *До ранга* *{safe_next}*: ещё *{remaining}* очков"
+    if points_to_next_rank is not None and safe_next:
+        remaining = max(points_to_next_rank, 0)
+        message += f"\n🎯 *До ранга* *{safe_next}*: ещё *{remaining}* балл\(ов\)"
 
-    if cert_total_tests:
-        if cert_last_score is not None:
-            if cert_last_score == int(cert_last_score):
-                score_str = str(int(cert_last_score))
-            else:
-                score_str = str(cert_last_score).replace('.', '\\.')
-            message += f"\n📝 *Аттестация:* *{cert_total_tests}* тест\(ов\), последний результат *{score_str}%*"
+    if cert_last_score is not None:
+        if cert_last_score == int(cert_last_score):
+            score_str = str(int(cert_last_score))
         else:
-            message += f"\n📝 *Аттестация:* *{cert_total_tests}* тест\(ов\)"
+            score_str = str(cert_last_score).replace('.', '\\.')
+        message += f"\n📝 *Последний успешный тест:* *{score_str}%*"
     else:
-        message += "\n📝 *Аттестация:* начните тест, чтобы попасть в рейтинг"
+        message += "\n📝 *Аттестация:* пройдите первый тест, чтобы открыть прогресс"
 
     if latest_preview:
         message += f"\n\n{SECTION_DIVIDER_THIN}" + latest_preview
@@ -137,7 +134,7 @@ def _format_main_menu_message(
 
 def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str:
     """
-    Сформировать персонализированное сообщение главного меню по данным профиля геймификации.
+    Сформировать персонализированное сообщение главного меню по данным аттестации.
 
     Args:
         user_id: Telegram ID пользователя.
@@ -148,47 +145,20 @@ def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str
     """
     display_name = first_name or "коллега"
     try:
-        from src.sbs_helper_telegram_bot.gamification import gamification_logic
         from src.sbs_helper_telegram_bot.certification import certification_logic
 
-        cert_stats = certification_logic.get_user_stats_light(user_id)
-        profile = gamification_logic.get_user_main_menu_profile(user_id)
-        if not profile:
-            safe_name = _escape_markdown_v2(display_name)
-            base = f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\nС возвращением, *{safe_name}*\\!"
-            latest_preview = _get_latest_news_preview_text()
-            if cert_stats and cert_stats.get('total_tests'):
-                last_score = cert_stats.get('last_test_score')
-                if last_score is not None:
-                    if last_score == int(last_score):
-                        score_str = str(int(last_score))
-                    else:
-                        score_str = str(last_score).replace('.', '\\.')
-                    cert_line = f"\n\n📝 *Аттестация:* *{cert_stats['total_tests']}* тест\(ов\), последний результат *{score_str}%*"
-                else:
-                    cert_line = f"\n\n📝 *Аттестация:* *{cert_stats['total_tests']}* тест\(ов\)"
-            else:
-                cert_line = "\n\n📝 *Аттестация:* начните тест, чтобы попасть в рейтинг"
-            if latest_preview:
-                base = base + cert_line + f"\n\n{SECTION_DIVIDER_THIN}" + latest_preview
-            else:
-                base = base + cert_line
-            health_text = _get_tax_health_status_text()
-            if health_text:
-                base = base + f"\n\n{SECTION_DIVIDER_THIN}\n\n{health_text}"
-            return base + "\n\nВыберите действие из меню:"
+        cert_summary = certification_logic.get_user_certification_summary(user_id)
 
         return _format_main_menu_message(
             display_name=display_name,
-            total_score=profile.get('total_score', 0),
-            rank_name=profile.get('rank_name', 'Без ранга'),
-            rank_icon=profile.get('rank_icon', '🏅'),
-            total_achievements=profile.get('total_achievements', 0),
-            max_achievements=profile.get('max_achievements', 0),
-            next_rank_name=profile.get('next_rank_name'),
-            next_rank_threshold=profile.get('next_rank_threshold'),
-            cert_total_tests=cert_stats.get('total_tests') if cert_stats else None,
-            cert_last_score=cert_stats.get('last_test_score') if cert_stats else None,
+            certification_points=cert_summary.get('certification_points', 0),
+            rank_name=cert_summary.get('rank_name', 'Новичок'),
+            rank_icon=cert_summary.get('rank_icon', '🌱'),
+            passed_tests_count=cert_summary.get('passed_tests_count', 0),
+            passed_categories_count=cert_summary.get('passed_categories_count', 0),
+            next_rank_name=cert_summary.get('next_rank_name'),
+            points_to_next_rank=cert_summary.get('points_to_next_rank'),
+            cert_last_score=cert_summary.get('last_passed_score'),
         )
     except Exception:
         return MESSAGE_MAIN_MENU

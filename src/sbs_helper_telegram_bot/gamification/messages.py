@@ -28,7 +28,14 @@ def format_profile_message(
     next_rank_threshold: Optional[int],
     total_achievements: int,
     max_achievements: int,
-    achievements_by_level: Dict[int, int]
+    achievements_by_level: Dict[int, int],
+    certification_rank_name: Optional[str] = None,
+    certification_rank_icon: Optional[str] = None,
+    certification_points: Optional[int] = None,
+    passed_tests_count: Optional[int] = None,
+    passed_categories_count: Optional[int] = None,
+    certification_next_rank_name: Optional[str] = None,
+    certification_points_to_next: Optional[int] = None,
 ) -> str:
     """
     Сформировать сообщение профиля пользователя.
@@ -54,7 +61,12 @@ def format_profile_message(
         name += f" {_escape_md(last_name)}"
     
     # Прогресс до следующего ранга
-    if next_rank_name and next_rank_threshold:
+    display_rank_name = certification_rank_name or rank_name
+    display_rank_icon = certification_rank_icon or rank_icon
+
+    if certification_next_rank_name and certification_points_to_next is not None:
+        progress_text = f"\n📈 До «{_escape_md(certification_next_rank_name)}»: *{certification_points_to_next}* балл\(ов\)"
+    elif next_rank_name and next_rank_threshold:
         progress_text = f"\n📈 До «{_escape_md(next_rank_name)}»: *{next_rank_threshold - total_score}* очков"
     else:
         progress_text = "\n🎉 *Максимальный ранг достигнут\\!*"
@@ -64,16 +76,27 @@ def format_profile_message(
     silver = achievements_by_level.get(settings.ACHIEVEMENT_LEVEL_SILVER, 0)
     gold = achievements_by_level.get(settings.ACHIEVEMENT_LEVEL_GOLD, 0)
     
+    certification_block = ""
+    if certification_points is not None:
+        certification_block = (
+            f"\n\n📝 *Аттестация*\n"
+            f"{display_rank_icon} Ранг: *{_escape_md(display_rank_name)}*\n"
+            f"📈 Баллы: *{certification_points}*\n"
+            f"✅ Пройдено тестов: *{passed_tests_count or 0}*\n"
+            f"📚 Освоено категорий: *{passed_categories_count or 0}*"
+            f"{progress_text}"
+        )
+
     return (
         f"👤 *Профиль: {name}*\n"
         f"{'─' * 20}\n\n"
-        f"{rank_icon} Ранг: *{_escape_md(rank_name)}*\n"
         f"💎 Очки: *{total_score}*"
-        f"{progress_text}\n\n"
+        f"\n\n"
         f"🎖️ *Достижения: {total_achievements}/{max_achievements}*\n"
         f"   🥉 Бронза: {bronze}\n"
         f"   🥈 Серебро: {silver}\n"
         f"   🥇 Золото: {gold}"
+        f"{certification_block}"
     )
 
 
@@ -85,7 +108,12 @@ def format_other_user_profile_message(
     rank_icon: str,
     total_achievements: int,
     achievements_by_level: Dict[int, int],
-    obfuscate: bool = False
+    obfuscate: bool = False,
+    certification_rank_name: Optional[str] = None,
+    certification_rank_icon: Optional[str] = None,
+    certification_points: Optional[int] = None,
+    passed_tests_count: Optional[int] = None,
+    passed_categories_count: Optional[int] = None,
 ) -> str:
     """
     Сформировать профиль другого пользователя (просмотр из рейтинга).
@@ -115,15 +143,28 @@ def format_other_user_profile_message(
     silver = achievements_by_level.get(settings.ACHIEVEMENT_LEVEL_SILVER, 0)
     gold = achievements_by_level.get(settings.ACHIEVEMENT_LEVEL_GOLD, 0)
     
+    display_rank_name = certification_rank_name or rank_name
+    display_rank_icon = certification_rank_icon or rank_icon
+
+    certification_block = ""
+    if certification_points is not None:
+        certification_block = (
+            f"\n📝 *Аттестация*\n"
+            f"{display_rank_icon} Ранг: *{_escape_md(display_rank_name)}*\n"
+            f"📈 Баллы: *{certification_points}*\n"
+            f"✅ Пройдено тестов: *{passed_tests_count or 0}*\n"
+            f"📚 Освоено категорий: *{passed_categories_count or 0}*"
+        )
+
     return (
         f"👤 *Профиль: {name}*\n"
         f"{'─' * 20}\n\n"
-        f"{rank_icon} Ранг: *{_escape_md(rank_name)}*\n"
         f"💎 Очки: *{total_score}*\n\n"
         f"🎖️ *Достижения: {total_achievements}*\n"
         f"   🥉 Бронза: {bronze}\n"
         f"   🥈 Серебро: {silver}\n"
         f"   🥇 Золото: {gold}"
+        f"{certification_block}"
     )
 
 
