@@ -629,6 +629,8 @@ class TestFairQuestionsDistribution(unittest.TestCase):
         self.assertEqual(result['actual_distribution']['hard'], 3)
         self.assertFalse(result['fallback_used'])
         self.assertEqual(len(result['questions']), 10)
+        difficulties = [question['difficulty'] for question in result['questions']]
+        self.assertEqual(difficulties, sorted(difficulties, key=lambda level: {'easy': 0, 'medium': 1, 'hard': 2}[level]))
 
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.random.sample', side_effect=lambda seq, k: list(seq)[:k])
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.random.shuffle', side_effect=lambda seq: None)
@@ -651,6 +653,8 @@ class TestFairQuestionsDistribution(unittest.TestCase):
         self.assertEqual(result['actual_distribution']['hard'], 1)
         self.assertEqual(result['actual_distribution']['easy'] + result['actual_distribution']['medium'] + result['actual_distribution']['hard'], 9)
         self.assertEqual(len({question['id'] for question in result['questions']}), 9)
+        difficulties = [question['difficulty'] for question in result['questions']]
+        self.assertEqual(difficulties, sorted(difficulties, key=lambda level: {'easy': 0, 'medium': 1, 'hard': 2}[level]))
 
 
 if __name__ == '__main__':
