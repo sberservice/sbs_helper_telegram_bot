@@ -1005,6 +1005,44 @@ async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     # Сформировать сообщение с рейтингами по категориям
     message_parts = [messages.MESSAGE_MY_RANKING_HEADER.format(month=logic.escape_markdown(month_name))]
+
+    rank_name = logic.escape_markdown(str(cert_summary.get('rank_name', 'Новичок')))
+    rank_icon = cert_summary.get('rank_icon', '🌱')
+    certification_points = int(cert_summary.get('certification_points') or 0)
+    max_achievable_points = int(cert_summary.get('max_achievable_points') or 0)
+    overall_progress_percent = int(cert_summary.get('overall_progress_percent') or 0)
+    overall_progress_bar = cert_summary.get('overall_progress_bar', logic.build_progress_bar(0))
+
+    cert_progress_lines = [
+        messages.MESSAGE_CERT_PROGRESS_HEADER,
+        messages.MESSAGE_CERT_PROGRESS_LINE.format(
+            rank_icon=rank_icon,
+            rank_name=rank_name,
+        ),
+        messages.MESSAGE_CERT_PROGRESS_POINTS_LINE.format(
+            points=certification_points,
+            max_points=max_achievable_points,
+        ),
+        messages.MESSAGE_CERT_PROGRESS_BAR_LINE.format(
+            progress_bar=overall_progress_bar,
+            progress_percent=overall_progress_percent,
+        ),
+    ]
+
+    next_rank_name = cert_summary.get('next_rank_name')
+    points_to_next_rank = cert_summary.get('points_to_next_rank')
+    if next_rank_name and points_to_next_rank is not None:
+        cert_progress_lines.append(
+            messages.MESSAGE_CERT_PROGRESS_NEXT_STEP_LINE.format(
+                next_rank_icon=cert_summary.get('next_rank_icon', '🏅'),
+                next_rank_name=logic.escape_markdown(str(next_rank_name)),
+                points_to_next=int(points_to_next_rank),
+            )
+        )
+    else:
+        cert_progress_lines.append(messages.MESSAGE_CERT_PROGRESS_ULTIMATE_LINE)
+
+    message_parts.append("\n" + "\n".join(cert_progress_lines))
     
     # Получить общую статистику для данных последнего теста
     user_stats = logic.get_user_stats(update.effective_user.id)

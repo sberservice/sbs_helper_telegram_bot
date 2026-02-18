@@ -226,6 +226,12 @@ MESSAGE_CATEGORY_RESULT_EXPIRED_LINE = "• Уже истекли: *{count}*"
 MESSAGE_RANK_SCALE_HEADER = "🏅 *Шкала аттестационных рангов:*"
 MESSAGE_RANK_SCALE_ITEM = "• {icon} *{name}* — от *{min_points}* балл\\(ов\\)"
 MESSAGE_RANK_DROP_WARNING = "⚠️ *Важно:* Есть истекшие результаты по категориям \\(*{count}*\\)\\. Аттестационный ранг может снизиться\\."
+MESSAGE_CERT_PROGRESS_HEADER = "📈 *Прогресс аттестации:*"
+MESSAGE_CERT_PROGRESS_LINE = "• Ранг: {rank_icon} *{rank_name}*"
+MESSAGE_CERT_PROGRESS_POINTS_LINE = "• Очки: *{points} / {max_points}*"
+MESSAGE_CERT_PROGRESS_BAR_LINE = "• Прогресс: {progress_bar} *{progress_percent}%*"
+MESSAGE_CERT_PROGRESS_NEXT_STEP_LINE = "• Следующая ступень: {next_rank_icon} *{next_rank_name}* \(осталось *{points_to_next}* балл\\(ов\\)\)"
+MESSAGE_CERT_PROGRESS_ULTIMATE_LINE = "• Достигнут максимальный ранг \(100%\)"
 
 MESSAGE_NO_TESTS_THIS_MONTH = """📊 *Мой рейтинг \\({month}\\)*
 

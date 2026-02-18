@@ -14,6 +14,9 @@ class TestMainMenuCertification(unittest.TestCase):
 
         mock_summary.return_value = {
             'certification_points': 210,
+            'max_achievable_points': 500,
+            'overall_progress_percent': 42,
+            'overall_progress_bar': '[■■■■□□□□□□]',
             'rank_name': 'Специалист',
             'rank_icon': '⭐',
             'passed_tests_count': 9,
@@ -29,10 +32,14 @@ class TestMainMenuCertification(unittest.TestCase):
         self.assertIn('Пройдено тестов', message)
         self.assertIn('Освоено категорий', message)
         self.assertIn('Срок результата по категории', message)
-        self.assertIn('Шкала аттестационных рангов', message)
-        self.assertIn('Мастер аттестации', message)
+        self.assertIn('Прогресс к максимуму', message)
+        self.assertIn('210/500', message)
+        self.assertIn('42%', message)
+        self.assertIn('До ранга', message)
+        self.assertIn('Эксперт', message)
         self.assertIn('Специалист', message)
         self.assertIn('87\\.5', message)
+        self.assertNotIn('Шкала аттестационных рангов', message)
         self.assertNotIn('Аттестационный ранг может снизиться', message)
 
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.get_user_certification_summary')
@@ -42,6 +49,9 @@ class TestMainMenuCertification(unittest.TestCase):
 
         mock_summary.return_value = {
             'certification_points': 130,
+            'max_achievable_points': 500,
+            'overall_progress_percent': 26,
+            'overall_progress_bar': '[■■■□□□□□□□]',
             'rank_name': 'Практик',
             'rank_icon': '📘',
             'passed_tests_count': 6,
@@ -54,7 +64,8 @@ class TestMainMenuCertification(unittest.TestCase):
 
         message = get_main_menu_message(1003, 'Анна')
 
-        self.assertIn('Шкала аттестационных рангов', message)
+        self.assertIn('До ранга', message)
+        self.assertIn('Прогресс к максимуму', message)
         self.assertIn('Аттестационный ранг может снизиться', message)
 
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.get_user_certification_summary', side_effect=Exception('boom'))
