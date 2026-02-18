@@ -87,15 +87,12 @@ def _format_main_menu_message(
     certification_points: int,
     rank_name: str,
     rank_icon: str,
-    passed_tests_count: int,
     passed_categories_count: int,
-    category_result_validity_days: int,
     max_achievable_points: int,
     overall_progress_percent: int,
     overall_progress_bar: str,
     next_rank_name: Optional[str],
     points_to_next_rank: Optional[int],
-    cert_last_score: Optional[float],
     expired_categories_count: int,
 ) -> str:
     safe_name = _escape_markdown_v2(display_name)
@@ -109,12 +106,8 @@ def _format_main_menu_message(
         f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\n"
         f"С возвращением, *{safe_name}*\\!\n\n"
         f"{rank_icon} *Аттестационный ранг:* *{safe_rank}*\n"
-        f"📈 *Баллы аттестации:* *{certification_points}*\n"
-        f"📊 *Прогресс к максимуму:* *{certification_points}/{max_achievable_points}*\n"
-        f"🔋 *Прогресс:* {safe_progress_bar} *{overall_progress_percent}%*\n"
-        f"✅ *Пройдено тестов:* *{passed_tests_count}*\n"
-        f"📚 *Освоено категорий:* *{passed_categories_count}*\n"
-        f"⏳ *Срок результата по категории:* *{category_result_validity_days}* дней"
+        f"📊 Прогресс аттестации : {safe_progress_bar} {overall_progress_percent}% {certification_points}/{max_achievable_points}\n"
+        f"📚 *Освоено категорий:* *{passed_categories_count}*"
     )
 
     if expired_categories_count > 0:
@@ -127,15 +120,6 @@ def _format_main_menu_message(
     if points_to_next_rank is not None and safe_next:
         remaining = max(points_to_next_rank, 0)
         message += f"\n🎯 *До ранга* *{safe_next}*: ещё *{remaining}* балл\(ов\)"
-
-    if cert_last_score is not None:
-        if cert_last_score == int(cert_last_score):
-            score_str = str(int(cert_last_score))
-        else:
-            score_str = str(cert_last_score).replace('.', '\\.')
-        message += f"\n📝 *Последний успешный тест:* *{score_str}%*"
-    else:
-        message += "\n📝 *Аттестация:* пройдите первый тест, чтобы открыть прогресс"
 
     if latest_preview:
         message += f"\n\n{SECTION_DIVIDER_THIN}" + latest_preview
@@ -162,7 +146,6 @@ def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str
     display_name = first_name or "коллега"
     try:
         from src.sbs_helper_telegram_bot.certification import certification_logic
-        from src.sbs_helper_telegram_bot.certification import settings as certification_settings
 
         cert_summary = certification_logic.get_user_certification_summary(user_id)
 
@@ -171,15 +154,12 @@ def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str
             certification_points=cert_summary.get('certification_points', 0),
             rank_name=cert_summary.get('rank_name', 'Новичок'),
             rank_icon=cert_summary.get('rank_icon', '🌱'),
-            passed_tests_count=cert_summary.get('passed_tests_count', 0),
             passed_categories_count=cert_summary.get('passed_categories_count', 0),
-            category_result_validity_days=certification_settings.CATEGORY_RESULT_VALIDITY_DAYS,
             max_achievable_points=int(cert_summary.get('max_achievable_points') or max(int(cert_summary.get('certification_points', 0) or 0), 1)),
             overall_progress_percent=int(cert_summary.get('overall_progress_percent') or 0),
             overall_progress_bar=cert_summary.get('overall_progress_bar', '[□□□□□□□□□□]'),
             next_rank_name=cert_summary.get('next_rank_name'),
             points_to_next_rank=cert_summary.get('points_to_next_rank'),
-            cert_last_score=cert_summary.get('last_passed_score'),
             expired_categories_count=int(cert_summary.get('expired_categories_count') or 0),
         )
     except Exception:
