@@ -27,6 +27,7 @@ from . import settings
 from . import messages
 from . import keyboards
 from . import gamification_logic
+from src.sbs_helper_telegram_bot.certification import certification_logic
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,7 @@ async def show_other_user_profile(update: Update, context: ContextTypes.DEFAULT_
         return settings.STATE_VIEW_RANKINGS
     
     obfuscate = gamification_logic.get_obfuscate_names()
+    cert_summary = certification_logic.get_user_certification_summary(userid)
     
     message = messages.format_other_user_profile_message(
         first_name=profile['first_name'],
@@ -122,7 +124,12 @@ async def show_other_user_profile(update: Update, context: ContextTypes.DEFAULT_
         rank_icon=profile['rank_icon'],
         total_achievements=profile['total_achievements'],
         achievements_by_level=profile['achievements_by_level'],
-        obfuscate=obfuscate
+        obfuscate=obfuscate,
+        certification_rank_name=cert_summary.get('rank_name'),
+        certification_rank_icon=cert_summary.get('rank_icon'),
+        certification_points=cert_summary.get('certification_points'),
+        passed_tests_count=cert_summary.get('passed_tests_count'),
+        passed_categories_count=cert_summary.get('passed_categories_count'),
     )
     
     await query.edit_message_text(
@@ -673,6 +680,7 @@ def get_gamification_user_handler() -> ConversationHandler:
 def _get_profile_message(userid: int) -> Optional[str]:
     """Сформировать сообщение профиля пользователя."""
     profile = gamification_logic.get_user_profile(userid)
+    cert_summary = certification_logic.get_user_certification_summary(userid)
 
     if not profile:
         return None
@@ -687,5 +695,12 @@ def _get_profile_message(userid: int) -> Optional[str]:
         next_rank_threshold=profile['next_rank_threshold'],
         total_achievements=profile['total_achievements'],
         max_achievements=profile['max_achievements'],
-        achievements_by_level=profile['achievements_by_level']
+        achievements_by_level=profile['achievements_by_level'],
+        certification_rank_name=cert_summary.get('rank_name'),
+        certification_rank_icon=cert_summary.get('rank_icon'),
+        certification_points=cert_summary.get('certification_points'),
+        passed_tests_count=cert_summary.get('passed_tests_count'),
+        passed_categories_count=cert_summary.get('passed_categories_count'),
+        certification_next_rank_name=cert_summary.get('next_rank_name'),
+        certification_points_to_next=cert_summary.get('points_to_next_rank'),
     )

@@ -24,6 +24,7 @@ from telegram.ext import (
     filters
 )
 
+from config.settings import DEBUG
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin
 from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
 from src.sbs_helper_telegram_bot.gamification.events import emit_event
@@ -273,8 +274,9 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
     time_limit_seconds = time_limit_minutes * 60
     passing_score = test_settings['passing_score_percent']
     
-    # Получить случайные вопросы
-    questions = logic.get_random_questions(questions_count, category_id)
+    # Получить вопросы с целевым балансом сложности 33/33/33
+    question_set = logic.build_fair_test_questions(questions_count, category_id)
+    questions = question_set.get('questions', [])
     
     if not questions:
         await query.edit_message_text(
@@ -309,12 +311,36 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
     context.user_data[settings.TEST_IN_PROGRESS_KEY] = True
     
     # Показать сообщение о старте теста
-    await query.edit_message_text(
+    start_lines = [
         messages.MESSAGE_TEST_STARTED.format(
             total_questions=len(questions),
             time_limit=time_limit_minutes,
             passing_score=passing_score
         ),
+    ]
+
+    is_admin_debug = check_if_user_admin(update.effective_user.id) and DEBUG
+    if is_admin_debug:
+        target_distribution = question_set.get('target_distribution', {})
+        actual_distribution = question_set.get('actual_distribution', {})
+        start_lines.extend([
+            messages.MESSAGE_TEST_DIFFICULTY_TARGET.format(
+                easy=target_distribution.get('easy', 0),
+                medium=target_distribution.get('medium', 0),
+                hard=target_distribution.get('hard', 0),
+            ),
+            messages.MESSAGE_TEST_DIFFICULTY_ACTUAL.format(
+                easy=actual_distribution.get('easy', 0),
+                medium=actual_distribution.get('medium', 0),
+                hard=actual_distribution.get('hard', 0),
+            ),
+        ])
+
+        if question_set.get('fallback_used'):
+            start_lines.append(messages.MESSAGE_TEST_DIFFICULTY_FALLBACK)
+
+    await query.edit_message_text(
+        "\n\n".join(start_lines),
         parse_mode=constants.ParseMode.MARKDOWN_V2
     )
     

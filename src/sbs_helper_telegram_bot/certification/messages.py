@@ -68,6 +68,12 @@ MESSAGE_TEST_STARTED = """🚀 *Тест начат\\!*
 
 Удачи\\!"""
 
+MESSAGE_TEST_DIFFICULTY_TARGET = "⚖️ *Целевой баланс сложности:* 🟢 {easy} \| 🟡 {medium} \| 🔴 {hard}"
+
+MESSAGE_TEST_DIFFICULTY_ACTUAL = "📊 *Фактический баланс:* 🟢 {easy} \| 🟡 {medium} \| 🔴 {hard}"
+
+MESSAGE_TEST_DIFFICULTY_FALLBACK = "ℹ️ По выбранной категории использован мягкий fallback по сложностям, чтобы собрать полный тест\."
+
 MESSAGE_LEARNING_STARTED = """🎓 *Обучение начато\\!*
 
 📋 Вопросов: {total_questions}

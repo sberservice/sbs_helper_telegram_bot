@@ -21,6 +21,36 @@ from . import settings
 
 logger = logging.getLogger(__name__)
 
+CERTIFICATION_RANKS = [
+    {
+        'name': 'Новичок',
+        'icon': '🌱',
+        'min_points': 0,
+    },
+    {
+        'name': 'Практик',
+        'icon': '📘',
+        'min_points': 80,
+    },
+    {
+        'name': 'Специалист',
+        'icon': '⭐',
+        'min_points': 180,
+    },
+    {
+        'name': 'Эксперт',
+        'icon': '🏅',
+        'min_points': 320,
+    },
+    {
+        'name': 'Мастер аттестации',
+        'icon': '👑',
+        'min_points': 500,
+    },
+]
+
+QUESTION_DIFFICULTY_ORDER = ['easy', 'medium', 'hard']
+
 
 # ============================================================================
 # Классы данных
@@ -855,6 +885,235 @@ def get_random_questions(
         return questions
     
     return random.sample(questions, count)
+
+
+def _calculate_difficulty_targets(count: int) -> Dict[str, int]:
+    """
+    Рассчитать целевые квоты по сложностям с равномерным распределением.
+
+    Аргументы:
+        count: Общее количество вопросов в тесте
+
+    Возвращает:
+        Словарь с целевыми квотами easy/medium/hard
+    """
+    if count <= 0:
+        return {difficulty: 0 for difficulty in QUESTION_DIFFICULTY_ORDER}
+
+    base = count // len(QUESTION_DIFFICULTY_ORDER)
+    remainder = count % len(QUESTION_DIFFICULTY_ORDER)
+
+    targets = {difficulty: base for difficulty in QUESTION_DIFFICULTY_ORDER}
+
+    for index in range(remainder):
+        targets[QUESTION_DIFFICULTY_ORDER[index]] += 1
+
+    return targets
+
+
+def build_fair_test_questions(
+    count: int,
+    category_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Получить набор вопросов для теста с целевым балансом 33/33/33 по сложности.
+
+    Аргументы:
+        count: Требуемое количество вопросов
+        category_id: Фильтр по категории (необязательно)
+
+    Возвращает:
+        Словарь с полями questions, target_distribution, actual_distribution,
+        fallback_used, requested_count, selected_count
+    """
+    target_distribution = _calculate_difficulty_targets(count)
+    if count <= 0:
+        return {
+            'questions': [],
+            'target_distribution': target_distribution,
+            'actual_distribution': {difficulty: 0 for difficulty in QUESTION_DIFFICULTY_ORDER},
+            'fallback_used': False,
+            'requested_count': count,
+            'selected_count': 0,
+        }
+
+    pools: Dict[str, List[Dict]] = {}
+    for difficulty in QUESTION_DIFFICULTY_ORDER:
+        pools[difficulty] = get_all_questions(
+            active_only=True,
+            category_id=category_id,
+            include_outdated=False,
+            difficulty=difficulty
+        )
+
+    selected_questions: List[Dict] = []
+    selected_ids = set()
+    actual_distribution = {difficulty: 0 for difficulty in QUESTION_DIFFICULTY_ORDER}
+
+    for difficulty in QUESTION_DIFFICULTY_ORDER:
+        target_count = target_distribution[difficulty]
+        available = pools[difficulty]
+        take_count = min(target_count, len(available))
+        if take_count <= 0:
+            continue
+
+        chosen = random.sample(available, take_count)
+        selected_questions.extend(chosen)
+        selected_ids.update(question['id'] for question in chosen)
+        actual_distribution[difficulty] = take_count
+
+    fallback_used = len(selected_questions) < count
+    if fallback_used:
+        fallback_pool: List[Dict] = []
+        for difficulty in QUESTION_DIFFICULTY_ORDER:
+            for question in pools[difficulty]:
+                if question['id'] not in selected_ids:
+                    fallback_pool.append(question)
+
+        missing = count - len(selected_questions)
+        if fallback_pool and missing > 0:
+            add_count = min(missing, len(fallback_pool))
+            additional_questions = random.sample(fallback_pool, add_count)
+            selected_questions.extend(additional_questions)
+            for question in additional_questions:
+                selected_ids.add(question['id'])
+                question_difficulty = question.get('difficulty', 'medium')
+                if question_difficulty not in actual_distribution:
+                    actual_distribution[question_difficulty] = 0
+                actual_distribution[question_difficulty] += 1
+
+    random.shuffle(selected_questions)
+
+    logger.info(
+        "Fair test distribution built: requested=%s, selected=%s, category_id=%s, target=%s, actual=%s, fallback_used=%s",
+        count,
+        len(selected_questions),
+        category_id,
+        target_distribution,
+        actual_distribution,
+        fallback_used,
+    )
+
+    return {
+        'questions': selected_questions,
+        'target_distribution': target_distribution,
+        'actual_distribution': actual_distribution,
+        'fallback_used': fallback_used,
+        'requested_count': count,
+        'selected_count': len(selected_questions),
+    }
+
+
+def _get_certification_rank_by_points(points: int) -> Dict[str, Any]:
+    """
+    Получить данные ранга по количеству сертификационных баллов.
+
+    Аргументы:
+        points: Количество сертификационных баллов
+
+    Возвращает:
+        Словарь с текущим и следующим рангом, а также прогрессом
+    """
+    current_rank = CERTIFICATION_RANKS[0]
+    next_rank = None
+
+    for rank in CERTIFICATION_RANKS:
+        if points >= rank['min_points']:
+            current_rank = rank
+            continue
+        next_rank = rank
+        break
+
+    points_to_next = None
+    progress_percent = 100
+    if next_rank:
+        points_to_next = max(next_rank['min_points'] - points, 0)
+        current_floor = current_rank['min_points']
+        next_floor = next_rank['min_points']
+        denominator = max(next_floor - current_floor, 1)
+        progress_percent = int(min(max(((points - current_floor) / denominator) * 100, 0), 100))
+
+    return {
+        'rank_name': current_rank['name'],
+        'rank_icon': current_rank['icon'],
+        'next_rank_name': next_rank['name'] if next_rank else None,
+        'next_rank_icon': next_rank['icon'] if next_rank else None,
+        'next_rank_threshold': next_rank['min_points'] if next_rank else None,
+        'points_to_next_rank': points_to_next,
+        'rank_progress_percent': progress_percent,
+    }
+
+
+def get_user_certification_summary(userid: int) -> Dict[str, Any]:
+    """
+    Получить единый профиль достижений и ранга пользователя по аттестации.
+
+    Аргументы:
+        userid: Telegram ID пользователя
+
+    Возвращает:
+        Словарь с метриками passed тестов/категорий и сертификационным рангом
+    """
+    default = {
+        'passed_tests_count': 0,
+        'passed_categories_count': 0,
+        'certification_points': 0,
+        'rank_name': CERTIFICATION_RANKS[0]['name'],
+        'rank_icon': CERTIFICATION_RANKS[0]['icon'],
+        'next_rank_name': CERTIFICATION_RANKS[1]['name'],
+        'next_rank_icon': CERTIFICATION_RANKS[1]['icon'],
+        'next_rank_threshold': CERTIFICATION_RANKS[1]['min_points'],
+        'points_to_next_rank': CERTIFICATION_RANKS[1]['min_points'],
+        'rank_progress_percent': 0,
+        'last_passed_score': None,
+        'last_passed_timestamp': None,
+    }
+
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        COUNT(*) as passed_tests_count,
+                        COUNT(DISTINCT category_id) as passed_categories_count,
+                        MAX(completed_timestamp) as last_passed_timestamp,
+                        (
+                            SELECT a2.score_percent
+                            FROM certification_attempts a2
+                            WHERE a2.userid = %s
+                              AND a2.status = 'completed'
+                              AND a2.passed = 1
+                            ORDER BY a2.completed_timestamp DESC
+                            LIMIT 1
+                        ) as last_passed_score
+                    FROM certification_attempts a
+                    WHERE a.userid = %s
+                      AND a.status = 'completed'
+                      AND a.passed = 1
+                    """,
+                    (userid, userid)
+                )
+                result = cursor.fetchone() or {}
+
+        passed_tests_count = int(result.get('passed_tests_count') or 0)
+        passed_categories_count = int(result.get('passed_categories_count') or 0)
+
+        certification_points = passed_tests_count * 10 + passed_categories_count * 40
+        rank_data = _get_certification_rank_by_points(certification_points)
+
+        summary = {
+            'passed_tests_count': passed_tests_count,
+            'passed_categories_count': passed_categories_count,
+            'certification_points': certification_points,
+            'last_passed_score': float(result['last_passed_score']) if result.get('last_passed_score') is not None else None,
+            'last_passed_timestamp': result.get('last_passed_timestamp'),
+        }
+        summary.update(rank_data)
+        return summary
+    except Exception as e:
+        logger.error("Error getting certification summary for user %s: %s", userid, e)
+        return default
 
 
 def create_test_attempt(

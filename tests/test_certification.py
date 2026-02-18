@@ -442,5 +442,99 @@ class TestRelevanceDateLogic(unittest.TestCase):
         self.assertGreaterEqual(today, today)
 
 
+class TestCertificationRankSummary(unittest.TestCase):
+    """Тесты единого профиля ранга по аттестации."""
+
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.database')
+    def test_user_certification_summary_counts_passed_only(self, mock_database):
+        """Проверка, что summary считает только passed-тесты и категории."""
+        from src.sbs_helper_telegram_bot.certification import certification_logic
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+
+        mock_database.get_db_connection.return_value.__enter__.return_value = mock_conn
+        mock_database.get_cursor.return_value.__enter__.return_value = mock_cursor
+
+        mock_cursor.fetchone.return_value = {
+            'passed_tests_count': 7,
+            'passed_categories_count': 3,
+            'last_passed_timestamp': 1735689600,
+            'last_passed_score': 92.5,
+        }
+
+        summary = certification_logic.get_user_certification_summary(1001)
+
+        self.assertEqual(summary['passed_tests_count'], 7)
+        self.assertEqual(summary['passed_categories_count'], 3)
+        self.assertEqual(summary['certification_points'], 190)
+        self.assertEqual(summary['rank_name'], 'Специалист')
+        self.assertEqual(summary['rank_icon'], '⭐')
+        self.assertEqual(summary['next_rank_name'], 'Эксперт')
+        self.assertAlmostEqual(summary['last_passed_score'], 92.5)
+
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.database')
+    def test_user_certification_summary_default_on_error(self, mock_database):
+        """Проверка возврата безопасного значения при ошибке БД."""
+        from src.sbs_helper_telegram_bot.certification import certification_logic
+
+        mock_database.get_db_connection.side_effect = Exception('db error')
+
+        summary = certification_logic.get_user_certification_summary(1002)
+
+        self.assertEqual(summary['passed_tests_count'], 0)
+        self.assertEqual(summary['passed_categories_count'], 0)
+        self.assertEqual(summary['rank_name'], 'Новичок')
+        self.assertEqual(summary['rank_icon'], '🌱')
+
+
+class TestFairQuestionsDistribution(unittest.TestCase):
+    """Тесты выбора вопросов с целевым балансом сложностей."""
+
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.random.sample', side_effect=lambda seq, k: list(seq)[:k])
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.random.shuffle', side_effect=lambda seq: None)
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.get_all_questions')
+    def test_build_fair_test_questions_balanced(self, mock_get_all_questions, _mock_shuffle, _mock_sample):
+        """Проверка квот 33/33/33 при достаточном количестве вопросов."""
+        from src.sbs_helper_telegram_bot.certification import certification_logic
+
+        easy = [{'id': i, 'difficulty': 'easy'} for i in range(1, 11)]
+        medium = [{'id': i, 'difficulty': 'medium'} for i in range(101, 111)]
+        hard = [{'id': i, 'difficulty': 'hard'} for i in range(201, 211)]
+
+        mock_get_all_questions.side_effect = [easy, medium, hard]
+
+        result = certification_logic.build_fair_test_questions(10, category_id=5)
+
+        self.assertEqual(result['target_distribution'], {'easy': 4, 'medium': 3, 'hard': 3})
+        self.assertEqual(result['actual_distribution']['easy'], 4)
+        self.assertEqual(result['actual_distribution']['medium'], 3)
+        self.assertEqual(result['actual_distribution']['hard'], 3)
+        self.assertFalse(result['fallback_used'])
+        self.assertEqual(len(result['questions']), 10)
+
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.random.sample', side_effect=lambda seq, k: list(seq)[:k])
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.random.shuffle', side_effect=lambda seq: None)
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.get_all_questions')
+    def test_build_fair_test_questions_with_fallback(self, mock_get_all_questions, _mock_shuffle, _mock_sample):
+        """Проверка мягкого fallback при нехватке сложных вопросов."""
+        from src.sbs_helper_telegram_bot.certification import certification_logic
+
+        easy = [{'id': i, 'difficulty': 'easy'} for i in range(1, 11)]
+        medium = [{'id': i, 'difficulty': 'medium'} for i in range(101, 111)]
+        hard = [{'id': 201, 'difficulty': 'hard'}]
+
+        mock_get_all_questions.side_effect = [easy, medium, hard]
+
+        result = certification_logic.build_fair_test_questions(9, category_id=None)
+
+        self.assertEqual(result['target_distribution'], {'easy': 3, 'medium': 3, 'hard': 3})
+        self.assertTrue(result['fallback_used'])
+        self.assertEqual(result['selected_count'], 9)
+        self.assertEqual(result['actual_distribution']['hard'], 1)
+        self.assertEqual(result['actual_distribution']['easy'] + result['actual_distribution']['medium'] + result['actual_distribution']['hard'], 9)
+        self.assertEqual(len({question['id'] for question in result['questions']}), 9)
+
+
 if __name__ == '__main__':
     unittest.main()
