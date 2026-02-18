@@ -1085,10 +1085,9 @@ def get_max_achievable_certification_points() -> int:
     """
     Рассчитать максимально достижимые очки аттестации динамически.
 
-    Логика расчёта:
-    - за каждую активную категорию можно получить 40 баллов;
-    - дополнительно считаем, что можно успешно пройти минимум по одному тесту
-      на категорию и один общий тест: \(active_categories + 1\) * 10.
+        Логика расчёта:
+        - за каждую активную категорию максимально можно получить 100 баллов
+            \(лучший результат теста в категории 100%\).
 
     Возвращает:
         Максимально достижимое количество баллов.
@@ -1102,10 +1101,9 @@ def get_max_achievable_certification_points() -> int:
                 result = cursor.fetchone() or {}
 
         active_categories_count = int(result.get('active_categories_count') or 0)
-        max_passed_tests_count = active_categories_count + 1
 
-        max_points = (active_categories_count * 40) + (max_passed_tests_count * 10)
-        return max(max_points, 10)
+        max_points = active_categories_count * 100
+        return max(max_points, 100)
     except Exception as e:
         logger.error("Error calculating max achievable certification points: %s", e)
         return DEFAULT_MAX_ACHIEVABLE_POINTS
@@ -1187,6 +1185,10 @@ def get_user_certification_summary(userid: int) -> Dict[str, Any]:
     }
 
     try:
+        current_timestamp = int(time.time())
+        validity_seconds = settings.CATEGORY_RESULT_VALIDITY_DAYS * 24 * 60 * 60
+        valid_from_timestamp = current_timestamp - validity_seconds
+
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
                 cursor.execute(
@@ -1226,9 +1228,22 @@ def get_user_certification_summary(userid: int) -> Dict[str, Any]:
                 )
                 category_results = cursor.fetchall() or []
 
+                cursor.execute(
+                    """
+                    SELECT category_id, MAX(score_percent) as best_score_percent
+                    FROM certification_attempts
+                    WHERE userid = %s
+                      AND status = 'completed'
+                      AND category_id IS NOT NULL
+                      AND completed_timestamp >= %s
+                    GROUP BY category_id
+                    """,
+                    (userid, valid_from_timestamp)
+                )
+                recent_best_category_attempts = cursor.fetchall() or []
+
         passed_tests_count = int(result.get('passed_tests_count') or 0)
 
-        current_timestamp = int(time.time())
         warning_seconds = settings.CATEGORY_RESULT_EXPIRY_WARNING_DAYS * 24 * 60 * 60
 
         passed_categories_count = 0
@@ -1257,7 +1272,10 @@ def get_user_certification_summary(userid: int) -> Dict[str, Any]:
 
         total_passed_categories_count = len(category_results)
 
-        certification_points = passed_tests_count * 10 + passed_categories_count * 40
+        certification_points = int(round(sum(
+            float(category_attempt.get('best_score_percent') or 0)
+            for category_attempt in recent_best_category_attempts
+        )))
         overall_progress_percent = int(
             min(max((certification_points / max(max_achievable_points, 1)) * 100, 0), 100)
         )

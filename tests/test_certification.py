@@ -482,7 +482,7 @@ class TestCertificationRankSummary(unittest.TestCase):
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.time.time', return_value=1_700_000_000)
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.database')
     def test_user_certification_summary_counts_passed_only(self, mock_database, _mock_time, _mock_max_points):
-        """Проверка, что summary считает только passed-тесты и категории."""
+        """Проверка, что points считаются по лучшим процентам за окно валидности."""
         from src.sbs_helper_telegram_bot.certification import certification_logic
         from src.sbs_helper_telegram_bot.certification import settings
 
@@ -499,10 +499,16 @@ class TestCertificationRankSummary(unittest.TestCase):
         }]
         now_ts = 1_700_000_000
         validity_seconds = settings.CATEGORY_RESULT_VALIDITY_DAYS * 24 * 60 * 60
-        mock_cursor.fetchall.return_value = [
-            {'category_id': 11, 'last_passed_category_timestamp': now_ts - 1000},
-            {'category_id': 12, 'last_passed_category_timestamp': now_ts - validity_seconds - 10},
-            {'category_id': 13, 'last_passed_category_timestamp': now_ts - (validity_seconds // 2)},
+        mock_cursor.fetchall.side_effect = [
+            [
+                {'category_id': 11, 'last_passed_category_timestamp': now_ts - 1000},
+                {'category_id': 12, 'last_passed_category_timestamp': now_ts - validity_seconds - 10},
+                {'category_id': 13, 'last_passed_category_timestamp': now_ts - (validity_seconds // 2)},
+            ],
+            [
+                {'category_id': 11, 'best_score_percent': 92.5},
+                {'category_id': 13, 'best_score_percent': 57.5},
+            ],
         ]
 
         summary = certification_logic.get_user_certification_summary(1001)
@@ -561,9 +567,14 @@ class TestCertificationRankSummary(unittest.TestCase):
         now_ts = 1_700_000_000
         validity_seconds = settings.CATEGORY_RESULT_VALIDITY_DAYS * 24 * 60 * 60
         warning_seconds = settings.CATEGORY_RESULT_EXPIRY_WARNING_DAYS * 24 * 60 * 60
-        mock_cursor.fetchall.return_value = [
-            {'category_id': 21, 'last_passed_category_timestamp': now_ts - validity_seconds - 1},
-            {'category_id': 22, 'last_passed_category_timestamp': now_ts - validity_seconds + warning_seconds - 100},
+        mock_cursor.fetchall.side_effect = [
+            [
+                {'category_id': 21, 'last_passed_category_timestamp': now_ts - validity_seconds - 1},
+                {'category_id': 22, 'last_passed_category_timestamp': now_ts - validity_seconds + warning_seconds - 100},
+            ],
+            [
+                {'category_id': 22, 'best_score_percent': 80.0},
+            ],
         ]
 
         summary = certification_logic.get_user_certification_summary(1003)
@@ -572,6 +583,7 @@ class TestCertificationRankSummary(unittest.TestCase):
         self.assertEqual(summary['passed_categories_count'], 1)
         self.assertEqual(summary['expired_categories_count'], 1)
         self.assertEqual(summary['expiring_soon_categories_count'], 1)
+        self.assertEqual(summary['certification_points'], 80)
 
 
 class TestFairQuestionsDistribution(unittest.TestCase):
