@@ -953,7 +953,9 @@ def build_fair_test_questions(
             difficulty=difficulty
         )
 
-    selected_questions: List[Dict] = []
+    selected_questions_by_difficulty: Dict[str, List[Dict]] = {
+        difficulty: [] for difficulty in QUESTION_DIFFICULTY_ORDER
+    }
     selected_ids = set()
     actual_distribution = {difficulty: 0 for difficulty in QUESTION_DIFFICULTY_ORDER}
 
@@ -965,11 +967,13 @@ def build_fair_test_questions(
             continue
 
         chosen = random.sample(available, take_count)
-        selected_questions.extend(chosen)
+        selected_questions_by_difficulty[difficulty].extend(chosen)
         selected_ids.update(question['id'] for question in chosen)
         actual_distribution[difficulty] = take_count
 
-    fallback_used = len(selected_questions) < count
+    selected_count = sum(len(selected_questions_by_difficulty[difficulty]) for difficulty in QUESTION_DIFFICULTY_ORDER)
+
+    fallback_used = selected_count < count
     if fallback_used:
         fallback_pool: List[Dict] = []
         for difficulty in QUESTION_DIFFICULTY_ORDER:
@@ -977,24 +981,28 @@ def build_fair_test_questions(
                 if question['id'] not in selected_ids:
                     fallback_pool.append(question)
 
-        missing = count - len(selected_questions)
+        missing = count - selected_count
         if fallback_pool and missing > 0:
             add_count = min(missing, len(fallback_pool))
             additional_questions = random.sample(fallback_pool, add_count)
-            selected_questions.extend(additional_questions)
             for question in additional_questions:
                 selected_ids.add(question['id'])
                 question_difficulty = question.get('difficulty', 'medium')
                 if question_difficulty not in actual_distribution:
                     actual_distribution[question_difficulty] = 0
+                    selected_questions_by_difficulty[question_difficulty] = []
+                selected_questions_by_difficulty[question_difficulty].append(question)
                 actual_distribution[question_difficulty] += 1
 
-    random.shuffle(selected_questions)
+    ordered_questions: List[Dict] = []
+    for difficulty in QUESTION_DIFFICULTY_ORDER:
+        random.shuffle(selected_questions_by_difficulty[difficulty])
+        ordered_questions.extend(selected_questions_by_difficulty[difficulty])
 
     logger.info(
         "Fair test distribution built: requested=%s, selected=%s, category_id=%s, target=%s, actual=%s, fallback_used=%s",
         count,
-        len(selected_questions),
+        len(ordered_questions),
         category_id,
         target_distribution,
         actual_distribution,
@@ -1002,12 +1010,12 @@ def build_fair_test_questions(
     )
 
     return {
-        'questions': selected_questions,
+        'questions': ordered_questions,
         'target_distribution': target_distribution,
         'actual_distribution': actual_distribution,
         'fallback_used': fallback_used,
         'requested_count': count,
-        'selected_count': len(selected_questions),
+        'selected_count': len(ordered_questions),
     }
 
 
