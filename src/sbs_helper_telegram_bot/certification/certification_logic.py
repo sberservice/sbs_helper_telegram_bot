@@ -25,29 +25,36 @@ CERTIFICATION_RANKS = [
     {
         'name': 'Новичок',
         'icon': '🌱',
-        'min_points': 0,
+        'min_percent': 0.00,
     },
     {
         'name': 'Практик',
         'icon': '📘',
-        'min_points': 80,
+        'min_percent': 0.16,
     },
     {
         'name': 'Специалист',
         'icon': '⭐',
-        'min_points': 180,
+        'min_percent': 0.36,
     },
     {
         'name': 'Эксперт',
         'icon': '🏅',
-        'min_points': 320,
+        'min_percent': 0.64,
     },
     {
         'name': 'Мастер аттестации',
         'icon': '👑',
-        'min_points': 500,
+        'min_percent': 0.90,
+    },
+    {
+        'name': 'Абсолют',
+        'icon': '💠',
+        'min_percent': 1.00,
     },
 ]
+
+DEFAULT_MAX_ACHIEVABLE_POINTS = 500
 
 QUESTION_DIFFICULTY_ORDER = ['easy', 'medium', 'hard']
 
@@ -1014,10 +1021,11 @@ def _get_certification_rank_by_points(points: int) -> Dict[str, Any]:
     Возвращает:
         Словарь с текущим и следующим рангом, а также прогрессом
     """
-    current_rank = CERTIFICATION_RANKS[0]
+    rank_ladder = get_certification_rank_ladder()
+    current_rank = rank_ladder[0]
     next_rank = None
 
-    for rank in CERTIFICATION_RANKS:
+    for rank in rank_ladder:
         if points >= rank['min_points']:
             current_rank = rank
             continue
@@ -1049,9 +1057,58 @@ def get_certification_rank_ladder() -> List[Dict[str, Any]]:
     Получить полную шкалу рангов аттестации.
 
     Возвращает:
-        Список рангов с полями name, icon и min_points.
+        Список рангов с полями name, icon, min_percent и min_points.
     """
-    return [rank.copy() for rank in CERTIFICATION_RANKS]
+    max_points = max(get_max_achievable_certification_points(), 1)
+
+    rank_ladder: List[Dict[str, Any]] = []
+    previous_points = 0
+    for index, rank in enumerate(CERTIFICATION_RANKS):
+        min_points = int(round(max_points * rank['min_percent']))
+        if index > 0:
+            min_points = max(min_points, previous_points)
+        if index == len(CERTIFICATION_RANKS) - 1:
+            min_points = max_points
+
+        rank_ladder.append({
+            'name': rank['name'],
+            'icon': rank['icon'],
+            'min_percent': rank['min_percent'],
+            'min_points': min_points,
+        })
+        previous_points = min_points
+
+    return rank_ladder
+
+
+def get_max_achievable_certification_points() -> int:
+    """
+    Рассчитать максимально достижимые очки аттестации динамически.
+
+    Логика расчёта:
+    - за каждую активную категорию можно получить 40 баллов;
+    - дополнительно считаем, что можно успешно пройти минимум по одному тесту
+      на категорию и один общий тест: \(active_categories + 1\) * 10.
+
+    Возвращает:
+        Максимально достижимое количество баллов.
+    """
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) as active_categories_count FROM certification_categories WHERE active = 1"
+                )
+                result = cursor.fetchone() or {}
+
+        active_categories_count = int(result.get('active_categories_count') or 0)
+        max_passed_tests_count = active_categories_count + 1
+
+        max_points = (active_categories_count * 40) + (max_passed_tests_count * 10)
+        return max(max_points, 10)
+    except Exception as e:
+        logger.error("Error calculating max achievable certification points: %s", e)
+        return DEFAULT_MAX_ACHIEVABLE_POINTS
 
 
 def get_category_result_expiry_timestamp(completed_timestamp: Optional[int]) -> Optional[int]:
@@ -1071,6 +1128,27 @@ def get_category_result_expiry_timestamp(completed_timestamp: Optional[int]) -> 
     return int(completed_timestamp) + validity_seconds
 
 
+def build_progress_bar(progress_percent: int, width: int = 10) -> str:
+    """
+    Построить текстовый прогресс-бар по проценту выполнения.
+
+    Аргументы:
+        progress_percent: Процент прогресса от 0 до 100
+        width: Ширина прогресс-бара в символах
+
+    Возвращает:
+        Строка с прогресс-баром вида [■■■□□□□□□□]
+    """
+    safe_width = max(int(width), 1)
+    safe_percent = min(max(int(progress_percent), 0), 100)
+    filled_count = int(round((safe_percent / 100) * safe_width))
+    filled_count = min(max(filled_count, 0), safe_width)
+
+    filled = "■" * filled_count
+    empty = "□" * (safe_width - filled_count)
+    return f"[{filled}{empty}]"
+
+
 def get_user_certification_summary(userid: int) -> Dict[str, Any]:
     """
     Получить единый профиль достижений и ранга пользователя по аттестации.
@@ -1081,6 +1159,11 @@ def get_user_certification_summary(userid: int) -> Dict[str, Any]:
     Возвращает:
         Словарь с метриками passed тестов/категорий и сертификационным рангом
     """
+    rank_ladder = get_certification_rank_ladder()
+    default_current_rank = rank_ladder[0]
+    default_next_rank = rank_ladder[1] if len(rank_ladder) > 1 else None
+    max_achievable_points = get_max_achievable_certification_points()
+
     default = {
         'passed_tests_count': 0,
         'passed_categories_count': 0,
@@ -1089,12 +1172,15 @@ def get_user_certification_summary(userid: int) -> Dict[str, Any]:
         'expiring_soon_categories_count': 0,
         'nearest_category_expiry_timestamp': None,
         'certification_points': 0,
-        'rank_name': CERTIFICATION_RANKS[0]['name'],
-        'rank_icon': CERTIFICATION_RANKS[0]['icon'],
-        'next_rank_name': CERTIFICATION_RANKS[1]['name'],
-        'next_rank_icon': CERTIFICATION_RANKS[1]['icon'],
-        'next_rank_threshold': CERTIFICATION_RANKS[1]['min_points'],
-        'points_to_next_rank': CERTIFICATION_RANKS[1]['min_points'],
+        'max_achievable_points': max_achievable_points,
+        'overall_progress_percent': 0,
+        'overall_progress_bar': build_progress_bar(0),
+        'rank_name': default_current_rank['name'],
+        'rank_icon': default_current_rank['icon'],
+        'next_rank_name': default_next_rank['name'] if default_next_rank else None,
+        'next_rank_icon': default_next_rank['icon'] if default_next_rank else None,
+        'next_rank_threshold': default_next_rank['min_points'] if default_next_rank else None,
+        'points_to_next_rank': default_next_rank['min_points'] if default_next_rank else None,
         'rank_progress_percent': 0,
         'last_passed_score': None,
         'last_passed_timestamp': None,
@@ -1172,6 +1258,9 @@ def get_user_certification_summary(userid: int) -> Dict[str, Any]:
         total_passed_categories_count = len(category_results)
 
         certification_points = passed_tests_count * 10 + passed_categories_count * 40
+        overall_progress_percent = int(
+            min(max((certification_points / max(max_achievable_points, 1)) * 100, 0), 100)
+        )
         rank_data = _get_certification_rank_by_points(certification_points)
 
         summary = {
@@ -1182,6 +1271,9 @@ def get_user_certification_summary(userid: int) -> Dict[str, Any]:
             'expiring_soon_categories_count': expiring_soon_categories_count,
             'nearest_category_expiry_timestamp': nearest_category_expiry_timestamp,
             'certification_points': certification_points,
+            'max_achievable_points': max_achievable_points,
+            'overall_progress_percent': overall_progress_percent,
+            'overall_progress_bar': build_progress_bar(overall_progress_percent),
             'last_passed_score': float(result['last_passed_score']) if result.get('last_passed_score') is not None else None,
             'last_passed_timestamp': result.get('last_passed_timestamp'),
         }

@@ -109,6 +109,14 @@ class TestCertificationLogicUtilities(unittest.TestCase):
         # Invalid month should return string representation
         self.assertEqual(get_month_name(13), "13")
         self.assertEqual(get_month_name(0), "0")
+
+    def test_build_progress_bar(self):
+        """Test textual progress bar rendering."""
+        from src.sbs_helper_telegram_bot.certification.certification_logic import build_progress_bar
+
+        self.assertEqual(build_progress_bar(0), "[□□□□□□□□□□]")
+        self.assertEqual(build_progress_bar(30), "[■■■□□□□□□□]")
+        self.assertEqual(build_progress_bar(100), "[■■■■■■■■■■]")
         
     def test_escape_markdown(self):
         """Test MarkdownV2 escaping."""
@@ -267,6 +275,12 @@ class TestCertificationMessages(unittest.TestCase):
         self.assertIsNotNone(messages.MESSAGE_RANK_SCALE_HEADER)
         self.assertIsNotNone(messages.MESSAGE_RANK_SCALE_ITEM)
         self.assertIsNotNone(messages.MESSAGE_RANK_DROP_WARNING)
+        self.assertIsNotNone(messages.MESSAGE_CERT_PROGRESS_HEADER)
+        self.assertIsNotNone(messages.MESSAGE_CERT_PROGRESS_LINE)
+        self.assertIsNotNone(messages.MESSAGE_CERT_PROGRESS_POINTS_LINE)
+        self.assertIsNotNone(messages.MESSAGE_CERT_PROGRESS_BAR_LINE)
+        self.assertIsNotNone(messages.MESSAGE_CERT_PROGRESS_NEXT_STEP_LINE)
+        self.assertIsNotNone(messages.MESSAGE_CERT_PROGRESS_ULTIMATE_LINE)
         
         # Admin messages
         self.assertIsNotNone(messages.MESSAGE_ADMIN_MENU)
@@ -448,20 +462,26 @@ class TestRelevanceDateLogic(unittest.TestCase):
 class TestCertificationRankSummary(unittest.TestCase):
     """Тесты единого профиля ранга по аттестации."""
 
-    def test_get_certification_rank_ladder_returns_full_list(self):
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.get_max_achievable_certification_points', return_value=600)
+    def test_get_certification_rank_ladder_returns_full_list(self, _mock_max_points):
         """Проверка, что helper возвращает полную шкалу рангов с порогами."""
         from src.sbs_helper_telegram_bot.certification import certification_logic
 
         ladder = certification_logic.get_certification_rank_ladder()
 
-        self.assertEqual(len(ladder), 5)
+        self.assertEqual(len(ladder), 6)
         self.assertEqual(ladder[0]['name'], 'Новичок')
-        self.assertEqual(ladder[-1]['name'], 'Мастер аттестации')
-        self.assertEqual(ladder[-1]['min_points'], 500)
+        self.assertEqual(ladder[1]['min_points'], 96)
+        self.assertEqual(ladder[2]['min_points'], 216)
+        self.assertEqual(ladder[-2]['name'], 'Мастер аттестации')
+        self.assertEqual(ladder[-2]['min_points'], 540)
+        self.assertEqual(ladder[-1]['name'], 'Абсолют')
+        self.assertEqual(ladder[-1]['min_points'], 600)
 
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.get_max_achievable_certification_points', return_value=500)
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.time.time', return_value=1_700_000_000)
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.database')
-    def test_user_certification_summary_counts_passed_only(self, mock_database, _mock_time):
+    def test_user_certification_summary_counts_passed_only(self, mock_database, _mock_time, _mock_max_points):
         """Проверка, что summary считает только passed-тесты и категории."""
         from src.sbs_helper_telegram_bot.certification import certification_logic
         from src.sbs_helper_telegram_bot.certification import settings
@@ -492,14 +512,18 @@ class TestCertificationRankSummary(unittest.TestCase):
         self.assertEqual(summary['total_passed_categories_count'], 3)
         self.assertEqual(summary['expired_categories_count'], 1)
         self.assertEqual(summary['certification_points'], 150)
+        self.assertEqual(summary['max_achievable_points'], 500)
+        self.assertEqual(summary['overall_progress_percent'], 30)
+        self.assertEqual(summary['overall_progress_bar'], '[■■■□□□□□□□]')
         self.assertEqual(summary['rank_name'], 'Практик')
         self.assertEqual(summary['rank_icon'], '📘')
         self.assertEqual(summary['next_rank_name'], 'Специалист')
         self.assertAlmostEqual(summary['last_passed_score'], 92.5)
         self.assertIsNotNone(summary['nearest_category_expiry_timestamp'])
 
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.get_max_achievable_certification_points', return_value=500)
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.database')
-    def test_user_certification_summary_default_on_error(self, mock_database):
+    def test_user_certification_summary_default_on_error(self, mock_database, _mock_max_points):
         """Проверка возврата безопасного значения при ошибке БД."""
         from src.sbs_helper_telegram_bot.certification import certification_logic
 
@@ -514,9 +538,10 @@ class TestCertificationRankSummary(unittest.TestCase):
         self.assertEqual(summary['rank_name'], 'Новичок')
         self.assertEqual(summary['rank_icon'], '🌱')
 
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.get_max_achievable_certification_points', return_value=500)
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.time.time', return_value=1_700_000_000)
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.database')
-    def test_user_certification_summary_excludes_expired_categories(self, mock_database, _mock_time):
+    def test_user_certification_summary_excludes_expired_categories(self, mock_database, _mock_time, _mock_max_points):
         """Проверка, что просроченные категории не считаются активными."""
         from src.sbs_helper_telegram_bot.certification import certification_logic
         from src.sbs_helper_telegram_bot.certification import settings
