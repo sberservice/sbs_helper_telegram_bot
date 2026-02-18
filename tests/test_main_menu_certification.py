@@ -29,16 +29,17 @@ class TestMainMenuCertification(unittest.TestCase):
         message = get_main_menu_message(1001, 'Иван')
 
         self.assertIn('Аттестационный ранг', message)
-        self.assertIn('Пройдено тестов', message)
         self.assertIn('Освоено категорий', message)
-        self.assertIn('Срок результата по категории', message)
-        self.assertIn('Прогресс к максимуму', message)
-        self.assertIn('210/500', message)
-        self.assertIn('42%', message)
+        self.assertIn('Прогресс аттестации :', message)
+        self.assertIn('42% 210/500', message)
         self.assertIn('До ранга', message)
         self.assertIn('Эксперт', message)
         self.assertIn('Специалист', message)
-        self.assertIn('87\\.5', message)
+        self.assertNotIn('Баллы аттестации', message)
+        self.assertNotIn('Прогресс к максимуму', message)
+        self.assertNotIn('Пройдено тестов', message)
+        self.assertNotIn('Последний успешный тест', message)
+        self.assertNotIn('Срок результата по категории', message)
         self.assertNotIn('Шкала аттестационных рангов', message)
         self.assertNotIn('Аттестационный ранг может снизиться', message)
 
@@ -65,7 +66,7 @@ class TestMainMenuCertification(unittest.TestCase):
         message = get_main_menu_message(1003, 'Анна')
 
         self.assertIn('До ранга', message)
-        self.assertIn('Прогресс к максимуму', message)
+        self.assertIn('Прогресс аттестации :', message)
         self.assertIn('Аттестационный ранг может снизиться', message)
 
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.get_user_certification_summary', side_effect=Exception('boom'))
