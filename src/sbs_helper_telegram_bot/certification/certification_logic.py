@@ -1044,6 +1044,33 @@ def _get_certification_rank_by_points(points: int) -> Dict[str, Any]:
     }
 
 
+def get_certification_rank_ladder() -> List[Dict[str, Any]]:
+    """
+    Получить полную шкалу рангов аттестации.
+
+    Возвращает:
+        Список рангов с полями name, icon и min_points.
+    """
+    return [rank.copy() for rank in CERTIFICATION_RANKS]
+
+
+def get_category_result_expiry_timestamp(completed_timestamp: Optional[int]) -> Optional[int]:
+    """
+    Получить timestamp истечения результата по категории.
+
+    Аргументы:
+        completed_timestamp: Время успешного завершения теста по категории
+
+    Возвращает:
+        Timestamp истечения или None, если входные данные некорректны
+    """
+    if completed_timestamp is None:
+        return None
+
+    validity_seconds = settings.CATEGORY_RESULT_VALIDITY_DAYS * 24 * 60 * 60
+    return int(completed_timestamp) + validity_seconds
+
+
 def get_user_certification_summary(userid: int) -> Dict[str, Any]:
     """
     Получить единый профиль достижений и ранга пользователя по аттестации.
@@ -1057,6 +1084,10 @@ def get_user_certification_summary(userid: int) -> Dict[str, Any]:
     default = {
         'passed_tests_count': 0,
         'passed_categories_count': 0,
+        'total_passed_categories_count': 0,
+        'expired_categories_count': 0,
+        'expiring_soon_categories_count': 0,
+        'nearest_category_expiry_timestamp': None,
         'certification_points': 0,
         'rank_name': CERTIFICATION_RANKS[0]['name'],
         'rank_icon': CERTIFICATION_RANKS[0]['icon'],
@@ -1076,7 +1107,6 @@ def get_user_certification_summary(userid: int) -> Dict[str, Any]:
                     """
                     SELECT
                         COUNT(*) as passed_tests_count,
-                        COUNT(DISTINCT category_id) as passed_categories_count,
                         MAX(completed_timestamp) as last_passed_timestamp,
                         (
                             SELECT a2.score_percent
@@ -1096,8 +1126,50 @@ def get_user_certification_summary(userid: int) -> Dict[str, Any]:
                 )
                 result = cursor.fetchone() or {}
 
+                cursor.execute(
+                    """
+                    SELECT category_id, MAX(completed_timestamp) as last_passed_category_timestamp
+                    FROM certification_attempts
+                    WHERE userid = %s
+                      AND status = 'completed'
+                      AND passed = 1
+                      AND category_id IS NOT NULL
+                    GROUP BY category_id
+                    """,
+                    (userid,)
+                )
+                category_results = cursor.fetchall() or []
+
         passed_tests_count = int(result.get('passed_tests_count') or 0)
-        passed_categories_count = int(result.get('passed_categories_count') or 0)
+
+        current_timestamp = int(time.time())
+        warning_seconds = settings.CATEGORY_RESULT_EXPIRY_WARNING_DAYS * 24 * 60 * 60
+
+        passed_categories_count = 0
+        expired_categories_count = 0
+        expiring_soon_categories_count = 0
+        nearest_category_expiry_timestamp = None
+
+        for category_result in category_results:
+            expiry_timestamp = get_category_result_expiry_timestamp(
+                category_result.get('last_passed_category_timestamp')
+            )
+            if expiry_timestamp is None:
+                continue
+
+            if expiry_timestamp <= current_timestamp:
+                expired_categories_count += 1
+                continue
+
+            passed_categories_count += 1
+
+            if nearest_category_expiry_timestamp is None or expiry_timestamp < nearest_category_expiry_timestamp:
+                nearest_category_expiry_timestamp = expiry_timestamp
+
+            if (expiry_timestamp - current_timestamp) <= warning_seconds:
+                expiring_soon_categories_count += 1
+
+        total_passed_categories_count = len(category_results)
 
         certification_points = passed_tests_count * 10 + passed_categories_count * 40
         rank_data = _get_certification_rank_by_points(certification_points)
@@ -1105,6 +1177,10 @@ def get_user_certification_summary(userid: int) -> Dict[str, Any]:
         summary = {
             'passed_tests_count': passed_tests_count,
             'passed_categories_count': passed_categories_count,
+            'total_passed_categories_count': total_passed_categories_count,
+            'expired_categories_count': expired_categories_count,
+            'expiring_soon_categories_count': expiring_soon_categories_count,
+            'nearest_category_expiry_timestamp': nearest_category_expiry_timestamp,
             'certification_points': certification_points,
             'last_passed_score': float(result['last_passed_score']) if result.get('last_passed_score') is not None else None,
             'last_passed_timestamp': result.get('last_passed_timestamp'),
@@ -1261,6 +1337,7 @@ def complete_test_attempt(
                     'score_percent': round(score_percent, 2),
                     'passed': passed,
                     'time_spent_seconds': time_spent,
+                    'completed_timestamp': completed_timestamp,
                     'status': status
                 }
     except Exception as e:

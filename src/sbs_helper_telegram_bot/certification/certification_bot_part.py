@@ -867,6 +867,19 @@ async def finish_test(
     
     # Отправить события геймификации
     attempt = logic.get_attempt_by_id(attempt_id)
+
+    if attempt and attempt.get('category_id') is not None:
+        result_message += "\n\n" + messages.MESSAGE_CATEGORY_RESULT_VALIDITY_INFO.format(
+            days=settings.CATEGORY_RESULT_VALIDITY_DAYS
+        )
+        if result['passed'] and status == 'completed':
+            expiry_timestamp = logic.get_category_result_expiry_timestamp(result.get('completed_timestamp'))
+            if expiry_timestamp:
+                expiry_date = datetime.fromtimestamp(expiry_timestamp).strftime('%d\\.%m\\.%Y')
+                result_message += "\n" + messages.MESSAGE_CATEGORY_RESULT_EXPIRES_AT.format(
+                    expiry_date=expiry_date
+                )
+
     event_data = {
         'attempt_id': attempt_id,
         'status': status,
@@ -981,6 +994,7 @@ async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     # Получить категории, где пользователь проходил тесты в этом месяце
     user_categories = logic.get_user_categories_this_month(update.effective_user.id)
+    cert_summary = logic.get_user_certification_summary(update.effective_user.id)
     
     if not user_categories:
         await update.message.reply_text(
@@ -1027,6 +1041,57 @@ async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             last_test_date=last_test_date,
             last_test_score=int(user_stats['last_test_score']) if user_stats['last_test_score'] else 0
         ))
+
+    expiry_lines = [
+        messages.MESSAGE_CATEGORY_RESULT_POLICY_LINE.format(
+            days=settings.CATEGORY_RESULT_VALIDITY_DAYS
+        )
+    ]
+
+    nearest_expiry_timestamp = cert_summary.get('nearest_category_expiry_timestamp')
+    if nearest_expiry_timestamp:
+        nearest_expiry_date = datetime.fromtimestamp(nearest_expiry_timestamp).strftime('%d\\.%m\\.%Y')
+        expiry_lines.append(
+            messages.MESSAGE_CATEGORY_RESULT_NEAREST_EXPIRY_LINE.format(
+                expiry_date=nearest_expiry_date
+            )
+        )
+
+    expiring_soon_count = int(cert_summary.get('expiring_soon_categories_count') or 0)
+    if expiring_soon_count > 0:
+        expiry_lines.append(
+            messages.MESSAGE_CATEGORY_RESULT_EXPIRING_SOON_LINE.format(
+                warning_days=settings.CATEGORY_RESULT_EXPIRY_WARNING_DAYS,
+                count=expiring_soon_count,
+            )
+        )
+
+    expired_count = int(cert_summary.get('expired_categories_count') or 0)
+    if expired_count > 0:
+        expiry_lines.append(
+            messages.MESSAGE_CATEGORY_RESULT_EXPIRED_LINE.format(
+                count=expired_count
+            )
+        )
+
+    message_parts.append("\n\n⏳ *Срок действия результатов по категориям:*\n" + "\n".join(expiry_lines))
+
+    rank_ladder = logic.get_certification_rank_ladder()
+    rank_scale_lines = [messages.MESSAGE_RANK_SCALE_HEADER]
+    for rank_data in rank_ladder:
+        rank_scale_lines.append(
+            messages.MESSAGE_RANK_SCALE_ITEM.format(
+                icon=rank_data.get('icon', '🏅'),
+                name=logic.escape_markdown(str(rank_data.get('name', ''))),
+                min_points=int(rank_data.get('min_points', 0)),
+            )
+        )
+    message_parts.append("\n\n" + "\n".join(rank_scale_lines))
+
+    if expired_count > 0:
+        message_parts.append(
+            "\n" + messages.MESSAGE_RANK_DROP_WARNING.format(count=expired_count)
+        )
     
     await update.message.reply_text(
         "".join(message_parts),

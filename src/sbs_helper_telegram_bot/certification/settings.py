@@ -31,6 +31,8 @@ DEFAULT_QUESTIONS_COUNT: Final[int] = 20
 DEFAULT_TIME_LIMIT_MINUTES: Final[int] = 15
 DEFAULT_PASSING_SCORE_PERCENT: Final[int] = 80
 DEFAULT_RELEVANCE_MONTHS: Final[int] = 6  # Вопросы становятся неактуальными спустя это число месяцев
+CATEGORY_RESULT_VALIDITY_DAYS: Final[int] = 30  # Срок действия результата по категории
+CATEGORY_RESULT_EXPIRY_WARNING_DAYS: Final[int] = 7  # Порог предупреждения о скором истечении
 
 # Конфигурация кнопок подменю для пользователей
 SUBMENU_BUTTONS: Final[List[List[str]]] = [
