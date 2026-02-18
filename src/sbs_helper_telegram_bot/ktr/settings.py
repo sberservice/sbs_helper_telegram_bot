@@ -32,7 +32,11 @@ BUTTON_ADMIN_CATEGORIES: Final[str] = "📁 Категории"
 BUTTON_ADMIN_UNKNOWN_CODES: Final[str] = "❓ Неизвестные коды"
 BUTTON_ADMIN_STATS: Final[str] = "📈 Статистика"
 BUTTON_ADMIN_IMPORT_CSV: Final[str] = "📥 Импорт CSV"
+BUTTON_ADMIN_SET_LAST_UPDATE_DATE: Final[str] = "📅 Дата обновления КТР"
 BUTTON_ADMIN_BACK_TO_KTR: Final[str] = "🔙 Назад в КТР"
+
+# Ключ настройки в bot_settings для даты последнего обновления общего файла КТР
+KTR_LAST_UPDATE_SETTING_KEY: Final[str] = "ktr_last_update_date"
 
 # Подписи кнопок подменю категорий/кодов (админ)
 BUTTON_ADMIN_ALL_CATEGORIES: Final[str] = "📋 Все категории"
@@ -56,7 +60,8 @@ ADMIN_MENU_BUTTONS: Final[List[List[str]]] = [
     [BUTTON_ADMIN_LIST_CODES, BUTTON_ADMIN_SEARCH_CODE],
     [BUTTON_ADMIN_ADD_CODE, BUTTON_ADMIN_CATEGORIES],
     [BUTTON_ADMIN_UNKNOWN_CODES, BUTTON_ADMIN_STATS],
-    [BUTTON_ADMIN_IMPORT_CSV, BUTTON_ADMIN_BACK_TO_KTR]
+    [BUTTON_ADMIN_IMPORT_CSV, BUTTON_ADMIN_SET_LAST_UPDATE_DATE],
+    [BUTTON_ADMIN_BACK_TO_KTR]
 ]
 
 # Подменю управления категориями (админ)

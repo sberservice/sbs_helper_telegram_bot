@@ -25,6 +25,7 @@ from telegram.ext import (
 )
 
 import src.common.database as database
+from src.common import bot_settings
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin, get_unauthorized_message
 from src.common.messages import (
     get_main_menu_message,
@@ -70,8 +71,9 @@ WAITING_FOR_CODE = 1
     ADMIN_EDIT_CATEGORY_DESCRIPTION,
     ADMIN_IMPORT_CSV_WAITING,
     ADMIN_IMPORT_CSV_CONFIRM,
-    ADMIN_SEARCH_CODE
-) = range(200, 215)
+    ADMIN_SEARCH_CODE,
+    ADMIN_SET_LAST_UPDATE_DATE
+) = range(200, 216)
 
 
 # ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
@@ -101,6 +103,35 @@ def _validate_date_format(date_str: str) -> bool:
         return True
     except (ValueError, IndexError):
         return False
+
+
+def get_ktr_last_update_date() -> Optional[str]:
+    """
+    Получить дату последнего обновления общего файла КТР из настроек бота.
+
+    Returns:
+        Строка даты в формате dd.mm.yyyy или None, если дата не задана.
+    """
+    date_value = bot_settings.get_setting(settings.KTR_LAST_UPDATE_SETTING_KEY)
+    return date_value.strip() if date_value else None
+
+
+def set_ktr_last_update_date(date_value: str, updated_by_userid: int) -> bool:
+    """
+    Сохранить дату последнего обновления общего файла КТР.
+
+    Args:
+        date_value: Дата в формате dd.mm.yyyy.
+        updated_by_userid: Telegram ID администратора, который вносит изменение.
+
+    Returns:
+        True при успешном сохранении.
+    """
+    return bot_settings.set_setting(
+        settings.KTR_LAST_UPDATE_SETTING_KEY,
+        date_value,
+        updated_by=updated_by_userid
+    )
 
 
 # ===== ОПЕРАЦИИ С БАЗОЙ ДАННЫХ =====
@@ -834,9 +865,11 @@ async def enter_ktr_module(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         keyboard = keyboards.get_admin_submenu_keyboard()
     else:
         keyboard = keyboards.get_submenu_keyboard()
+
+    last_update_date = get_ktr_last_update_date()
     
     await update.message.reply_text(
-        messages.MESSAGE_ENTER_CODE,
+        messages.get_entry_message(last_update_date),
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         reply_markup=keyboard
     )
@@ -1117,6 +1150,8 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await admin_show_statistics(update, context)
     elif text == settings.BUTTON_ADMIN_IMPORT_CSV:
         return await admin_start_csv_import(update, context)
+    elif text == settings.BUTTON_ADMIN_SET_LAST_UPDATE_DATE:
+        return await admin_start_set_last_update_date(update, context)
     elif text == settings.BUTTON_ADMIN_BACK_TO_KTR:
         if check_if_user_admin(update.effective_user.id):
             keyboard = keyboards.get_admin_submenu_keyboard()
@@ -1905,6 +1940,60 @@ async def admin_receive_category_order(update: Update, context: ContextTypes.DEF
     return ADMIN_MENU
 
 
+async def admin_start_set_last_update_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Запустить ввод даты последнего обновления КТР.
+    """
+    _ = context
+    current_date = get_ktr_last_update_date() or messages.MESSAGE_KTR_LAST_UPDATE_UNKNOWN
+    escaped_date = messages.escape_markdown_v2(current_date)
+
+    await update.message.reply_text(
+        messages.MESSAGE_ADMIN_SET_LAST_UPDATE_DATE.format(current_date=escaped_date),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_admin_menu_keyboard()
+    )
+    return ADMIN_SET_LAST_UPDATE_DATE
+
+
+async def admin_receive_last_update_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Сохранить дату последнего обновления КТР из ввода администратора.
+    """
+    _ = context
+    input_value = (update.message.text or '').strip()
+
+    if input_value == "-":
+        bot_settings.set_setting(
+            settings.KTR_LAST_UPDATE_SETTING_KEY,
+            "",
+            updated_by=update.effective_user.id
+        )
+        await update.message.reply_text(
+            messages.MESSAGE_ADMIN_LAST_UPDATE_DATE_CLEARED,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_admin_menu_keyboard()
+        )
+        return ADMIN_MENU
+
+    if not _validate_date_format(input_value):
+        await update.message.reply_text(
+            messages.MESSAGE_ADMIN_INVALID_LAST_UPDATE_DATE,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_admin_menu_keyboard()
+        )
+        return ADMIN_SET_LAST_UPDATE_DATE
+
+    set_ktr_last_update_date(input_value, update.effective_user.id)
+    escaped_date = messages.escape_markdown_v2(input_value)
+    await update.message.reply_text(
+        messages.MESSAGE_ADMIN_LAST_UPDATE_DATE_SAVED.format(date=escaped_date),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_admin_menu_keyboard()
+    )
+    return ADMIN_MENU
+
+
 # ===== ОБРАБОТЧИКИ ИМПОРТА CSV =====
 
 async def admin_start_csv_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -2307,6 +2396,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_ALL_CATEGORIES)}$"), admin_show_categories),
                 MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_ADD_CATEGORY)}$"), admin_start_add_category),
                 MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_IMPORT_CSV)}$"), admin_start_csv_import),
+                MessageHandler(filters.Regex(f"^{re.escape(settings.BUTTON_ADMIN_SET_LAST_UPDATE_DATE)}$"), admin_start_set_last_update_date),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler),
             ],
             ADMIN_ADD_CODE: [
@@ -2346,6 +2436,9 @@ def get_admin_conversation_handler() -> ConversationHandler:
             ],
             ADMIN_SEARCH_CODE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_receive_search_code)
+            ],
+            ADMIN_SET_LAST_UPDATE_DATE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_receive_last_update_date)
             ],
         },
         fallbacks=[
