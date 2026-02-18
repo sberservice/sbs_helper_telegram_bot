@@ -264,6 +264,9 @@ class TestCertificationMessages(unittest.TestCase):
         self.assertIsNotNone(messages.MESSAGE_TEST_COMPLETED)
         self.assertIsNotNone(messages.MESSAGE_MY_RANKING)
         self.assertIsNotNone(messages.MESSAGE_MONTHLY_TOP)
+        self.assertIsNotNone(messages.MESSAGE_RANK_SCALE_HEADER)
+        self.assertIsNotNone(messages.MESSAGE_RANK_SCALE_ITEM)
+        self.assertIsNotNone(messages.MESSAGE_RANK_DROP_WARNING)
         
         # Admin messages
         self.assertIsNotNone(messages.MESSAGE_ADMIN_MENU)
@@ -445,10 +448,23 @@ class TestRelevanceDateLogic(unittest.TestCase):
 class TestCertificationRankSummary(unittest.TestCase):
     """Тесты единого профиля ранга по аттестации."""
 
+    def test_get_certification_rank_ladder_returns_full_list(self):
+        """Проверка, что helper возвращает полную шкалу рангов с порогами."""
+        from src.sbs_helper_telegram_bot.certification import certification_logic
+
+        ladder = certification_logic.get_certification_rank_ladder()
+
+        self.assertEqual(len(ladder), 5)
+        self.assertEqual(ladder[0]['name'], 'Новичок')
+        self.assertEqual(ladder[-1]['name'], 'Мастер аттестации')
+        self.assertEqual(ladder[-1]['min_points'], 500)
+
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.time.time', return_value=1_700_000_000)
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.database')
-    def test_user_certification_summary_counts_passed_only(self, mock_database):
+    def test_user_certification_summary_counts_passed_only(self, mock_database, _mock_time):
         """Проверка, что summary считает только passed-тесты и категории."""
         from src.sbs_helper_telegram_bot.certification import certification_logic
+        from src.sbs_helper_telegram_bot.certification import settings
 
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -456,22 +472,31 @@ class TestCertificationRankSummary(unittest.TestCase):
         mock_database.get_db_connection.return_value.__enter__.return_value = mock_conn
         mock_database.get_cursor.return_value.__enter__.return_value = mock_cursor
 
-        mock_cursor.fetchone.return_value = {
+        mock_cursor.fetchone.side_effect = [{
             'passed_tests_count': 7,
-            'passed_categories_count': 3,
             'last_passed_timestamp': 1735689600,
             'last_passed_score': 92.5,
-        }
+        }]
+        now_ts = 1_700_000_000
+        validity_seconds = settings.CATEGORY_RESULT_VALIDITY_DAYS * 24 * 60 * 60
+        mock_cursor.fetchall.return_value = [
+            {'category_id': 11, 'last_passed_category_timestamp': now_ts - 1000},
+            {'category_id': 12, 'last_passed_category_timestamp': now_ts - validity_seconds - 10},
+            {'category_id': 13, 'last_passed_category_timestamp': now_ts - (validity_seconds // 2)},
+        ]
 
         summary = certification_logic.get_user_certification_summary(1001)
 
         self.assertEqual(summary['passed_tests_count'], 7)
-        self.assertEqual(summary['passed_categories_count'], 3)
-        self.assertEqual(summary['certification_points'], 190)
-        self.assertEqual(summary['rank_name'], 'Специалист')
-        self.assertEqual(summary['rank_icon'], '⭐')
-        self.assertEqual(summary['next_rank_name'], 'Эксперт')
+        self.assertEqual(summary['passed_categories_count'], 2)
+        self.assertEqual(summary['total_passed_categories_count'], 3)
+        self.assertEqual(summary['expired_categories_count'], 1)
+        self.assertEqual(summary['certification_points'], 150)
+        self.assertEqual(summary['rank_name'], 'Практик')
+        self.assertEqual(summary['rank_icon'], '📘')
+        self.assertEqual(summary['next_rank_name'], 'Специалист')
         self.assertAlmostEqual(summary['last_passed_score'], 92.5)
+        self.assertIsNotNone(summary['nearest_category_expiry_timestamp'])
 
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.database')
     def test_user_certification_summary_default_on_error(self, mock_database):
@@ -484,8 +509,44 @@ class TestCertificationRankSummary(unittest.TestCase):
 
         self.assertEqual(summary['passed_tests_count'], 0)
         self.assertEqual(summary['passed_categories_count'], 0)
+        self.assertEqual(summary['total_passed_categories_count'], 0)
+        self.assertEqual(summary['expired_categories_count'], 0)
         self.assertEqual(summary['rank_name'], 'Новичок')
         self.assertEqual(summary['rank_icon'], '🌱')
+
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.time.time', return_value=1_700_000_000)
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.database')
+    def test_user_certification_summary_excludes_expired_categories(self, mock_database, _mock_time):
+        """Проверка, что просроченные категории не считаются активными."""
+        from src.sbs_helper_telegram_bot.certification import certification_logic
+        from src.sbs_helper_telegram_bot.certification import settings
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+
+        mock_database.get_db_connection.return_value.__enter__.return_value = mock_conn
+        mock_database.get_cursor.return_value.__enter__.return_value = mock_cursor
+
+        mock_cursor.fetchone.side_effect = [{
+            'passed_tests_count': 4,
+            'last_passed_timestamp': 1735689600,
+            'last_passed_score': 88.0,
+        }]
+
+        now_ts = 1_700_000_000
+        validity_seconds = settings.CATEGORY_RESULT_VALIDITY_DAYS * 24 * 60 * 60
+        warning_seconds = settings.CATEGORY_RESULT_EXPIRY_WARNING_DAYS * 24 * 60 * 60
+        mock_cursor.fetchall.return_value = [
+            {'category_id': 21, 'last_passed_category_timestamp': now_ts - validity_seconds - 1},
+            {'category_id': 22, 'last_passed_category_timestamp': now_ts - validity_seconds + warning_seconds - 100},
+        ]
+
+        summary = certification_logic.get_user_certification_summary(1003)
+
+        self.assertEqual(summary['total_passed_categories_count'], 2)
+        self.assertEqual(summary['passed_categories_count'], 1)
+        self.assertEqual(summary['expired_categories_count'], 1)
+        self.assertEqual(summary['expiring_soon_categories_count'], 1)
 
 
 class TestFairQuestionsDistribution(unittest.TestCase):

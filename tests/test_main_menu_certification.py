@@ -28,8 +28,34 @@ class TestMainMenuCertification(unittest.TestCase):
         self.assertIn('Аттестационный ранг', message)
         self.assertIn('Пройдено тестов', message)
         self.assertIn('Освоено категорий', message)
+        self.assertIn('Срок результата по категории', message)
+        self.assertIn('Шкала аттестационных рангов', message)
+        self.assertIn('Мастер аттестации', message)
         self.assertIn('Специалист', message)
         self.assertIn('87\\.5', message)
+        self.assertNotIn('Аттестационный ранг может снизиться', message)
+
+    @patch('src.sbs_helper_telegram_bot.certification.certification_logic.get_user_certification_summary')
+    def test_main_menu_shows_rank_drop_warning_when_categories_expired(self, mock_summary):
+        """Проверка, что предупреждение о снижении ранга видно при истекших категориях."""
+        from src.common.messages import get_main_menu_message
+
+        mock_summary.return_value = {
+            'certification_points': 130,
+            'rank_name': 'Практик',
+            'rank_icon': '📘',
+            'passed_tests_count': 6,
+            'passed_categories_count': 2,
+            'next_rank_name': 'Специалист',
+            'points_to_next_rank': 50,
+            'last_passed_score': 84.0,
+            'expired_categories_count': 1,
+        }
+
+        message = get_main_menu_message(1003, 'Анна')
+
+        self.assertIn('Шкала аттестационных рангов', message)
+        self.assertIn('Аттестационный ранг может снизиться', message)
 
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.get_user_certification_summary', side_effect=Exception('boom'))
     def test_main_menu_fallback_on_error(self, _mock_summary):

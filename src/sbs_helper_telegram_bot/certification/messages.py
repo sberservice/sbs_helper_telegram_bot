@@ -125,6 +125,9 @@ MESSAGE_TEST_COMPLETED = """🏁 *Тест завершен\\!*
 
 {rank_info}"""
 
+MESSAGE_CATEGORY_RESULT_VALIDITY_INFO = "ℹ️ *Результат по категории действует {days} дней*\."
+MESSAGE_CATEGORY_RESULT_EXPIRES_AT = "📅 *Срок действия до:* {expiry_date}"
+
 MESSAGE_TEST_PASSED = "✅ *Тест пройден\\!*"
 MESSAGE_TEST_FAILED = "❌ *Тест не пройден*"
 
@@ -215,6 +218,14 @@ MESSAGE_MY_RANKING_FOOTER = """
 
 📅 *Последний тест:* {last_test_date}
 🎯 *Результат последнего:* {last_test_score}%"""
+
+MESSAGE_CATEGORY_RESULT_POLICY_LINE = "• Результат по категории действует *{days}* дней"
+MESSAGE_CATEGORY_RESULT_NEAREST_EXPIRY_LINE = "• Ближайшее истечение: *{expiry_date}*"
+MESSAGE_CATEGORY_RESULT_EXPIRING_SOON_LINE = "• Скоро истекут \(≤ {warning_days} дн\.\): *{count}*"
+MESSAGE_CATEGORY_RESULT_EXPIRED_LINE = "• Уже истекли: *{count}*"
+MESSAGE_RANK_SCALE_HEADER = "🏅 *Шкала аттестационных рангов:*"
+MESSAGE_RANK_SCALE_ITEM = "• {icon} *{name}* — от *{min_points}* балл\\(ов\\)"
+MESSAGE_RANK_DROP_WARNING = "⚠️ *Важно:* Есть истекшие результаты по категориям \\(*{count}*\\)\\. Аттестационный ранг может снизиться\\."
 
 MESSAGE_NO_TESTS_THIS_MONTH = """📊 *Мой рейтинг \\({month}\\)*
 

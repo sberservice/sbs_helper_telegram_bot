@@ -89,9 +89,12 @@ def _format_main_menu_message(
     rank_icon: str,
     passed_tests_count: int,
     passed_categories_count: int,
+    category_result_validity_days: int,
     next_rank_name: Optional[str],
     points_to_next_rank: Optional[int],
     cert_last_score: Optional[float],
+    rank_ladder: list,
+    expired_categories_count: int,
 ) -> str:
     safe_name = _escape_markdown_v2(display_name)
     safe_rank = _escape_markdown_v2(rank_name)
@@ -105,8 +108,24 @@ def _format_main_menu_message(
         f"{rank_icon} *Аттестационный ранг:* *{safe_rank}*\n"
         f"📈 *Баллы аттестации:* *{certification_points}*\n"
         f"✅ *Пройдено тестов:* *{passed_tests_count}*\n"
-        f"📚 *Освоено категорий:* *{passed_categories_count}*"
+        f"📚 *Освоено категорий:* *{passed_categories_count}*\n"
+        f"⏳ *Срок результата по категории:* *{category_result_validity_days}* дней"
     )
+
+    if rank_ladder:
+        message += "\n\n🏅 *Шкала аттестационных рангов:*"
+        for rank_data in rank_ladder:
+            safe_ladder_name = _escape_markdown_v2(str(rank_data.get('name', '')))
+            min_points = int(rank_data.get('min_points', 0))
+            rank_icon_value = str(rank_data.get('icon', '🏅'))
+            message += f"\n• {rank_icon_value} *{safe_ladder_name}* — от *{min_points}* балл\(ов\)"
+
+    if expired_categories_count > 0:
+        message += (
+            "\n⚠️ *Важно:* Есть истекшие результаты по категориям "
+            f"\(*{expired_categories_count}*\)\. "
+            "Аттестационный ранг может снизиться\."
+        )
 
     if points_to_next_rank is not None and safe_next:
         remaining = max(points_to_next_rank, 0)
@@ -146,8 +165,10 @@ def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str
     display_name = first_name or "коллега"
     try:
         from src.sbs_helper_telegram_bot.certification import certification_logic
+        from src.sbs_helper_telegram_bot.certification import settings as certification_settings
 
         cert_summary = certification_logic.get_user_certification_summary(user_id)
+        rank_ladder = certification_logic.get_certification_rank_ladder()
 
         return _format_main_menu_message(
             display_name=display_name,
@@ -156,9 +177,12 @@ def get_main_menu_message(user_id: int, first_name: Optional[str] = None) -> str
             rank_icon=cert_summary.get('rank_icon', '🌱'),
             passed_tests_count=cert_summary.get('passed_tests_count', 0),
             passed_categories_count=cert_summary.get('passed_categories_count', 0),
+            category_result_validity_days=certification_settings.CATEGORY_RESULT_VALIDITY_DAYS,
             next_rank_name=cert_summary.get('next_rank_name'),
             points_to_next_rank=cert_summary.get('points_to_next_rank'),
             cert_last_score=cert_summary.get('last_passed_score'),
+            rank_ladder=rank_ladder,
+            expired_categories_count=int(cert_summary.get('expired_categories_count') or 0),
         )
     except Exception:
         return MESSAGE_MAIN_MENU
