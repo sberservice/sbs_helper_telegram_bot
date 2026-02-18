@@ -10,7 +10,7 @@ Tests cover:
 """
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
 
@@ -631,6 +631,56 @@ class TestFairQuestionsDistribution(unittest.TestCase):
         self.assertEqual(len(result['questions']), 10)
         difficulties = [question['difficulty'] for question in result['questions']]
         self.assertEqual(difficulties, sorted(difficulties, key=lambda level: {'easy': 0, 'medium': 1, 'hard': 2}[level]))
+
+
+class TestCertificationHandlers(unittest.IsolatedAsyncioTestCase):
+    """Тесты пользовательских хендлеров аттестации."""
+
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.check_if_user_legit', return_value=True)
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.logic.get_month_name', return_value='февраль')
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.logic.get_user_categories_this_month')
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.logic.get_user_certification_summary')
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.logic.get_user_stats', return_value=None)
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.logic.get_user_monthly_rank', return_value=None)
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.logic.get_certification_rank_ladder', return_value=[])
+    async def test_show_my_ranking_initializes_expiry_lines(
+        self,
+        _mock_rank_ladder,
+        _mock_monthly_rank,
+        _mock_user_stats,
+        mock_cert_summary,
+        mock_user_categories,
+        _mock_month_name,
+        _mock_legit,
+    ):
+        """Проверка, что show_my_ranking не падает по NameError для expiry_lines."""
+        from src.sbs_helper_telegram_bot.certification.certification_bot_part import show_my_ranking
+
+        mock_user_categories.return_value = [
+            {'category_id': 1, 'category_name': 'Кассы', 'rank': 1, 'best_score': 92, 'tests_count': 2}
+        ]
+        mock_cert_summary.return_value = {
+            'rank_name': 'Эксперт',
+            'rank_icon': '🏅',
+            'certification_points': 388,
+            'max_achievable_points': 500,
+            'overall_progress_percent': 77,
+            'overall_progress_bar': '[■■■■■■■■□□]',
+            'next_rank_name': 'Мастер аттестации',
+            'next_rank_icon': '👑',
+            'points_to_next_rank': 62,
+            'nearest_category_expiry_timestamp': None,
+            'expiring_soon_categories_count': 0,
+            'expired_categories_count': 0,
+        }
+
+        update = MagicMock()
+        update.effective_user.id = 6627254238
+        update.message.reply_text = AsyncMock()
+
+        await show_my_ranking(update, MagicMock())
+
+        update.message.reply_text.assert_awaited_once()
 
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.random.sample', side_effect=lambda seq, k: list(seq)[:k])
     @patch('src.sbs_helper_telegram_bot.certification.certification_logic.random.shuffle', side_effect=lambda seq: None)

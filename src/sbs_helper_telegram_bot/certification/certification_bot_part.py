@@ -1097,6 +1097,12 @@ async def show_my_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             best_score=int(cat_info['best_score']) if cat_info['best_score'] else 0,
             tests_count=cat_info['tests_count']
         ))
+
+    expiry_lines = [
+        messages.MESSAGE_CATEGORY_RESULT_POLICY_LINE.format(
+            days=settings.CATEGORY_RESULT_VALIDITY_DAYS
+        )
+    ]
     
     nearest_expiry_timestamp = cert_summary.get('nearest_category_expiry_timestamp')
     if nearest_expiry_timestamp:
