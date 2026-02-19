@@ -84,9 +84,13 @@ def _get_outage_window(outage_date: date, outage_type: str) -> tuple[datetime, d
 def _format_outage_window(start_ts: int, end_ts: int, outage_type: str) -> str:
     start_dt = datetime.fromtimestamp(start_ts, tz=MOSCOW_TZ)
     end_dt = datetime.fromtimestamp(end_ts, tz=MOSCOW_TZ)
-    time_range = f"{start_dt.strftime('%H:%M')}–{end_dt.strftime('%H:%M')} МСК"
     if outage_type == OUTAGE_TYPE_RED:
-        return f"{time_range} ({start_dt.strftime('%d.%m.%Y')}–{end_dt.strftime('%d.%m.%Y')})"
+        return (
+            f"{start_dt.strftime('%H:%M')} МСК {start_dt.strftime('%d.%m.%Y')}"
+            f" - "
+            f"{end_dt.strftime('%H:%M')} {end_dt.strftime('%d.%m.%Y')}"
+        )
+    time_range = f"{start_dt.strftime('%H:%M')}–{end_dt.strftime('%H:%M')} МСК"
     return f"{time_range} ({start_dt.strftime('%d.%m.%Y')})"
 
 

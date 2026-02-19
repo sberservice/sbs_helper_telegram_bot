@@ -16,8 +16,8 @@ class TestHealthCheckFormatting(unittest.TestCase):
 
         text = _format_outage_window(int(start_dt.timestamp()), int(end_dt.timestamp()), OUTAGE_TYPE_RED)
 
-        self.assertIn("20:00–20:00 МСК", text)
-        self.assertIn("(20.02.2026–21.02.2026)", text)
+        self.assertIn("20:00 20.02.2026 - 20:00 21.02.2026", text)
+        self.assertNotIn("МСК", text)
         self.assertNotIn("до ", text)
 
 
