@@ -86,7 +86,7 @@ def _format_outage_window(start_ts: int, end_ts: int, outage_type: str) -> str:
     end_dt = datetime.fromtimestamp(end_ts, tz=MOSCOW_TZ)
     time_range = f"{start_dt.strftime('%H:%M')}–{end_dt.strftime('%H:%M')} МСК"
     if outage_type == OUTAGE_TYPE_RED:
-        return f"{time_range} (до {end_dt.strftime('%d.%m.%Y')})"
+        return f"{time_range} ({start_dt.strftime('%d.%m.%Y')}–{end_dt.strftime('%d.%m.%Y')})"
     return f"{time_range} ({start_dt.strftime('%d.%m.%Y')})"
 
 
