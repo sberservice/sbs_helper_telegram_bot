@@ -46,7 +46,7 @@ def get_submenu_message(
     return (
         MESSAGE_SUBMENU_BASE +
         f"\n\n{rank_icon} *Аттестационный ранг:* *{rank_name}*" +
-        f"\n📊 Прогресс аттестации : {progress_bar} {progress_percent}% {certification_points}/{max_achievable_points}" +
+        f"\n📊 *Прогресс аттестации* : {progress_bar} {progress_percent}% {certification_points}/{max_achievable_points}" +
         f"\n\n📊 В базе: *{questions_count}* вопросов в *{categories_count}* категориях" +
         "\n\nВыберите действие из меню:"
     )

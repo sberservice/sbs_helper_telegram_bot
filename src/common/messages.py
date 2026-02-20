@@ -106,8 +106,8 @@ def _format_main_menu_message(
         f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\n"
         f"С возвращением, *{safe_name}*\\!\n\n"
         f"{rank_icon} *Аттестационный ранг:* *{safe_rank}*\n"
-        f"📊 Прогресс аттестации : {safe_progress_bar} {overall_progress_percent}% {certification_points}/{max_achievable_points}\n"
-        f"📚 *Освоено категорий:* *{passed_categories_count}*"
+        f"📊 *Прогресс аттестации:* {safe_progress_bar} {overall_progress_percent}% {certification_points}/{max_achievable_points}\n"
+        f"📚 *Освоено категорий:* {passed_categories_count}"
     )
 
     if expired_categories_count > 0:

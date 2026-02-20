@@ -25,6 +25,7 @@ import re
 
 from telegram import Update, constants, BotCommand
 from telegram.error import TimedOut, NetworkError, BadRequest
+import httpx
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters, ConversationHandler
 
 import src.common.database as database
@@ -1005,25 +1006,44 @@ def main() -> None:
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
+async def _answer_callback_silent(update: object, text: str) -> None:
+    """
+    Пробует ответить на callback-запрос всплывающим уведомлением.
+    Ошибки при ответе не пробрасываются, чтобы не зациклить обработку.
+    """
+    try:
+        if isinstance(update, Update) and update.callback_query:
+            await update.callback_query.answer(text=text, show_alert=True)
+    except Exception:  # pylint: disable=broad-except
+        pass
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Обработчик ошибок во время работы бота.
-    
-    Логирует ошибку и тихо игнорирует восстанавливаемые ошибки вроде
-    TimedOut и NetworkError, чтобы не засорять логи.
+
+    При сетевых ошибках (ConnectError, RemoteProtocolError, NetworkError, TimedOut),
+    возникших при нажатии кнопки меню, уведомляет пользователя всплывающим
+    сообщением, чтобы он знал, что запрос не прошёл и нужно повторить.
+    Остальные ошибки логируются.
     """
     error = context.error
-    
-    # Тихо игнорируем TimedOut — обычно временные ошибки
-    if isinstance(error, TimedOut):
-        logger.warning(f"Telegram API timed out: {error}")
-        return
-    
-    # Тихо игнорируем NetworkError — обычно временные ошибки
-    if isinstance(error, NetworkError):
+
+    # httpx-ошибки низкого уровня (ConnectError, RemoteProtocolError и др.)
+    # оборачиваются python-telegram-bot в NetworkError, но иногда могут
+    # всплыть напрямую — обрабатываем оба варианта.
+    is_network_issue = isinstance(error, (NetworkError, TimedOut)) or isinstance(
+        error, (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError)
+    )
+
+    if is_network_issue:
         logger.warning(f"Network error occurred: {error}")
+        await _answer_callback_silent(
+            update,
+            "Нет связи с сервером. Проверьте интернет и нажмите кнопку ещё раз.",
+        )
         return
-    
+
     # Обрабатываем BadRequest с "Message is not modified" — часто и безвредно
     if isinstance(error, BadRequest):
         if "Message is not modified" in str(error):
@@ -1031,7 +1051,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
             return
         logger.warning(f"BadRequest error: {error}")
         return
-    
+
     # Логируем остальные ошибки
     logger.error(f"Exception while handling an update: {error}", exc_info=context.error)
 
