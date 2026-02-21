@@ -5,6 +5,23 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.3] - 2026-02-21
+
+### Added
+- Пул соединений MySQL (`MySQLConnectionPool`) в `database.py` — вместо создания нового TCP-соединения на каждый запрос (~100-200мс) используется пул из 5 готовых соединений (~1-2мс). Размер настраивается через `DB_POOL_SIZE`.
+- TTL-кеш настроек (`_SETTINGS_CACHE_TTL=60с`) в `bot_settings.py` — повторные вызовы `get_setting()` берут значение из памяти, а не из БД. Кеш сбрасывается автоматически при `set_setting()`.
+- Консолидированная проверка авторизации `get_user_auth_status()` в `telegram_user.py` — все проверки (chat_members, manual_users, invites, is_admin) выполняются за одно подключение к БД вместо 6-9 отдельных.
+- Кеш статуса здоровья налоговой (`_HEALTH_CACHE_TTL=60с`) в `health_check.py` — `get_tax_health_status_lines()` кеширует результат, сбрасывается при `record_health_status()`.
+- Тесты `tests/test_performance_optimizations.py` — 20 тестов для пула соединений, кеша настроек, пакетной загрузки модулей, консолидированной авторизации и кеша здоровья.
+
+### Changed
+- `get_all_module_states()` и `get_modules_config()` загружают настройки всех модулей одним SQL-запросом `WHERE IN (...)` вместо 8 отдельных запросов.
+- `get_user_categories_this_month()` в `certification_logic.py` — устранён N+1 паттерн: ранги по категориям вычисляются в одном соединении к БД, а не N отдельных.
+- Обработчик `text_entered` в `telegram_bot.py` использует `get_user_auth_status()` вместо разрозненных проверок.
+
+### Fixed
+- Время отклика обработчиков `reply_main_menu` (~3.8с→<0.5с), `reply_modules_menu` (~5с→<0.2с), `reply_ticket_validator_submenu` (~7.5с→<0.5с), `certification_my_ranking` (~2.4с→<0.5с) за счёт устранения избыточных TCP-соединений к MySQL.
+
 ## [0.1.2] - 2026-02-21
 
 ### Added
