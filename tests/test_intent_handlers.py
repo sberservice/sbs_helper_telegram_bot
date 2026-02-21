@@ -284,6 +284,77 @@ class TestNewsHandler(unittest.IsolatedAsyncioTestCase):
             result = await h.execute({"search_query": "новость"}, user_id=1)
             self.assertIn("Результаты поиска", result)
 
+    async def test_search_results_header_has_escaped_parens(self):
+        """Заголовок результатов поиска содержит экранированные скобки."""
+        mock_articles = [
+            {
+                "title": "Тест",
+                "category_emoji": "📰",
+                "published_timestamp": 1700000000,
+                "content": "Текст",
+            }
+        ]
+        with patch(
+            "src.sbs_helper_telegram_bot.news.news_logic.search_news",
+            return_value=(mock_articles, 5),
+        ), patch(
+            "src.sbs_helper_telegram_bot.news.news_logic.get_published_news"
+        ), patch(
+            "src.sbs_helper_telegram_bot.news.news_logic.get_unread_count"
+        ):
+            h = NewsHandler()
+            result = await h.execute({"search_query": "тест"}, user_id=1)
+            self.assertIn("\\(5\\)", result)
+            self.assertNotIn("(5)", result.replace("\\(5\\)", ""))
+
+    async def test_latest_news_header_has_escaped_parens(self):
+        """Заголовок последних новостей содержит экранированные скобки."""
+        mock_articles = [
+            {
+                "title": "Новость",
+                "category_emoji": "📰",
+                "published_timestamp": 1700000000,
+                "content": "Текст новости",
+            }
+        ]
+        with patch(
+            "src.sbs_helper_telegram_bot.news.news_logic.search_news"
+        ), patch(
+            "src.sbs_helper_telegram_bot.news.news_logic.get_published_news",
+            return_value=(mock_articles, 3),
+        ), patch(
+            "src.sbs_helper_telegram_bot.news.news_logic.get_unread_count",
+            return_value=0,
+        ):
+            h = NewsHandler()
+            result = await h.execute({}, user_id=1)
+            self.assertIn("\\(3\\)", result)
+            self.assertNotIn("(3)", result.replace("\\(3\\)", ""))
+
+    async def test_latest_news_with_unread_count(self):
+        """Непрочитанные новости отображаются с экранированными скобками."""
+        mock_articles = [
+            {
+                "title": "Новость",
+                "category_emoji": "📰",
+                "published_timestamp": 1700000000,
+                "content": "Текст",
+            }
+        ]
+        with patch(
+            "src.sbs_helper_telegram_bot.news.news_logic.search_news"
+        ), patch(
+            "src.sbs_helper_telegram_bot.news.news_logic.get_published_news",
+            return_value=(mock_articles, 2),
+        ), patch(
+            "src.sbs_helper_telegram_bot.news.news_logic.get_unread_count",
+            return_value=5,
+        ):
+            h = NewsHandler()
+            result = await h.execute({}, user_id=1)
+            self.assertIn("\\(2\\)", result)
+            self.assertIn("Непрочитанных: 5", result)
+
     async def test_latest_news_empty(self):
         """Нет новостей — соответствующее сообщение."""
         with patch(
@@ -298,6 +369,23 @@ class TestNewsHandler(unittest.IsolatedAsyncioTestCase):
             h = NewsHandler()
             result = await h.execute({}, user_id=1)
             self.assertIn("Новостей пока нет", result)
+
+    async def test_format_articles_no_unescaped_special_chars(self):
+        """_format_articles не содержит неэкранированных спецсимволов MarkdownV2 в заголовке."""
+        import re
+        articles = [
+            {
+                "title": "Test (title)",
+                "category_emoji": "📰",
+                "published_timestamp": 1700000000,
+                "content": "Line one. Line two.",
+            }
+        ]
+        result = NewsHandler._format_articles(articles, "📰 Новости \\(3\\)")
+        # Проверяем, что в результате нет неэкранированных скобок
+        # (все ( и ) должны быть предварены \)
+        unescaped_parens = re.findall(r'(?<!\\)[()]', result)
+        self.assertEqual(unescaped_parens, [], f"Неэкранированные скобки в результате: {result}")
 
 
 class TestTicketValidatorHandler(unittest.IsolatedAsyncioTestCase):

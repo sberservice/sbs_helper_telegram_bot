@@ -147,19 +147,12 @@ def get_setting(key: str) -> Optional[str]:
     """
     Получить значение настройки по ключу.
 
-    Использует TTL-кеш (_SETTINGS_CACHE_TTL секунд) для снижения нагрузки на БД.
-    Кеш сбрасывается при вызове set_setting() или clear_settings_cache().
-
     Args:
         key: Ключ настройки для получения.
 
     Returns:
         Значение настройки в виде строки или None, если не найдено.
     """
-    cached = _cache_get(key)
-    if cached is not _CACHE_MISS:
-        return cached
-
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             cursor.execute(
@@ -167,18 +160,12 @@ def get_setting(key: str) -> Optional[str]:
                 (key,)
             )
             result = cursor.fetchone()
-            value = result['setting_value'] if result else None
-
-    _cache_put(key, value)
-    return value
+            return result['setting_value'] if result else None
 
 
 def set_setting(key: str, value: str, updated_by: Optional[int] = None) -> bool:
     """
     Установить значение настройки (вставка или обновление).
-
-    Автоматически сбрасывает кеш настроек, чтобы новое значение
-    стало доступно немедленно в текущем процессе.
 
     Args:
         key: Ключ настройки.
@@ -201,9 +188,7 @@ def set_setting(key: str, value: str, updated_by: Optional[int] = None) -> bool:
                 """,
                 (key, value, updated_by)
             )
-    # Сбрасываем весь кеш, чтобы новое значение и зависимые настройки обновились
-    clear_settings_cache()
-    return True
+            return True
 
 
 def is_invite_system_enabled() -> bool:
@@ -279,78 +264,14 @@ def set_module_enabled(module_key: str, enabled: bool, updated_by: Optional[int]
     return set_setting(setting_key, '1' if enabled else '0', updated_by)
 
 
-def _load_all_module_settings() -> Dict[str, str]:
-    """
-    Загрузить все настройки модулей одним SQL-запросом.
-
-    Вместо N отдельных вызовов get_setting() (по одному соединению на каждый модуль)
-    выполняет единственный SELECT ... WHERE setting_key IN (...) и записывает
-    результаты в TTL-кеш.
-
-    Returns:
-        Словарь setting_key -> setting_value.
-    """
-    setting_keys = list(MODULE_KEYS.values())
-    if not setting_keys:
-        return {}
-
-    # Проверяем, все ли ключи уже в кеше
-    all_cached = True
-    cached_values: Dict[str, str] = {}
-    for sk in setting_keys:
-        cached = _cache_get(sk)
-        if cached is _CACHE_MISS:
-            all_cached = False
-            break
-        cached_values[sk] = cached
-
-    if all_cached:
-        return cached_values
-
-    # Загружаем все одним запросом
-    placeholders = ', '.join(['%s'] * len(setting_keys))
-    with database.get_db_connection() as conn:
-        with database.get_cursor(conn) as cursor:
-            cursor.execute(
-                f"SELECT setting_key, setting_value FROM bot_settings WHERE setting_key IN ({placeholders})",
-                tuple(setting_keys)
-            )
-            rows = cursor.fetchall()
-
-    result: Dict[str, str] = {}
-    found_keys = set()
-    for row in rows:
-        sk = row['setting_key']
-        sv = row['setting_value']
-        result[sk] = sv
-        found_keys.add(sk)
-        _cache_put(sk, sv)
-
-    # Ключи, которых нет в БД — кешируем как None
-    for sk in setting_keys:
-        if sk not in found_keys:
-            _cache_put(sk, None)
-            result[sk] = None
-
-    return result
-
-
 def get_all_module_states() -> Dict[str, bool]:
     """
     Получить состояние (вкл/выкл) для всех модулей.
 
-    Загружает все настройки модулей одним запросом к БД (вместо N).
-
     Returns:
         Словарь соответствий module_key -> состояние (True/False).
     """
-    settings = _load_all_module_settings()
-    result: Dict[str, bool] = {}
-    for module_key, setting_key in MODULE_KEYS.items():
-        value = settings.get(setting_key)
-        # По умолчанию включён, если настройка не задана
-        result[module_key] = value == '1' if value is not None else True
-    return result
+    return {key: is_module_enabled(key) for key in MODULE_KEYS.keys()}
 
 
 def get_enabled_modules() -> List[str]:
@@ -367,8 +288,6 @@ def get_modules_config(enabled_only: bool = True) -> List[Dict[str, any]]:
     """
     Получить конфигурацию модулей в порядке отображения.
 
-    Загружает все настройки модулей одним SQL-запросом и использует кеш.
-
     Args:
         enabled_only: Если True, вернуть только включённые модули. Если False, вернуть все.
 
@@ -380,9 +299,8 @@ def get_modules_config(enabled_only: bool = True) -> List[Dict[str, any]]:
     sorted_modules = sorted(MODULE_CONFIG, key=lambda x: x['order'])
     
     if enabled_only:
-        # Загружаем все состояния одним запросом
-        states = get_all_module_states()
-        return [module for module in sorted_modules if states.get(module['key'], True)]
+        # Оставляем только включённые модули
+        return [module for module in sorted_modules if is_module_enabled(module['key'])]
     
     return sorted_modules
 

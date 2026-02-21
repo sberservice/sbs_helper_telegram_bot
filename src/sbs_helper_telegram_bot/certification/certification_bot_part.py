@@ -26,7 +26,7 @@ from telegram.ext import (
 
 from config.settings import DEBUG
 from src.common.telegram_user import check_if_user_legit, check_if_user_admin
-from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE
+from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, get_main_menu_message, get_main_menu_keyboard
 from src.sbs_helper_telegram_bot.gamification.events import emit_event
 
 from . import settings
@@ -1368,7 +1368,7 @@ async def cancel_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 
 async def cancel_on_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Отменить тест при переходе в меню."""
+    """Отменить тест/обучение при переходе в меню и показать главное меню."""
     attempt_id = context.user_data.get(settings.CURRENT_ATTEMPT_ID_KEY)
     
     if attempt_id:
@@ -1376,6 +1376,15 @@ async def cancel_on_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     clear_test_context(context)
     clear_learning_context(context)
+    
+    # Показать главное меню, чтобы пользователю не приходилось нажимать дважды
+    user_id = update.effective_user.id
+    is_admin = check_if_user_admin(user_id)
+    await update.message.reply_text(
+        get_main_menu_message(user_id, update.effective_user.first_name),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+    )
     
     return ConversationHandler.END
 
