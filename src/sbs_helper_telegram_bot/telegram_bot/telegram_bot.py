@@ -30,6 +30,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 import src.common.database as database
 import src.common.invites as invites
+import src.common.bot_settings as bot_settings
  
 
 from src.common.constants.os import ASSETS_DIR
@@ -197,6 +198,10 @@ from src.sbs_helper_telegram_bot.news.news_bot_part import (
     get_news_user_handler,
     get_mandatory_ack_handler,
 )
+# Импорт AI-маршрутизатора
+from src.sbs_helper_telegram_bot.ai_router.intent_router import get_router as get_ai_router
+from src.sbs_helper_telegram_bot.ai_router.messages import MESSAGE_MODULE_DISABLED_BUTTON
+
 from src.sbs_helper_telegram_bot.news.admin_panel_bot_part import (
     get_news_admin_handler,
 )
@@ -668,6 +673,15 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     
     # Обрабатываем нажатия кнопок меню для авторизованных пользователей
     is_admin = check_if_user_admin(user_id)
+
+    # Очищаем AI-контекст при навигации по меню (не для произвольного текста)
+    if text in (BUTTON_MAIN_MENU, BUTTON_MODULES, BUTTON_SETTINGS, BUTTON_VALIDATE_TICKET,
+                BUTTON_UPOS_ERRORS, BUTTON_CERTIFICATION, BUTTON_KTR, BUTTON_FEEDBACK,
+                BUTTON_PROFILE, BUTTON_NEWS, BUTTON_SCREENSHOT, BUTTON_BOT_ADMIN,
+                BUTTON_MY_INVITES, BUTTON_HELP):
+        ai_router = get_ai_router()
+        ai_router.clear_context(user_id)
+
     if text == BUTTON_MAIN_MENU:
         await update.message.reply_text(
             get_main_menu_message(user_id, update.effective_user.first_name),
@@ -690,6 +704,9 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         )
     elif text == BUTTON_VALIDATE_TICKET:
         # Показываем подменю валидации (с админ-панелью для админа)
+        if not bot_settings.is_module_enabled('ticket_validator'):
+            await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+            return
         if is_admin:
             keyboard = validator_keyboards.get_admin_submenu_keyboard()
         else:
@@ -717,6 +734,9 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     elif text == BUTTON_SCREENSHOT or text == vyezd_settings.BUTTON_SEND_SCREENSHOT:
         # Эти кнопки обрабатываются ConversationHandler модуля скриншотов
         # Фолбэк на всякий случай: обычно ConversationHandler их перехватывает
+        if not bot_settings.is_module_enabled('screenshot'):
+            await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+            return
         return await enter_screenshot_module(update, _context)
     elif text == vyezd_settings.BUTTON_SCREENSHOT_HELP:
         await update.message.reply_photo(
@@ -750,6 +770,9 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             )
     elif text == BUTTON_UPOS_ERRORS:
         # Показываем подменю модуля ошибок UPOS
+        if not bot_settings.is_module_enabled('upos_errors'):
+            await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+            return
         if is_admin:
             keyboard = upos_keyboards.get_admin_submenu_keyboard()
         else:
@@ -763,6 +786,9 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         await show_popular_errors(update, _context)
     elif text == BUTTON_CERTIFICATION:
         # Показываем подменю аттестации (делегируем обработчику модуля)
+        if not bot_settings.is_module_enabled('certification'):
+            await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+            return
         await enter_certification_module(update, _context)
     elif text == certification_settings.BUTTON_MY_RANKING:
         await show_my_ranking(update, _context)
@@ -772,6 +798,9 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         await show_monthly_top(update, _context)
     elif text == BUTTON_KTR:
         # Показываем подменю модуля КТР
+        if not bot_settings.is_module_enabled('ktr'):
+            await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+            return
         if is_admin:
             keyboard = ktr_keyboards.get_admin_submenu_keyboard()
         else:
@@ -789,6 +818,9 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         await show_ktr_achievements(update, _context)
     elif text == BUTTON_FEEDBACK:
         # Показываем подменю обратной связи
+        if not bot_settings.is_module_enabled('feedback'):
+            await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+            return
         if is_admin:
             keyboard = feedback_keyboards.get_submenu_keyboard(is_admin=True)
         else:
@@ -814,6 +846,9 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         )
     elif text == BUTTON_NEWS or text.startswith("📰 Новости"):
         # Показываем подменю новостей (с индикатором непрочитанных)
+        if not bot_settings.is_module_enabled('news'):
+            await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+            return
         # Помечаем все новости прочитанными при входе
         from src.sbs_helper_telegram_bot.news import news_logic
         news_logic.mark_all_as_read(user_id)
@@ -828,12 +863,27 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             reply_markup=keyboard
         )
     else:
-        # Ответ по умолчанию для нераспознанного текста
-        await update.message.reply_text(
-            MESSAGE_UNRECOGNIZED_INPUT,
-            parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_main_menu_keyboard(is_admin=is_admin)
-        )
+        # AI-маршрутизация: пробуем классифицировать произвольный текст
+        ai_router = get_ai_router()
+        try:
+            response, status = await ai_router.route(text, user_id)
+        except Exception as ai_exc:
+            logger.error("AI router exception: user=%s, error=%s", user_id, ai_exc)
+            response, status = None, "error"
+
+        if response and status in ("routed", "chat", "rate_limited", "module_disabled"):
+            await update.message.reply_text(
+                response,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+            )
+        else:
+            # Ответ по умолчанию для нераспознанного текста
+            await update.message.reply_text(
+                MESSAGE_UNRECOGNIZED_INPUT,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+            )
 
 
 

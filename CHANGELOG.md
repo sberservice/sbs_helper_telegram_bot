@@ -5,6 +5,25 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.0] - 2026-02-21
+
+### Added
+- **AI-маршрутизатор**: новый модуль `ai_router` для интеллектуальной обработки произвольного текста через DeepSeek API (OpenAI-совместимый). Поддерживает маршрутизацию к 5 модулям (UPOS-ошибки, Валидация заявок, КТР, Аттестация, Новости) и свободный диалог с LLM.
+- Абстракция `LLMProvider` с реализацией `DeepSeekProvider`; расширяемая фабрика через `register_provider()`.
+- Circuit breaker: автоматический переход в degrade-режим при серии ошибок LLM-провайдера (CLOSED → OPEN → HALF_OPEN).
+- Per-user sliding-window rate limiter для защиты от спама и контроля стоимости API.
+- Менеджер контекста диалога: хранение 3–5 последних сообщений с TTL для поддержки коротких диалогов.
+- Повторная проверка admin-прав в callback-ветках `handle_callback` (`admin_bot_part.py`) для защиты от stale inline-клавиатур.
+- Hard-disable модулей в runtime: при выключении модуля через админку AI не маршрутизирует к нему, а кнопки меню показывают сообщение о деактивации.
+- Логирование результатов AI-классификации в таблицу `ai_router_log` (intent, confidence, explain_code, response_time_ms).
+- SQL-скрипт `scripts/ai_router_setup.sql` для создания таблицы логов и настройки модуля.
+- `MODULE_CONFIG` для `ai_router` и `news` в `bot_settings.py`.
+- Тесты: `test_circuit_breaker.py`, `test_rate_limiter.py`, `test_context_manager.py`, `test_llm_provider.py`, `test_intent_handlers.py`, `test_ai_router.py`, `test_admin_callback_auth.py`.
+
+### Changed
+- `text_entered` в `telegram_bot.py`: нераспознанный текст теперь маршрутизируется через AI-роутер перед показом стандартного сообщения об ошибке; при нажатии кнопок меню контекст AI-диалога очищается.
+- Конфигурация env-переменных расширена: `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`, `AI_CONFIDENCE_THRESHOLD`, `AI_RATE_LIMIT_*`, `AI_CIRCUIT_BREAKER_*`, и др.
+
 ## [0.0.13] - 2026-02-20
 
 ### Fixed

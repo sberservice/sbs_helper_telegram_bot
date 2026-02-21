@@ -1404,6 +1404,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Обработать все колбэки инлайн-кнопок."""
     query = update.callback_query
     await query.answer()
+
+    # Повторная проверка admin-прав в callback-ветках (защита от stale-клавиатур)
+    if not check_if_user_admin(query.from_user.id):
+        await query.message.reply_text(
+            "⛔ Доступ запрещён\\. Вы больше не являетесь администратором\\.",
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+        )
+        return ConversationHandler.END
     
     data = query.data
     
