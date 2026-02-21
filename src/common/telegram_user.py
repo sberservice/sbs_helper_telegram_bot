@@ -1,7 +1,107 @@
+from dataclasses import dataclass
 from src.common import database
 from src.common import invites as invites_module
 from src.common import bot_settings
 from src.common.messages import MESSAGE_PLEASE_ENTER_INVITE, MESSAGE_INVITE_SYSTEM_DISABLED
+
+
+@dataclass
+class UserAuthStatus:
+    """
+    Результат единоразовой проверки авторизации пользователя.
+
+    Поля:
+        is_pre_invited: Есть ли пользователь в chat_members.
+        is_pre_invited_activated: Активировался ли пред-добавленный пользователь.
+        is_manual_user: Есть ли пользователь в manual_users.
+        is_invite_system_enabled: Включена ли инвайт-система.
+        has_consumed_invite: Использовал ли пользователь инвайт-код.
+        is_admin: Является ли пользователь администратором.
+        is_legit: Авторизован ли пользователь (итоговый результат).
+        is_invite_blocked: Заблокирован ли пользователь из-за выключенной инвайт-системы.
+    """
+    is_pre_invited: bool = False
+    is_pre_invited_activated: bool = False
+    is_manual_user: bool = False
+    is_invite_system_enabled: bool = True
+    has_consumed_invite: bool = False
+    is_admin: bool = False
+    is_legit: bool = False
+    is_invite_blocked: bool = False
+
+
+def get_user_auth_status(telegram_id) -> UserAuthStatus:
+    """
+    Выполнить все проверки авторизации за один вызов к БД.
+
+    Объединяет check_if_user_pre_invited, is_pre_invited_user_activated,
+    check_if_user_manual, is_invite_system_enabled, invite check и check_if_user_admin
+    в единственное подключение к MySQL (с несколькими запросами).
+
+    Args:
+        telegram_id: Telegram ID пользователя для проверки.
+
+    Returns:
+        UserAuthStatus с результатами всех проверок.
+    """
+    status = UserAuthStatus()
+
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            # 1. Проверяем chat_members (пред-добавлен + активирован)
+            cursor.execute(
+                "SELECT telegram_id, activated_timestamp FROM chat_members WHERE telegram_id = %s",
+                (telegram_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                status.is_pre_invited = True
+                status.is_pre_invited_activated = row["activated_timestamp"] is not None
+
+            # 2. Проверяем manual_users
+            cursor.execute(
+                "SELECT COUNT(*) as count FROM manual_users WHERE telegram_id = %s",
+                (telegram_id,)
+            )
+            row = cursor.fetchone()
+            status.is_manual_user = row["count"] > 0
+
+            # 3. Проверяем настройку инвайт-системы (используется TTL-кеш в bot_settings)
+            status.is_invite_system_enabled = bot_settings.is_invite_system_enabled()
+
+            # 4. Проверяем, использовал ли пользователь инвайт
+            cursor.execute(
+                "SELECT COUNT(consumed_userid) as invite_consumed FROM invites WHERE consumed_userid = %s",
+                (telegram_id,)
+            )
+            row = cursor.fetchone()
+            status.has_consumed_invite = row["invite_consumed"] > 0
+
+            # 5. Проверяем, является ли пользователь администратором
+            cursor.execute(
+                "SELECT is_admin FROM users WHERE userid = %s",
+                (telegram_id,)
+            )
+            row = cursor.fetchone()
+            status.is_admin = bool(row and row["is_admin"] == 1)
+
+    # Вычисляем итоговые поля
+    # is_legit: пред-добавлен ИЛИ ручной ИЛИ (инвайт-система вкл И инвайт использован)
+    if status.is_pre_invited or status.is_manual_user:
+        status.is_legit = True
+    elif status.is_invite_system_enabled and status.has_consumed_invite:
+        status.is_legit = True
+    else:
+        status.is_legit = False
+
+    # is_invite_blocked: инвайт-система выключена И не пред-добавлен И не ручной
+    status.is_invite_blocked = (
+        not status.is_invite_system_enabled
+        and not status.is_pre_invited
+        and not status.is_manual_user
+    )
+
+    return status
 
 def check_if_user_legit(telegram_id) -> bool:
     """

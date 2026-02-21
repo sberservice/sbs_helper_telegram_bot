@@ -58,6 +58,18 @@ class TestUpdateProfiling(unittest.IsolatedAsyncioTestCase):
 
     async def test_text_entered_logs_total_and_step_timings(self):
         """При обработке текста пишется сводный лог с total_ms и шагами."""
+        from src.common.telegram_user import UserAuthStatus
+        mock_auth = UserAuthStatus(
+            is_pre_invited=True,
+            is_pre_invited_activated=True,
+            is_manual_user=False,
+            is_invite_system_enabled=True,
+            has_consumed_invite=False,
+            is_admin=False,
+            is_legit=True,
+            is_invite_blocked=False,
+        )
+
         update = SimpleNamespace(
             message=SimpleNamespace(
                 text=BUTTON_MAIN_MENU,
@@ -70,10 +82,7 @@ class TestUpdateProfiling(unittest.IsolatedAsyncioTestCase):
         )
 
         with (
-            patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.invites.check_if_user_pre_invited", return_value=False),
-            patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.check_if_invite_user_blocked", return_value=False),
-            patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.check_if_user_legit", return_value=True),
-            patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.check_if_user_admin", return_value=False),
+            patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_user_auth_status", return_value=mock_auth),
             patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_main_menu_message", return_value="menu"),
             patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_main_menu_keyboard", return_value=None),
             patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_ai_router") as mock_get_ai_router,

@@ -2057,15 +2057,53 @@ def get_user_categories_this_month(
                 
                 results = cursor.fetchall()
                 
-                # Добавить место по каждой категории
-                for row in results:
-                    rank_info = get_user_monthly_rank_by_category(
-                        userid, 
-                        row['category_id'], 
-                        year, 
-                        month
+                if not results:
+                    return results
+
+                # Собрать лучшие оценки пользователя по каждой категории (только passed=1)
+                category_ids = [row['category_id'] for row in results]
+                placeholders = ', '.join(['%s'] * len(category_ids))
+                cursor.execute(
+                    f"""SELECT category_id, MAX(score_percent) as best_score
+                        FROM certification_attempts
+                        WHERE userid = %s
+                          AND status = 'completed'
+                          AND passed = 1
+                          AND completed_timestamp >= %s
+                          AND completed_timestamp < %s
+                          AND category_id IN ({placeholders})
+                        GROUP BY category_id""",
+                    (userid, start_ts, end_ts, *category_ids)
+                )
+                user_scores = {r['category_id']: r['best_score'] for r in cursor.fetchall()}
+
+                # Для каждой категории подсчитать число пользователей с лучшим результатом
+                # одним запросом (batch)
+                ranks: Dict[int, int] = {}
+                for cat_id in category_ids:
+                    user_best = user_scores.get(cat_id)
+                    if user_best is None:
+                        ranks[cat_id] = None
+                        continue
+                    cursor.execute(
+                        """SELECT COUNT(DISTINCT userid) as higher_count
+                           FROM certification_attempts
+                           WHERE status = 'completed'
+                             AND passed = 1
+                             AND completed_timestamp >= %s
+                             AND completed_timestamp < %s
+                             AND userid != %s
+                             AND category_id = %s
+                           GROUP BY userid
+                           HAVING MAX(score_percent) > %s""",
+                        (start_ts, end_ts, userid, cat_id, user_best)
                     )
-                    row['rank'] = rank_info['rank'] if rank_info else None
+                    higher = cursor.fetchall()
+                    ranks[cat_id] = len(higher) + 1
+
+                # Присвоить места
+                for row in results:
+                    row['rank'] = ranks.get(row['category_id'])
                 
                 return results
     except Exception as e:

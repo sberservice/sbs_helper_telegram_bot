@@ -9,13 +9,48 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+import logging
 import time
 from zoneinfo import ZoneInfo
 
 import src.common.database as database
 
+logger = logging.getLogger(__name__)
+
 HEALTH_STATUS_HEALTHY = "healthy"
 HEALTH_STATUS_BROKEN = "broken"
+
+# ─────────────────────────────────────────────────────────────
+# TTL-кеш для строк статуса здоровья (главное меню)
+# ─────────────────────────────────────────────────────────────
+# Данные здоровья обновляются фоновым чекером раз в несколько минут,
+# поэтому кешируем на 60 секунд — достаточно для снижения нагрузки
+# без потери актуальности.
+_HEALTH_CACHE_TTL = 60
+_health_lines_cache: Optional[tuple[list[str], float]] = None
+
+
+def _get_cached_health_lines() -> Optional[list[str]]:
+    """Получить кешированные строки статуса, если не протухли."""
+    global _health_lines_cache
+    if _health_lines_cache is not None:
+        lines, cached_at = _health_lines_cache
+        if time.monotonic() - cached_at < _HEALTH_CACHE_TTL:
+            return lines
+        _health_lines_cache = None
+    return None
+
+
+def _set_cached_health_lines(lines: list[str]) -> None:
+    """Сохранить строки статуса в кеш."""
+    global _health_lines_cache
+    _health_lines_cache = (lines, time.monotonic())
+
+
+def clear_health_cache() -> None:
+    """Сбросить кеш статуса здоровья (вызывается при обновлении статуса)."""
+    global _health_lines_cache
+    _health_lines_cache = None
 
 OUTAGE_TYPE_BLUE_SHORT = "blue_short"
 OUTAGE_TYPE_BLUE_LONG = "blue_long"
@@ -369,6 +404,8 @@ def record_health_status(is_healthy: bool, checked_at: int) -> None:
                 """,
                 (status_value, checked_at, last_healthy_at, last_broken_at, last_broken_started_at),
             )
+    # Сбрасываем кеш, чтобы новый статус отобразился немедленно
+    clear_health_cache()
 
 
 def get_health_status_snapshot() -> HealthStatusSnapshot:
@@ -426,7 +463,16 @@ def _format_duration_hm(seconds: Optional[int]) -> Optional[str]:
 
 
 def get_tax_health_status_lines() -> list[str]:
-    """Сформировать строки статуса для главного меню."""
+    """
+    Сформировать строки статуса для главного меню.
+
+    Результат кешируется на _HEALTH_CACHE_TTL секунд, чтобы
+    не создавать 3 DB-соединения при каждом показе главного меню.
+    """
+    cached = _get_cached_health_lines()
+    if cached is not None:
+        return cached
+
     snapshot = get_health_status_snapshot()
     now_ts = int(time.time())
     checked_at = format_moscow_time(snapshot.last_checked_at)
@@ -462,4 +508,6 @@ def get_tax_health_status_lines() -> list[str]:
     planned_lines = get_planned_outage_status_lines()
     if planned_lines:
         lines.extend(planned_lines)
+
+    _set_cached_health_lines(lines)
     return lines

@@ -90,6 +90,8 @@ from src.sbs_helper_telegram_bot.upos_error import settings as upos_settings
 from src.common.telegram_user import (
     check_if_user_legit,
     check_if_invite_user_blocked,
+    check_if_user_admin,
+    get_user_auth_status,
     update_user_info_from_telegram,
     get_unauthorized_message,
 )
@@ -209,8 +211,6 @@ from src.sbs_helper_telegram_bot.ai_router.messages import (
 from src.sbs_helper_telegram_bot.news.admin_panel_bot_part import (
     get_news_admin_handler,
 )
-
-from src.common.telegram_user import check_if_user_admin
 
 from config.settings import DEBUG, INVITES_PER_NEW_USER
 
@@ -680,12 +680,10 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         profile_user_id = user_id
         mark_step("parse_message")
 
-        # Сначала проверяем, не является ли пользователь предварительно приглашённым
-        # Это приоритетнее проверки инвайт-кода, чтобы не "тратить" инвайты
-        is_pre_invited = invites.check_if_user_pre_invited(user_id)
-        is_pre_invited_activated = invites.is_pre_invited_user_activated(user_id) if is_pre_invited else True
+        # Единая проверка авторизации (одно подключение к БД вместо 6-9)
+        auth = get_user_auth_status(user_id)
         mark_step("check_pre_invited")
-        if is_pre_invited and not is_pre_invited_activated:
+        if auth.is_pre_invited and not auth.is_pre_invited_activated:
             # Активируем предварительно приглашённого пользователя
             invites.mark_pre_invited_user_activated(user_id)
             update_user_info_from_telegram(update.effective_user)
@@ -699,7 +697,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             mark_step("send_pre_invited_welcome")
 
             # Показываем главное меню
-            is_admin = check_if_user_admin(user_id)
+            is_admin = auth.is_admin
             await update.message.reply_text(
                 get_main_menu_message(user_id, update.effective_user.first_name),
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -710,7 +708,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             return
 
         # Проверяем, заблокирован ли пользователь из-за выключенной системы инвайтов
-        if check_if_invite_user_blocked(user_id):
+        if auth.is_invite_blocked:
             mark_step("check_invite_blocked")
             await update.message.reply_text(MESSAGE_INVITE_SYSTEM_DISABLED)
             mark_step("send_invite_disabled")
@@ -718,7 +716,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             return
         mark_step("check_invite_blocked")
 
-        is_legit_user = check_if_user_legit(user_id)
+        is_legit_user = auth.is_legit
         mark_step("check_legit_user")
         if not is_legit_user:
             invite_status = check_if_invite_entered(user_id, text)
@@ -731,7 +729,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
                     await update.message.reply_text(MESSAGE_INVITE_ISSUED.format(invite=invite))
                 mark_step("send_registration_welcome")
                 # Показываем главное меню после успешной регистрации
-                is_admin = check_if_user_admin(user_id)
+                is_admin = auth.is_admin
                 await update.message.reply_text(
                     get_main_menu_message(user_id, update.effective_user.first_name),
                     parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -752,7 +750,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             return
 
         # Обрабатываем нажатия кнопок меню для авторизованных пользователей
-        is_admin = check_if_user_admin(user_id)
+        is_admin = auth.is_admin
         mark_step("check_admin")
 
         # Очищаем AI-контекст при навигации по меню (не для произвольного текста)
