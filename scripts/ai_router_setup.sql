@@ -22,5 +22,6 @@ CREATE TABLE IF NOT EXISTS ai_router_log (
 COMMENT='Лог AI-маршрутизации для аналитики и отладки';
 
 -- Добавляем настройку AI-модуля в bot_settings (если ещё нет)
-INSERT IGNORE INTO bot_settings (setting_key, setting_value, updated_by, updated_at)
-VALUES ('module_ai_router_enabled', '1', 0, NOW());
+-- Добавляем настройку AI-модуля в bot_settings (если ещё нет)
+INSERT IGNORE INTO bot_settings (setting_key, setting_value, updated_timestamp, updated_by_userid)
+VALUES ('module_ai_router_enabled', '1', UNIX_TIMESTAMP(), NULL);
