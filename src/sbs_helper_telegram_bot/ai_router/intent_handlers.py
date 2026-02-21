@@ -373,7 +373,7 @@ class NewsHandler(IntentHandler):
                 if not articles:
                     escaped_q = escape_markdown_v2(search_query)
                     return f"🔍 По запросу «{escaped_q}» новостей не найдено\\."
-                return self._format_articles(articles, f"🔍 Результаты поиска ({total})")
+                return self._format_articles(articles, f"🔍 Результаты поиска \\({total}\\)")
             else:
                 # Показать последние новости
                 unread = get_unread_count(user_id)
@@ -381,7 +381,7 @@ class NewsHandler(IntentHandler):
                 if not articles:
                     return "📰 Новостей пока нет\\."
 
-                header = f"📰 Последние новости ({total})"
+                header = f"📰 Последние новости \\({total}\\)"
                 if unread > 0:
                     header += f" \\| 🔴 Непрочитанных: {unread}"
 

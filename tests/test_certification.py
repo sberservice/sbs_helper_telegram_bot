@@ -707,5 +707,93 @@ class TestCertificationHandlers(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(difficulties, sorted(difficulties, key=lambda level: {'easy': 0, 'medium': 1, 'hard': 2}[level]))
 
 
+class TestCancelOnMenu(unittest.IsolatedAsyncioTestCase):
+    """Тесты выхода из режима обучения/теста при нажатии «Главное меню»."""
+
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.get_main_menu_keyboard')
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.get_main_menu_message', return_value='Главное меню')
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.check_if_user_admin', return_value=False)
+    async def test_cancel_on_menu_shows_main_menu(self, _mock_admin, mock_menu_msg, mock_menu_kb):
+        """Проверка, что cancel_on_menu отправляет главное меню при первом нажатии."""
+        from src.sbs_helper_telegram_bot.certification.certification_bot_part import cancel_on_menu
+        from telegram.ext import ConversationHandler
+
+        mock_menu_kb.return_value = MagicMock()
+
+        update = MagicMock()
+        update.effective_user.id = 12345
+        update.effective_user.first_name = 'Тест'
+        update.message.reply_text = AsyncMock()
+
+        context = MagicMock()
+        context.user_data = {}
+
+        result = await cancel_on_menu(update, context)
+
+        self.assertEqual(result, ConversationHandler.END)
+        update.message.reply_text.assert_awaited_once()
+        call_kwargs = update.message.reply_text.call_args
+        mock_menu_msg.assert_called_once_with(12345, 'Тест')
+        mock_menu_kb.assert_called_once_with(is_admin=False)
+
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.get_main_menu_keyboard')
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.get_main_menu_message', return_value='Главное меню')
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.check_if_user_admin', return_value=True)
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.logic.complete_test_attempt')
+    async def test_cancel_on_menu_cancels_active_attempt(self, mock_complete, _mock_admin, _mock_msg, mock_kb):
+        """Проверка, что cancel_on_menu отменяет активную попытку теста."""
+        from src.sbs_helper_telegram_bot.certification.certification_bot_part import cancel_on_menu
+        from src.sbs_helper_telegram_bot.certification import settings
+        from telegram.ext import ConversationHandler
+
+        mock_kb.return_value = MagicMock()
+
+        update = MagicMock()
+        update.effective_user.id = 12345
+        update.effective_user.first_name = 'Тест'
+        update.message.reply_text = AsyncMock()
+
+        context = MagicMock()
+        context.user_data = {settings.CURRENT_ATTEMPT_ID_KEY: 42}
+
+        result = await cancel_on_menu(update, context)
+
+        self.assertEqual(result, ConversationHandler.END)
+        mock_complete.assert_called_once_with(42, status='cancelled')
+        # Для админа keyboard должна быть с is_admin=True
+        from src.sbs_helper_telegram_bot.certification.certification_bot_part import get_main_menu_keyboard
+        get_main_menu_keyboard.assert_called_once_with(is_admin=True)
+
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.get_main_menu_keyboard')
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.get_main_menu_message', return_value='Меню')
+    @patch('src.sbs_helper_telegram_bot.certification.certification_bot_part.check_if_user_admin', return_value=False)
+    async def test_cancel_on_menu_clears_learning_context(self, _mock_admin, _mock_msg, mock_kb):
+        """Проверка, что cancel_on_menu очищает контекст обучения."""
+        from src.sbs_helper_telegram_bot.certification.certification_bot_part import cancel_on_menu
+        from src.sbs_helper_telegram_bot.certification import settings
+        from telegram.ext import ConversationHandler
+
+        mock_kb.return_value = MagicMock()
+
+        update = MagicMock()
+        update.effective_user.id = 12345
+        update.effective_user.first_name = 'Тест'
+        update.message.reply_text = AsyncMock()
+
+        # Создаём user_data с ключами контекста обучения
+        context = MagicMock()
+        user_data = {
+            settings.LEARNING_QUESTIONS_KEY: [{'id': 1}],
+            settings.LEARNING_CURRENT_QUESTION_INDEX_KEY: 0,
+            settings.LEARNING_CORRECT_COUNT_KEY: 0,
+            settings.LEARNING_SELECTED_DIFFICULTY_KEY: 'easy',
+        }
+        context.user_data = user_data
+
+        result = await cancel_on_menu(update, context)
+        self.assertEqual(result, ConversationHandler.END)
+        update.message.reply_text.assert_awaited_once()
+
+
 if __name__ == '__main__':
     unittest.main()
