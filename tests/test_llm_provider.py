@@ -3,7 +3,7 @@ test_llm_provider.py — тесты для LLM-провайдера и парс�
 """
 import json
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 from src.sbs_helper_telegram_bot.ai_router.llm_provider import (
     ClassificationResult,
@@ -81,12 +81,12 @@ class TestParseClassification(unittest.TestCase):
         self.assertEqual(result.explain_code, "NO_JSON_IN_RESPONSE")
 
     def test_invalid_json(self):
-        """Невалидный JSON — возвращает unknown."""
+        """Невалидный JSON с intent обрабатывается partial fallback."""
         raw = 'some text {"intent": "test", broken} and more'
         result = DeepSeekProvider._parse_classification(raw, elapsed_ms=100)
-        self.assertEqual(result.intent, "unknown")
+        self.assertEqual(result.intent, "test")
         self.assertEqual(result.confidence, 0.0)
-        self.assertEqual(result.explain_code, "JSON_PARSE_FAIL")
+        self.assertEqual(result.explain_code, "PARTIAL_JSON_FALLBACK")
 
     def test_confidence_clamped_to_range(self):
         """Confidence ограничивается диапазоном [0, 1]."""
@@ -112,6 +112,35 @@ class TestParseClassification(unittest.TestCase):
         raw = json.dumps({"intent": "test", "confidence": 0.8, "parameters": "not a dict"})
         result = DeepSeekProvider._parse_classification(raw, elapsed_ms=0)
         self.assertEqual(result.parameters, {})
+
+    def test_partial_json_fallback_for_truncated_response(self):
+        """Частичный JSON без закрывающей скобки парсится через fallback."""
+        raw = (
+            '{\n'
+            '  "intent": "ticket_validation",\n'
+            '  "confidence": 0.95,\n'
+            '  "parameters": {\n'
+            '    "ticket_text": "очень длинный текст'
+        )
+        result = DeepSeekProvider._parse_classification(raw, elapsed_ms=200)
+        self.assertEqual(result.intent, "ticket_validation")
+        self.assertEqual(result.confidence, 0.95)
+        self.assertEqual(result.parameters, {})
+        self.assertEqual(result.explain_code, "PARTIAL_JSON_FALLBACK")
+
+    def test_partial_json_fallback_with_explicit_explain_code(self):
+        """Fallback сохраняет explain_code, если он есть в частичном JSON."""
+        raw = (
+            '{\n'
+            '  "intent": "certification_info",\n'
+            '  "confidence": 0.9,\n'
+            '  "explain_code": "CERT_KEYWORD",\n'
+            '  "parameters": {\n'
+            '    "query_type": "summary"\n'
+        )
+        result = DeepSeekProvider._parse_classification(raw, elapsed_ms=50)
+        self.assertEqual(result.intent, "certification_info")
+        self.assertEqual(result.explain_code, "CERT_KEYWORD")
 
 
 class TestProviderFactory(unittest.TestCase):

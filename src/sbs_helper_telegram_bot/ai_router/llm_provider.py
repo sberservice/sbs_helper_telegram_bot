@@ -8,6 +8,7 @@ DeepSeekProvider для классификации намерений и сво�
 
 import json
 import logging
+import re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -158,7 +159,9 @@ class DeepSeekProvider(LLMProvider):
         full_messages = [{"role": "system", "content": system_prompt}] + messages
 
         try:
-            raw = await self._call_api(full_messages, temperature=0.1, max_tokens=512)
+            # Для длинных заявок (ticket_validation) увеличиваем бюджет токенов,
+            # чтобы JSON-ответ не обрезался до закрывающих скобок.
+            raw = await self._call_api(full_messages, temperature=0.1, max_tokens=1024)
         except Exception as exc:
             elapsed = int((time.monotonic() - start_time) * 1000)
             logger.error(
@@ -285,6 +288,9 @@ class DeepSeekProvider(LLMProvider):
                 try:
                     parsed = json.loads(raw[start : end + 1])
                 except json.JSONDecodeError:
+                    partial = DeepSeekProvider._extract_partial_classification(raw, elapsed_ms)
+                    if partial is not None:
+                        return partial
                     logger.warning(
                         "Не удалось распарсить JSON из ответа LLM: %s",
                         raw[:200],
@@ -297,6 +303,9 @@ class DeepSeekProvider(LLMProvider):
                         response_time_ms=elapsed_ms,
                     )
             else:
+                partial = DeepSeekProvider._extract_partial_classification(raw, elapsed_ms)
+                if partial is not None:
+                    return partial
                 logger.warning(
                     "JSON не найден в ответе LLM: %s", raw[:200]
                 )
@@ -323,6 +332,51 @@ class DeepSeekProvider(LLMProvider):
             intent=intent,
             confidence=confidence,
             parameters=parameters,
+            explain_code=explain_code,
+            raw_response=raw,
+            response_time_ms=elapsed_ms,
+        )
+
+    @staticmethod
+    def _extract_partial_classification(
+        raw: str,
+        elapsed_ms: int,
+    ) -> Optional[ClassificationResult]:
+        """
+        Попытаться извлечь intent/confidence из частично обрезанного JSON.
+
+        Нужен для случаев, когда LLM вернул начало JSON-объекта, но ответ
+        обрезался по длине (например, длинный `ticket_text`), и закрывающих
+        скобок уже нет.
+        """
+        if '"intent"' not in raw:
+            return None
+
+        intent_match = re.search(r'"intent"\s*:\s*"([^"]+)"', raw)
+        if not intent_match:
+            return None
+
+        confidence_match = re.search(
+            r'"confidence"\s*:\s*([0-9]*\.?[0-9]+)',
+            raw,
+        )
+        explain_match = re.search(r'"explain_code"\s*:\s*"([^"]+)"', raw)
+
+        intent = intent_match.group(1)
+        confidence = float(confidence_match.group(1)) if confidence_match else 0.0
+        confidence = max(0.0, min(1.0, confidence))
+        explain_code = explain_match.group(1) if explain_match else "PARTIAL_JSON_FALLBACK"
+
+        logger.warning(
+            "Использован fallback-парсинг частичного JSON: intent=%s, confidence=%.2f",
+            intent,
+            confidence,
+        )
+
+        return ClassificationResult(
+            intent=intent,
+            confidence=confidence,
+            parameters={},
             explain_code=explain_code,
             raw_response=raw,
             response_time_ms=elapsed_ms,
