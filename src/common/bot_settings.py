@@ -69,6 +69,20 @@ MODULE_CONFIG = [
         'order': 6,
         'columns': 2
     },
+    {
+        'key': 'ai_router',
+        'setting_key': 'module_ai_router_enabled',
+        'button_label': '🤖 AI Роутер',
+        'order': 7,
+        'columns': 2
+    },
+    {
+        'key': 'news',
+        'setting_key': 'module_news_enabled',
+        'button_label': '📰 Новости',
+        'order': 8,
+        'columns': 2
+    },
 ]
 
 # Формируем MODULE_KEYS из MODULE_CONFIG для обратной совместимости
