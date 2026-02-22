@@ -89,15 +89,57 @@ class RagKnowledgeService:
             with database.get_cursor(conn) as cursor:
                 cursor.execute(
                     """
-                    SELECT id FROM rag_documents
-                    WHERE content_hash = %s AND status = 'active'
+                    SELECT id, status FROM rag_documents
+                    WHERE content_hash = %s
                     LIMIT 1
                     """,
                     (content_hash,),
                 )
                 existing = cursor.fetchone()
                 if existing:
-                    return {"document_id": int(existing["id"]), "chunks_count": 0, "is_duplicate": 1}
+                    existing_id = int(existing["id"])
+                    existing_status = str(existing.get("status") or "")
+
+                    if existing_status != "active":
+                        cursor.execute(
+                            """
+                            UPDATE rag_documents
+                            SET
+                                filename = %s,
+                                source_type = %s,
+                                source_url = %s,
+                                uploaded_by = %s,
+                                status = 'active',
+                                updated_at = NOW()
+                            WHERE id = %s
+                            """,
+                            (filename, source_type, source_url, uploaded_by, existing_id),
+                        )
+                        self._bump_corpus_version(
+                            cursor,
+                            f"reactivate:{existing_id}:{uploaded_by}:{filename}",
+                        )
+                        self._clear_expired_cache()
+                        logger.info(
+                            "RAG ingest reactivated existing document: file=%s document_id=%s old_status=%s uploaded_by=%s",
+                            filename,
+                            existing_id,
+                            existing_status,
+                            uploaded_by,
+                        )
+                        return {
+                            "document_id": existing_id,
+                            "chunks_count": 0,
+                            "is_duplicate": 1,
+                            "reactivated": 1,
+                        }
+
+                    return {
+                        "document_id": existing_id,
+                        "chunks_count": 0,
+                        "is_duplicate": 1,
+                        "reactivated": 0,
+                    }
 
         if self._is_html_file(filename):
             chunks = self._split_html_payload(payload)
@@ -191,6 +233,53 @@ class RagKnowledgeService:
                 rows = cursor.fetchall() or []
 
         return rows
+
+    def list_documents_by_source(
+        self,
+        source_type: str,
+        source_url_prefix: Optional[str] = None,
+    ) -> List[Dict[str, object]]:
+        """
+        Получить документы по типу источника и префиксу source_url.
+
+        Args:
+            source_type: Тип источника (например, filesystem).
+            source_url_prefix: Префикс source_url для фильтрации.
+
+        Returns:
+            Список документов с базовыми метаданными.
+        """
+        normalized_source_type = (source_type or "").strip()
+        if not normalized_source_type:
+            raise ValueError("Пустой source_type")
+
+        query = """
+            SELECT
+                id,
+                filename,
+                source_type,
+                source_url,
+                uploaded_by,
+                status,
+                content_hash,
+                created_at,
+                updated_at
+            FROM rag_documents
+            WHERE source_type = %s
+        """
+        params: List[object] = [normalized_source_type]
+
+        normalized_prefix = (source_url_prefix or "").strip()
+        if normalized_prefix:
+            query += " AND source_url LIKE %s"
+            params.append(f"{normalized_prefix}%")
+
+        query += " ORDER BY id DESC"
+
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(query, tuple(params))
+                return cursor.fetchall() or []
 
     def get_document(self, document_id: int) -> Optional[Dict[str, object]]:
         """

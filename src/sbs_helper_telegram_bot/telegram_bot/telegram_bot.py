@@ -207,6 +207,8 @@ from src.sbs_helper_telegram_bot.ai_router.messages import (
     MESSAGE_MODULE_DISABLED_BUTTON,
     MESSAGE_AI_PROCESSING,
     MESSAGE_AI_WAITING_FOR_AI,
+    MESSAGE_AI_LOW_CONFIDENCE,
+    MESSAGE_AI_UNAVAILABLE,
     escape_markdown_v2,
 )
 from src.sbs_helper_telegram_bot.ai_router.rag_admin_bot_part import (
@@ -237,6 +239,12 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 CTX_LAST_REPLY_KEYBOARD = "last_reply_keyboard"
+
+AI_STATUS_FALLBACK_MESSAGES = {
+    "low_confidence": MESSAGE_AI_LOW_CONFIDENCE,
+    "error": MESSAGE_AI_UNAVAILABLE,
+    "circuit_open": MESSAGE_AI_UNAVAILABLE,
+}
 
 
 def _format_profile_steps(steps: list[tuple[str, int]]) -> str:
@@ -1279,10 +1287,14 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 mark_step("reply_ai_response")
                 profile_result = f"ai_{status}"
             else:
-                # Ответ по умолчанию для нераспознанного текста
+                # Ответ по статусу AI (или дефолт для нераспознанного текста)
                 restore_keyboard = _get_last_reply_keyboard_or_main(context, is_admin)
+                fallback_message = AI_STATUS_FALLBACK_MESSAGES.get(
+                    status,
+                    MESSAGE_UNRECOGNIZED_INPUT,
+                )
                 try:
-                    await _edit_markdown_safe(placeholder, MESSAGE_UNRECOGNIZED_INPUT)
+                    await _edit_markdown_safe(placeholder, fallback_message)
                     try:
                         await update.message.reply_text(
                             "Выберите действие из меню или введите произвольный запрос:",
@@ -1305,12 +1317,12 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     except Exception:
                         pass
                     await update.message.reply_text(
-                        MESSAGE_UNRECOGNIZED_INPUT,
+                        fallback_message,
                         parse_mode=constants.ParseMode.MARKDOWN_V2,
                         reply_markup=restore_keyboard,
                     )
                 mark_step("reply_unrecognized_input")
-                profile_result = "unrecognized_input"
+                profile_result = f"ai_{status}" if status in AI_STATUS_FALLBACK_MESSAGES else "unrecognized_input"
     finally:
         total_ms = int((time.perf_counter() - profile_started_at) * 1000)
         logger.info(

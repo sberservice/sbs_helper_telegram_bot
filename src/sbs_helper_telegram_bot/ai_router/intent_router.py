@@ -6,6 +6,7 @@ intent_router.py — маршрутизатор намерений AI.
 """
 
 import logging
+import re
 import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
@@ -35,6 +36,13 @@ from src.sbs_helper_telegram_bot.ai_router.prompts import (
 from src.sbs_helper_telegram_bot.ai_router.rate_limiter import AIRateLimiter
 
 logger = logging.getLogger(__name__)
+
+
+CLASSIFICATION_NO_JSON_EXPLAIN_CODES = {
+    "NO_JSON_IN_RESPONSE",
+    "JSON_PARSE_FAIL",
+    "DIRECT_TEXT_FALLBACK",
+}
 
 
 class IntentRouter:
@@ -153,6 +161,37 @@ class IntentRouter:
             classify_model = self._get_model_name(provider, purpose="classification")
             system_prompt = build_classification_prompt(enabled_modules)
             classification = await provider.classify(context_messages, system_prompt)
+
+            if self._should_retry_classification(classification):
+                logger.warning(
+                    "AI classification non-JSON fallback, retry once: "
+                    "user=%s, explain=%s, intent=%s",
+                    user_id,
+                    classification.explain_code,
+                    classification.intent,
+                )
+                retry_classification = await provider.classify(context_messages, system_prompt)
+                if self._should_retry_classification(retry_classification):
+                    classification.explain_code = f"{classification.explain_code}_RETRY_FAILED"
+                    logger.warning(
+                        "AI classification retry failed, keep first result: "
+                        "user=%s, first_explain=%s, retry_explain=%s",
+                        user_id,
+                        classification.explain_code,
+                        retry_classification.explain_code,
+                    )
+                else:
+                    retry_classification.explain_code = (
+                        f"{retry_classification.explain_code}_AFTER_RETRY"
+                    )
+                    classification = retry_classification
+                    logger.info(
+                        "AI classification retry succeeded: user=%s, explain=%s, intent=%s",
+                        user_id,
+                        classification.explain_code,
+                        classification.intent,
+                    )
+
             classify_ms = int((time.monotonic() - classify_started_at) * 1000)
             self._circuit_breaker.record_success()
         except Exception as exc:
@@ -262,6 +301,28 @@ class IntentRouter:
             dispatch_meta["path"] = "direct_answer_fallback"
             return format_ai_chat_response(direct_answer), "chat", dispatch_meta
 
+        # Приоритет RAG: если классификатор выбрал general_chat, но сообщение
+        # не похоже на small-talk, пробуем маршрутизировать в rag_qa.
+        if intent == "general_chat" and self._should_reroute_general_chat_to_rag(
+            original_text, enabled_modules
+        ):
+            rag_handler = self._handlers.get("rag_qa")
+            if rag_handler:
+                try:
+                    handler_started_at = time.monotonic()
+                    response = await rag_handler.execute(
+                        {"question": original_text}, user_id
+                    )
+                    dispatch_meta["path"] = "general_chat_to_rag"
+                    dispatch_meta["handler_ms"] = int((time.monotonic() - handler_started_at) * 1000)
+                    return response, "routed", dispatch_meta
+                except Exception as exc:
+                    logger.warning(
+                        "AI reroute general_chat->rag_qa failed: user=%s, error=%s",
+                        user_id,
+                        exc,
+                    )
+
         # Обработчик модуля
         handler = self._handlers.get(intent)
         if handler and confidence >= ai_settings.CONFIDENCE_THRESHOLD:
@@ -357,6 +418,71 @@ class IntentRouter:
         dispatch_meta["path"] = "unknown_low_confidence"
         return None, "low_confidence", dispatch_meta
 
+    @staticmethod
+    def _is_small_talk_message(text: str) -> bool:
+        """Определить, является ли сообщение коротким small-talk без запроса по делу."""
+        normalized = re.sub(r"\s+", " ", text.strip().lower())
+        if not normalized:
+            return False
+
+        exact_phrases = {
+            "привет",
+            "здравствуй",
+            "здравствуйте",
+            "добрый день",
+            "доброе утро",
+            "добрый вечер",
+            "спасибо",
+            "благодарю",
+            "ок",
+            "окей",
+            "понял",
+            "понятно",
+            "ясно",
+            "пока",
+            "до свидания",
+            "good morning",
+            "good evening",
+            "hello",
+            "hi",
+            "thanks",
+        }
+        if normalized in exact_phrases:
+            return True
+
+        return normalized.startswith(
+            (
+                "привет",
+                "здравств",
+                "добрый день",
+                "доброе утро",
+                "добрый вечер",
+                "спасибо",
+                "благодар",
+                "пока",
+                "до свид",
+                "hello",
+                "hi",
+                "thanks",
+            )
+        ) and len(normalized) <= 80
+
+    def _should_reroute_general_chat_to_rag(
+        self,
+        original_text: str,
+        enabled_modules: List[str],
+    ) -> bool:
+        """Проверить, нужно ли перенаправить general_chat в rag_qa."""
+        if "ai_router" not in enabled_modules:
+            return False
+        if "rag_qa" not in self._handlers:
+            return False
+        if not bot_settings.is_module_enabled(ai_settings.AI_MODULE_KEY):
+            return False
+        if self._is_small_talk_message(original_text):
+            return False
+        return True
+
     def clear_context(self, user_id: int) -> None:
         """Очистить контекст диалога для пользователя."""
         self._context_manager.clear(user_id)
@@ -378,6 +504,11 @@ class IntentRouter:
         enabled = bot_settings.get_enabled_modules()
         routable = set(h.module_key for h in self._handlers.values())
         return [m for m in enabled if m in routable]
+
+    @staticmethod
+    def _should_retry_classification(classification: ClassificationResult) -> bool:
+        """Проверить, нужен ли повтор классификации после ответа без корректного JSON."""
+        return classification.explain_code in CLASSIFICATION_NO_JSON_EXPLAIN_CODES
 
     @staticmethod
     def _get_model_name(provider: LLMProvider, purpose: str) -> str:

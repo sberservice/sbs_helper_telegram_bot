@@ -37,6 +37,22 @@ CREATE TABLE IF NOT EXISTS rag_chunks (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='Чанки документов базы знаний для retrieval';
 
+CREATE TABLE IF NOT EXISTS rag_document_summaries (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    document_id BIGINT NOT NULL,
+    summary_text TEXT NOT NULL,
+    model_name VARCHAR(64) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uq_rag_doc_summary_document (document_id),
+    INDEX idx_rag_doc_summary_updated_at (updated_at),
+    CONSTRAINT fk_rag_doc_summary_document
+        FOREIGN KEY (document_id) REFERENCES rag_documents(id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='AI-summary документов базы знаний для prefilter и prompt enrichment';
+
 CREATE TABLE IF NOT EXISTS rag_corpus_version (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     reason VARCHAR(255) NOT NULL,
