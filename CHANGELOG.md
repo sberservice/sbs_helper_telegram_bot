@@ -5,7 +5,6 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
-
 ## [0.1.11] - 2026-02-22
 
 ### Added
