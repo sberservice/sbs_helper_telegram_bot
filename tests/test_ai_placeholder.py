@@ -241,6 +241,66 @@ class TestAIPlaceholderFlow(unittest.IsolatedAsyncioTestCase):
 
         mock_edit_safe.assert_awaited_once_with(placeholder_msg, "Результат модуля")
 
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.logger.info")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_user_auth_status")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_ai_router")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_main_menu_keyboard")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot._edit_markdown_safe", new_callable=AsyncMock)
+    async def test_placeholder_profiling_contains_substeps_and_detailed_log(
+        self,
+        mock_edit_safe,
+        mock_keyboard,
+        mock_get_router,
+        mock_auth,
+        mock_logger_info,
+    ):
+        """Лог профилирования AI содержит подэтапы отправки плейсхолдера."""
+        from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import text_entered
+
+        auth = MagicMock()
+        auth.is_pre_invited = False
+        auth.is_pre_invited_activated = True
+        auth.is_invite_blocked = False
+        auth.is_legit = True
+        auth.is_admin = False
+        mock_auth.return_value = auth
+
+        mock_keyboard.return_value = MagicMock()
+
+        mock_router = MagicMock()
+        mock_router.route = AsyncMock(return_value=("AI ответ", "chat"))
+        mock_get_router.return_value = mock_router
+
+        update, context = _make_update_and_context(text="проверь профиль")
+        placeholder_msg = MagicMock()
+        update.message.reply_text.return_value = placeholder_msg
+
+        await text_entered(update, context)
+        mock_edit_safe.assert_awaited_once_with(placeholder_msg, "AI ответ")
+
+        profile_call = None
+        placeholder_profile_call = None
+        for call in mock_logger_info.call_args_list:
+            if call.args and call.args[0] == "Update profiling: user_id=%s result=%s total_ms=%s steps=[%s]":
+                profile_call = call
+            if call.args and call.args[0] == (
+                "AI placeholder profiling: user_id=%s total_ms=%s chat_action_ms=%s "
+                "placeholder_reply_ms=%s"
+            ):
+                placeholder_profile_call = call
+
+        self.assertIsNotNone(profile_call)
+        steps = profile_call.args[4]
+        self.assertIn("ai_chat_action=", steps)
+        self.assertIn("ai_placeholder_reply=", steps)
+        self.assertIn("ai_placeholder_sent=", steps)
+
+        self.assertIsNotNone(placeholder_profile_call)
+        self.assertEqual(placeholder_profile_call.args[1], update.effective_user.id)
+        self.assertIsInstance(placeholder_profile_call.args[2], int)
+        self.assertIsInstance(placeholder_profile_call.args[3], int)
+        self.assertIsInstance(placeholder_profile_call.args[4], int)
+
 
 class TestStripMarkdownV2Escaping(unittest.TestCase):
     """Тесты для _strip_markdown_v2_escaping — удаление MarkdownV2-экранирования."""

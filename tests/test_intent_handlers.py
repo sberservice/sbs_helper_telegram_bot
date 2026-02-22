@@ -2,6 +2,7 @@
 test_intent_handlers.py — тесты для обработчиков намерений AI-маршрутизации.
 """
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, AsyncMock
 
 from src.sbs_helper_telegram_bot.ai_router.intent_handlers import (
@@ -406,6 +407,71 @@ class TestTicketValidatorHandler(unittest.IsolatedAsyncioTestCase):
             h = TicketValidatorHandler()
             result = await h.execute({"ticket_text": "Текст заявки"}, user_id=1)
             self.assertIn("Ошибка", result)
+
+    async def test_undefined_type_uses_type_name_without_attribute_error(self):
+        """Список типов формируется через type_name без обращения к несуществующему name."""
+        from src.sbs_helper_telegram_bot.ticket_validator.validators import TicketType
+
+        ticket_types = [
+            TicketType(
+                id=1,
+                type_name="Установка",
+                description="",
+                detection_keywords=["установка"],
+                active=True,
+            ),
+            TicketType(
+                id=2,
+                type_name="Ремонт",
+                description="",
+                detection_keywords=["ремонт"],
+                active=True,
+            ),
+        ]
+
+        with patch(
+            "src.sbs_helper_telegram_bot.ticket_validator.validation_rules.load_all_ticket_types",
+            return_value=ticket_types,
+        ), patch(
+            "src.sbs_helper_telegram_bot.ticket_validator.validators.detect_ticket_type",
+            return_value=(None, None),
+        ):
+            h = TicketValidatorHandler()
+            result = await h.execute({"ticket_text": "произвольный текст"}, user_id=1)
+            self.assertIn("Тип заявки не определён", result)
+            self.assertIn("Установка", result)
+            self.assertIn("Ремонт", result)
+
+    async def test_format_result_uses_type_name(self):
+        """Результат валидации отображает type_name у найденного типа заявки."""
+        from src.sbs_helper_telegram_bot.ticket_validator.validators import TicketType
+
+        detected_type = TicketType(
+            id=3,
+            type_name="Техническое обслуживание",
+            description="",
+            detection_keywords=["обслуживание"],
+            active=True,
+        )
+        validation_result = SimpleNamespace(is_valid=True, error_messages=[])
+
+        with patch(
+            "src.sbs_helper_telegram_bot.ticket_validator.validation_rules.load_all_ticket_types",
+            return_value=[detected_type],
+        ), patch(
+            "src.sbs_helper_telegram_bot.ticket_validator.validators.detect_ticket_type",
+            return_value=(detected_type, None),
+        ), patch(
+            "src.sbs_helper_telegram_bot.ticket_validator.validation_rules.load_rules_from_db",
+            return_value=[],
+        ), patch(
+            "src.sbs_helper_telegram_bot.ticket_validator.validators.validate_ticket",
+            return_value=validation_result,
+        ):
+            h = TicketValidatorHandler()
+            result = await h.execute({"ticket_text": "текст заявки"}, user_id=1)
+            self.assertIn("Тип заявки", result)
+            self.assertIn("Техническое обслуживание", result)
 
 
 if __name__ == "__main__":

@@ -439,7 +439,7 @@ async def process_column_selection(update: Update, context: ContextTypes.DEFAULT
         reply_keyboard = get_admin_submenu_keyboard() if is_admin else get_submenu_keyboard()
         try:
             await update.message.reply_text(
-                "Выберите действие из меню:",
+                "Выберите действие из меню или введите произвольный запрос:",
                 reply_markup=reply_keyboard
             )
         except Exception as e:

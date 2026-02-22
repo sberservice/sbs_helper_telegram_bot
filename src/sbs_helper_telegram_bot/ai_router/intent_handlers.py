@@ -113,6 +113,15 @@ class UposErrorHandler(IntentHandler):
 class TicketValidatorHandler(IntentHandler):
     """Обработчик валидации заявок."""
 
+    @staticmethod
+    def _get_ticket_type_name(ticket_type: Any) -> str:
+        """Безопасно получить отображаемое имя типа заявки."""
+        return str(
+            getattr(ticket_type, "type_name", None)
+            or getattr(ticket_type, "name", None)
+            or "Неизвестный тип"
+        )
+
     @property
     def intent_name(self) -> str:
         return "ticket_validation"
@@ -141,7 +150,11 @@ class TicketValidatorHandler(IntentHandler):
             detected_type, _ = detect_ticket_type(ticket_text, ticket_types)
 
             if not detected_type:
-                type_names = [escape_markdown_v2(t.name) for t in ticket_types if t.active]
+                type_names = [
+                    escape_markdown_v2(self._get_ticket_type_name(t))
+                    for t in ticket_types
+                    if t.active
+                ]
                 types_list = "\n".join(f"• {name}" for name in type_names)
                 return (
                     "⚠️ *Тип заявки не определён*\n\n"
@@ -162,7 +175,9 @@ class TicketValidatorHandler(IntentHandler):
     @staticmethod
     def _format_result(result, detected_type) -> str:
         """Отформатировать результат валидации."""
-        type_name = escape_markdown_v2(detected_type.name)
+        type_name = escape_markdown_v2(
+            TicketValidatorHandler._get_ticket_type_name(detected_type)
+        )
         header = f"📋 *Тип заявки:* {type_name}\n\n"
 
         if result.is_valid:
