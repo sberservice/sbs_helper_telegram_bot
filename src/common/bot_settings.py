@@ -155,6 +155,10 @@ def get_setting(key: str) -> Optional[str]:
     Returns:
         Значение настройки в виде строки или None, если не найдено.
     """
+    cached_value = _cache_get(key)
+    if cached_value is not _CACHE_MISS:
+        return cached_value
+
     with database.get_db_connection() as conn:
         with database.get_cursor(conn) as cursor:
             cursor.execute(
@@ -162,7 +166,9 @@ def get_setting(key: str) -> Optional[str]:
                 (key,)
             )
             result = cursor.fetchone()
-            return result['setting_value'] if result else None
+            value = result['setting_value'] if result else None
+            _cache_put(key, value)
+            return value
 
 
 def set_setting(key: str, value: str, updated_by: Optional[int] = None) -> bool:
@@ -190,6 +196,7 @@ def set_setting(key: str, value: str, updated_by: Optional[int] = None) -> bool:
                 """,
                 (key, value, updated_by)
             )
+            clear_settings_cache()
             return True
 
 
@@ -273,7 +280,46 @@ def get_all_module_states() -> Dict[str, bool]:
     Returns:
         Словарь соответствий module_key -> состояние (True/False).
     """
-    return {key: is_module_enabled(key) for key in MODULE_KEYS.keys()}
+    module_pairs = [(key, setting_key) for key, setting_key in MODULE_KEYS.items()]
+    if not module_pairs:
+        return {}
+
+    cache_keys = [setting_key for _, setting_key in module_pairs]
+    cached_values: Dict[str, Optional[str]] = {}
+    missing_keys: List[str] = []
+
+    for cache_key in cache_keys:
+        cached_value = _cache_get(cache_key)
+        if cached_value is _CACHE_MISS:
+            missing_keys.append(cache_key)
+        else:
+            cached_values[cache_key] = cached_value
+
+    if missing_keys:
+        placeholders = ", ".join(["%s"] * len(missing_keys))
+        query = (
+            "SELECT setting_key, setting_value "
+            "FROM bot_settings "
+            f"WHERE setting_key IN ({placeholders})"
+        )
+
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(query, tuple(missing_keys))
+                rows = cursor.fetchall() or []
+
+        values_from_db = {row['setting_key']: row['setting_value'] for row in rows}
+        for key in missing_keys:
+            value = values_from_db.get(key)
+            _cache_put(key, value)
+            cached_values[key] = value
+
+    states: Dict[str, bool] = {}
+    for module_key, setting_key in module_pairs:
+        value = cached_values.get(setting_key)
+        states[module_key] = True if value is None else value == '1'
+
+    return states
 
 
 def get_enabled_modules() -> List[str]:
@@ -304,10 +350,15 @@ def get_modules_config(
     """
     # Сортируем модули по полю order
     sorted_modules = sorted(MODULE_CONFIG, key=lambda x: x['order'])
-    
-    if enabled_only:
-        # Оставляем только включённые модули
-        sorted_modules = [module for module in sorted_modules if is_module_enabled(module['key'])]
+
+    module_states = get_all_module_states() if enabled_only else None
+
+    if enabled_only and module_states is not None:
+        sorted_modules = [
+            module
+            for module in sorted_modules
+            if module_states.get(module['key'], True)
+        ]
 
     if visible_in_modules_menu_only:
         sorted_modules = [

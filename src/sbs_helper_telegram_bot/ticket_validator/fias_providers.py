@@ -146,7 +146,10 @@ class DaDataFIASProvider(BaseFIASProvider):
         api_key: Optional[str] = None,
         api_url: Optional[str] = None,
     ) -> None:
-        self.api_key = api_key or os.getenv("DADATA_API_KEY", "")
+        if api_key is None:
+            self.api_key = os.getenv("DADATA_API_KEY", "")
+        else:
+            self.api_key = api_key
         self.api_url = (
             api_url
             or os.getenv("DADATA_API_URL", "")
