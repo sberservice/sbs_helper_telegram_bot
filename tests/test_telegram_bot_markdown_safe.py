@@ -108,6 +108,8 @@ class TestUpdateProfiling(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(profile_call.args[3], int)
         self.assertIn("parse_message=", profile_call.args[4])
         self.assertIn("check_pre_invited=", profile_call.args[4])
+        self.assertIn("main_menu_build=", profile_call.args[4])
+        self.assertIn("telegram_send_main_menu=", profile_call.args[4])
         self.assertIn("reply_main_menu=", profile_call.args[4])
 
 

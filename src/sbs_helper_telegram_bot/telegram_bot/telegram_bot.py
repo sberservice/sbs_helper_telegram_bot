@@ -213,7 +213,12 @@ from src.sbs_helper_telegram_bot.news.admin_panel_bot_part import (
     get_news_admin_handler,
 )
 
-from config.settings import DEBUG, INVITES_PER_NEW_USER
+from config.settings import (
+    DEBUG,
+    INVITES_PER_NEW_USER,
+    TELEGRAM_SEND_MSG_CONNECT_TIMEOUT_SECONDS,
+    TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS,
+)
 
 
 logging.basicConfig(
@@ -836,12 +841,22 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             mark_step("clear_ai_context")
 
         if text == BUTTON_MAIN_MENU:
+            main_menu_started_at = time.perf_counter()
+            main_menu_message = get_main_menu_message(user_id, update.effective_user.first_name)
+            main_menu_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+            mark_step("main_menu_build")
+
             await update.message.reply_text(
-                get_main_menu_message(user_id, update.effective_user.first_name),
+                main_menu_message,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+                reply_markup=main_menu_keyboard
             )
-            mark_step("reply_main_menu")
+            mark_step("telegram_send_main_menu")
+            mark_step(
+                "reply_main_menu",
+                duration_ms=int((time.perf_counter() - main_menu_started_at) * 1000),
+                reset_marker=False,
+            )
             profile_result = "main_menu"
         elif text == BUTTON_MODULES:
             # Показываем меню модулей
@@ -1246,9 +1261,9 @@ def main() -> None:
         Application.builder()
         .token(TELEGRAM_TOKEN)
         .post_init(post_init)
-        .read_timeout(30)
-        .write_timeout(30)
-        .connect_timeout(15)
+        .read_timeout(TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS)
+        .write_timeout(TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS)
+        .connect_timeout(TELEGRAM_SEND_MSG_CONNECT_TIMEOUT_SECONDS)
         .build()
     )
 
