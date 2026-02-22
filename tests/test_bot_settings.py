@@ -16,6 +16,7 @@ from src.common.bot_settings import (
     is_invite_system_enabled,
     set_invite_system_enabled,
     check_if_user_from_invite,
+    get_modules_config,
     SETTING_INVITE_SYSTEM_ENABLED
 )
 
@@ -192,6 +193,25 @@ class TestCheckIfUserFromInvite(unittest.TestCase):
         
         # Should return False because they haven't used an invite
         self.assertFalse(result)
+
+
+class TestModulesMenuVisibility(unittest.TestCase):
+    """Тесты фильтрации видимости модулей в меню."""
+
+    @patch('src.common.bot_settings.is_module_enabled', return_value=True)
+    def test_ai_router_hidden_only_in_modules_menu(self, _mock_is_module_enabled):
+        """AI-модуль скрыт только из меню модулей, но остаётся в общей конфигурации."""
+        all_visible_modules = get_modules_config(enabled_only=True)
+        menu_visible_modules = get_modules_config(
+            enabled_only=True,
+            visible_in_modules_menu_only=True,
+        )
+
+        all_keys = {module['key'] for module in all_visible_modules}
+        menu_keys = {module['key'] for module in menu_visible_modules}
+
+        self.assertIn('ai_router', all_keys)
+        self.assertNotIn('ai_router', menu_keys)
 
 
 if __name__ == '__main__':

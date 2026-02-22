@@ -77,6 +77,7 @@ SETTING_INVITE_SYSTEM_ENABLED = 'invite_system_enabled'
 # - button_label: текст кнопки модуля
 # - order: порядок отображения (меньше — раньше)
 # - columns: число кнопок в строке (1 или 2)
+# - show_in_modules_menu: показывать ли модуль в меню «⚡ Начать работу»
 MODULE_CONFIG = [
     {
         'key': 'certification',
@@ -125,7 +126,8 @@ MODULE_CONFIG = [
         'setting_key': 'module_ai_router_enabled',
         'button_label': '🤖 AI Роутер',
         'order': 7,
-        'columns': 2
+        'columns': 2,
+        'show_in_modules_menu': False
     },
     {
         'key': 'news',
@@ -284,12 +286,17 @@ def get_enabled_modules() -> List[str]:
     return [key for key, enabled in get_all_module_states().items() if enabled]
 
 
-def get_modules_config(enabled_only: bool = True) -> List[Dict[str, any]]:
+def get_modules_config(
+    enabled_only: bool = True,
+    visible_in_modules_menu_only: bool = False,
+) -> List[Dict[str, any]]:
     """
     Получить конфигурацию модулей в порядке отображения.
 
     Args:
         enabled_only: Если True, вернуть только включённые модули. Если False, вернуть все.
+        visible_in_modules_menu_only: Если True, вернуть только модули,
+            помеченные как видимые в меню модулей.
 
     Returns:
         Список словарей конфигурации, отсортированный по полю order.
@@ -300,7 +307,13 @@ def get_modules_config(enabled_only: bool = True) -> List[Dict[str, any]]:
     
     if enabled_only:
         # Оставляем только включённые модули
-        return [module for module in sorted_modules if is_module_enabled(module['key'])]
+        sorted_modules = [module for module in sorted_modules if is_module_enabled(module['key'])]
+
+    if visible_in_modules_menu_only:
+        sorted_modules = [
+            module for module in sorted_modules
+            if module.get('show_in_modules_menu', True)
+        ]
     
     return sorted_modules
 

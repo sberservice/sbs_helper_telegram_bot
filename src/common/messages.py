@@ -359,8 +359,11 @@ def get_modules_menu_keyboard():
     from telegram import ReplyKeyboardMarkup
     from src.common import bot_settings
     
-    # Получаем включённые модули в заданном порядке
-    modules = bot_settings.get_modules_config(enabled_only=True)
+    # Получаем включённые модули, видимые в меню, в заданном порядке
+    modules = bot_settings.get_modules_config(
+        enabled_only=True,
+        visible_in_modules_menu_only=True,
+    )
     
     # Динамически собираем строки кнопок по настройке columns
     buttons = []
