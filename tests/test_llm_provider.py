@@ -3,7 +3,7 @@ test_llm_provider.py — тесты для LLM-провайдера и парс�
 """
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from src.sbs_helper_telegram_bot.ai_router.llm_provider import (
     ClassificationResult,
@@ -79,6 +79,17 @@ class TestParseClassification(unittest.TestCase):
         self.assertEqual(result.intent, "unknown")
         self.assertEqual(result.confidence, 0.0)
         self.assertEqual(result.explain_code, "NO_JSON_IN_RESPONSE")
+
+    def test_direct_text_fallback_for_long_non_json_response(self):
+        """Длинный не-JSON ответ обрабатывается как direct-text fallback."""
+        raw = (
+            "📚 Ответ по базе знаний. Для прошивки D200 подготовьте флешку FAT32, "
+            "скопируйте файл обновления, зайдите в сервисное меню и запустите обновление."
+        )
+        result = DeepSeekProvider._parse_classification(raw, elapsed_ms=180)
+        self.assertEqual(result.intent, "general_chat")
+        self.assertEqual(result.explain_code, "DIRECT_TEXT_FALLBACK")
+        self.assertIn("direct_answer", result.parameters)
 
     def test_invalid_json(self):
         """Невалидный JSON с intent обрабатывается partial fallback."""
@@ -184,6 +195,50 @@ class TestDeepSeekProviderInit(unittest.TestCase):
         """Имя провайдера — deepseek."""
         provider = DeepSeekProvider(api_key="test_key")
         self.assertEqual(provider.name, "deepseek")
+
+
+class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
+    """Тесты runtime-выбора модели DeepSeek."""
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.settings.get_active_deepseek_model_for_response", return_value="deepseek-reasoner")
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    async def test_call_api_uses_active_model(self, mock_async_client, mock_active_model):
+        """_call_api отправляет в payload активную модель из настроек."""
+        provider = DeepSeekProvider(api_key="test_key")
+
+        mock_client = mock_async_client.return_value.__aenter__.return_value
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+        mock_response.raise_for_status.return_value = None
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        await provider._call_api(messages=[{"role": "user", "content": "hi"}])
+
+        post_kwargs = mock_client.post.await_args.kwargs
+        self.assertEqual(post_kwargs["json"]["model"], "deepseek-reasoner")
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.settings.get_active_deepseek_model_for_classification", return_value="deepseek-chat")
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    async def test_call_api_uses_classification_model(self, mock_async_client, mock_class_model):
+        """_call_api для классификации берёт отдельную модель классификатора."""
+        provider = DeepSeekProvider(api_key="test_key")
+
+        mock_client = mock_async_client.return_value.__aenter__.return_value
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+        mock_response.raise_for_status.return_value = None
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        await provider._call_api(messages=[{"role": "user", "content": "hi"}], purpose="classification")
+
+        post_kwargs = mock_client.post.await_args.kwargs
+        self.assertEqual(post_kwargs["json"]["model"], "deepseek-chat")
 
 
 if __name__ == "__main__":

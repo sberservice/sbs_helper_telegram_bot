@@ -152,6 +152,10 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
     async def test_general_chat_response(self, mock_logger_info, mock_log_to_db, mock_modules, mock_enabled):
         """Intent=general_chat с достаточной confidence — chat fallback."""
         provider = AsyncMock()
+        provider.name = "deepseek"
+        provider.get_model_name = MagicMock(side_effect=lambda purpose="response": (
+            "deepseek-reasoner" if purpose == "classification" else "deepseek-chat"
+        ))
         provider.classify.return_value = ClassificationResult(
             intent="general_chat",
             confidence=0.7,
@@ -174,6 +178,38 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("AI classification:")
+                and "provider=%s, model=%s" in call.args[0]
+                and "deepseek" in call.args
+                and "deepseek-reasoner" in call.args
+                for call in mock_logger_info.call_args_list
+            )
+        )
+
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=[])
+    @patch.object(IntentRouter, "_log_to_db")
+    async def test_direct_answer_fallback_response(self, mock_log_to_db, mock_modules, mock_enabled):
+        """Direct-answer fallback из классификации возвращается как chat-ответ."""
+        provider = AsyncMock()
+        provider.classify.return_value = ClassificationResult(
+            intent="general_chat",
+            confidence=0.85,
+            parameters={"direct_answer": "Готовый ответ из fallback"},
+            explain_code="DIRECT_TEXT_FALLBACK",
+        )
+
+        router = _make_router(provider=provider)
+        result, status = await router.route("как прошить D200", user_id=1)
+
+        self.assertEqual(status, "chat")
+        self.assertIn("Готовый ответ", result)
+        provider.chat.assert_not_called()
+
     @patch("src.common.bot_settings.is_module_enabled", return_value=True)
     @patch("src.common.bot_settings.get_enabled_modules", return_value=[])
     async def test_classification_error_records_failure(self, mock_modules, mock_enabled):
@@ -187,6 +223,27 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result)
         self.assertEqual(status, "error")
         self.assertEqual(cb._failure_count, 1)
+
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=[])
+    @patch.object(IntentRouter, "_log_to_db")
+    async def test_on_classified_callback_called(self, mock_log, mock_modules, mock_enabled):
+        """После успешной классификации вызывается on_classified callback."""
+        provider = AsyncMock()
+        provider.classify.return_value = ClassificationResult(
+            intent="general_chat",
+            confidence=0.8,
+        )
+        provider.chat.return_value = "Ответ AI"
+
+        on_classified = AsyncMock()
+        router = _make_router(provider=provider)
+
+        await router.route("привет", user_id=1, on_classified=on_classified)
+
+        on_classified.assert_awaited_once()
+        callback_arg = on_classified.await_args.args[0]
+        self.assertEqual(callback_arg.intent, "general_chat")
 
 
 class TestIntentRouterContext(unittest.IsolatedAsyncioTestCase):

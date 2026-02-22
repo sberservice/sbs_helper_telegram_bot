@@ -34,6 +34,7 @@ def escape_markdown_v2(text: str) -> str:
 # =============================================
 
 MESSAGE_AI_PROCESSING = "⏳ _Обрабатываю ваш запрос\\.\\.\\._"
+MESSAGE_AI_WAITING_FOR_AI = "⏳ _Ожидаю ответа ИИ_"
 
 MESSAGE_AI_RATE_LIMITED = (
     "⚠️ *Слишком много запросов*\n\n"

@@ -454,12 +454,56 @@ class NewsHandler(IntentHandler):
 
 
 # =============================================
+# RAG Handler
+# =============================================
+
+class RagQaHandler(IntentHandler):
+    """Обработчик вопросов к базе знаний документов (RAG)."""
+
+    @property
+    def intent_name(self) -> str:
+        return "rag_qa"
+
+    @property
+    def module_key(self) -> str:
+        return "ai_router"
+
+    async def execute(self, params: Dict[str, Any], user_id: int) -> str:
+        """Ответить на вопрос по загруженным документам."""
+        from src.sbs_helper_telegram_bot.ai_router.rag_service import get_rag_service
+        from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
+
+        if not ai_settings.AI_RAG_ENABLED:
+            return "⚠️ Режим базы знаний временно отключён\\."
+
+        question = str(params.get("question", "")).strip()
+        if not question:
+            return "⚠️ Уточните вопрос по документам, чтобы я смог найти ответ\\."
+
+        try:
+            rag_service = get_rag_service()
+            answer = await rag_service.answer_question(question, user_id=user_id)
+            if not answer:
+                return (
+                    "📚 В загруженных документах не найден точный ответ\\.\n\n"
+                    "Попробуйте переформулировать вопрос или уточнить формулировку\\."
+                )
+
+            safe_answer = escape_markdown_v2(answer)
+            return f"📚 *Ответ по базе знаний*\n\n{safe_answer}"
+        except Exception as exc:
+            logger.error("Ошибка RAG-обработчика: user=%s error=%s", user_id, exc)
+            return "❌ Не удалось получить ответ из базы знаний\\. Попробуйте позже\\."
+
+
+# =============================================
 # Реестр обработчиков
 # =============================================
 
 def get_all_handlers() -> list[IntentHandler]:
     """Получить список всех зарегистрированных обработчиков намерений."""
     return [
+        RagQaHandler(),
         UposErrorHandler(),
         TicketValidatorHandler(),
         KtrHandler(),

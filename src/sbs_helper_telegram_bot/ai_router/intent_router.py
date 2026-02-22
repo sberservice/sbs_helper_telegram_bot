@@ -7,7 +7,7 @@ intent_router.py — маршрутизатор намерений AI.
 
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 import src.common.bot_settings as bot_settings
 import src.common.database as database
@@ -86,6 +86,7 @@ class IntentRouter:
         self,
         text: str,
         user_id: int,
+        on_classified: Optional[Callable[[ClassificationResult], Awaitable[None]]] = None,
     ) -> Tuple[Optional[str], str]:
         """
         Маршрутизировать текстовое сообщение пользователя.
@@ -93,6 +94,8 @@ class IntentRouter:
         Args:
             text: Текст сообщения пользователя.
             user_id: Telegram ID пользователя.
+            on_classified: Необязательный async-callback, вызываемый сразу
+                после успешной классификации intent.
 
         Returns:
             Кортеж (ответ_MarkdownV2 | None, статус).
@@ -107,6 +110,8 @@ class IntentRouter:
         dispatch_path = "unknown"
         dispatch_chat_ms = 0
         dispatch_handler_ms = 0
+        classify_model = "unknown"
+        provider_name = "unknown"
 
         # 1. Проверяем, включён ли AI-модуль
         if not bot_settings.is_module_enabled(ai_settings.AI_MODULE_KEY):
@@ -144,6 +149,8 @@ class IntentRouter:
         try:
             classify_started_at = time.monotonic()
             provider = self._get_provider()
+            provider_name = provider.name
+            classify_model = self._get_model_name(provider, purpose="classification")
             system_prompt = build_classification_prompt(enabled_modules)
             classification = await provider.classify(context_messages, system_prompt)
             classify_ms = int((time.monotonic() - classify_started_at) * 1000)
@@ -155,6 +162,17 @@ class IntentRouter:
             )
             return None, "error"
 
+        if on_classified is not None:
+            try:
+                await on_classified(classification)
+            except Exception as callback_exc:
+                logger.warning(
+                    "AI on_classified callback failed: user=%s, intent=%s, error=%s",
+                    user_id,
+                    classification.intent,
+                    callback_exc,
+                )
+
         # 8. Записываем rate-limit
         self._rate_limiter.record(user_id)
 
@@ -162,13 +180,15 @@ class IntentRouter:
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
         logger.info(
             "AI classification: user=%s, intent=%s, confidence=%.2f, "
-            "explain=%s, elapsed=%dms, provider_ms=%dms",
+            "explain=%s, elapsed=%dms, provider_ms=%dms, provider=%s, model=%s",
             user_id,
             classification.intent,
             classification.confidence,
             classification.explain_code,
             elapsed_ms,
             classification.response_time_ms,
+            provider_name,
+            classify_model,
         )
 
         # 10. Логируем в БД
@@ -230,11 +250,17 @@ class IntentRouter:
         """Диспетчер: маршрутизировать к handler или fallback."""
         intent = classification.intent
         confidence = classification.confidence
+        direct_answer = str(classification.parameters.get("direct_answer", "")).strip()
         dispatch_meta: Dict[str, Any] = {
             "path": "unknown",
             "chat_ms": 0,
             "handler_ms": 0,
         }
+
+        # Fallback: классификатор вернул готовый текст вместо JSON.
+        if direct_answer and confidence >= ai_settings.CHAT_CONFIDENCE_THRESHOLD:
+            dispatch_meta["path"] = "direct_answer_fallback"
+            return format_ai_chat_response(direct_answer), "chat", dispatch_meta
 
         # Обработчик модуля
         handler = self._handlers.get(intent)
@@ -283,6 +309,12 @@ class IntentRouter:
                 chat_response = await provider.chat(
                     context_messages, build_chat_prompt()
                 )
+                logger.info(
+                    "AI chat request: user=%s, provider=%s, model=%s, path=general_chat",
+                    user_id,
+                    provider.name,
+                    self._get_model_name(provider, purpose="response"),
+                )
                 dispatch_meta["path"] = "general_chat"
                 dispatch_meta["chat_ms"] = int((time.monotonic() - chat_started_at) * 1000)
                 return format_ai_chat_response(chat_response), "chat", dispatch_meta
@@ -306,6 +338,12 @@ class IntentRouter:
                 context_messages.append({"role": "user", "content": original_text})
                 chat_response = await provider.chat(
                     context_messages, build_chat_prompt()
+                )
+                logger.info(
+                    "AI chat request: user=%s, provider=%s, model=%s, path=fallback_chat",
+                    user_id,
+                    provider.name,
+                    self._get_model_name(provider, purpose="response"),
                 )
                 dispatch_meta["path"] = "fallback_chat"
                 dispatch_meta["chat_ms"] = int((time.monotonic() - chat_started_at) * 1000)
@@ -340,6 +378,17 @@ class IntentRouter:
         enabled = bot_settings.get_enabled_modules()
         routable = set(h.module_key for h in self._handlers.values())
         return [m for m in enabled if m in routable]
+
+    @staticmethod
+    def _get_model_name(provider: LLMProvider, purpose: str) -> str:
+        """Безопасно получить активную модель провайдера для логов."""
+        try:
+            model_name = provider.get_model_name(purpose=purpose)
+            if not model_name:
+                return "unknown"
+            return str(model_name)
+        except Exception:
+            return "unknown"
 
     @staticmethod
     def _log_to_db(

@@ -107,6 +107,10 @@ class LLMProvider(ABC):
         """Имя провайдера для логирования."""
         ...
 
+    def get_model_name(self, purpose: str = "response") -> Optional[str]:
+        """Вернуть имя активной модели для указанной цели запроса."""
+        return None
+
 
 # =============================================
 # DeepSeek-провайдер (OpenAI-совместимый API)
@@ -138,15 +142,28 @@ class DeepSeekProvider(LLMProvider):
         """
         self._api_key = api_key or ai_settings.DEEPSEEK_API_KEY
         self._base_url = (base_url or ai_settings.DEEPSEEK_BASE_URL).rstrip("/")
-        self._model = model or ai_settings.DEEPSEEK_MODEL
+        # Если model задан явно — используем его, иначе берём текущую модель из bot_settings.
+        self._model = model
         self._timeout = timeout or ai_settings.LLM_REQUEST_TIMEOUT
 
         if not self._api_key:
             logger.warning("DeepSeek API key не задан. AI-маршрутизация будет недоступна.")
 
+    def _resolve_model(self, purpose: str = "response") -> str:
+        """Определить активную модель DeepSeek для текущего запроса."""
+        if self._model:
+            return ai_settings.normalize_deepseek_model(self._model)
+        if purpose == "classification":
+            return ai_settings.get_active_deepseek_model_for_classification()
+        return ai_settings.get_active_deepseek_model_for_response()
+
     @property
     def name(self) -> str:
         return "deepseek"
+
+    def get_model_name(self, purpose: str = "response") -> Optional[str]:
+        """Вернуть имя модели DeepSeek для указанной цели запроса."""
+        return self._resolve_model(purpose=purpose)
 
     async def classify(
         self,
@@ -161,7 +178,12 @@ class DeepSeekProvider(LLMProvider):
         try:
             # Для длинных заявок (ticket_validation) увеличиваем бюджет токенов,
             # чтобы JSON-ответ не обрезался до закрывающих скобок.
-            raw = await self._call_api(full_messages, temperature=0.1, max_tokens=1024)
+            raw = await self._call_api(
+                full_messages,
+                temperature=0.1,
+                max_tokens=1024,
+                purpose="classification",
+            )
         except Exception as exc:
             elapsed = int((time.monotonic() - start_time) * 1000)
             logger.error(
@@ -182,7 +204,12 @@ class DeepSeekProvider(LLMProvider):
         full_messages = [{"role": "system", "content": system_prompt}] + messages
 
         try:
-            raw = await self._call_api(full_messages, temperature=0.7, max_tokens=1024)
+            raw = await self._call_api(
+                full_messages,
+                temperature=0.7,
+                max_tokens=1024,
+                purpose="response",
+            )
         except Exception as exc:
             logger.error("DeepSeek chat error: %s", exc)
             raise
@@ -211,6 +238,7 @@ class DeepSeekProvider(LLMProvider):
         messages: List[Dict[str, str]],
         temperature: float = 0.1,
         max_tokens: int = 512,
+        purpose: str = "response",
     ) -> str:
         """
         Выполнить вызов к DeepSeek /v1/chat/completions.
@@ -228,7 +256,7 @@ class DeepSeekProvider(LLMProvider):
             ValueError: при некорректном ответе API.
         """
         payload = {
-            "model": self._model,
+            "model": self._resolve_model(purpose=purpose),
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -291,6 +319,9 @@ class DeepSeekProvider(LLMProvider):
                     partial = DeepSeekProvider._extract_partial_classification(raw, elapsed_ms)
                     if partial is not None:
                         return partial
+                    direct = DeepSeekProvider._extract_direct_answer_fallback(raw, elapsed_ms)
+                    if direct is not None:
+                        return direct
                     logger.warning(
                         "Не удалось распарсить JSON из ответа LLM: %s",
                         raw[:200],
@@ -306,6 +337,9 @@ class DeepSeekProvider(LLMProvider):
                 partial = DeepSeekProvider._extract_partial_classification(raw, elapsed_ms)
                 if partial is not None:
                     return partial
+                direct = DeepSeekProvider._extract_direct_answer_fallback(raw, elapsed_ms)
+                if direct is not None:
+                    return direct
                 logger.warning(
                     "JSON не найден в ответе LLM: %s", raw[:200]
                 )
@@ -378,6 +412,45 @@ class DeepSeekProvider(LLMProvider):
             confidence=confidence,
             parameters={},
             explain_code=explain_code,
+            raw_response=raw,
+            response_time_ms=elapsed_ms,
+        )
+
+    @staticmethod
+    def _extract_direct_answer_fallback(
+        raw: str,
+        elapsed_ms: int,
+    ) -> Optional[ClassificationResult]:
+        """
+        Обработать fallback, когда вместо JSON пришёл готовый текстовый ответ.
+
+        Применяется только для достаточно длинных ответов, чтобы не подменять
+        короткие системные фразы/ошибки.
+        """
+        candidate = (raw or "").strip()
+        if not candidate:
+            return None
+
+        # Не перехватываем короткие служебные ответы и потенциальные JSON-куски.
+        if len(candidate) < 80:
+            return None
+        if candidate.startswith("{") or candidate.startswith("```"):
+            return None
+
+        # Должны присутствовать пробелы и буквы (похоже на нормальный текст).
+        if " " not in candidate or not re.search(r"[A-Za-zА-Яа-яЁё]", candidate):
+            return None
+
+        logger.warning(
+            "Использован direct-text fallback для классификации (len=%d)",
+            len(candidate),
+        )
+
+        return ClassificationResult(
+            intent="general_chat",
+            confidence=0.85,
+            parameters={"direct_answer": candidate[:4000]},
+            explain_code="DIRECT_TEXT_FALLBACK",
             raw_response=raw,
             response_time_ms=elapsed_ms,
         )
