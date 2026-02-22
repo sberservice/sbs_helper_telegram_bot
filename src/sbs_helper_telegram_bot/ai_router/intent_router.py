@@ -7,7 +7,7 @@ intent_router.py — маршрутизатор намерений AI.
 
 import logging
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import src.common.bot_settings as bot_settings
 import src.common.database as database
@@ -100,6 +100,13 @@ class IntentRouter:
                      "low_confidence", "error", "disabled".
         """
         start_time = time.monotonic()
+        classify_ms = 0
+        db_log_ms = 0
+        dispatch_ms = 0
+        context_update_ms = 0
+        dispatch_path = "unknown"
+        dispatch_chat_ms = 0
+        dispatch_handler_ms = 0
 
         # 1. Проверяем, включён ли AI-модуль
         if not bot_settings.is_module_enabled(ai_settings.AI_MODULE_KEY):
@@ -135,9 +142,11 @@ class IntentRouter:
 
         # 7. Классифицируем через LLM
         try:
+            classify_started_at = time.monotonic()
             provider = self._get_provider()
             system_prompt = build_classification_prompt(enabled_modules)
             classification = await provider.classify(context_messages, system_prompt)
+            classify_ms = int((time.monotonic() - classify_started_at) * 1000)
             self._circuit_breaker.record_success()
         except Exception as exc:
             self._circuit_breaker.record_failure()
@@ -163,25 +172,51 @@ class IntentRouter:
         )
 
         # 10. Логируем в БД
+        db_log_started_at = time.monotonic()
         self._log_to_db(
             user_id=user_id,
             input_text=text[:500],
             classification=classification,
             elapsed_ms=elapsed_ms,
         )
+        db_log_ms = int((time.monotonic() - db_log_started_at) * 1000)
 
         # 11. Маршрутизация по intent
-        response, status = await self._dispatch(
+        dispatch_started_at = time.monotonic()
+        response, status, dispatch_meta = await self._dispatch(
             classification, user_id, text, enabled_modules
         )
+        dispatch_ms = int((time.monotonic() - dispatch_started_at) * 1000)
+        dispatch_path = str(dispatch_meta.get("path", "unknown"))
+        dispatch_chat_ms = int(dispatch_meta.get("chat_ms", 0))
+        dispatch_handler_ms = int(dispatch_meta.get("handler_ms", 0))
 
         # 12. Обновляем контекст
+        context_started_at = time.monotonic()
         self._context_manager.add_message(user_id, "user", text)
         if response:
             # Сохраняем plain-text версию ответа (без MD)
             self._context_manager.add_message(
                 user_id, "assistant", response[:500]
             )
+        context_update_ms = int((time.monotonic() - context_started_at) * 1000)
+
+        total_route_ms = int((time.monotonic() - start_time) * 1000)
+        logger.info(
+            "AI route profiling: user=%s status=%s total_ms=%d classify_ms=%d "
+            "db_log_ms=%d dispatch_ms=%d context_update_ms=%d path=%s "
+            "chat_ms=%d handler_ms=%d",
+            user_id,
+            status,
+            total_route_ms,
+            classify_ms,
+            db_log_ms,
+            dispatch_ms,
+            context_update_ms,
+            dispatch_path,
+            dispatch_chat_ms,
+            dispatch_handler_ms,
+        )
 
         return response, status
 
@@ -191,10 +226,15 @@ class IntentRouter:
         user_id: int,
         original_text: str,
         enabled_modules: List[str],
-    ) -> Tuple[Optional[str], str]:
+    ) -> Tuple[Optional[str], str, Dict[str, Any]]:
         """Диспетчер: маршрутизировать к handler или fallback."""
         intent = classification.intent
         confidence = classification.confidence
+        dispatch_meta: Dict[str, Any] = {
+            "path": "unknown",
+            "chat_ms": 0,
+            "handler_ms": 0,
+        }
 
         # Обработчик модуля
         handler = self._handlers.get(intent)
@@ -209,16 +249,20 @@ class IntentRouter:
                     handler.module_key,
                     user_id,
                 )
-                return format_module_disabled_message(module_name), "module_disabled"
+                dispatch_meta["path"] = "module_disabled"
+                return format_module_disabled_message(module_name), "module_disabled", dispatch_meta
 
             try:
+                handler_started_at = time.monotonic()
                 # Для ticket_validation передаём оригинальный текст
                 params = classification.parameters
                 if intent == "ticket_validation" and not params.get("ticket_text"):
                     params["ticket_text"] = original_text
 
                 response = await handler.execute(params, user_id)
-                return response, "routed"
+                dispatch_meta["path"] = "handler"
+                dispatch_meta["handler_ms"] = int((time.monotonic() - handler_started_at) * 1000)
+                return response, "routed", dispatch_meta
             except Exception as exc:
                 logger.error(
                     "AI handler error: intent=%s, user=%s, error=%s",
@@ -226,43 +270,54 @@ class IntentRouter:
                     user_id,
                     exc,
                 )
-                return None, "error"
+                dispatch_meta["path"] = "handler_error"
+                return None, "error", dispatch_meta
 
         # General chat — свободный ответ LLM
         if intent == "general_chat" and confidence >= ai_settings.CHAT_CONFIDENCE_THRESHOLD:
             try:
+                chat_started_at = time.monotonic()
                 provider = self._get_provider()
                 context_messages = self._context_manager.get_messages(user_id)
                 context_messages.append({"role": "user", "content": original_text})
                 chat_response = await provider.chat(
                     context_messages, build_chat_prompt()
                 )
-                return format_ai_chat_response(chat_response), "chat"
+                dispatch_meta["path"] = "general_chat"
+                dispatch_meta["chat_ms"] = int((time.monotonic() - chat_started_at) * 1000)
+                return format_ai_chat_response(chat_response), "chat", dispatch_meta
             except Exception as exc:
                 self._circuit_breaker.record_failure()
                 logger.error("AI chat error: user=%s, error=%s", user_id, exc)
-                return None, "error"
+                dispatch_meta["path"] = "general_chat_error"
+                return None, "error", dispatch_meta
 
         # Низкая уверенность
         if confidence < ai_settings.CHAT_CONFIDENCE_THRESHOLD:
-            return None, "low_confidence"
+            dispatch_meta["path"] = "low_confidence"
+            return None, "low_confidence", dispatch_meta
 
         # Средняя уверенность — пробуем chat
         if intent != "unknown":
             try:
+                chat_started_at = time.monotonic()
                 provider = self._get_provider()
                 context_messages = self._context_manager.get_messages(user_id)
                 context_messages.append({"role": "user", "content": original_text})
                 chat_response = await provider.chat(
                     context_messages, build_chat_prompt()
                 )
-                return format_ai_chat_response(chat_response), "chat"
+                dispatch_meta["path"] = "fallback_chat"
+                dispatch_meta["chat_ms"] = int((time.monotonic() - chat_started_at) * 1000)
+                return format_ai_chat_response(chat_response), "chat", dispatch_meta
             except Exception as exc:
                 self._circuit_breaker.record_failure()
                 logger.error("AI chat fallback error: user=%s, error=%s", user_id, exc)
-                return None, "error"
+                dispatch_meta["path"] = "fallback_chat_error"
+                return None, "error", dispatch_meta
 
-        return None, "low_confidence"
+        dispatch_meta["path"] = "unknown_low_confidence"
+        return None, "low_confidence", dispatch_meta
 
     def clear_context(self, user_id: int) -> None:
         """Очистить контекст диалога для пользователя."""

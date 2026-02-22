@@ -267,16 +267,20 @@ BUTTON_BACK_TO_MENU = "🔙 Назад в меню"
 
 def escape_markdown_v2(text: str) -> str:
     """
-    Escape special characters for Telegram MarkdownV2.
+    Экранировать специальные символы для Telegram MarkdownV2.
+
+    Сначала экранируются обратные слэши, затем спецсимволы.
     
     Args:
-        text: Text to escape
+        text: Текст для экранирования.
         
     Returns:
-        Escaped text
+        Экранированный текст.
     """
     if not text:
         return ""
+    # Сначала экранируем обратные слэши
+    text = text.replace('\\', '\\\\')
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     for char in special_chars:
         text = text.replace(char, f'\\{char}')
