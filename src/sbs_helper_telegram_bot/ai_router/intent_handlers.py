@@ -7,6 +7,7 @@ intent_handlers.py — обработчики намерений для AI-ма�
 """
 
 import logging
+import re
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, Optional
@@ -14,6 +15,20 @@ from typing import Any, Dict, Optional
 from src.sbs_helper_telegram_bot.ai_router.messages import escape_markdown_v2
 
 logger = logging.getLogger(__name__)
+
+_EDGE_INVISIBLE_CHARS_RE = re.compile(r'^[\s\u200b\u200c\u200d\ufeff]+|[\s\u200b\u200c\u200d\ufeff]+$')
+
+
+def _normalize_lookup_code(value: Any, to_upper: bool = False) -> str:
+    """Нормализовать код поиска, удаляя пробелы и невидимые символы по краям."""
+    if value is None:
+        return ""
+
+    normalized = _EDGE_INVISIBLE_CHARS_RE.sub("", str(value))
+    if to_upper:
+        normalized = normalized.upper()
+
+    return normalized
 
 
 # =============================================
@@ -76,7 +91,7 @@ class UposErrorHandler(IntentHandler):
             format_error_code_response,
         )
 
-        error_code = str(params.get("error_code", "")).strip()
+        error_code = _normalize_lookup_code(params.get("error_code", ""))
         if not error_code:
             return "⚠️ Не указан код ошибки\\. Попробуйте ещё раз\\."
 
@@ -217,7 +232,7 @@ class KtrHandler(IntentHandler):
             format_ktr_code_response,
         )
 
-        ktr_code = str(params.get("ktr_code", "")).strip().upper()
+        ktr_code = _normalize_lookup_code(params.get("ktr_code", ""), to_upper=True)
         if not ktr_code:
             return "⚠️ Не указан код КТР\\. Попробуйте ещё раз\\."
 

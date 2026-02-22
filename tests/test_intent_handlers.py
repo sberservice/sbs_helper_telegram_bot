@@ -134,6 +134,34 @@ class TestUposErrorHandler(unittest.IsolatedAsyncioTestCase):
             mock_record.assert_called_once_with(55, "UNKNOWN", found=False)
             self.assertIn("не найден", result)
 
+    async def test_error_code_trimmed_with_invisible_chars(self):
+        """UPOS-код очищается от пробелов и невидимых символов по краям."""
+        raw_code = "\u200b\t\n E001 \u00a0\ufeff"
+        with patch(
+            "src.sbs_helper_telegram_bot.upos_error.upos_error_bot_part.get_error_code_by_code",
+            return_value=None,
+        ) as mock_get, patch(
+            "src.sbs_helper_telegram_bot.upos_error.upos_error_bot_part.record_error_request"
+        ), patch(
+            "src.sbs_helper_telegram_bot.upos_error.upos_error_bot_part.record_unknown_code"
+        ):
+            h = UposErrorHandler()
+            await h.execute({"error_code": raw_code}, user_id=77)
+            mock_get.assert_called_once_with("E001")
+
+    async def test_error_code_none_returns_warning(self):
+        """None в error_code приводит к сообщению о пустом коде."""
+        with patch(
+            "src.sbs_helper_telegram_bot.upos_error.upos_error_bot_part.get_error_code_by_code"
+        ), patch(
+            "src.sbs_helper_telegram_bot.upos_error.upos_error_bot_part.record_error_request"
+        ), patch(
+            "src.sbs_helper_telegram_bot.upos_error.upos_error_bot_part.record_unknown_code"
+        ):
+            h = UposErrorHandler()
+            result = await h.execute({"error_code": None}, user_id=123)
+            self.assertIn("Не указан код ошибки", result)
+
 
 class TestKtrHandler(unittest.IsolatedAsyncioTestCase):
     """Тесты исполнения KtrHandler."""
@@ -183,6 +211,30 @@ class TestKtrHandler(unittest.IsolatedAsyncioTestCase):
             h = KtrHandler()
             await h.execute({"ktr_code": "abc"}, user_id=1)
             mock_get.assert_called_with("ABC")
+
+    async def test_ktr_code_trimmed_with_invisible_chars(self):
+        """Код КТР очищается от пробелов и невидимых символов по краям."""
+        raw_code = "\ufeff\u200b\n k001 \u00a0\t"
+        with patch(
+            "src.sbs_helper_telegram_bot.ktr.ktr_bot_part.get_ktr_code_by_code",
+            return_value=None,
+        ) as mock_get, patch(
+            "src.sbs_helper_telegram_bot.ktr.ktr_bot_part.record_ktr_request"
+        ):
+            h = KtrHandler()
+            await h.execute({"ktr_code": raw_code}, user_id=1)
+            mock_get.assert_called_once_with("K001")
+
+    async def test_ktr_code_none_returns_warning(self):
+        """None в ktr_code приводит к сообщению о пустом коде."""
+        with patch(
+            "src.sbs_helper_telegram_bot.ktr.ktr_bot_part.get_ktr_code_by_code"
+        ), patch(
+            "src.sbs_helper_telegram_bot.ktr.ktr_bot_part.record_ktr_request"
+        ):
+            h = KtrHandler()
+            result = await h.execute({"ktr_code": None}, user_id=1)
+            self.assertIn("Не указан код КТР", result)
 
 
 class TestCertificationHandler(unittest.IsolatedAsyncioTestCase):
