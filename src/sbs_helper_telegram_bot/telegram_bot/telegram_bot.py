@@ -725,13 +725,21 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     profile_result = "unknown"
     profile_user_id = getattr(getattr(update, "effective_user", None), "id", "unknown")
 
-    def mark_step(step_name: str) -> None:
+    def mark_step(
+        step_name: str,
+        duration_ms: int | None = None,
+        reset_marker: bool = True,
+    ) -> None:
         """Зафиксировать длительность шага с прошлого маркера."""
         nonlocal last_step_at
         now = time.perf_counter()
-        duration_ms = int((now - last_step_at) * 1000)
-        profile_steps.append((step_name, max(duration_ms, 0)))
-        last_step_at = now
+        if duration_ms is None:
+            step_duration_ms = int((now - last_step_at) * 1000)
+        else:
+            step_duration_ms = int(duration_ms)
+        profile_steps.append((step_name, max(step_duration_ms, 0)))
+        if reset_marker:
+            last_step_at = now
 
     try:
         # Проверяем, что сообщение существует и содержит текст
@@ -1079,14 +1087,19 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         else:
             # AI-маршрутизация: пробуем классифицировать произвольный текст
             ai_router = get_ai_router()
+            placeholder_started_at = time.perf_counter()
 
             # Показываем индикатор набора текста и плейсхолдер пока AI обрабатывает
             # это действие практически сразу же обнуляется последующим сообщением
             # с плейсхолдером, но оставляем на всякий для лучшей UX в случае задержек
+            chat_action_started_at = time.perf_counter()
             await context.bot.send_chat_action(
                 chat_id=update.effective_chat.id,
                 action=constants.ChatAction.TYPING,
             )
+            chat_action_ms = int((time.perf_counter() - chat_action_started_at) * 1000)
+            mark_step("ai_chat_action", duration_ms=chat_action_ms, reset_marker=False)
+
             main_menu_keyboard = get_main_menu_keyboard(is_admin=is_admin)
             logger.info(
                 "AI placeholder strategy: send without reply_markup for editability "
@@ -1100,9 +1113,21 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     "'Message can't be edited' on edit_text in Telegram API"
                 )
 
+            placeholder_reply_started_at = time.perf_counter()
             placeholder = await update.message.reply_text(
                 MESSAGE_AI_PROCESSING,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
+            )
+            placeholder_reply_ms = int((time.perf_counter() - placeholder_reply_started_at) * 1000)
+            mark_step("ai_placeholder_reply", duration_ms=placeholder_reply_ms, reset_marker=False)
+            placeholder_total_ms = int((time.perf_counter() - placeholder_started_at) * 1000)
+            logger.info(
+                "AI placeholder profiling: user_id=%s total_ms=%s chat_action_ms=%s "
+                "placeholder_reply_ms=%s",
+                user_id,
+                placeholder_total_ms,
+                chat_action_ms,
+                placeholder_reply_ms,
             )
             mark_step("ai_placeholder_sent")
 
