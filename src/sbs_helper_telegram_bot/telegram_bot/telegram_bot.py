@@ -1081,6 +1081,8 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             ai_router = get_ai_router()
 
             # Показываем индикатор набора текста и плейсхолдер пока AI обрабатывает
+            # это действие практически сразу же обнуляется последующим сообщением
+            # с плейсхолдером, но оставляем на всякий для лучшей UX в случае задержек
             await context.bot.send_chat_action(
                 chat_id=update.effective_chat.id,
                 action=constants.ChatAction.TYPING,
