@@ -148,12 +148,14 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
     @patch("src.common.bot_settings.is_module_enabled", return_value=True)
     @patch("src.common.bot_settings.get_enabled_modules", return_value=[])
     @patch.object(IntentRouter, "_log_to_db")
-    async def test_general_chat_response(self, mock_log, mock_modules, mock_enabled):
+    @patch("src.sbs_helper_telegram_bot.ai_router.intent_router.logger.info")
+    async def test_general_chat_response(self, mock_logger_info, mock_log_to_db, mock_modules, mock_enabled):
         """Intent=general_chat с достаточной confidence — chat fallback."""
         provider = AsyncMock()
         provider.classify.return_value = ClassificationResult(
             intent="general_chat",
             confidence=0.7,
+            response_time_ms=900,
         )
         provider.chat.return_value = "Привет, я AI-помощник!"
 
@@ -161,6 +163,16 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
         result, status = await router.route("привет", user_id=1)
         self.assertEqual(status, "chat")
         self.assertIsNotNone(result)
+
+        # Проверяем, что есть детальный лог профилирования AI-маршрута
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("AI route profiling:")
+                for call in mock_logger_info.call_args_list
+            )
+        )
 
     @patch("src.common.bot_settings.is_module_enabled", return_value=True)
     @patch("src.common.bot_settings.get_enabled_modules", return_value=[])

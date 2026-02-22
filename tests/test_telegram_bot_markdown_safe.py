@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 from unittest.mock import patch
 from types import SimpleNamespace
 
+from telegram import constants
 from telegram.error import BadRequest
 
 from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import (
@@ -18,8 +19,8 @@ from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import (
 class TestReplyMarkdownSafe(unittest.IsolatedAsyncioTestCase):
     """Проверка fallback-логики при ошибках парсинга MarkdownV2."""
 
-    async def test_fallback_to_escaped_text_on_parse_entities_error(self):
-        """При Can't parse entities выполняется повторная отправка с escaping."""
+    async def test_fallback_to_plain_text_on_parse_entities_error(self):
+        """При Can't parse entities выполняется повторная отправка как plain text."""
         message = AsyncMock()
         message.reply_text = AsyncMock(
             side_effect=[
@@ -28,13 +29,17 @@ class TestReplyMarkdownSafe(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        await _reply_markdown_safe(message, "Тест (скобки)", reply_markup=None)
+        await _reply_markdown_safe(message, r"Тест \(скобки\)", reply_markup=None)
 
         self.assertEqual(message.reply_text.await_count, 2)
         first_call = message.reply_text.await_args_list[0]
         second_call = message.reply_text.await_args_list[1]
-        self.assertEqual(first_call.args[0], "Тест (скобки)")
-        self.assertEqual(second_call.args[0], "Тест \\(скобки\\)")
+        # Первый вызов — с MarkdownV2
+        self.assertEqual(first_call.args[0], r"Тест \(скобки\)")
+        self.assertEqual(first_call.kwargs.get("parse_mode"), constants.ParseMode.MARKDOWN_V2)
+        # Второй вызов — plain text без parse_mode, экранирование снято
+        self.assertEqual(second_call.args[0], "Тест (скобки)")
+        self.assertNotIn("parse_mode", second_call.kwargs)
 
     async def test_non_entity_badrequest_is_raised(self):
         """Другие BadRequest-ошибки не подавляются."""

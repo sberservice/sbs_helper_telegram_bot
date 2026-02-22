@@ -24,7 +24,7 @@ import logging
 import re
 import time
 
-from telegram import Update, constants, BotCommand
+from telegram import Update, constants, BotCommand, ReplyKeyboardMarkup
 from telegram.error import TimedOut, NetworkError, BadRequest
 import httpx
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters, ConversationHandler
@@ -205,6 +205,7 @@ from src.sbs_helper_telegram_bot.news.news_bot_part import (
 from src.sbs_helper_telegram_bot.ai_router.intent_router import get_router as get_ai_router
 from src.sbs_helper_telegram_bot.ai_router.messages import (
     MESSAGE_MODULE_DISABLED_BUTTON,
+    MESSAGE_AI_PROCESSING,
     escape_markdown_v2,
 )
 
@@ -238,8 +239,8 @@ async def _reply_markdown_safe(message, text: str, reply_markup) -> None:
     Отправить MarkdownV2-сообщение с безопасным fallback.
 
     Если исходный текст содержит неэкранированные спецсимволы и Telegram
-    возвращает ошибку парсинга сущностей, повторяем отправку полностью
-    экранированным текстом.
+    возвращает ошибку парсинга сущностей, повторяем отправку как plain text,
+    убирая MarkdownV2-экранирование.
     """
     try:
         await message.reply_text(
@@ -252,14 +253,78 @@ async def _reply_markdown_safe(message, text: str, reply_markup) -> None:
             raise
 
         logger.warning(
-            "MarkdownV2 parse failed, fallback to escaped text: %s",
+            "MarkdownV2 parse failed on reply, fallback to plain text: %s",
             exc,
         )
+        # Убираем MarkdownV2-экранирование для plain-text отправки,
+        # чтобы не показывать пользователю обратные слэши.
+        plain_text = _strip_markdown_v2_escaping(text)
         await message.reply_text(
-            escape_markdown_v2(text),
-            parse_mode=constants.ParseMode.MARKDOWN_V2,
+            plain_text,
             reply_markup=reply_markup,
         )
+
+
+def _strip_markdown_v2_escaping(text: str) -> str:
+    """
+    Убрать MarkdownV2-экранирование из текста для plain-text отправки.
+
+    Удаляет обратные слэши перед спецсимволами MarkdownV2, а также
+    снимает форматирование (звёздочки, подчёркивания).
+
+    Args:
+        text: Текст с MarkdownV2-экранированием.
+
+    Returns:
+        Чистый текст без экранирования.
+    """
+    # Убираем любые последовательности обратных слэшей перед спецсимволами.
+    # Это важно для кейсов, когда исходный текст уже частично экранирован,
+    # а затем повторно экранирован для MarkdownV2 (например: \\\.).
+    result = re.sub(r'\\+([_*\[\]()~`>#+\-=|{}.!])', r'\1', text)
+    return result
+
+
+async def _edit_markdown_safe(sent_message, text: str) -> None:
+    """
+    Отредактировать ранее отправленное сообщение с MarkdownV2 и безопасным fallback.
+
+    Если текст содержит неэкранированные спецсимволы и Telegram
+    возвращает ошибку парсинга, повторяем редактирование без форматирования
+    (plain text), чтобы избежать двойного экранирования.
+
+    Args:
+        sent_message: Объект Message, который нужно отредактировать.
+        text: Новый текст сообщения в формате MarkdownV2.
+    """
+    msg_id = getattr(sent_message, 'message_id', '?')
+    chat_id = getattr(sent_message, 'chat_id',
+                      getattr(getattr(sent_message, 'chat', None), 'id', '?'))
+    try:
+        await sent_message.edit_text(
+            text,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+        )
+    except BadRequest as exc:
+        exc_msg = str(exc)
+        if "Can't parse entities" in exc_msg:
+            logger.warning(
+                "MarkdownV2 parse failed on edit, fallback to plain text: %s "
+                "(msg_id=%s, chat_id=%s, text_len=%d, text_preview=%.80s)",
+                exc, msg_id, chat_id, len(text), repr(text[:80]),
+            )
+            # Убираем MarkdownV2-экранирование для plain-text отправки,
+            # чтобы не показывать пользователю обратные слэши.
+            plain_text = _strip_markdown_v2_escaping(text)
+            await sent_message.edit_text(plain_text)
+        else:
+            logger.warning(
+                "edit_text BadRequest (non-parse): %s (msg_id=%s, chat_id=%s, "
+                "msg_date=%s, text_len=%d)",
+                exc, msg_id, chat_id,
+                getattr(sent_message, 'date', '?'), len(text),
+            )
+            raise
 
 
 def clear_all_states(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -643,7 +708,7 @@ async def help_main_command(update: Update, _context: ContextTypes.DEFAULT_TYPE)
     )
 
 
-async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
         Handles incoming text messages.
 
@@ -807,20 +872,20 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             mark_step("reply_ticket_validator_submenu")
             profile_result = "ticket_validator_submenu"
         elif text == validator_settings.BUTTON_VALIDATE_TICKET:
-            await validate_ticket_command(update, _context)
+            await validate_ticket_command(update, context)
             mark_step("run_validate_ticket_command")
             profile_result = "validate_ticket_command"
         elif text == validator_settings.BUTTON_TEST_TEMPLATES:
             # Кнопка быстрого доступа к тестовым шаблонам (только админ)
-            await run_test_templates_command(update, _context)
+            await run_test_templates_command(update, context)
             mark_step("run_test_templates_command")
             profile_result = "test_templates_command"
         elif text == validator_settings.BUTTON_HELP_VALIDATION:
-            await help_command(update, _context)
+            await help_command(update, context)
             mark_step("run_help_validation")
             profile_result = "help_validation"
         elif text == BUTTON_MY_INVITES:
-            await invite_command(update, _context)
+            await invite_command(update, context)
             mark_step("run_invite_command")
             profile_result = "my_invites"
         elif text == BUTTON_HELP:
@@ -839,7 +904,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
                 mark_step("reply_module_disabled_screenshot")
                 profile_result = "screenshot_disabled"
                 return
-            result = await enter_screenshot_module(update, _context)
+            result = await enter_screenshot_module(update, context)
             mark_step("enter_screenshot_module")
             profile_result = "screenshot_module"
             return result
@@ -902,7 +967,7 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             mark_step("reply_upos_submenu")
             profile_result = "upos_submenu"
         elif text == upos_settings.BUTTON_POPULAR_ERRORS:
-            await show_popular_errors(update, _context)
+            await show_popular_errors(update, context)
             mark_step("run_upos_popular_errors")
             profile_result = "upos_popular_errors"
         elif text == BUTTON_CERTIFICATION:
@@ -912,19 +977,19 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
                 mark_step("reply_module_disabled_certification")
                 profile_result = "certification_disabled"
                 return
-            await enter_certification_module(update, _context)
+            await enter_certification_module(update, context)
             mark_step("enter_certification_module")
             profile_result = "certification_submenu"
         elif text == certification_settings.BUTTON_MY_RANKING:
-            await show_my_ranking(update, _context)
+            await show_my_ranking(update, context)
             mark_step("run_certification_my_ranking")
             profile_result = "certification_my_ranking"
         elif text == certification_settings.BUTTON_TEST_HISTORY:
-            await show_test_history(update, _context)
+            await show_test_history(update, context)
             mark_step("run_certification_test_history")
             profile_result = "certification_test_history"
         elif text == certification_settings.BUTTON_MONTHLY_TOP:
-            await show_monthly_top(update, _context)
+            await show_monthly_top(update, context)
             mark_step("run_certification_monthly_top")
             profile_result = "certification_monthly_top"
         elif text == BUTTON_KTR:
@@ -946,13 +1011,13 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             mark_step("reply_ktr_submenu")
             profile_result = "ktr_submenu"
         elif text == ktr_settings.BUTTON_POPULAR_CODES:
-            await show_popular_ktr_codes(update, _context)
+            await show_popular_ktr_codes(update, context)
             mark_step("run_ktr_popular_codes")
             profile_result = "ktr_popular_codes"
         elif text == ktr_settings.BUTTON_ACHIEVEMENTS:
             # Показываем достижения КТР (обрабатывает модуль КТР)
             from src.sbs_helper_telegram_bot.ktr.ktr_bot_part import show_ktr_achievements
-            await show_ktr_achievements(update, _context)
+            await show_ktr_achievements(update, context)
             mark_step("run_ktr_achievements")
             profile_result = "ktr_achievements"
         elif text == BUTTON_FEEDBACK:
@@ -1014,6 +1079,31 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         else:
             # AI-маршрутизация: пробуем классифицировать произвольный текст
             ai_router = get_ai_router()
+
+            # Показываем индикатор набора текста и плейсхолдер пока AI обрабатывает
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id,
+                action=constants.ChatAction.TYPING,
+            )
+            main_menu_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+            logger.info(
+                "AI placeholder strategy: send without reply_markup for editability "
+                "(keyboard_type=%s, is_admin=%s)",
+                type(main_menu_keyboard).__name__ if main_menu_keyboard is not None else "None",
+                is_admin,
+            )
+            if isinstance(main_menu_keyboard, ReplyKeyboardMarkup):
+                logger.info(
+                    "AI placeholder uses deferred keyboard: ReplyKeyboardMarkup can lead to "
+                    "'Message can't be edited' on edit_text in Telegram API"
+                )
+
+            placeholder = await update.message.reply_text(
+                MESSAGE_AI_PROCESSING,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
+            )
+            mark_step("ai_placeholder_sent")
+
             try:
                 response, status = await ai_router.route(text, user_id)
             except Exception as ai_exc:
@@ -1022,20 +1112,56 @@ async def text_entered(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             mark_step("ai_route")
 
             if response and status in ("routed", "chat", "rate_limited", "module_disabled"):
-                await _reply_markdown_safe(
-                    update.message,
-                    response,
-                    get_main_menu_keyboard(is_admin=is_admin),
-                )
+                try:
+                    await _edit_markdown_safe(placeholder, response)
+                except Exception as edit_exc:
+                    logger.warning(
+                        "Failed to edit AI placeholder, sending new message: %s "
+                        "(type=%s, placeholder_msg_id=%s, chat_id=%s, "
+                        "placeholder_date=%s, response_len=%d, response_preview=%.80s)",
+                        edit_exc,
+                        type(edit_exc).__name__,
+                        getattr(placeholder, 'message_id', '?'),
+                        getattr(placeholder, 'chat_id',
+                                getattr(getattr(placeholder, 'chat', None), 'id', '?')),
+                        getattr(placeholder, 'date', '?'),
+                        len(response) if response else 0,
+                        repr(response[:80]) if response else 'None',
+                    )
+                    try:
+                        await placeholder.delete()
+                    except Exception:
+                        pass
+                    await _reply_markdown_safe(
+                        update.message,
+                        response,
+                        get_main_menu_keyboard(is_admin=is_admin),
+                    )
                 mark_step("reply_ai_response")
                 profile_result = f"ai_{status}"
             else:
                 # Ответ по умолчанию для нераспознанного текста
-                await update.message.reply_text(
-                    MESSAGE_UNRECOGNIZED_INPUT,
-                    parse_mode=constants.ParseMode.MARKDOWN_V2,
-                    reply_markup=get_main_menu_keyboard(is_admin=is_admin)
-                )
+                try:
+                    await _edit_markdown_safe(placeholder, MESSAGE_UNRECOGNIZED_INPUT)
+                except Exception as edit_exc:
+                    logger.warning(
+                        "Failed to edit AI placeholder for unrecognized input: %s "
+                        "(type=%s, placeholder_msg_id=%s, chat_id=%s)",
+                        edit_exc,
+                        type(edit_exc).__name__,
+                        getattr(placeholder, 'message_id', '?'),
+                        getattr(placeholder, 'chat_id',
+                                getattr(getattr(placeholder, 'chat', None), 'id', '?')),
+                    )
+                    try:
+                        await placeholder.delete()
+                    except Exception:
+                        pass
+                    await update.message.reply_text(
+                        MESSAGE_UNRECOGNIZED_INPUT,
+                        parse_mode=constants.ParseMode.MARKDOWN_V2,
+                        reply_markup=get_main_menu_keyboard(is_admin=is_admin),
+                    )
                 mark_step("reply_unrecognized_input")
                 profile_result = "unrecognized_input"
     finally:

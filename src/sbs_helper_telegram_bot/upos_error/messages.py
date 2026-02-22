@@ -247,6 +247,8 @@ def escape_markdown_v2(text: str) -> str:
     """
     Экранировать специальные символы для Telegram MarkdownV2.
 
+    Сначала экранируются обратные слэши, затем спецсимволы.
+
     Args:
         text: Текст для экранирования.
 
@@ -255,6 +257,8 @@ def escape_markdown_v2(text: str) -> str:
     """
     if not text:
         return ""
+    # Сначала экранируем обратные слэши
+    text = text.replace('\\', '\\\\')
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     for char in special_chars:
         text = text.replace(char, f'\\{char}')

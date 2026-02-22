@@ -17,6 +17,28 @@ class TestNewsMessages(unittest.TestCase):
         for char in ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']:
             self.assertIn(f"\\{char}", escaped)
 
+    def test_escape_markdown_v2_escapes_backslashes_first(self):
+        """Обратные слэши экранируются перед спецсимволами, чтобы \\! не стало \\\\! (сломанный формат)."""
+        # LLM может вернуть текст с обратными слэшами (пред-экранирование)
+        text = "Конечно\\! Вот ответ."
+        escaped = escape_markdown_v2(text)
+        # \\ → \\\\, затем ! → \\!, . → \\.
+        # Итог: Конечно\\\\\\! Вот ответ\\.
+        self.assertIn("\\\\\\!", escaped, "Backslash перед ! должен быть экранирован")
+        self.assertTrue(escaped.endswith("\\."), "Точка должна быть экранирована")
+
+    def test_escape_markdown_v2_plain_backslash(self):
+        """Одиночный обратный слэш экранируется."""
+        text = "C:\\Users\\test"
+        escaped = escape_markdown_v2(text)
+        self.assertEqual(escaped, "C:\\\\Users\\\\test")
+
+    def test_escape_markdown_v2_no_double_escape(self):
+        """Текст без обратных слэшей не изменяет поведение."""
+        text = "Hello! World."
+        escaped = escape_markdown_v2(text)
+        self.assertEqual(escaped, "Hello\\! World\\.")
+
     def test_format_news_article_includes_reactions(self):
         """Reactions should be rendered when provided."""
         article = format_news_article(
