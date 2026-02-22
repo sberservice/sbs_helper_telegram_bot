@@ -25,3 +25,15 @@ COMMENT='Лог AI-маршрутизации для аналитики и от�
 -- Добавляем настройку AI-модуля в bot_settings (если ещё нет)
 INSERT IGNORE INTO bot_settings (setting_key, setting_value, updated_timestamp, updated_by_userid)
 VALUES ('module_ai_router_enabled', '1', UNIX_TIMESTAMP(), NULL);
+
+INSERT IGNORE INTO bot_settings (setting_key, setting_value, updated_timestamp, updated_by_userid)
+VALUES ('ai_deepseek_model', 'deepseek-chat', UNIX_TIMESTAMP(), NULL);
+
+INSERT IGNORE INTO bot_settings (setting_key, setting_value, updated_timestamp, updated_by_userid)
+VALUES ('ai_deepseek_model_classification', 'deepseek-chat', UNIX_TIMESTAMP(), NULL);
+
+INSERT IGNORE INTO bot_settings (setting_key, setting_value, updated_timestamp, updated_by_userid)
+VALUES ('ai_deepseek_model_response', 'deepseek-chat', UNIX_TIMESTAMP(), NULL);
+
+INSERT IGNORE INTO bot_settings (setting_key, setting_value, updated_timestamp, updated_by_userid)
+VALUES ('ai_rag_html_splitter_enabled', '1', UNIX_TIMESTAMP(), NULL);

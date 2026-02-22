@@ -50,6 +50,7 @@ BUTTON_INVITES_ISSUE: Final[str] = "🎁 Выдать инвайты"
 BUTTON_INVITE_SYSTEM: Final[str] = "🔐 Инвайт-система"
 BUTTON_MODULES: Final[str] = "🧩 Модули"
 BUTTON_PLANNED_OUTAGES: Final[str] = "🗓️ Плановые работы"
+BUTTON_AI_MODEL: Final[str] = "🧠 AI модель"
 
 # Тексты кнопок плановых работ
 BUTTON_OUTAGE_LIST: Final[str] = "📋 Список дат"
@@ -106,6 +107,7 @@ INVITE_MANAGEMENT_BUTTONS: Final[List[List[str]]] = [
 # Подменю настроек бота
 BOT_SETTINGS_BUTTONS: Final[List[List[str]]] = [
     [BUTTON_INVITE_SYSTEM],
+    [BUTTON_AI_MODEL],
     [BUTTON_MODULES],
     [BUTTON_PLANNED_OUTAGES],
     [BUTTON_BACK_ADMIN, COMMON_BUTTON_MAIN_MENU]

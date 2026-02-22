@@ -136,6 +136,52 @@ def get_invite_system_toggle_keyboard(is_enabled: bool) -> InlineKeyboardMarkup:
     ])
 
 
+def get_ai_model_toggle_keyboard(
+    classification_model: str,
+    response_model: str,
+    html_splitter_enabled: bool,
+) -> InlineKeyboardMarkup:
+    """
+    Build inline keyboard for switching DeepSeek model mode.
+
+    Args:
+        classification_model: Модель для классификации intent.
+        response_model: Модель для ответов (chat/RAG).
+        html_splitter_enabled: Флаг включения HTML header-splitter для RAG.
+
+    Returns:
+        InlineKeyboardMarkup with model switch actions.
+    """
+    class_is_chat = classification_model == "deepseek-chat"
+    class_is_reasoner = classification_model == "deepseek-reasoner"
+    response_is_chat = response_model == "deepseek-chat"
+    response_is_reasoner = response_model == "deepseek-reasoner"
+
+    class_chat_label = f"{'✅' if class_is_chat else '⚪️'} Классификация: deepseek-chat"
+    class_reasoner_label = f"{'✅' if class_is_reasoner else '⚪️'} Классификация: deepseek-reasoner"
+    response_chat_label = f"{'✅' if response_is_chat else '⚪️'} Ответы/RAG: deepseek-chat"
+    response_reasoner_label = f"{'✅' if response_is_reasoner else '⚪️'} Ответы/RAG: deepseek-reasoner"
+    html_splitter_label = (
+        "✅ HTML splitter: включён"
+        if html_splitter_enabled
+        else "❌ HTML splitter: выключен"
+    )
+    html_splitter_callback = (
+        "bot_admin_ai_html_splitter_disable"
+        if html_splitter_enabled
+        else "bot_admin_ai_html_splitter_enable"
+    )
+
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(class_chat_label, callback_data="bot_admin_ai_model_class_chat")],
+        [InlineKeyboardButton(class_reasoner_label, callback_data="bot_admin_ai_model_class_reasoner")],
+        [InlineKeyboardButton(response_chat_label, callback_data="bot_admin_ai_model_response_chat")],
+        [InlineKeyboardButton(response_reasoner_label, callback_data="bot_admin_ai_model_response_reasoner")],
+        [InlineKeyboardButton(html_splitter_label, callback_data=html_splitter_callback)],
+        [InlineKeyboardButton("🔙 Назад", callback_data="bot_admin_settings_menu")],
+    ])
+
+
 def get_modules_management_keyboard() -> ReplyKeyboardMarkup:
     """
     Build modules management submenu keyboard.

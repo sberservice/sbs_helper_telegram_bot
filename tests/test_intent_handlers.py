@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, AsyncMock
 
 from src.sbs_helper_telegram_bot.ai_router.intent_handlers import (
+    RagQaHandler,
     UposErrorHandler,
     TicketValidatorHandler,
     KtrHandler,
@@ -23,6 +24,12 @@ class TestHandlerProperties(unittest.TestCase):
         h = UposErrorHandler()
         self.assertEqual(h.intent_name, "upos_error_lookup")
         self.assertEqual(h.module_key, "upos_errors")
+
+    def test_rag_handler_properties(self):
+        """Свойства RagQaHandler."""
+        h = RagQaHandler()
+        self.assertEqual(h.intent_name, "rag_qa")
+        self.assertEqual(h.module_key, "ai_router")
 
     def test_ticket_handler_properties(self):
         """Свойства TicketValidatorHandler."""
@@ -48,12 +55,13 @@ class TestHandlerProperties(unittest.TestCase):
         self.assertEqual(h.intent_name, "news_search")
         self.assertEqual(h.module_key, "news")
 
-    def test_get_all_handlers_returns_five(self):
-        """get_all_handlers возвращает 5 обработчиков."""
+    def test_get_all_handlers_returns_six(self):
+        """get_all_handlers возвращает 6 обработчиков."""
         handlers = get_all_handlers()
-        self.assertEqual(len(handlers), 5)
+        self.assertEqual(len(handlers), 6)
         intent_names = {h.intent_name for h in handlers}
         self.assertEqual(intent_names, {
+            "rag_qa",
             "upos_error_lookup",
             "ticket_validation",
             "ktr_lookup",
@@ -161,6 +169,47 @@ class TestUposErrorHandler(unittest.IsolatedAsyncioTestCase):
             h = UposErrorHandler()
             result = await h.execute({"error_code": None}, user_id=123)
             self.assertIn("Не указан код ошибки", result)
+
+
+class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
+    """Тесты исполнения RagQaHandler."""
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.settings.AI_RAG_ENABLED", False)
+    async def test_rag_disabled(self):
+        """При выключенном RAG возвращается сообщение о недоступности."""
+        handler = RagQaHandler()
+        result = await handler.execute({"question": "Что в регламенте?"}, user_id=1)
+        self.assertIn("временно отключён", result)
+
+    async def test_empty_question(self):
+        """Пустой вопрос возвращает подсказку пользователю."""
+        handler = RagQaHandler()
+        result = await handler.execute({"question": "   "}, user_id=1)
+        self.assertIn("Уточните вопрос", result)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service")
+    async def test_answer_from_rag(self, mock_get_rag_service):
+        """Успешный ответ RAG форматируется и возвращается пользователю."""
+        mock_service = AsyncMock()
+        mock_service.answer_question.return_value = "Ответ из базы знаний"
+        mock_get_rag_service.return_value = mock_service
+
+        handler = RagQaHandler()
+        result = await handler.execute({"question": "Какой SLA?"}, user_id=22)
+
+        self.assertIn("Ответ по базе знаний", result)
+        self.assertIn("Ответ из базы знаний", result)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service")
+    async def test_not_found_in_rag(self, mock_get_rag_service):
+        """Если релевантных чанков нет — возвращается корректный fallback."""
+        mock_service = AsyncMock()
+        mock_service.answer_question.return_value = None
+        mock_get_rag_service.return_value = mock_service
+
+        handler = RagQaHandler()
+        result = await handler.execute({"question": "Неизвестный вопрос"}, user_id=22)
+        self.assertIn("не найден точный ответ", result)
 
 
 class TestKtrHandler(unittest.IsolatedAsyncioTestCase):

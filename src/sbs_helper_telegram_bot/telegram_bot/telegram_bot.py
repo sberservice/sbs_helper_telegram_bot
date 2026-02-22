@@ -206,7 +206,12 @@ from src.sbs_helper_telegram_bot.ai_router.intent_router import get_router as ge
 from src.sbs_helper_telegram_bot.ai_router.messages import (
     MESSAGE_MODULE_DISABLED_BUTTON,
     MESSAGE_AI_PROCESSING,
+    MESSAGE_AI_WAITING_FOR_AI,
     escape_markdown_v2,
+)
+from src.sbs_helper_telegram_bot.ai_router.rag_admin_bot_part import (
+    handle_rag_document_upload,
+    handle_rag_admin_command,
 )
 
 from src.sbs_helper_telegram_bot.news.admin_panel_bot_part import (
@@ -1214,8 +1219,24 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             mark_step("ai_placeholder_sent")
 
+            async def _on_ai_classified(classification) -> None:
+                """Обновить плейсхолдер, когда запрос распознан как RAG."""
+                if getattr(classification, "intent", "") != "rag_qa":
+                    return
+                try:
+                    await _edit_markdown_safe(placeholder, MESSAGE_AI_WAITING_FOR_AI)
+                except Exception as rag_placeholder_exc:
+                    logger.warning(
+                        "Failed to switch AI placeholder to RAG waiting state: %s",
+                        rag_placeholder_exc,
+                    )
+
             try:
-                response, status = await ai_router.route(text, user_id)
+                response, status = await ai_router.route(
+                    text,
+                    user_id,
+                    on_classified=_on_ai_classified,
+                )
             except Exception as ai_exc:
                 logger.error("AI router exception: user=%s, error=%s", user_id, ai_exc)
                 response, status = None, "error"
@@ -1458,6 +1479,21 @@ def main() -> None:
     application.add_handler(news_mandatory_ack_handler)  # Глобальный обработчик обязательных новостей
     application.add_handler(screenshot_handler)
     
+    # Админ-загрузка документов в RAG по подписи #rag
+    application.add_handler(
+        MessageHandler(
+            filters.Document.ALL & filters.CaptionRegex(r"(?i)^#rag\b"),
+            handle_rag_document_upload,
+        )
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND & filters.Regex(r"(?i)^#rag(\s|$)"),
+            handle_rag_admin_command,
+        )
+    )
+
     # Создаём ConversationHandler для проверки загружаемых файлов
     file_validation_handler = get_file_validation_handler()
     application.add_handler(file_validation_handler)

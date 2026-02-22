@@ -50,6 +50,7 @@
 - **Контекст диалога** — краткоживущий контекст с TTL для более связных ответов
 - **Логирование в БД** — запись intent/confidence/explain_code/response_time в `ai_router_log`
 - **Безопасная отправка** — экранирование MarkdownV2, плейсхолдер «обрабатываю запрос» и fallback при ошибках редактирования
+- **RAG-база знаний** — админы могут загружать документы (`#rag` + файл PDF/DOCX/TXT/MD/HTML), а бот отвечает на вопросы по содержимому этих документов
 
 
 ### Модуль аттестации 📝
@@ -230,6 +231,10 @@
    DEEPSEEK_API_KEY=your_deepseek_api_key
    DEEPSEEK_BASE_URL=https://api.deepseek.com
    DEEPSEEK_MODEL=deepseek-chat
+   # Runtime-настройки в БД (bot_settings):
+   # ai_deepseek_model_classification=deepseek-chat|deepseek-reasoner
+   # ai_deepseek_model_response=deepseek-chat|deepseek-reasoner
+   # ai_rag_html_splitter_enabled=0|1
 
    # Пороги/лимиты AI
    AI_LLM_REQUEST_TIMEOUT=30
@@ -242,6 +247,16 @@
    AI_CIRCUIT_BREAKER_FAILURES=5
    AI_CIRCUIT_BREAKER_RECOVERY=300
    AI_MAX_INPUT_LENGTH=4000
+   # RAG (база знаний документов)
+   AI_RAG_ENABLED=1
+   AI_RAG_MAX_FILE_SIZE_MB=20
+   AI_RAG_MAX_CHUNKS_PER_DOC=500
+   AI_RAG_CHUNK_SIZE=1000
+   AI_RAG_CHUNK_OVERLAP=150
+   AI_RAG_TOP_K=5
+   AI_RAG_MAX_CONTEXT_CHARS=7000
+   AI_RAG_CACHE_TTL_SECONDS=300
+   AI_RAG_HTML_SPLITTER_ENABLED=1
    ```
 
    После изменения параметров `.env` перезапустите бота, чтобы новые значения вступили в силу.
@@ -260,10 +275,29 @@
    mysql -u root -p sprint_db < scripts/feedback_setup.sql
    mysql -u root -p sprint_db < scripts/news_setup.sql
    mysql -u root -p sprint_db < scripts/ai_router_setup.sql
+   mysql -u root -p sprint_db < scripts/ai_rag_setup.sql
    mysql -u root -p sprint_db < scripts/chat_members_setup.sql
    mysql -u root -p sprint_db < scripts/health_check_setup.sql
    mysql -u root -p sprint_db < scripts/health_outage_calendar_setup.sql
    ```
+
+### Загрузка RAG-документов админом
+
+- Отправьте в чат с ботом документ (`PDF`, `DOCX`, `TXT`, `MD`, `HTML`) с подписью `#rag`.
+- Бот загрузит документ в базу знаний и разобьёт его на чанки.
+- Для `HTML` можно включать/выключать header-aware splitter в `🛠️ Админ бота` → `⚙️ Настройки бота` → `🧠 AI модель`.
+- Для `HTML` приоритетно используется chunking по заголовкам (`h1-h6`) через `HTMLHeaderTextSplitter`; при недоступности сплиттера включается fallback на plain-text chunking.
+- На Python `3.14+` LangChain-splitters принудительно отключаются из-за несовместимости `pydantic.v1`; используется безопасный встроенный fallback chunking без предупреждений в логах.
+- После загрузки пользователи смогут задавать вопросы в свободной форме; AI-роутер будет использовать контекст из документов.
+
+### CRUD RAG-документов (админ)
+
+- `#rag help` — справка по командам.
+- `#rag list [active|archived|deleted|all] [limit]` — список документов.
+- `#rag info <id>` — подробная карточка документа.
+- `#rag archive <id>` / `#rag restore <id>` — архивация и восстановление.
+- `#rag delete <id>` — мягкое удаление.
+- `#rag purge <id>` — физическое удаление документа.
 
 ## Структура проекта
 

@@ -33,6 +33,8 @@ from src.common.messages import (
 from src.common import invites as invites_module
 from src.common import database
 from src.common import bot_settings
+from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
+from src.sbs_helper_telegram_bot.ai_router.intent_router import reset_router as reset_ai_router
 from src.common.health_check import (
     OUTAGE_TYPE_BLUE_LONG,
     OUTAGE_TYPE_BLUE_SHORT,
@@ -85,6 +87,7 @@ logger = logging.getLogger(__name__)
     # Состояния настроек бота
     BOT_SETTINGS_MENU,
     INVITE_SYSTEM_SETTINGS,
+    AI_MODEL_SETTINGS,
     # Состояния управления модулями
     MODULES_MANAGEMENT_MENU,
     # Состояния плановых работ
@@ -93,7 +96,7 @@ logger = logging.getLogger(__name__)
     PLANNED_OUTAGE_ADD_DATE,
     PLANNED_OUTAGE_ADD_TYPE,
     PLANNED_OUTAGE_CONFIRM_DELETE,
-) = range(33)
+) = range(34)
 
 
 # ============================================================================
@@ -383,6 +386,8 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await show_bot_settings_menu(update, context)
     elif text == "🔐 Инвайт-система":
         return await show_invite_system_settings(update, context)
+    elif text == settings.BUTTON_AI_MODEL:
+        return await show_ai_model_settings(update, context)
     elif text == "🧩 Модули":
         return await show_modules_management_menu(update, context)
     elif text == settings.BUTTON_PLANNED_OUTAGES:
@@ -1214,6 +1219,97 @@ async def toggle_invite_system(query, context: ContextTypes.DEFAULT_TYPE, enable
     return INVITE_SYSTEM_SETTINGS
 
 
+async def show_ai_model_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Показать меню переключения модели DeepSeek."""
+    del context
+    current_classification_model = ai_settings.get_active_deepseek_model_for_classification()
+    current_response_model = ai_settings.get_active_deepseek_model_for_response()
+    html_splitter_enabled = ai_settings.is_rag_html_splitter_enabled()
+    html_splitter_status = "✅ Включён" if html_splitter_enabled else "❌ Выключен"
+    await update.message.reply_text(
+        messages.MESSAGE_AI_MODEL_SETTINGS.format(
+            classification_model=escape_markdown(current_classification_model),
+            response_model=escape_markdown(current_response_model),
+            html_splitter_status=escape_markdown(html_splitter_status),
+        ),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_ai_model_toggle_keyboard(
+            current_classification_model,
+            current_response_model,
+            html_splitter_enabled,
+        ),
+    )
+    return AI_MODEL_SETTINGS
+
+
+async def switch_ai_model(query, model_name: str, target: str) -> int:
+    """Переключить AI-модель для выбранного сценария через bot_settings."""
+    normalized = ai_settings.normalize_deepseek_model(model_name)
+
+    if target == "classification":
+        setting_key = ai_settings.AI_DEEPSEEK_MODEL_CLASSIFICATION_SETTING_KEY
+        target_label = "классификации"
+    elif target == "response":
+        setting_key = ai_settings.AI_DEEPSEEK_MODEL_RESPONSE_SETTING_KEY
+        target_label = "ответов"
+    else:
+        setting_key = ai_settings.AI_DEEPSEEK_MODEL_RESPONSE_SETTING_KEY
+        target_label = "ответов"
+
+    bot_settings.set_setting(
+        setting_key,
+        normalized,
+        updated_by=query.from_user.id,
+    )
+
+    # Сбрасываем singleton-роутер, чтобы новые инстансы брали актуальную конфигурацию.
+    reset_ai_router()
+
+    current_classification_model = ai_settings.get_active_deepseek_model_for_classification()
+    current_response_model = ai_settings.get_active_deepseek_model_for_response()
+    html_splitter_enabled = ai_settings.is_rag_html_splitter_enabled()
+
+    await query.edit_message_text(
+        messages.MESSAGE_AI_MODEL_SWITCHED.format(
+            target=escape_markdown(target_label),
+            model=escape_markdown(normalized),
+        ),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_ai_model_toggle_keyboard(
+            current_classification_model,
+            current_response_model,
+            html_splitter_enabled,
+        ),
+    )
+    return AI_MODEL_SETTINGS
+
+
+async def toggle_ai_html_splitter(query, enable: bool) -> int:
+    """Включить или отключить HTML header-splitter для RAG через bot_settings."""
+    bot_settings.set_setting(
+        ai_settings.AI_RAG_HTML_SPLITTER_ENABLED_SETTING_KEY,
+        "1" if enable else "0",
+        updated_by=query.from_user.id,
+    )
+
+    current_classification_model = ai_settings.get_active_deepseek_model_for_classification()
+    current_response_model = ai_settings.get_active_deepseek_model_for_response()
+    html_splitter_enabled = ai_settings.is_rag_html_splitter_enabled()
+
+    await query.edit_message_text(
+        messages.MESSAGE_AI_HTML_SPLITTER_SWITCHED.format(
+            status=escape_markdown("включён" if enable else "выключен"),
+        ),
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        reply_markup=keyboards.get_ai_model_toggle_keyboard(
+            current_classification_model,
+            current_response_model,
+            html_splitter_enabled,
+        ),
+    )
+    return AI_MODEL_SETTINGS
+
+
 # ============================================================================
 # Управление модулями
 # ============================================================================
@@ -1700,6 +1796,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     if data == "bot_admin_invite_system_disable":
         return await toggle_invite_system(query, context, False)
+
+    if data == "bot_admin_ai_model_class_chat":
+        return await switch_ai_model(query, ai_settings.DEEPSEEK_MODEL_CHAT, "classification")
+
+    if data == "bot_admin_ai_model_class_reasoner":
+        return await switch_ai_model(query, ai_settings.DEEPSEEK_MODEL_REASONER, "classification")
+
+    if data == "bot_admin_ai_model_response_chat":
+        return await switch_ai_model(query, ai_settings.DEEPSEEK_MODEL_CHAT, "response")
+
+    if data == "bot_admin_ai_model_response_reasoner":
+        return await switch_ai_model(query, ai_settings.DEEPSEEK_MODEL_REASONER, "response")
+
+    if data == "bot_admin_ai_html_splitter_enable":
+        return await toggle_ai_html_splitter(query, True)
+
+    if data == "bot_admin_ai_html_splitter_disable":
+        return await toggle_ai_html_splitter(query, False)
     
     # Колбэки управления модулями
     if data.startswith("bot_admin_module_enable_"):
@@ -1891,6 +2005,10 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(handle_callback)
             ],
             INVITE_SYSTEM_SETTINGS: [
+                CallbackQueryHandler(handle_callback),
+                menu_buttons_handler
+            ],
+            AI_MODEL_SETTINGS: [
                 CallbackQueryHandler(handle_callback),
                 menu_buttons_handler
             ],
