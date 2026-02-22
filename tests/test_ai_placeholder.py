@@ -11,7 +11,7 @@ test_ai_placeholder.py — тесты для индикатора загрузк
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 
-from telegram import constants
+from telegram import constants, ReplyKeyboardMarkup
 from telegram.error import BadRequest
 
 from src.sbs_helper_telegram_bot.ai_router.messages import MESSAGE_AI_PROCESSING
@@ -32,6 +32,7 @@ def _make_update_and_context(user_id=12345, text="какой-то произво
 
     context = MagicMock()
     context.bot.send_chat_action = AsyncMock()
+    context.user_data = {}
 
     return update, context
 
@@ -119,7 +120,22 @@ class TestAIPlaceholderFlow(unittest.IsolatedAsyncioTestCase):
 
         # Проверяем, что отправлен плейсхолдер без reply_markup,
         # чтобы сообщение можно было безопасно редактировать.
-        update.message.reply_text.assert_awaited_once_with(
+        first_reply_call = update.message.reply_text.await_args_list[0]
+        self.assertEqual(first_reply_call.args[0], MESSAGE_AI_PROCESSING)
+        self.assertEqual(
+            first_reply_call.kwargs.get("parse_mode"),
+            constants.ParseMode.MARKDOWN_V2,
+        )
+        self.assertNotIn("reply_markup", first_reply_call.kwargs)
+
+        # После успешного AI-ответа бот отдельным сообщением восстанавливает меню.
+        update.message.reply_text.assert_any_await(
+            "Выберите действие из меню или введите произвольный запрос:",
+            reply_markup=mock_keyboard.return_value,
+        )
+
+        # Первый вызов всегда остаётся плейсхолдером.
+        update.message.reply_text.assert_any_await(
             MESSAGE_AI_PROCESSING,
             parse_mode=constants.ParseMode.MARKDOWN_V2,
         )
@@ -240,6 +256,50 @@ class TestAIPlaceholderFlow(unittest.IsolatedAsyncioTestCase):
         await text_entered(update, context)
 
         mock_edit_safe.assert_awaited_once_with(placeholder_msg, "Результат модуля")
+        update.message.reply_text.assert_any_await(
+            "Выберите действие из меню или введите произвольный запрос:",
+            reply_markup=mock_keyboard.return_value,
+        )
+
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_user_auth_status")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_ai_router")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_main_menu_keyboard")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot._edit_markdown_safe", new_callable=AsyncMock)
+    async def test_restores_previous_keyboard_instead_of_main_menu(
+        self, mock_edit_safe, mock_keyboard, mock_get_router, mock_auth
+    ):
+        """После AI-ответа восстанавливается последняя сохранённая клавиатура, а не main menu."""
+        from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import text_entered
+
+        auth = MagicMock()
+        auth.is_pre_invited = False
+        auth.is_pre_invited_activated = True
+        auth.is_invite_blocked = False
+        auth.is_legit = True
+        auth.is_admin = False
+        mock_auth.return_value = auth
+
+        main_keyboard = MagicMock()
+        mock_keyboard.return_value = main_keyboard
+
+        mock_router = MagicMock()
+        mock_router.route = AsyncMock(return_value=("AI ответ", "chat"))
+        mock_get_router.return_value = mock_router
+
+        update, context = _make_update_and_context(text="произвольный запрос")
+        previous_keyboard = ReplyKeyboardMarkup([["Кнопка 1"]], resize_keyboard=True)
+        context.user_data["last_reply_keyboard"] = previous_keyboard
+
+        placeholder_msg = MagicMock()
+        update.message.reply_text.return_value = placeholder_msg
+
+        await text_entered(update, context)
+
+        mock_edit_safe.assert_awaited_once_with(placeholder_msg, "AI ответ")
+        update.message.reply_text.assert_any_await(
+            "Выберите действие из меню или введите произвольный запрос:",
+            reply_markup=previous_keyboard,
+        )
 
     @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.logger.info")
     @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_user_auth_status")

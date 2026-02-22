@@ -231,12 +231,32 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
+CTX_LAST_REPLY_KEYBOARD = "last_reply_keyboard"
+
 
 def _format_profile_steps(steps: list[tuple[str, int]]) -> str:
     """Сформировать компактную строку шагов профилирования в миллисекундах."""
     if not steps:
         return "no_steps"
     return ", ".join(f"{name}={duration_ms}ms" for name, duration_ms in steps)
+
+
+def _remember_reply_keyboard(context: ContextTypes.DEFAULT_TYPE, reply_markup) -> None:
+    """Сохранить последнюю показанную reply-клавиатуру пользователя."""
+    if not isinstance(reply_markup, ReplyKeyboardMarkup):
+        return
+    if not hasattr(context, "user_data") or not isinstance(context.user_data, dict):
+        return
+    context.user_data[CTX_LAST_REPLY_KEYBOARD] = reply_markup
+
+
+def _get_last_reply_keyboard_or_main(context: ContextTypes.DEFAULT_TYPE, is_admin: bool):
+    """Вернуть последнюю сохранённую reply-клавиатуру или главное меню как fallback."""
+    if hasattr(context, "user_data") and isinstance(context.user_data, dict):
+        saved_keyboard = context.user_data.get(CTX_LAST_REPLY_KEYBOARD)
+        if isinstance(saved_keyboard, ReplyKeyboardMarkup):
+            return saved_keyboard
+    return get_main_menu_keyboard(is_admin=is_admin)
 
 
 async def _reply_markdown_safe(message, text: str, reply_markup) -> None:
@@ -539,10 +559,12 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         
         # Показываем главное меню
         is_admin = check_if_user_admin(user_id)
+        main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+        _remember_reply_keyboard(_context, main_keyboard)
         await update.message.reply_text(
             get_main_menu_message(user_id, update.effective_user.first_name),
             parse_mode=constants.ParseMode.MARKDOWN_V2,
-            reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+            reply_markup=main_keyboard
         )
         return
     
@@ -564,17 +586,20 @@ async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     if mandatory_news:
         await _show_mandatory_news(update, mandatory_news)
         return
+
+    main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+    _remember_reply_keyboard(_context, main_keyboard)
     
     await update.message.reply_text(
         MESSAGE_WELCOME,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
         disable_web_page_preview=True,
-        reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+        reply_markup=main_keyboard
     )
     await update.message.reply_text(
         get_main_menu_message(user_id, update.effective_user.first_name),
         parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+        reply_markup=main_keyboard
     )
 
 async def invite_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -639,11 +664,14 @@ async def menu_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     if mandatory_news:
         await _show_mandatory_news(update, mandatory_news)
         return
+
+    main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+    _remember_reply_keyboard(_context, main_keyboard)
     
     await update.message.reply_text(
         get_main_menu_message(user_id, update.effective_user.first_name),
         parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+        reply_markup=main_keyboard
     )
 
 
@@ -678,12 +706,15 @@ async def reset_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> 
     if mandatory_news:
         await _show_mandatory_news(update, mandatory_news)
         return ConversationHandler.END
+
+    main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+    _remember_reply_keyboard(_context, main_keyboard)
     
     # Тихо показываем главное меню (без подтверждения)
     await update.message.reply_text(
         get_main_menu_message(user_id, update.effective_user.first_name),
         parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+        reply_markup=main_keyboard
     )
     
     return ConversationHandler.END
@@ -706,10 +737,12 @@ async def help_main_command(update: Update, _context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(get_unauthorized_message(user_id))
         return
     
+    settings_keyboard = get_settings_menu_keyboard()
+    _remember_reply_keyboard(_context, settings_keyboard)
     await update.message.reply_text(
         MESSAGE_MAIN_HELP,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
-        reply_markup=get_settings_menu_keyboard()
+        reply_markup=settings_keyboard
     )
 
 
@@ -844,6 +877,7 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             main_menu_started_at = time.perf_counter()
             main_menu_message = get_main_menu_message(user_id, update.effective_user.first_name)
             main_menu_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+            _remember_reply_keyboard(context, main_menu_keyboard)
             mark_step("main_menu_build")
 
             await update.message.reply_text(
@@ -860,26 +894,32 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             profile_result = "main_menu"
         elif text == BUTTON_MODULES:
             # Показываем меню модулей
+            modules_keyboard = get_modules_menu_keyboard()
+            _remember_reply_keyboard(context, modules_keyboard)
             await update.message.reply_text(
                 MESSAGE_MODULES_MENU,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_modules_menu_keyboard()
+                reply_markup=modules_keyboard
             )
             mark_step("reply_modules_menu")
             profile_result = "modules_menu"
         elif text == BUTTON_SETTINGS:
             # Показываем меню настроек
+            settings_keyboard = get_settings_menu_keyboard()
+            _remember_reply_keyboard(context, settings_keyboard)
             await update.message.reply_text(
                 MESSAGE_SETTINGS_MENU,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_settings_menu_keyboard()
+                reply_markup=settings_keyboard
             )
             mark_step("reply_settings_menu")
             profile_result = "settings_menu"
         elif text == BUTTON_VALIDATE_TICKET:
             # Показываем подменю валидации (с админ-панелью для админа)
             if not bot_settings.is_module_enabled('ticket_validator'):
-                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+                main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+                _remember_reply_keyboard(context, main_keyboard)
+                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=main_keyboard)
                 mark_step("reply_module_disabled_ticket_validator")
                 profile_result = "ticket_validator_disabled"
                 return
@@ -887,6 +927,7 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 keyboard = validator_keyboards.get_admin_submenu_keyboard()
             else:
                 keyboard = validator_keyboards.get_submenu_keyboard()
+            _remember_reply_keyboard(context, keyboard)
             await update.message.reply_text(
                 validator_messages.get_submenu_message(),
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -912,10 +953,12 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             mark_step("run_invite_command")
             profile_result = "my_invites"
         elif text == BUTTON_HELP:
+            settings_keyboard = get_settings_menu_keyboard()
+            _remember_reply_keyboard(context, settings_keyboard)
             await update.message.reply_text(
                 MESSAGE_MAIN_HELP,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=get_settings_menu_keyboard()
+                reply_markup=settings_keyboard
             )
             mark_step("reply_main_help")
             profile_result = "help"
@@ -923,7 +966,9 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             # Эти кнопки обрабатываются ConversationHandler модуля скриншотов
             # Фолбэк на всякий случай: обычно ConversationHandler их перехватывает
             if not bot_settings.is_module_enabled('screenshot'):
-                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+                main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+                _remember_reply_keyboard(context, main_keyboard)
+                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=main_keyboard)
                 mark_step("reply_module_disabled_screenshot")
                 profile_result = "screenshot_disabled"
                 return
@@ -932,29 +977,35 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             profile_result = "screenshot_module"
             return result
         elif text == vyezd_settings.BUTTON_SCREENSHOT_HELP:
+            screenshot_keyboard = image_keyboards.get_submenu_keyboard()
+            _remember_reply_keyboard(context, screenshot_keyboard)
             await update.message.reply_photo(
                 ASSETS_DIR / "promo3.jpg",
                 caption=image_messages.MESSAGE_INSTRUCTIONS,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
-                reply_markup=image_keyboards.get_submenu_keyboard()
+                reply_markup=screenshot_keyboard
             )
             mark_step("reply_screenshot_help")
             profile_result = "screenshot_help"
         elif text == validator_settings.BUTTON_ADMIN_PANEL:
             # Показываем админ-панель, если пользователь — админ
             if is_admin:
+                admin_keyboard = validator_keyboards.get_admin_menu_keyboard()
+                _remember_reply_keyboard(context, admin_keyboard)
                 await update.message.reply_text(
                     validator_messages.MESSAGE_ADMIN_MENU,
                     parse_mode=constants.ParseMode.MARKDOWN_V2,
-                    reply_markup=validator_keyboards.get_admin_menu_keyboard()
+                    reply_markup=admin_keyboard
                 )
                 mark_step("reply_validator_admin_menu")
                 profile_result = "validator_admin_menu"
             else:
+                main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+                _remember_reply_keyboard(context, main_keyboard)
                 await update.message.reply_text(
                     MESSAGE_NO_ADMIN_RIGHTS,
                     parse_mode=constants.ParseMode.MARKDOWN_V2,
-                    reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+                    reply_markup=main_keyboard
                 )
                 mark_step("reply_no_admin_rights")
                 profile_result = "no_admin_rights"
@@ -962,10 +1013,12 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             # Показываем админ-панель бота для админа — входная точка в ConversationHandler
             # Фолбэк на случай, если обработчик не поймал
             if not is_admin:
+                main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+                _remember_reply_keyboard(context, main_keyboard)
                 await update.message.reply_text(
                     MESSAGE_NO_ADMIN_RIGHTS,
                     parse_mode=constants.ParseMode.MARKDOWN_V2,
-                    reply_markup=get_main_menu_keyboard(is_admin=is_admin)
+                    reply_markup=main_keyboard
                 )
                 mark_step("reply_no_admin_rights")
                 profile_result = "no_admin_rights"
@@ -974,7 +1027,9 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         elif text == BUTTON_UPOS_ERRORS:
             # Показываем подменю модуля ошибок UPOS
             if not bot_settings.is_module_enabled('upos_errors'):
-                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+                main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+                _remember_reply_keyboard(context, main_keyboard)
+                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=main_keyboard)
                 mark_step("reply_module_disabled_upos")
                 profile_result = "upos_disabled"
                 return
@@ -982,6 +1037,7 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 keyboard = upos_keyboards.get_admin_submenu_keyboard()
             else:
                 keyboard = upos_keyboards.get_submenu_keyboard()
+            _remember_reply_keyboard(context, keyboard)
             await update.message.reply_text(
                 upos_messages.get_submenu_message(),
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -996,7 +1052,9 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         elif text == BUTTON_CERTIFICATION:
             # Показываем подменю аттестации (делегируем обработчику модуля)
             if not bot_settings.is_module_enabled('certification'):
-                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+                main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+                _remember_reply_keyboard(context, main_keyboard)
+                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=main_keyboard)
                 mark_step("reply_module_disabled_certification")
                 profile_result = "certification_disabled"
                 return
@@ -1018,7 +1076,9 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         elif text == BUTTON_KTR:
             # Показываем подменю модуля КТР
             if not bot_settings.is_module_enabled('ktr'):
-                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+                main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+                _remember_reply_keyboard(context, main_keyboard)
+                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=main_keyboard)
                 mark_step("reply_module_disabled_ktr")
                 profile_result = "ktr_disabled"
                 return
@@ -1026,6 +1086,7 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 keyboard = ktr_keyboards.get_admin_submenu_keyboard()
             else:
                 keyboard = ktr_keyboards.get_submenu_keyboard()
+            _remember_reply_keyboard(context, keyboard)
             await update.message.reply_text(
                 ktr_messages.get_submenu_message(),
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -1046,7 +1107,9 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         elif text == BUTTON_FEEDBACK:
             # Показываем подменю обратной связи
             if not bot_settings.is_module_enabled('feedback'):
-                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+                main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+                _remember_reply_keyboard(context, main_keyboard)
+                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=main_keyboard)
                 mark_step("reply_module_disabled_feedback")
                 profile_result = "feedback_disabled"
                 return
@@ -1054,6 +1117,7 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 keyboard = feedback_keyboards.get_submenu_keyboard(is_admin=True)
             else:
                 keyboard = feedback_keyboards.get_submenu_keyboard(is_admin=False)
+            _remember_reply_keyboard(context, keyboard)
             await update.message.reply_text(
                 feedback_messages.MESSAGE_SUBMENU,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -1067,6 +1131,7 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 keyboard = gamification_keyboards.get_admin_submenu_keyboard()
             else:
                 keyboard = gamification_keyboards.get_submenu_keyboard()
+            _remember_reply_keyboard(context, keyboard)
             # Убеждаемся, что у пользователя есть запись итогов
             from src.sbs_helper_telegram_bot.gamification.gamification_logic import ensure_user_totals_exist
             ensure_user_totals_exist(user_id)
@@ -1080,7 +1145,9 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         elif text == BUTTON_NEWS or text.startswith("📰 Новости"):
             # Показываем подменю новостей (с индикатором непрочитанных)
             if not bot_settings.is_module_enabled('news'):
-                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=get_main_menu_keyboard(is_admin=is_admin))
+                main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+                _remember_reply_keyboard(context, main_keyboard)
+                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=main_keyboard)
                 mark_step("reply_module_disabled_news")
                 profile_result = "news_disabled"
                 return
@@ -1092,6 +1159,7 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 keyboard = news_keyboards.get_submenu_keyboard(is_admin=True)
             else:
                 keyboard = news_keyboards.get_submenu_keyboard(is_admin=False)
+            _remember_reply_keyboard(context, keyboard)
             await update.message.reply_text(
                 news_messages.MESSAGE_SUBMENU,
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
@@ -1154,8 +1222,16 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             mark_step("ai_route")
 
             if response and status in ("routed", "chat", "rate_limited", "module_disabled"):
+                restore_keyboard = _get_last_reply_keyboard_or_main(context, is_admin)
                 try:
                     await _edit_markdown_safe(placeholder, response)
+                    try:
+                        await update.message.reply_text(
+                            "Выберите действие из меню или введите произвольный запрос:",
+                            reply_markup=restore_keyboard,
+                        )
+                    except Exception as keyboard_exc:
+                        logger.warning("Failed to restore previous keyboard after AI reply: %s", keyboard_exc)
                 except Exception as edit_exc:
                     logger.warning(
                         "Failed to edit AI placeholder, sending new message: %s "
@@ -1177,14 +1253,22 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     await _reply_markdown_safe(
                         update.message,
                         response,
-                        get_main_menu_keyboard(is_admin=is_admin),
+                        restore_keyboard,
                     )
                 mark_step("reply_ai_response")
                 profile_result = f"ai_{status}"
             else:
                 # Ответ по умолчанию для нераспознанного текста
+                restore_keyboard = _get_last_reply_keyboard_or_main(context, is_admin)
                 try:
                     await _edit_markdown_safe(placeholder, MESSAGE_UNRECOGNIZED_INPUT)
+                    try:
+                        await update.message.reply_text(
+                            "Выберите действие из меню или введите произвольный запрос:",
+                            reply_markup=restore_keyboard,
+                        )
+                    except Exception as keyboard_exc:
+                        logger.warning("Failed to restore previous keyboard after unrecognized input: %s", keyboard_exc)
                 except Exception as edit_exc:
                     logger.warning(
                         "Failed to edit AI placeholder for unrecognized input: %s "
@@ -1202,7 +1286,7 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     await update.message.reply_text(
                         MESSAGE_UNRECOGNIZED_INPUT,
                         parse_mode=constants.ParseMode.MARKDOWN_V2,
-                        reply_markup=get_main_menu_keyboard(is_admin=is_admin),
+                        reply_markup=restore_keyboard,
                     )
                 mark_step("reply_unrecognized_input")
                 profile_result = "unrecognized_input"
