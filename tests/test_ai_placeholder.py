@@ -19,6 +19,8 @@ from telegram.error import BadRequest
 from src.sbs_helper_telegram_bot.ai_router.messages import (
     MESSAGE_AI_PROCESSING,
     MESSAGE_AI_WAITING_FOR_AI,
+    MESSAGE_AI_LOW_CONFIDENCE,
+    MESSAGE_AI_UNAVAILABLE,
 )
 from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import (
     _edit_markdown_safe,
@@ -183,6 +185,51 @@ class TestAIPlaceholderFlow(unittest.IsolatedAsyncioTestCase):
         mock_edit_safe.assert_awaited_once()
         call_args = mock_edit_safe.call_args
         self.assertEqual(call_args.args[0], placeholder_msg)
+
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_user_auth_status")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_ai_router")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_main_menu_keyboard")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot._edit_markdown_safe", new_callable=AsyncMock)
+    async def test_status_specific_ai_fallback_messages(
+        self,
+        mock_edit_safe,
+        mock_keyboard,
+        mock_get_router,
+        mock_auth,
+    ):
+        """Для low_confidence/error/circuit_open используются специальные AI-сообщения."""
+        from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import text_entered
+
+        auth = MagicMock()
+        auth.is_pre_invited = False
+        auth.is_pre_invited_activated = True
+        auth.is_invite_blocked = False
+        auth.is_legit = True
+        auth.is_admin = False
+        mock_auth.return_value = auth
+
+        mock_keyboard.return_value = MagicMock()
+
+        cases = [
+            ("low_confidence", MESSAGE_AI_LOW_CONFIDENCE),
+            ("error", MESSAGE_AI_UNAVAILABLE),
+            ("circuit_open", MESSAGE_AI_UNAVAILABLE),
+        ]
+
+        for status, expected_message in cases:
+            with self.subTest(status=status):
+                mock_edit_safe.reset_mock()
+                mock_router = MagicMock()
+                mock_router.route = AsyncMock(return_value=(None, status))
+                mock_get_router.return_value = mock_router
+
+                update, context = _make_update_and_context(text="произвольный текст")
+                placeholder_msg = MagicMock()
+                update.message.reply_text.return_value = placeholder_msg
+
+                await text_entered(update, context)
+
+                mock_edit_safe.assert_any_await(placeholder_msg, expected_message)
 
     @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_user_auth_status")
     @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_ai_router")

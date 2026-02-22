@@ -110,6 +110,13 @@ AI_RAG_CHUNK_OVERLAP: Final[int] = int(os.getenv("AI_RAG_CHUNK_OVERLAP", "150"))
 AI_RAG_TOP_K: Final[int] = int(os.getenv("AI_RAG_TOP_K", "8")) 
 AI_RAG_MAX_CONTEXT_CHARS: Final[int] = int(os.getenv("AI_RAG_MAX_CONTEXT_CHARS", "14000"))
 
+# AI-summary для документов (используется при ingest и retrieval)
+AI_RAG_SUMMARY_ENABLED: Final[bool] = os.getenv("AI_RAG_SUMMARY_ENABLED", "1") == "1"
+AI_RAG_SUMMARY_INPUT_MAX_CHARS: Final[int] = int(os.getenv("AI_RAG_SUMMARY_INPUT_MAX_CHARS", "12000"))
+AI_RAG_SUMMARY_MAX_CHARS: Final[int] = int(os.getenv("AI_RAG_SUMMARY_MAX_CHARS", "1200"))
+AI_RAG_PREFILTER_TOP_DOCS: Final[int] = int(os.getenv("AI_RAG_PREFILTER_TOP_DOCS", "12"))
+AI_RAG_PROMPT_SUMMARY_DOCS: Final[int] = int(os.getenv("AI_RAG_PROMPT_SUMMARY_DOCS", "3"))
+
 # TTL-кэш ответов RAG (секунды)
 AI_RAG_CACHE_TTL_SECONDS: Final[int] = int(os.getenv("AI_RAG_CACHE_TTL_SECONDS", "300"))
 

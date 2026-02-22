@@ -72,7 +72,7 @@ async def handle_rag_document_upload(update: Update, context: ContextTypes.DEFAU
         tg_file = await context.bot.get_file(document.file_id)
         payload = bytes(await tg_file.download_as_bytearray())
 
-        result = rag_service.ingest_document_from_bytes(
+        result = await rag_service.ingest_document_from_bytes(
             filename=filename,
             payload=payload,
             uploaded_by=user_id,

@@ -244,6 +244,62 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok)
         mock_set_status.assert_called_once_with(3, "deleted", 1)
 
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._bump_corpus_version")
+    def test_ingest_reactivates_existing_non_active_hash(
+        self,
+        mock_bump,
+        mock_get_cursor,
+        mock_get_db_connection,
+    ):
+        """При совпадении content_hash неактивный документ реактивируется без новой вставки."""
+        service = RagKnowledgeService()
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {
+            "id": 77,
+            "status": "archived",
+        }
+
+        result = service.ingest_document_from_bytes(
+            filename="rules.txt",
+            payload=b"test content",
+            uploaded_by=100,
+            source_type="filesystem",
+            source_url="/kb/rules.txt",
+        )
+
+        self.assertEqual(result["document_id"], 77)
+        self.assertEqual(result["is_duplicate"], 1)
+        self.assertEqual(result["reactivated"], 1)
+        self.assertGreaterEqual(cursor.execute.call_count, 2)
+        mock_bump.assert_called_once()
+
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    def test_list_documents_by_source(self, mock_get_cursor, mock_get_db_connection):
+        """Документы корректно фильтруются по source_type и source_url префиксу."""
+        service = RagKnowledgeService()
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            {
+                "id": 1,
+                "source_type": "filesystem",
+                "source_url": "/kb/doc1.txt",
+                "status": "active",
+                "content_hash": "abc",
+            }
+        ]
+
+        rows = service.list_documents_by_source(
+            source_type="filesystem",
+            source_url_prefix="/kb/",
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["source_type"], "filesystem")
+        cursor.execute.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

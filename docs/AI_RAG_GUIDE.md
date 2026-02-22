@@ -15,6 +15,7 @@ RAG-поток позволяет:
 - Новый обработчик: `RagQaHandler` в `src/sbs_helper_telegram_bot/ai_router/intent_handlers.py`.
 - Сервис базы знаний: `RagKnowledgeService` в `src/sbs_helper_telegram_bot/ai_router/rag_service.py`.
 - Админ-загрузка документов через Telegram: отправка файла с подписью `#rag`.
+- Синхронизация директории документов через helper-скрипт `scripts/rag_directory_ingest.py` (on-demand и daemon-режим).
 - Поддерживаемые форматы: `PDF`, `DOCX`, `TXT`, `MD`, `HTML`.
 - Для `HTML` используется `HTMLHeaderTextSplitter` (если доступен в окружении), чтобы учитывать структуру заголовков `h1-h6`.
 - Для `HTML` предусмотрен безопасный fallback на очищенный plain-text chunking, если header-splitter недоступен или не вернул чанков.
@@ -29,6 +30,32 @@ RAG-поток позволяет:
 1. Администратор отправляет в чат бота документ.
 2. В подписи к документу указывает `#rag` в начале подписи.
 3. Бот подтверждает успешную загрузку, ID документа и число чанков.
+
+## Как синхронизировать директорию документов
+
+On-demand запуск:
+
+```bash
+python scripts/rag_directory_ingest.py --directory /path/to/docs
+```
+
+Daemon-режим (регулярная синхронизация):
+
+```bash
+python scripts/rag_directory_ingest.py --directory /path/to/docs --daemon --interval-seconds 900
+```
+
+Проверка без изменений в БД:
+
+```bash
+python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
+```
+
+Поведение синхронизации:
+- сканирует директорию рекурсивно (можно отключить флагом `--no-recursive`),
+- загружает новые/изменённые документы,
+- удалённые из директории документы удаляет из RAG через purge (`hard delete`),
+- для одинакового `content_hash` использует существующий документ (дубликаты не плодятся).
 
 ## CRUD-команды администратора
 

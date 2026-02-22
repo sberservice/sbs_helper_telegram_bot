@@ -191,6 +191,65 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
         )
 
     @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=["ai_router"])
+    @patch.object(IntentRouter, "_log_to_db")
+    async def test_general_chat_rerouted_to_rag(self, mock_log_to_db, mock_modules, mock_enabled):
+        """Intent=general_chat для вопроса маршрутизируется в rag_qa при доступном модуле."""
+        provider = AsyncMock()
+        provider.name = "deepseek"
+        provider.get_model_name = MagicMock(return_value="deepseek-chat")
+        provider.classify.return_value = ClassificationResult(
+            intent="general_chat",
+            confidence=0.92,
+            response_time_ms=700,
+        )
+
+        router = _make_router(provider=provider)
+        rag_handler = AsyncMock()
+        rag_handler.intent_name = "rag_qa"
+        rag_handler.module_key = "ai_router"
+        rag_handler.execute.return_value = "📚 *Ответ по базе знаний*\n\nТест"
+        router._handlers["rag_qa"] = rag_handler
+
+        result, status = await router.route("как оформить заявку по регламенту?", user_id=1)
+
+        self.assertEqual(status, "routed")
+        self.assertIn("Ответ по базе знаний", result)
+        rag_handler.execute.assert_awaited_once_with(
+            {"question": "как оформить заявку по регламенту?"},
+            1,
+        )
+        provider.chat.assert_not_called()
+
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=["ai_router"])
+    @patch.object(IntentRouter, "_log_to_db")
+    async def test_small_talk_keeps_general_chat(self, mock_log_to_db, mock_modules, mock_enabled):
+        """Явный small-talk остаётся в general_chat и не уходит в rag_qa."""
+        provider = AsyncMock()
+        provider.name = "deepseek"
+        provider.get_model_name = MagicMock(return_value="deepseek-chat")
+        provider.classify.return_value = ClassificationResult(
+            intent="general_chat",
+            confidence=0.91,
+            response_time_ms=650,
+        )
+        provider.chat.return_value = "Привет!"
+
+        router = _make_router(provider=provider)
+        rag_handler = AsyncMock()
+        rag_handler.intent_name = "rag_qa"
+        rag_handler.module_key = "ai_router"
+        router._handlers["rag_qa"] = rag_handler
+
+        result, status = await router.route("привет", user_id=1)
+
+        self.assertEqual(status, "chat")
+        self.assertIsNotNone(result)
+        rag_handler.execute.assert_not_called()
+        provider.chat.assert_awaited_once()
+
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
     @patch("src.common.bot_settings.get_enabled_modules", return_value=[])
     @patch.object(IntentRouter, "_log_to_db")
     async def test_direct_answer_fallback_response(self, mock_log_to_db, mock_modules, mock_enabled):
@@ -208,6 +267,75 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(status, "chat")
         self.assertIn("Готовый ответ", result)
+        provider.chat.assert_not_called()
+
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=["upos_errors"])
+    @patch.object(IntentRouter, "_log_to_db")
+    async def test_retry_no_json_classification_success(self, mock_log_to_db, mock_modules, mock_enabled):
+        """При no-JSON на первой попытке роутер делает retry и использует успешный второй результат."""
+        provider = AsyncMock()
+        provider.classify.side_effect = [
+            ClassificationResult(
+                intent="general_chat",
+                confidence=0.85,
+                parameters={"direct_answer": "Текст вместо JSON"},
+                explain_code="DIRECT_TEXT_FALLBACK",
+            ),
+            ClassificationResult(
+                intent="upos_error_lookup",
+                confidence=0.95,
+                parameters={"error_code": "E001"},
+                explain_code="UPOS_EXACT",
+            ),
+        ]
+
+        router = _make_router(provider=provider)
+        mock_handler = AsyncMock()
+        mock_handler.intent_name = "upos_error_lookup"
+        mock_handler.module_key = "upos_errors"
+        mock_handler.execute.return_value = "✅ Код найден"
+        router._handlers["upos_error_lookup"] = mock_handler
+
+        result, status = await router.route("ошибка E001", user_id=1)
+
+        self.assertEqual(status, "routed")
+        self.assertEqual(result, "✅ Код найден")
+        self.assertEqual(provider.classify.await_count, 2)
+        provider.chat.assert_not_called()
+
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=[])
+    @patch.object(IntentRouter, "_log_to_db")
+    async def test_retry_no_json_classification_fails_keeps_first_result(
+        self,
+        mock_log_to_db,
+        mock_modules,
+        mock_enabled,
+    ):
+        """Если retry снова no-JSON, сохраняется первый direct-answer fallback."""
+        provider = AsyncMock()
+        provider.classify.side_effect = [
+            ClassificationResult(
+                intent="general_chat",
+                confidence=0.85,
+                parameters={"direct_answer": "Готовый ответ из первого fallback"},
+                explain_code="DIRECT_TEXT_FALLBACK",
+            ),
+            ClassificationResult(
+                intent="unknown",
+                confidence=0.0,
+                parameters={},
+                explain_code="NO_JSON_IN_RESPONSE",
+            ),
+        ]
+
+        router = _make_router(provider=provider)
+        result, status = await router.route("любой текст", user_id=1)
+
+        self.assertEqual(status, "chat")
+        self.assertIn("Готовый ответ", result)
+        self.assertEqual(provider.classify.await_count, 2)
         provider.chat.assert_not_called()
 
     @patch("src.common.bot_settings.is_module_enabled", return_value=True)

@@ -5,6 +5,20 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.28] - 2026-02-22
+
+### Added
+- Добавлен helper-скрипт `scripts/rag_directory_ingest.py` для синхронизации файловой директории с RAG-базой знаний в двух режимах: on-demand и daemon (`--interval-seconds`).
+- Добавлены тесты `tests/test_rag_directory_ingest.py` для сценариев загрузки, purge удалённых файлов, обновления изменённых файлов и dry-run.
+
+### Changed
+- `RagKnowledgeService.ingest_document_from_bytes()` теперь корректно обрабатывает совпадающий `content_hash` для неактивных документов: выполняется реактивация существующей записи вместо ошибки вставки из-за `UNIQUE(content_hash)`.
+- В `RagKnowledgeService` добавлен метод `list_documents_by_source()` для выборки документов по типу источника и префиксу `source_url`.
+- Обновлена документация (`README.md`, `docs/AI_RAG_GUIDE.md`) по пакетной синхронизации документов из директории.
+
+### Fixed
+- Исправлен сценарий повторной загрузки документа с уже существующим `content_hash` в статусе `archived/deleted`: ingestion больше не падает на конфликте уникального индекса.
+
 ## [0.1.27] - 2026-02-22
 
 ### Added

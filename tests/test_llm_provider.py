@@ -99,6 +99,14 @@ class TestParseClassification(unittest.TestCase):
         self.assertEqual(result.confidence, 0.0)
         self.assertEqual(result.explain_code, "PARTIAL_JSON_FALLBACK")
 
+    def test_json_parse_fail_without_intent_or_direct_text(self):
+        """Невалидный JSON без intent и без длинного текста даёт JSON_PARSE_FAIL."""
+        raw = "результат {broken: true, value: }"
+        result = DeepSeekProvider._parse_classification(raw, elapsed_ms=70)
+        self.assertEqual(result.intent, "unknown")
+        self.assertEqual(result.confidence, 0.0)
+        self.assertEqual(result.explain_code, "JSON_PARSE_FAIL")
+
     def test_confidence_clamped_to_range(self):
         """Confidence ограничивается диапазоном [0, 1]."""
         raw_high = json.dumps({"intent": "test", "confidence": 1.5})
