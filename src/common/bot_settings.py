@@ -134,7 +134,8 @@ MODULE_CONFIG = [
         'setting_key': 'module_news_enabled',
         'button_label': '📰 Новости',
         'order': 8,
-        'columns': 2
+        'columns': 2,
+        'show_in_modules_menu': False
     },
 ]
 

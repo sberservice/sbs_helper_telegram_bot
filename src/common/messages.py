@@ -61,7 +61,7 @@ BUTTON_MAIN_MENU_ICON = "🏠"
 BUTTON_MAIN_MENU = f"{BUTTON_MAIN_MENU_ICON} {BUTTON_MAIN_MENU_TEXT}"
 
 # Сообщения главного меню
-MESSAGE_MAIN_MENU = f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\nВыберите действие из меню или введите произвольный запрос:"
+MESSAGE_MAIN_MENU = f"{BUTTON_MAIN_MENU_ICON} *{BUTTON_MAIN_MENU_TEXT}*\n\nВыберите действие из меню или введите введите произвольный запрос \(например, \"что такое ошибка 4119\" или \"сколько минут дает POS2421\"\):"
 MESSAGE_UNRECOGNIZED_INPUT = "🤔 Не понял вашу команду\\.\n\n*Используйте:*\n• Кнопки меню ниже\n• Команда /menu\n• Или /help для справки"
 SECTION_DIVIDER_THIN = "────────────"
 
@@ -134,7 +134,7 @@ def _format_main_menu_message(
     if health_text:
         message += f"\n\n{SECTION_DIVIDER_THIN}\n\n{health_text}"
 
-    message += "\n\nВыберите действие из меню:"
+    message += "\n\nВыберите действие из меню или введите произвольный запрос \(например, \"что такое ошибка 4119\" или \"сколько минут дает POS2421\"\):"
     return message
 
 
@@ -268,7 +268,7 @@ MESSAGE_MAIN_HELP = """❓ *Помощь*
 MESSAGE_SETTINGS_MENU = "⚙️ *Настройки*\n\nВыберите действие из меню:"
 
 # Сообщение меню модулей
-MESSAGE_MODULES_MENU = "⚡ *Функции бота*\n\nВыберите модуль или введите произвольный запрос:"
+MESSAGE_MODULES_MENU = "⚡ *Функции бота*\n\nВыберите модуль или введите введите произвольный запрос \(например, \"что такое ошибка 4119\" или \"сколько минут дает POS2421\"\):"
 
 # Подписи кнопок главного меню
 BUTTON_MODULES = "⚡ Начать работу"
@@ -304,13 +304,13 @@ def get_main_menu_keyboard(is_admin: bool = False):
     
     if is_admin:
         buttons = [
-            [BUTTON_MODULES, BUTTON_PROFILE],
+            [BUTTON_MODULES],
             [BUTTON_NEWS, BUTTON_SETTINGS],
             [BUTTON_BOT_ADMIN]
         ]
     else:
         buttons = [
-            [BUTTON_MODULES, BUTTON_PROFILE],
+            [BUTTON_MODULES],
             [BUTTON_NEWS, BUTTON_SETTINGS]
         ]
     
@@ -332,7 +332,7 @@ def get_settings_menu_keyboard():
     from telegram import ReplyKeyboardMarkup
     
     buttons = [
-        [BUTTON_MY_INVITES, BUTTON_HELP],
+        [BUTTON_HELP],
         [BUTTON_MAIN_MENU]
     ]
     
