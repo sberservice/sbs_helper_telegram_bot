@@ -492,7 +492,12 @@ class RagQaHandler(IntentHandler):
             safe_answer = escape_markdown_v2(answer)
             return f"📚 *Ответ по базе знаний*\n\n{safe_answer}"
         except Exception as exc:
-            logger.error("Ошибка RAG-обработчика: user=%s error=%s", user_id, exc)
+            logger.exception(
+                "Ошибка RAG-обработчика: user=%s error_type=%s error_repr=%r",
+                user_id,
+                type(exc).__name__,
+                exc,
+            )
             return "❌ Не удалось получить ответ из базы знаний\\. Попробуйте позже\\."
 
 

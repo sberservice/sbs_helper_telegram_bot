@@ -340,10 +340,12 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
 
     @patch("src.common.bot_settings.is_module_enabled", return_value=True)
     @patch("src.common.bot_settings.get_enabled_modules", return_value=[])
-    async def test_classification_error_records_failure(self, mock_modules, mock_enabled):
+    @patch("src.sbs_helper_telegram_bot.ai_router.intent_router.logger.exception")
+    async def test_classification_error_records_failure(self, mock_logger_exception, mock_modules, mock_enabled):
         """Ошибка LLM — записывается failure в circuit breaker."""
         provider = AsyncMock()
-        provider.classify.side_effect = Exception("API error")
+        empty_exc = Exception()
+        provider.classify.side_effect = empty_exc
 
         cb = CircuitBreaker(failure_threshold=10)
         router = _make_router(provider=provider, circuit_breaker=cb)
@@ -351,6 +353,11 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result)
         self.assertEqual(status, "error")
         self.assertEqual(cb._failure_count, 1)
+        mock_logger_exception.assert_called_once()
+        log_args = mock_logger_exception.call_args.args
+        self.assertIn("AI classification error", log_args[0])
+        self.assertEqual(log_args[2], "Exception")
+        self.assertIs(log_args[3], empty_exc)
 
     @patch("src.common.bot_settings.is_module_enabled", return_value=True)
     @patch("src.common.bot_settings.get_enabled_modules", return_value=[])

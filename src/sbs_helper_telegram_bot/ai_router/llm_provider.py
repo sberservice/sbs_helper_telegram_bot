@@ -193,8 +193,11 @@ class DeepSeekProvider(LLMProvider):
             )
         except Exception as exc:
             elapsed = int((time.monotonic() - start_time) * 1000)
-            logger.error(
-                "DeepSeek classify error: %s (elapsed=%dms)", exc, elapsed
+            logger.exception(
+                "DeepSeek classify error: type=%s repr=%r (elapsed=%dms)",
+                type(exc).__name__,
+                exc,
+                elapsed,
             )
             raise
 
@@ -221,7 +224,11 @@ class DeepSeekProvider(LLMProvider):
                 user_id=user_id,
             )
         except Exception as exc:
-            logger.error("DeepSeek chat error: %s", exc)
+            logger.exception(
+                "DeepSeek chat error: type=%s repr=%r",
+                type(exc).__name__,
+                exc,
+            )
             raise
 
         return raw
@@ -316,7 +323,7 @@ class DeepSeekProvider(LLMProvider):
                     response_time_ms=None,
                     error_text=response_body,
                 )
-                raise exc
+                raise
 
         data = response.json()
 
