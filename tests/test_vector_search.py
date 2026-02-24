@@ -31,6 +31,23 @@ class TestLocalVectorIndex(unittest.TestCase):
         match_payload = document_filter.get("match") or {}
         self.assertEqual(match_payload.get("any"), [11, 12])
 
+    def test_get_client_stops_retries_after_qdrant_storage_lock(self):
+        """После lock-ошибки локального хранилища повторные инициализации клиента не выполняются."""
+        qdrant_error = RuntimeError(
+            "Storage folder /tmp/qdrant is already accessed by another instance of Qdrant client"
+        )
+        fake_constructor = mock.Mock(side_effect=qdrant_error)
+        fake_qdrant_module = types.SimpleNamespace(QdrantClient=fake_constructor)
+
+        with mock.patch.dict("sys.modules", {"qdrant_client": fake_qdrant_module}):
+            index = LocalVectorIndex()
+            first_client = index._get_client()
+            second_client = index._get_client()
+
+        self.assertIsNone(first_client)
+        self.assertIsNone(second_client)
+        self.assertEqual(fake_constructor.call_count, 1)
+
 
 class TestLocalEmbeddingProvider(unittest.TestCase):
     """Проверки выбора устройства и инициализации embedding-модели."""
@@ -100,6 +117,56 @@ class TestLocalEmbeddingProvider(unittest.TestCase):
         self.assertTrue(is_ready)
         self.assertEqual(captured["model_name"], "BAAI/bge-m3")
         self.assertEqual(captured["device"], "cuda")
+
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_EMBEDDING_FP16", True)
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.LocalEmbeddingProvider._resolve_device", return_value="cuda")
+    def test_fp16_enabled_calls_model_half_on_cuda(self, _mock_resolve_device):
+        """При включённом FP16 на CUDA вызывается half() у embedding-модели."""
+        captured = {"half_calls": 0}
+
+        class _FakeSentenceTransformer:
+            def __init__(self, model_name, device=None):
+                captured["model_name"] = model_name
+                captured["device"] = device
+
+            def half(self):
+                captured["half_calls"] += 1
+                return self
+
+        fake_module = types.SimpleNamespace(SentenceTransformer=_FakeSentenceTransformer)
+        provider = LocalEmbeddingProvider()
+
+        with mock.patch.dict("sys.modules", {"sentence_transformers": fake_module}):
+            is_ready = provider.is_ready()
+
+        self.assertTrue(is_ready)
+        self.assertEqual(captured["device"], "cuda")
+        self.assertEqual(captured["half_calls"], 1)
+
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_EMBEDDING_FP16", True)
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.LocalEmbeddingProvider._resolve_device", return_value="cpu")
+    def test_fp16_enabled_ignored_on_cpu(self, _mock_resolve_device):
+        """При включённом FP16 и CPU устройство half() не вызывается."""
+        captured = {"half_calls": 0}
+
+        class _FakeSentenceTransformer:
+            def __init__(self, model_name, device=None):
+                captured["model_name"] = model_name
+                captured["device"] = device
+
+            def half(self):
+                captured["half_calls"] += 1
+                return self
+
+        fake_module = types.SimpleNamespace(SentenceTransformer=_FakeSentenceTransformer)
+        provider = LocalEmbeddingProvider()
+
+        with mock.patch.dict("sys.modules", {"sentence_transformers": fake_module}):
+            is_ready = provider.is_ready()
+
+        self.assertTrue(is_ready)
+        self.assertEqual(captured["device"], "cpu")
+        self.assertEqual(captured["half_calls"], 0)
 
 
 if __name__ == "__main__":

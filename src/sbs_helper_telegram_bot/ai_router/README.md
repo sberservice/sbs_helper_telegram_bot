@@ -165,6 +165,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 С флагом `--force-update` перезагружаются также и неизменённые файлы.
 При временных DB-блокировках (`1205`/`1213`) DB-операции (`delete`, `set_status`, `ingest`) автоматически повторяются с коротким backoff. Qdrant I/O вынесен за пределы MySQL-транзакций для минимизации времени удержания блокировок.
 Для одной и той же директории синхронизации разрешён только один активный процесс `rag_directory_ingest.py` (PID lock-файл в системной temp-директории); второй запуск завершается с ошибкой, чтобы исключить конкуренцию транзакций.
+Если локальный Qdrant-путь (`AI_RAG_VECTOR_DB_PATH`) уже занят другим процессом, векторная индексация автоматически отключается для текущего процесса синхронизации, а загрузка документов продолжается в lexical fallback.
 При загрузке каждого документа синхронизация формирует/обновляет запись в `rag_document_summaries`.
 
 ## Безопасная отправка
@@ -239,6 +240,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `AI_RAG_VECTOR_PREFETCH_K` | `40` | Глубина первичного поиска в индексе |
 | `AI_RAG_VECTOR_EMBEDDING_MODEL` | `BAAI/bge-m3` | Локальная embedding-модель |
 | `AI_RAG_VECTOR_DEVICE` | `auto` | Устройство embedding-модели (`auto`/`cuda`/`cpu`) |
+| `AI_RAG_VECTOR_EMBEDDING_FP16` | `0` | Включить FP16 для локальных эмбеддингов на CUDA (`1`/`0`) |
 | `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE` | `8` | Batch size при вычислении эмбеддингов |
 | `AI_RAG_VECTOR_EMBEDDING_MAX_CHARS` | `6000` | Ограничение длины текста на embedding |
 | `AI_RAG_VECTOR_LEXICAL_WEIGHT` | `0.45` | Вес lexical score в hybrid |
@@ -248,6 +250,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 
 **macOS (сбалансированный)**
 - `AI_RAG_VECTOR_EMBEDDING_MODEL=BAAI/bge-m3`
+- `AI_RAG_VECTOR_EMBEDDING_FP16=0`
 - `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE=6`
 - `AI_RAG_VECTOR_TOP_K=14`
 - `AI_RAG_VECTOR_PREFETCH_K=42`
@@ -257,6 +260,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 **Windows (i5-3550 + NVIDIA T400, стабильный профиль)**
 - `AI_RAG_VECTOR_EMBEDDING_MODEL=intfloat/multilingual-e5-small`
 - `AI_RAG_VECTOR_DEVICE=auto`
+- `AI_RAG_VECTOR_EMBEDDING_FP16=1`
 - `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE=2`
 - `AI_RAG_VECTOR_TOP_K=10`
 - `AI_RAG_VECTOR_PREFETCH_K=24`
@@ -265,6 +269,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 
 Пояснение для T400:
 - `AI_RAG_VECTOR_DEVICE=auto` автоматически выбирает `cuda` при доступном GPU и переключается на `cpu`, если CUDA недоступен.
+- `AI_RAG_VECTOR_EMBEDDING_FP16=1` применяется только при `cuda`; при `cpu` инициализация продолжится в FP32 без падения.
 - Для строгого GPU-режима можно использовать `AI_RAG_VECTOR_DEVICE=cuda`.
 
 ### Runtime-настройки (admin panel)

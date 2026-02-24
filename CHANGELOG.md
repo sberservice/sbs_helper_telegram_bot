@@ -5,6 +5,30 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.50] - 2026-02-25
+
+### Added
+- Добавлен env-параметр `AI_RAG_VECTOR_EMBEDDING_FP16` для управления FP16-режимом локальной embedding-модели в vector RAG.
+- Добавлены регрессионные тесты в `tests/test_vector_search.py` на корректное включение `half()` при CUDA и безопасное игнорирование FP16 на CPU.
+
+### Changed
+- `LocalEmbeddingProvider` в `src/sbs_helper_telegram_bot/ai_router/vector_search.py` теперь поддерживает FP16 для CUDA: при включённом флаге модель переводится в half precision и encode выполняется под `torch.cuda.amp.autocast`.
+- Обновлены конфигурационные примеры и документация по настройке vector retrieval (`.env.example`, `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`) с примерами профилей для `AI_RAG_VECTOR_EMBEDDING_FP16`.
+
+### Fixed
+- Добавлен безопасный fallback на FP32 при недоступности CUDA, отсутствии поддержки `half()` у модели или ошибке инициализации autocast, чтобы исключить падения embedding-пайплайна.
+
+## [0.1.49] - 2026-02-25
+
+### Added
+- Добавлен регрессионный тест в `tests/test_vector_search.py`, проверяющий, что при lock-конфликте локального Qdrant клиент не переинициализируется повторно в рамках одного процесса.
+
+### Changed
+- Обновлена документация по RAG (`docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`) с пояснением поведения при конкурентном доступе к `AI_RAG_VECTOR_DB_PATH`.
+
+### Fixed
+- Исправлен шумный сценарий при конкурирующем доступе к Qdrant local mode: `LocalVectorIndex` теперь распознаёт ошибку блокировки storage (`already accessed by another instance`), отключает векторную индексацию для текущего процесса и не выполняет повторные попытки инициализации клиента.
+
 ## [0.1.48] - 2026-02-25
 
 ### Fixed

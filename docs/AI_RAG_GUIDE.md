@@ -150,6 +150,7 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_VECTOR_PREFETCH_K`
 - `AI_RAG_VECTOR_EMBEDDING_MODEL`
 - `AI_RAG_VECTOR_DEVICE`
+- `AI_RAG_VECTOR_EMBEDDING_FP16`
 - `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE`
 - `AI_RAG_VECTOR_EMBEDDING_MAX_CHARS`
 - `AI_RAG_VECTOR_LEXICAL_WEIGHT`
@@ -162,6 +163,7 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_VECTOR_ENABLED=1`
 - `AI_RAG_HYBRID_ENABLED=1`
 - `AI_RAG_VECTOR_EMBEDDING_MODEL=BAAI/bge-m3`
+- `AI_RAG_VECTOR_EMBEDDING_FP16=0`
 - `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE=6`
 - `AI_RAG_VECTOR_EMBEDDING_MAX_CHARS=5000`
 - `AI_RAG_VECTOR_TOP_K=14`
@@ -176,6 +178,7 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_HYBRID_ENABLED=1`
 - `AI_RAG_VECTOR_EMBEDDING_MODEL=intfloat/multilingual-e5-small`
 - `AI_RAG_VECTOR_DEVICE=auto`
+- `AI_RAG_VECTOR_EMBEDDING_FP16=1`
 - `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE=2`
 - `AI_RAG_VECTOR_EMBEDDING_MAX_CHARS=3500`
 - `AI_RAG_VECTOR_TOP_K=10`
@@ -187,7 +190,9 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 Примечания по Windows-профилю:
 - Профиль ориентирован на CPU-стабильность и умеренную память.
 - `AI_RAG_VECTOR_DEVICE=auto` выбирает `cuda`, если GPU доступен, и безопасно переключается на `cpu`, если CUDA недоступен.
+- `AI_RAG_VECTOR_EMBEDDING_FP16=1` применяется только на `cuda`; при `cpu` или при ошибке инициализации автоматически включается безопасный fallback на FP32.
 - Для принудительного запуска эмбеддингов на GPU можно указать `AI_RAG_VECTOR_DEVICE=cuda`.
+- Если локальный Qdrant-путь (`AI_RAG_VECTOR_DB_PATH`) уже удерживается другим процессом, векторная индексация автоматически отключается только для текущего процесса, а ingest продолжает работу в lexical-режиме.
 - Если доступен CUDA и есть запас по памяти, можно увеличить `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE` до `3-4`.
 - Если latency высокая, сначала уменьшайте `AI_RAG_VECTOR_PREFETCH_K`, затем `AI_RAG_VECTOR_TOP_K`.
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import nullcontext
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,7 @@ class LocalEmbeddingProvider:
         self._model = None
         self._model_name = ai_settings.AI_RAG_VECTOR_EMBEDDING_MODEL
         self._device = "cpu"
+        self._fp16_enabled = bool(ai_settings.AI_RAG_VECTOR_EMBEDDING_FP16)
 
     def is_ready(self) -> bool:
         """Проверить, что модель эмбеддингов доступна для инференса."""
@@ -47,13 +49,14 @@ class LocalEmbeddingProvider:
         max_chars = max(200, int(ai_settings.AI_RAG_VECTOR_EMBEDDING_MAX_CHARS))
         normalized_texts = [self._normalize_text(text, max_chars=max_chars) for text in texts]
 
-        vectors = self._model.encode(
-            normalized_texts,
-            batch_size=max(1, int(ai_settings.AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE)),
-            show_progress_bar=False,
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-        )
+        with self._build_encode_precision_context():
+            vectors = self._model.encode(
+                normalized_texts,
+                batch_size=max(1, int(ai_settings.AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE)),
+                show_progress_bar=False,
+                convert_to_numpy=True,
+                normalize_embeddings=True,
+            )
         return vectors.tolist()
 
     @staticmethod
@@ -72,15 +75,66 @@ class LocalEmbeddingProvider:
             from sentence_transformers import SentenceTransformer
 
             self._model = SentenceTransformer(self._model_name, device=self._device)
+            self._try_enable_fp16()
             logger.info(
-                "Локальная embedding-модель загружена: model=%s device=%s",
+                "Локальная embedding-модель загружена: model=%s device=%s fp16=%s",
                 self._model_name,
                 self._device,
+                self._fp16_enabled,
             )
             return True
         except Exception as exc:
             logger.warning("Не удалось загрузить embedding-модель %s: %s", self._model_name, exc)
             return False
+
+    def _try_enable_fp16(self) -> None:
+        """Включить FP16 для embedding-модели при запуске на CUDA."""
+        if not self._fp16_enabled:
+            return
+
+        if self._device != "cuda":
+            logger.info(
+                "AI_RAG_VECTOR_EMBEDDING_FP16=1 проигнорирован: device=%s",
+                self._device,
+            )
+            self._fp16_enabled = False
+            return
+
+        half_method = getattr(self._model, "half", None)
+        if not callable(half_method):
+            logger.warning(
+                "AI_RAG_VECTOR_EMBEDDING_FP16=1 не применён: модель %s не поддерживает half()",
+                self._model_name,
+            )
+            self._fp16_enabled = False
+            return
+
+        try:
+            half_method()
+        except Exception as exc:
+            logger.warning(
+                "Не удалось включить FP16 для embedding-модели %s: %s. Используется FP32",
+                self._model_name,
+                exc,
+            )
+            self._fp16_enabled = False
+
+    def _build_encode_precision_context(self):
+        """Вернуть контекст precision для encode (autocast на CUDA при FP16)."""
+        if not self._fp16_enabled or self._device != "cuda":
+            return nullcontext()
+
+        try:
+            import torch
+
+            return torch.cuda.amp.autocast(dtype=torch.float16)
+        except Exception as exc:
+            logger.warning(
+                "Не удалось включить autocast FP16 для embedding encode: %s. Используется FP32",
+                exc,
+            )
+            self._fp16_enabled = False
+            return nullcontext()
 
     @staticmethod
     def _resolve_device() -> str:
@@ -122,6 +176,7 @@ class LocalVectorIndex:
         self._client = None
         self._collection_name = ai_settings.AI_RAG_VECTOR_COLLECTION
         self._embedding_size: Optional[int] = None
+        self._client_init_failed = False
 
     def is_ready(self) -> bool:
         """Проверить доступность клиента и коллекции."""
@@ -358,6 +413,9 @@ class LocalVectorIndex:
         if self._client is not None:
             return self._client
 
+        if self._client_init_failed:
+            return None
+
         if not ai_settings.AI_RAG_VECTOR_LOCAL_MODE:
             logger.warning("Только local mode поддерживается в текущем профиле настройки")
             return None
@@ -370,8 +428,30 @@ class LocalVectorIndex:
             self._client = QdrantClient(path=str(db_path))
             return self._client
         except Exception as exc:
+            if self._is_storage_locked_error(exc):
+                self._client_init_failed = True
+                logger.warning(
+                    "Не удалось инициализировать Qdrant local mode: %s. "
+                    "Векторная индексация отключена для текущего процесса. "
+                    "Для параллельной работы используйте Qdrant server или отдельный AI_RAG_VECTOR_DB_PATH.",
+                    exc,
+                )
+                return None
             logger.warning("Не удалось инициализировать Qdrant local mode: %s", exc)
             return None
+
+    @staticmethod
+    def _is_storage_locked_error(exc: Exception) -> bool:
+        """Определить ошибку блокировки локального хранилища Qdrant."""
+        message = str(exc or "").strip().lower()
+        if not message:
+            return False
+
+        return (
+            "storage folder" in message
+            and "already accessed" in message
+            and "qdrant" in message
+        )
 
     def _parse_distance(self):
         """Преобразовать строковое имя метрики в enum Qdrant."""
