@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS rag_document_summaries (
 
     UNIQUE KEY uq_rag_doc_summary_document (document_id),
     INDEX idx_rag_doc_summary_updated_at (updated_at),
+    FULLTEXT KEY ft_rag_doc_summary_text (summary_text),
     CONSTRAINT fk_rag_doc_summary_document
         FOREIGN KEY (document_id) REFERENCES rag_documents(id)
         ON DELETE CASCADE

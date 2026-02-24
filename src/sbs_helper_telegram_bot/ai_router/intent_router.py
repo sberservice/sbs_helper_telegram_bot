@@ -160,7 +160,11 @@ class IntentRouter:
             provider_name = provider.name
             classify_model = self._get_model_name(provider, purpose="classification")
             system_prompt = build_classification_prompt(enabled_modules)
-            classification = await provider.classify(context_messages, system_prompt)
+            classification = await provider.classify(
+                context_messages,
+                system_prompt,
+                user_id=user_id,
+            )
 
             if self._should_retry_classification(classification):
                 logger.warning(
@@ -170,7 +174,11 @@ class IntentRouter:
                     classification.explain_code,
                     classification.intent,
                 )
-                retry_classification = await provider.classify(context_messages, system_prompt)
+                retry_classification = await provider.classify(
+                    context_messages,
+                    system_prompt,
+                    user_id=user_id,
+                )
                 if self._should_retry_classification(retry_classification):
                     classification.explain_code = f"{classification.explain_code}_RETRY_FAILED"
                     logger.warning(
@@ -368,7 +376,10 @@ class IntentRouter:
                 context_messages = self._context_manager.get_messages(user_id)
                 context_messages.append({"role": "user", "content": original_text})
                 chat_response = await provider.chat(
-                    context_messages, build_chat_prompt()
+                    context_messages,
+                    build_chat_prompt(),
+                    user_id=user_id,
+                    purpose="chat",
                 )
                 logger.info(
                     "AI chat request: user=%s, provider=%s, model=%s, path=general_chat",
@@ -398,7 +409,10 @@ class IntentRouter:
                 context_messages = self._context_manager.get_messages(user_id)
                 context_messages.append({"role": "user", "content": original_text})
                 chat_response = await provider.chat(
-                    context_messages, build_chat_prompt()
+                    context_messages,
+                    build_chat_prompt(),
+                    user_id=user_id,
+                    purpose="fallback_chat",
                 )
                 logger.info(
                     "AI chat request: user=%s, provider=%s, model=%s, path=fallback_chat",

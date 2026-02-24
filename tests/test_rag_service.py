@@ -140,21 +140,22 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("SLA", result[0][2])
 
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._search_relevant_chunks")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
     @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
     async def test_answer_question_uses_cache(
         self,
         mock_get_provider,
         mock_log_query,
-        mock_search,
+        mock_retrieve,
         mock_version,
     ):
         """Повторный одинаковый вопрос берётся из кэша без повторного вызова LLM."""
         service = RagKnowledgeService(cache_ttl_seconds=300)
-        mock_search.return_value = [
-            (1.2, "reglament.txt", "SLA по критическим заявкам составляет 4 часа."),
-        ]
+        mock_retrieve.return_value = (
+            [(1.2, "reglament.txt", "SLA по критическим заявкам составляет 4 часа.", 1)],
+            ["[Summary | reglament.txt]\nSLA и порядок эскалации"],
+        )
 
         provider = AsyncMock()
         provider.chat.return_value = "SLA 4 часа"
@@ -167,6 +168,79 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first, "SLA 4 часа")
         self.assertEqual(second, "SLA 4 часа")
         provider.chat.assert_awaited_once()
+
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    def test_prefilter_documents_by_summary(self, mock_get_cursor, mock_get_db_connection):
+        """Prefilter по summary выбирает документы с максимальной релевантностью."""
+        service = RagKnowledgeService()
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            {"document_id": 1, "summary_text": "SLA выезда 4 часа и эскалация", "filename": "sla.txt"},
+            {"document_id": 2, "summary_text": "Отпуск и график", "filename": "hr.txt"},
+        ]
+
+        rows = service._prefilter_documents_by_summary(
+            question_tokens=service._tokenize("Какой SLA выезда"),
+            limit=2,
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][0], 1)
+        self.assertEqual(rows[0][1], "sla.txt")
+
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    def test_search_relevant_chunks_uses_summary_bonus(self, mock_get_cursor, mock_get_db_connection):
+        """Ранжирование чанков усиливается бонусом summary-релевантности документа."""
+        service = RagKnowledgeService()
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            {"chunk_text": "SLA", "filename": "doc-low.txt", "document_id": 10},
+            {"chunk_text": "SLA", "filename": "doc-high.txt", "document_id": 11},
+        ]
+
+        rows = service._search_relevant_chunks(
+            "Какой SLA",
+            limit=2,
+            prefiltered_doc_ids=[10, 11],
+            summary_scores={10: 0.1, 11: 1.2},
+        )
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0][1], "doc-high.txt")
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.build_rag_prompt")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    async def test_answer_question_passes_summary_blocks_to_prompt(
+        self,
+        mock_get_provider,
+        mock_log_query,
+        mock_retrieve,
+        mock_version,
+        mock_build_prompt,
+    ):
+        """answer_question передаёт summary-блоки в build_rag_prompt."""
+        service = RagKnowledgeService(cache_ttl_seconds=300)
+        mock_retrieve.return_value = (
+            [(1.5, "reglament.txt", "SLA 4 часа", 11)],
+            ["[Summary | reglament.txt]\nСводка по SLA"],
+        )
+        mock_build_prompt.return_value = "prompt"
+
+        provider = AsyncMock()
+        provider.chat.return_value = "Ответ"
+        mock_get_provider.return_value = provider
+
+        result = await service.answer_question("Какой SLA?", user_id=44)
+
+        self.assertEqual(result, "Ответ")
+        mock_build_prompt.assert_called_once()
+        _, kwargs = mock_build_prompt.call_args
+        self.assertEqual(kwargs.get("summary_blocks"), ["[Summary | reglament.txt]\nСводка по SLA"])
 
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
@@ -273,6 +347,46 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["is_duplicate"], 1)
         self.assertEqual(result["reactivated"], 1)
         self.assertGreaterEqual(cursor.execute.call_count, 2)
+        mock_bump.assert_called_once()
+
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._bump_corpus_version")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._split_text")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._extract_text")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._generate_document_summary")
+    def test_ingest_persists_document_summary(
+        self,
+        mock_generate_summary,
+        mock_extract_text,
+        mock_split_text,
+        mock_bump,
+        mock_get_cursor,
+        mock_get_db_connection,
+    ):
+        """При ingest создаётся запись в rag_document_summaries."""
+        service = RagKnowledgeService()
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = None
+        cursor.lastrowid = 321
+        mock_extract_text.return_value = "Полезный текст документа"
+        mock_split_text.return_value = ["Первый чанк", "Второй чанк"]
+        mock_generate_summary.return_value = ("Краткое summary документа", "deepseek-chat")
+
+        result = service.ingest_document_from_bytes(
+            filename="manual.txt",
+            payload=b"payload",
+            uploaded_by=7,
+            source_type="filesystem",
+            source_url="/kb/manual.txt",
+        )
+
+        self.assertEqual(result["document_id"], 321)
+        self.assertEqual(result["is_duplicate"], 0)
+
+        sql_calls = [args[0] for args, _ in cursor.execute.call_args_list if args]
+        self.assertTrue(any("INSERT INTO rag_document_summaries" in call for call in sql_calls))
+        mock_generate_summary.assert_called_once()
         mock_bump.assert_called_once()
 
     @patch("src.common.database.get_db_connection")

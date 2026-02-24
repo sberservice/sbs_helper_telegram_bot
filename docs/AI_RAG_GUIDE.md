@@ -20,9 +20,11 @@ RAG-поток позволяет:
 - Для `HTML` используется `HTMLHeaderTextSplitter` (если доступен в окружении), чтобы учитывать структуру заголовков `h1-h6`.
 - Для `HTML` предусмотрен безопасный fallback на очищенный plain-text chunking, если header-splitter недоступен или не вернул чанков.
 - Для `HTML` доступен runtime-переключатель `ai_rag_html_splitter_enabled` в админ-настройках AI (можно принудительно выключить header-splitter).
-- На Python `3.14+` импорт LangChain splitters отключается автоматически (ограничение `pydantic.v1`), поэтому всегда используется fallback chunking.
+- На Python `3.14+` LangChain splitters работают корректно (предупреждения `pydantic.v1` подавляются); fallback chunking включается только если импорт splitter-а завершился ошибкой.
 - Таблицы БД: `rag_documents`, `rag_chunks`, `rag_corpus_version`, `rag_query_log`.
+- Таблица полного AI I/O логирования: `ai_model_io_log` (prompt/response всех LLM-вызовов, включая RAG).
 - TTL-кэш ответов RAG в памяти процесса.
+- Summary-aware retrieval: prefilter документов по `rag_document_summaries`, hybrid rerank чанков с учётом релевантности summary и prompt enrichment top-summary блоками.
 - UX-статус для RAG: после классификации запроса как `rag_qa` бот меняет плейсхолдер с «Обрабатываю ваш запрос» на «Ожидаю ответа ИИ» до получения финального ответа.
 
 ## Как загрузить документ
@@ -39,6 +41,12 @@ On-demand запуск:
 python scripts/rag_directory_ingest.py --directory /path/to/docs
 ```
 
+Принудительное переобновление файлов (даже без изменения `content_hash`):
+
+```bash
+python scripts/rag_directory_ingest.py --directory /path/to/docs --force-update
+```
+
 Daemon-режим (регулярная синхронизация):
 
 ```bash
@@ -51,11 +59,15 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --daemon --inte
 python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 ```
 
+Скрипт можно запускать и из любой другой текущей директории, если указать к нему абсолютный путь.
+
 Поведение синхронизации:
 - сканирует директорию рекурсивно (можно отключить флагом `--no-recursive`),
 - загружает новые/изменённые документы,
+- с флагом `--force-update` повторно загружает и неизменённые документы,
+- при загрузке формирует/обновляет `rag_document_summaries` для каждого документа,
 - удалённые из директории документы удаляет из RAG через purge (`hard delete`),
-- для одинакового `content_hash` использует существующий документ (дубликаты не плодятся).
+- без `--force-update` для одинакового `content_hash` использует существующий документ (дубликаты не плодятся).
 
 ## CRUD-команды администратора
 
@@ -86,6 +98,8 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 	- модель классификации (`model` в `AI classification`),
 	- модель генерации ответа (`model` в `AI chat request`, если сработал chat/fallback).
 - Это упрощает диагностику маршрутизации и проверку активной модели после переключения в админ-панели.
+- Полный текст `prompt/response` также сохраняется в `ai_model_io_log` с маскировкой чувствительных данных (`email`, `телефон`, `ИНН`, `СНИЛС`).
+- Для очистки логов старше 30 дней используйте `scripts/ai_model_io_log_retention.sql` (подходит для запуска по cron).
 
 ## Переменные окружения
 
@@ -96,6 +110,11 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_CHUNK_OVERLAP`
 - `AI_RAG_TOP_K`
 - `AI_RAG_MAX_CONTEXT_CHARS`
+- `AI_RAG_SUMMARY_ENABLED`
+- `AI_RAG_SUMMARY_INPUT_MAX_CHARS`
+- `AI_RAG_SUMMARY_MAX_CHARS`
+- `AI_RAG_PREFILTER_TOP_DOCS`
+- `AI_RAG_PROMPT_SUMMARY_DOCS`
 - `AI_RAG_CACHE_TTL_SECONDS`
 - `AI_RAG_HTML_SPLITTER_ENABLED`
 
@@ -106,11 +125,14 @@ Runtime-ключ в `bot_settings`:
 
 ```bash
 mysql -u root -p sprint_db < scripts/ai_rag_setup.sql
+mysql -u root -p sprint_db < scripts/ai_rag_document_summaries_setup.sql
+# Для существующих БД без FULLTEXT-индекса summary_text:
+mysql -u root -p sprint_db < scripts/rag_document_summaries_fulltext_index.sql
 ```
 
 ## Ограничения текущего этапа
 
-- Retrieval использует lexical scoring по чанкам (без векторной БД).
+- Retrieval использует lexical scoring по summary+чанкам (без векторной БД): сначала prefilter документов по summary, затем rerank чанков с бонусом от summary-релевантности.
 - Кэш хранится в памяти процесса и не шарится между инстансами.
 - Нет UI для управления документами (архивация/удаление) — только загрузка.
 - Metadata заголовков HTML сохраняется внутри текста чанка, так как текущая схема БД хранит только `chunk_text`.

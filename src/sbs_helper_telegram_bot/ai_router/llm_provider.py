@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 import httpx
+import src.common.database as database
+from src.common.pii_masking import mask_sensitive_data
 
 from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
 
@@ -60,6 +62,7 @@ class LLMProvider(ABC):
         self,
         messages: List[Dict[str, str]],
         system_prompt: str,
+        user_id: Optional[int] = None,
     ) -> ClassificationResult:
         """
         Классифицировать пользовательское сообщение.
@@ -78,6 +81,8 @@ class LLMProvider(ABC):
         self,
         messages: List[Dict[str, str]],
         system_prompt: str,
+        user_id: Optional[int] = None,
+        purpose: str = "response",
     ) -> str:
         """
         Получить свободный текстовый ответ от LLM.
@@ -169,6 +174,7 @@ class DeepSeekProvider(LLMProvider):
         self,
         messages: List[Dict[str, str]],
         system_prompt: str,
+        user_id: Optional[int] = None,
     ) -> ClassificationResult:
         """Классифицировать сообщение через DeepSeek API."""
         start_time = time.monotonic()
@@ -183,6 +189,7 @@ class DeepSeekProvider(LLMProvider):
                 temperature=0.1,
                 max_tokens=1024,
                 purpose="classification",
+                user_id=user_id,
             )
         except Exception as exc:
             elapsed = int((time.monotonic() - start_time) * 1000)
@@ -199,6 +206,8 @@ class DeepSeekProvider(LLMProvider):
         self,
         messages: List[Dict[str, str]],
         system_prompt: str,
+        user_id: Optional[int] = None,
+        purpose: str = "response",
     ) -> str:
         """Получить свободный текстовый ответ через DeepSeek API."""
         full_messages = [{"role": "system", "content": system_prompt}] + messages
@@ -208,7 +217,8 @@ class DeepSeekProvider(LLMProvider):
                 full_messages,
                 temperature=0.7,
                 max_tokens=1024,
-                purpose="response",
+                purpose=purpose,
+                user_id=user_id,
             )
         except Exception as exc:
             logger.error("DeepSeek chat error: %s", exc)
@@ -239,6 +249,7 @@ class DeepSeekProvider(LLMProvider):
         temperature: float = 0.1,
         max_tokens: int = 512,
         purpose: str = "response",
+        user_id: Optional[int] = None,
     ) -> str:
         """
         Выполнить вызов к DeepSeek /v1/chat/completions.
@@ -263,6 +274,16 @@ class DeepSeekProvider(LLMProvider):
             "stream": False,
         }
 
+        request_payload_text = json.dumps(messages, ensure_ascii=False)
+
+        self._log_model_request(
+            purpose=purpose,
+            model_name=str(payload.get("model") or ""),
+            temperature=temperature,
+            max_tokens=max_tokens,
+            messages=messages,
+        )
+
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
@@ -274,7 +295,28 @@ class DeepSeekProvider(LLMProvider):
                 json=payload,
                 headers=headers,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                response_body = str(response.text or "")
+                logger.error(
+                    "DeepSeek HTTP error: status=%s purpose=%s model=%s body=%s",
+                    response.status_code,
+                    purpose,
+                    payload.get("model"),
+                    self._truncate_for_log(response_body),
+                )
+                self._log_model_io_to_db(
+                    user_id=user_id,
+                    purpose=purpose,
+                    model_name=str(payload.get("model") or ""),
+                    request_text=request_payload_text,
+                    response_text="",
+                    status="http_error",
+                    response_time_ms=None,
+                    error_text=response_body,
+                )
+                raise exc
 
         data = response.json()
 
@@ -282,9 +324,174 @@ class DeepSeekProvider(LLMProvider):
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             logger.error("Некорректный ответ DeepSeek API: %s", data)
+            self._log_model_io_to_db(
+                user_id=user_id,
+                purpose=purpose,
+                model_name=str(payload.get("model") or ""),
+                request_text=request_payload_text,
+                response_text=json.dumps(data, ensure_ascii=False),
+                status="parse_error",
+                response_time_ms=None,
+                error_text=str(exc),
+            )
             raise ValueError(f"Некорректная структура ответа API: {exc}") from exc
 
+        self._log_model_response(
+            purpose=purpose,
+            model_name=str(payload.get("model") or ""),
+            raw_content=str(content or ""),
+        )
+
+        self._log_model_io_to_db(
+            user_id=user_id,
+            purpose=purpose,
+            model_name=str(payload.get("model") or ""),
+            request_text=request_payload_text,
+            response_text=str(content or ""),
+            status="ok",
+            response_time_ms=self._extract_response_time_ms(response),
+            error_text="",
+        )
+
         return content
+
+    @staticmethod
+    def _extract_response_time_ms(response: Any) -> Optional[int]:
+        """Извлечь длительность HTTP-запроса в миллисекундах, если доступна."""
+        elapsed = getattr(response, "elapsed", None)
+        if elapsed is None:
+            return None
+
+        total_seconds = getattr(elapsed, "total_seconds", None)
+        if callable(total_seconds):
+            try:
+                return int(float(total_seconds()) * 1000)
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    @staticmethod
+    def _is_db_model_io_logging_enabled() -> bool:
+        """Проверить, включено ли хранение полного model I/O в БД."""
+        return bool(ai_settings.AI_MODEL_IO_DB_LOG_ENABLED)
+
+    @staticmethod
+    def _truncate_db_text(value: str, max_chars: int = 200_000) -> str:
+        """Ограничить объём сохраняемого текста в БД."""
+        text = str(value or "")
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars]
+
+    def _log_model_io_to_db(
+        self,
+        user_id: Optional[int],
+        purpose: str,
+        model_name: str,
+        request_text: str,
+        response_text: str,
+        status: str,
+        response_time_ms: Optional[int],
+        error_text: str,
+    ) -> None:
+        """Сохранить полный prompt/response модели в БД с маскированием PII."""
+        if not self._is_db_model_io_logging_enabled():
+            return
+
+        safe_request = self._truncate_db_text(mask_sensitive_data(request_text))
+        safe_response = self._truncate_db_text(mask_sensitive_data(response_text))
+        safe_error = self._truncate_db_text(mask_sensitive_data(error_text), max_chars=50_000)
+
+        try:
+            with database.get_db_connection() as conn:
+                with database.get_cursor(conn) as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO ai_model_io_log (
+                            user_id,
+                            provider,
+                            model_name,
+                            purpose,
+                            request_text_full,
+                            response_text_full,
+                            error_text,
+                            status,
+                            response_time_ms,
+                            created_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                        """,
+                        (
+                            user_id,
+                            self.name,
+                            model_name[:64],
+                            str(purpose or "response")[:64],
+                            safe_request,
+                            safe_response,
+                            safe_error,
+                            str(status or "ok")[:32],
+                            response_time_ms,
+                        ),
+                    )
+        except Exception as exc:
+            logger.warning("Ошибка записи в ai_model_io_log: %s", exc)
+
+    @staticmethod
+    def _is_model_io_logging_enabled() -> bool:
+        """Проверить, включено ли логирование prompt/response для модели."""
+        return bool(ai_settings.AI_LOG_MODEL_IO)
+
+    @staticmethod
+    def _truncate_for_log(value: str) -> str:
+        """Ограничить длину логируемого текста, чтобы не засорять логи."""
+        text = str(value or "")
+        max_chars = max(200, int(ai_settings.AI_LOG_MODEL_IO_MAX_CHARS))
+        if len(text) <= max_chars:
+            return text
+        suffix = f"... [truncated {len(text) - max_chars} chars]"
+        return text[:max_chars] + suffix
+
+    def _log_model_request(
+        self,
+        purpose: str,
+        model_name: str,
+        temperature: float,
+        max_tokens: int,
+        messages: List[Dict[str, str]],
+    ) -> None:
+        """Записать в лог payload, отправляемый в модель."""
+        if not self._is_model_io_logging_enabled():
+            return
+
+        serialized_messages = self._truncate_for_log(
+            json.dumps(messages, ensure_ascii=False)
+        )
+        logger.info(
+            "LLM request payload: provider=%s purpose=%s model=%s temperature=%.2f max_tokens=%s messages=%s",
+            self.name,
+            purpose,
+            model_name,
+            temperature,
+            max_tokens,
+            serialized_messages,
+        )
+
+    def _log_model_response(
+        self,
+        purpose: str,
+        model_name: str,
+        raw_content: str,
+    ) -> None:
+        """Записать в лог сырой ответ модели."""
+        if not self._is_model_io_logging_enabled():
+            return
+
+        logger.info(
+            "LLM raw response: provider=%s purpose=%s model=%s content=%s",
+            self.name,
+            purpose,
+            model_name,
+            self._truncate_for_log(raw_content),
+        )
 
     @staticmethod
     def _parse_classification(raw: str, elapsed_ms: int) -> ClassificationResult:

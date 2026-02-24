@@ -15,6 +15,7 @@ import hashlib
 import io
 import logging
 import re
+import asyncio
 import sys
 import time
 from dataclasses import dataclass
@@ -23,12 +24,15 @@ from typing import Dict, List, Optional, Tuple
 import src.common.database as database
 
 from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
-from src.sbs_helper_telegram_bot.ai_router.prompts import build_rag_prompt
+from src.sbs_helper_telegram_bot.ai_router.prompts import build_rag_prompt, build_rag_summary_prompt
 
 logger = logging.getLogger(__name__)
 
 _TOKEN_RE = re.compile(r"[a-zа-яё0-9]{3,}", re.IGNORECASE)
 _SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".docx", ".md", ".html", ".htm"}
+_RAG_CHUNK_SCAN_LIMIT = 3000
+_RAG_SUMMARY_SCAN_LIMIT = 3000
+_RAG_SUMMARY_SCORE_WEIGHT = 0.35
 
 
 @dataclass
@@ -151,6 +155,11 @@ class RagKnowledgeService:
             raise ValueError("В документе не найден полезный текст")
 
         limited_chunks = chunks[: ai_settings.AI_RAG_MAX_CHUNKS_PER_DOC]
+        summary_text, summary_model_name = self._generate_document_summary(
+            filename,
+            limited_chunks,
+            user_id=uploaded_by,
+        )
 
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -173,6 +182,13 @@ class RagKnowledgeService:
                         """,
                         (document_id, idx, chunk),
                     )
+
+                self._upsert_document_summary(
+                    cursor=cursor,
+                    document_id=document_id,
+                    summary_text=summary_text,
+                    model_name=summary_model_name,
+                )
                 self._bump_corpus_version(cursor, f"upload:{filename}")
 
         self._clear_expired_cache()
@@ -189,6 +205,125 @@ class RagKnowledgeService:
             "chunks_count": len(limited_chunks),
             "is_duplicate": 0,
         }
+
+    def _generate_document_summary(
+        self,
+        filename: str,
+        chunks: List[str],
+        user_id: Optional[int] = None,
+    ) -> Tuple[str, Optional[str]]:
+        """Сгенерировать summary документа с fallback на extractive-режим."""
+        fallback_summary = self._build_fallback_summary(chunks)
+        if not ai_settings.AI_RAG_SUMMARY_ENABLED:
+            return fallback_summary, None
+
+        excerpt = self._build_summary_excerpt(chunks)
+        if not excerpt:
+            return fallback_summary, None
+
+        try:
+            running_loop = asyncio.get_running_loop()
+            if running_loop and running_loop.is_running():
+                return fallback_summary, None
+        except RuntimeError:
+            pass
+
+        try:
+            from src.sbs_helper_telegram_bot.ai_router.llm_provider import get_provider
+
+            provider = get_provider()
+            system_prompt = build_rag_summary_prompt(
+                document_name=filename,
+                document_excerpt=excerpt,
+                max_summary_chars=ai_settings.AI_RAG_SUMMARY_MAX_CHARS,
+            )
+
+            async def _request_summary() -> str:
+                return await provider.chat(
+                    messages=[{"role": "user", "content": "Сформируй summary документа."}],
+                    system_prompt=system_prompt,
+                    user_id=user_id,
+                    purpose="rag_summary",
+                )
+
+            raw_summary = asyncio.run(_request_summary())
+            normalized_summary = self._normalize_summary_text(raw_summary)
+            if normalized_summary:
+                return normalized_summary, provider.get_model_name(purpose="response")
+        except Exception as exc:
+            logger.warning("Не удалось сгенерировать AI-summary для %s: %s", filename, exc)
+
+        return fallback_summary, None
+
+    @staticmethod
+    def _build_summary_excerpt(chunks: List[str]) -> str:
+        """Собрать ограниченный по длине фрагмент документа для суммаризации."""
+        if not chunks:
+            return ""
+
+        max_chars = max(500, int(ai_settings.AI_RAG_SUMMARY_INPUT_MAX_CHARS))
+        collected: List[str] = []
+        current_len = 0
+
+        for chunk in chunks:
+            normalized_chunk = (chunk or "").strip()
+            if not normalized_chunk:
+                continue
+
+            remaining = max_chars - current_len
+            if remaining <= 0:
+                break
+
+            piece = normalized_chunk[:remaining]
+            if piece:
+                collected.append(piece)
+                current_len += len(piece)
+
+        return "\n\n".join(collected).strip()
+
+    @staticmethod
+    def _build_fallback_summary(chunks: List[str]) -> str:
+        """Сформировать детерминированный fallback-summary из первых предложений документа."""
+        excerpt = RagKnowledgeService._build_summary_excerpt(chunks)
+        if not excerpt:
+            return "Краткое summary недоступно: в документе не найден информативный текст."
+
+        sentence_parts = re.split(r"(?<=[.!?])\s+", excerpt)
+        selected = [part.strip() for part in sentence_parts if part.strip()][:8]
+        if not selected:
+            selected = [excerpt[: ai_settings.AI_RAG_SUMMARY_MAX_CHARS].strip()]
+
+        fallback_text = " ".join(selected).strip()
+        max_chars = max(200, int(ai_settings.AI_RAG_SUMMARY_MAX_CHARS))
+        return fallback_text[:max_chars].strip()
+
+    @staticmethod
+    def _normalize_summary_text(summary_text: str) -> str:
+        """Нормализовать итоговый текст summary перед сохранением."""
+        normalized = re.sub(r"\s+", " ", (summary_text or "").strip())
+        if not normalized:
+            return ""
+        max_chars = max(200, int(ai_settings.AI_RAG_SUMMARY_MAX_CHARS))
+        return normalized[:max_chars].strip()
+
+    @staticmethod
+    def _upsert_document_summary(cursor, document_id: int, summary_text: str, model_name: Optional[str]) -> None:
+        """Создать или обновить summary документа в rag_document_summaries."""
+        safe_summary = (summary_text or "").strip()
+        if not safe_summary:
+            return
+
+        cursor.execute(
+            """
+            INSERT INTO rag_document_summaries (document_id, summary_text, model_name, created_at, updated_at)
+            VALUES (%s, %s, %s, NOW(), NOW())
+            ON DUPLICATE KEY UPDATE
+                summary_text = VALUES(summary_text),
+                model_name = VALUES(model_name),
+                updated_at = NOW()
+            """,
+            (document_id, safe_summary, model_name),
+        )
 
     def list_documents(self, status: Optional[str] = None, limit: int = 20) -> List[Dict[str, object]]:
         """
@@ -443,7 +578,10 @@ class RagKnowledgeService:
         if cached and cached.expires_at > now:
             return cached.answer
 
-        chunks = self._search_relevant_chunks(normalized_question, limit=ai_settings.AI_RAG_TOP_K)
+        chunks, summary_blocks = self._retrieve_context_for_question(
+            normalized_question,
+            limit=ai_settings.AI_RAG_TOP_K,
+        )
         if not chunks:
             return None
 
@@ -453,7 +591,7 @@ class RagKnowledgeService:
         total_chars = 0
         max_chars = ai_settings.AI_RAG_MAX_CONTEXT_CHARS
 
-        for index, (_, source, chunk_text) in enumerate(chunks, start=1):
+        for index, (_, source, chunk_text, _) in enumerate(chunks, start=1):
             block = f"[Блок {index} | {source}]\n{chunk_text}"
             if total_chars + len(block) > max_chars:
                 break
@@ -463,7 +601,9 @@ class RagKnowledgeService:
         provider = get_provider()
         answer = await provider.chat(
             messages=[{"role": "user", "content": normalized_question}],
-            system_prompt=build_rag_prompt(context_blocks),
+            system_prompt=build_rag_prompt(context_blocks, summary_blocks=summary_blocks),
+            user_id=user_id,
+            purpose="rag_answer",
         )
 
         self._answer_cache[cache_key] = CachedAnswer(
@@ -480,6 +620,28 @@ class RagKnowledgeService:
         )
 
         return answer
+
+    def _retrieve_context_for_question(self, question: str, limit: int) -> Tuple[List[Tuple[float, str, str, int]], List[str]]:
+        """Собрать релевантные чанки и summary-блоки для RAG-ответа."""
+        tokens = self._tokenize(question)
+        if not tokens:
+            return [], []
+
+        prefilter_docs = self._prefilter_documents_by_summary(
+            question_tokens=tokens,
+            limit=ai_settings.AI_RAG_PREFILTER_TOP_DOCS,
+        )
+        prefilter_doc_ids = [doc_id for doc_id, _, _, _ in prefilter_docs]
+        summary_scores = {doc_id: score for doc_id, _, _, score in prefilter_docs}
+
+        chunks = self._search_relevant_chunks(
+            question,
+            limit=limit,
+            prefiltered_doc_ids=prefilter_doc_ids or None,
+            summary_scores=summary_scores,
+        )
+        summary_blocks = self._build_summary_blocks(prefilter_docs)
+        return chunks, summary_blocks
 
     def _extract_text(self, filename: str, payload: bytes) -> str:
         """Извлечь текст из поддерживаемого формата документа."""
@@ -613,26 +775,43 @@ class RagKnowledgeService:
         if not RagKnowledgeService._is_langchain_splitter_supported():
             raise RuntimeError("LangChain splitter отключен для текущей версии Python")
 
-        try:
-            from langchain_text_splitters import HTMLHeaderTextSplitter
+        import warnings
 
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                from langchain_text_splitters import HTMLHeaderTextSplitter
             return HTMLHeaderTextSplitter
         except Exception:
-            from langchain.text_splitter import HTMLHeaderTextSplitter
-
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                from langchain.text_splitter import HTMLHeaderTextSplitter
             return HTMLHeaderTextSplitter
 
     @staticmethod
     def _is_langchain_splitter_supported() -> bool:
         """Проверить, можно ли безопасно использовать LangChain splitters в текущем Python."""
-        if sys.version_info >= (3, 14):
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                from langchain_text_splitters import HTMLHeaderTextSplitter  # noqa: F401
+            return True
+        except Exception:
+            pass
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                from langchain.text_splitter import HTMLHeaderTextSplitter  # noqa: F401
+            return True
+        except Exception:
             logger.info(
-                "LangChain splitters отключены на Python %s.%s: используется fallback chunking",
+                "LangChain splitters недоступны на Python %s.%s: используется fallback chunking",
                 sys.version_info.major,
                 sys.version_info.minor,
             )
             return False
-        return True
 
     @staticmethod
     def _split_text(text: str) -> List[str]:
@@ -672,37 +851,126 @@ class RagKnowledgeService:
 
         return chunks
 
-    def _search_relevant_chunks(self, question: str, limit: int) -> List[Tuple[float, str, str]]:
-        """Найти релевантные чанки в БД по простому lexical scoring."""
+    def _search_relevant_chunks(
+        self,
+        question: str,
+        limit: int,
+        prefiltered_doc_ids: Optional[List[int]] = None,
+        summary_scores: Optional[Dict[int, float]] = None,
+    ) -> List[Tuple[float, str, str, int]]:
+        """Найти релевантные чанки в БД по гибридному lexical scoring."""
         tokens = self._tokenize(question)
         if not tokens:
             return []
 
+        safe_limit = max(1, limit)
+        summary_scores = summary_scores or {}
+
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
-                cursor.execute(
-                    """
-                    SELECT c.chunk_text, d.filename
-                    FROM rag_chunks c
-                    JOIN rag_documents d ON d.id = c.document_id
-                    WHERE d.status = 'active'
-                    ORDER BY c.id DESC
-                    LIMIT 3000
-                    """
-                )
+                if prefiltered_doc_ids:
+                    placeholders = ",".join(["%s"] * len(prefiltered_doc_ids))
+                    cursor.execute(
+                        f"""
+                        SELECT c.chunk_text, d.filename, d.id AS document_id
+                        FROM rag_chunks c
+                        JOIN rag_documents d ON d.id = c.document_id
+                        WHERE d.status = 'active' AND d.id IN ({placeholders})
+                        ORDER BY c.id DESC
+                        LIMIT %s
+                        """,
+                        tuple(prefiltered_doc_ids) + (_RAG_CHUNK_SCAN_LIMIT,),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT c.chunk_text, d.filename, d.id AS document_id
+                        FROM rag_chunks c
+                        JOIN rag_documents d ON d.id = c.document_id
+                        WHERE d.status = 'active'
+                        ORDER BY c.id DESC
+                        LIMIT %s
+                        """,
+                        (_RAG_CHUNK_SCAN_LIMIT,),
+                    )
                 rows = cursor.fetchall() or []
 
-        scored: List[Tuple[float, str, str]] = []
+        scored: List[Tuple[float, str, str, int]] = []
 
         for row in rows:
             chunk_text = row.get("chunk_text") or ""
             source = row.get("filename") or "document"
-            score = self._score_chunk(chunk_text, tokens)
+            document_id = int(row.get("document_id") or 0)
+            chunk_score = self._score_chunk(chunk_text, tokens)
+            summary_score = summary_scores.get(document_id, 0.0)
+            score = chunk_score + self._summary_score_bonus(summary_score)
             if score > 0:
-                scored.append((score, source, chunk_text))
+                scored.append((score, source, chunk_text, document_id))
 
         scored.sort(key=lambda item: item[0], reverse=True)
-        return scored[:limit]
+        return scored[:safe_limit]
+
+    def _prefilter_documents_by_summary(
+        self,
+        question_tokens: List[str],
+        limit: int,
+    ) -> List[Tuple[int, str, str, float]]:
+        """Отобрать релевантные документы по таблице summary перед поиском чанков."""
+        if not question_tokens:
+            return []
+
+        safe_limit = max(1, min(limit, 100))
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT s.document_id, s.summary_text, d.filename
+                    FROM rag_document_summaries s
+                    JOIN rag_documents d ON d.id = s.document_id
+                    WHERE d.status = 'active'
+                    ORDER BY s.updated_at DESC
+                    LIMIT %s
+                    """,
+                    (_RAG_SUMMARY_SCAN_LIMIT,),
+                )
+                rows = cursor.fetchall() or []
+
+        scored_docs: List[Tuple[int, str, str, float]] = []
+        for row in rows:
+            document_id = int(row.get("document_id") or 0)
+            filename = str(row.get("filename") or "document")
+            summary_text = str(row.get("summary_text") or "").strip()
+            if not document_id or not summary_text:
+                continue
+            score = self._score_chunk(summary_text, question_tokens)
+            if score <= 0:
+                continue
+            scored_docs.append((document_id, filename, summary_text, score))
+
+        scored_docs.sort(key=lambda item: item[3], reverse=True)
+        return scored_docs[:safe_limit]
+
+    @staticmethod
+    def _build_summary_blocks(prefilter_docs: List[Tuple[int, str, str, float]]) -> List[str]:
+        """Собрать summary-блоки для системного RAG-промпта."""
+        max_docs = max(0, int(ai_settings.AI_RAG_PROMPT_SUMMARY_DOCS))
+        if max_docs <= 0:
+            return []
+
+        summary_blocks: List[str] = []
+        for _, filename, summary_text, _ in prefilter_docs[:max_docs]:
+            safe_summary = summary_text.strip()
+            if not safe_summary:
+                continue
+            summary_blocks.append(f"[Summary | {filename}]\n{safe_summary}")
+        return summary_blocks
+
+    @staticmethod
+    def _summary_score_bonus(summary_score: float) -> float:
+        """Рассчитать бонус чанку на основе релевантности summary документа."""
+        if summary_score <= 0:
+            return 0.0
+        return min(summary_score, 2.0) * _RAG_SUMMARY_SCORE_WEIGHT
 
     @staticmethod
     def _tokenize(text: str) -> List[str]:
