@@ -41,6 +41,12 @@ ALLOWED_DEEPSEEK_MODELS: Final[tuple[str, ...]] = (
 # Таймаут HTTP-запросов к LLM (секунды)
 LLM_REQUEST_TIMEOUT: Final[int] = int(os.getenv("AI_LLM_REQUEST_TIMEOUT", "30"))
 
+# Логирование prompt/response модели
+AI_LOG_MODEL_IO: Final[bool] = os.getenv("AI_LOG_MODEL_IO", "1") == "1"
+AI_LOG_MODEL_IO_MAX_CHARS: Final[int] = int(os.getenv("AI_LOG_MODEL_IO_MAX_CHARS", "8000"))
+AI_MODEL_IO_DB_LOG_ENABLED: Final[bool] = os.getenv("AI_MODEL_IO_DB_LOG_ENABLED", "1") == "1"
+AI_MODEL_IO_DB_RETENTION_DAYS: Final[int] = int(os.getenv("AI_MODEL_IO_DB_RETENTION_DAYS", "30"))
+
 # =============================================
 # Пороги уверенности
 # =============================================

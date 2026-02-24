@@ -1,6 +1,8 @@
 """Тесты скрипта синхронизации директории документов с RAG."""
 
 import hashlib
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -62,6 +64,7 @@ class TestRagDirectoryIngestScript(unittest.TestCase):
                 directory=directory,
                 recursive=True,
                 dry_run=False,
+                force_update=False,
                 uploaded_by=42,
                 service=service,
             )
@@ -92,6 +95,7 @@ class TestRagDirectoryIngestScript(unittest.TestCase):
                 directory=directory,
                 recursive=True,
                 dry_run=False,
+                force_update=False,
                 uploaded_by=9,
                 service=service,
             )
@@ -124,6 +128,7 @@ class TestRagDirectoryIngestScript(unittest.TestCase):
                 directory=directory,
                 recursive=True,
                 dry_run=False,
+                force_update=False,
                 uploaded_by=77,
                 service=service,
             )
@@ -162,6 +167,7 @@ class TestRagDirectoryIngestScript(unittest.TestCase):
                 directory=directory,
                 recursive=True,
                 dry_run=True,
+                force_update=False,
                 uploaded_by=11,
                 service=service,
             )
@@ -170,6 +176,58 @@ class TestRagDirectoryIngestScript(unittest.TestCase):
         self.assertEqual(stats["purged"], 2)
         self.assertEqual(len(service.deleted_calls), 0)
         self.assertEqual(len(service.ingest_calls), 0)
+
+    def test_run_ingest_cycle_force_update_reingests_unchanged_file(self):
+        """При force_update неизменённый файл purge-ится и загружается заново."""
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            file_path = directory / "doc.txt"
+            file_path.write_text("same content", encoding="utf-8")
+            source_url = file_path.resolve().as_posix()
+            same_hash = hashlib.sha256(b"same content").hexdigest()
+
+            service = FakeRagService(
+                existing_documents=[
+                    {
+                        "id": 20,
+                        "source_url": source_url,
+                        "status": "active",
+                        "content_hash": same_hash,
+                    }
+                ]
+            )
+
+            stats = run_ingest_cycle(
+                directory=directory,
+                recursive=True,
+                dry_run=False,
+                force_update=True,
+                uploaded_by=55,
+                service=service,
+            )
+
+        self.assertEqual(stats["unchanged"], 0)
+        self.assertEqual(stats["purged"], 1)
+        self.assertEqual(stats["ingested"], 1)
+        self.assertEqual(len(service.deleted_calls), 1)
+        self.assertEqual(len(service.ingest_calls), 1)
+
+    def test_cli_help_works_outside_project_directory(self):
+        """CLI-скрипт должен запускаться напрямую из любой текущей директории."""
+        script_path = Path(__file__).resolve().parents[1] / "scripts" / "rag_directory_ingest.py"
+
+        with TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [sys.executable, str(script_path), "--help"],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--directory", result.stdout)
+        self.assertIn("--force-update", result.stdout)
 
 
 if __name__ == "__main__":

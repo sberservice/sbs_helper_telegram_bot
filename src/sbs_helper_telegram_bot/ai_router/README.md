@@ -102,7 +102,10 @@ CLOSED ──(5 ошибок)──► OPEN ──(300с)──► HALF_OPEN
 
 ### Retrieval
 
-- Лексический scoring: покрытие токенов + бонус за плотность
+- Двухэтапный hybrid retrieval:
+    - prefilter документов по `rag_document_summaries` (релевантность summary к вопросу),
+    - ранжирование чанков с учётом lexical score чанка + бонуса от summary-релевантности документа.
+- Top-summary документы добавляются в системный RAG-промпт как дополнительный контекст.
 - In-memory TTL-кэш с инвалидацией по `rag_corpus_version`
 - Логирование запросов в `rag_query_log`
 
@@ -110,7 +113,7 @@ CLOSED ──(5 ошибок)──► OPEN ──(300с)──► HALF_OPEN
 
 - AI-генерируемые саммари (4–8 предложений) для top-K документов
 - Кэширование в `rag_document_summaries`
-- Используются при формировании контекста RAG-ответа
+- Используются для prefilter документов и для prompt enrichment RAG-ответа
 
 ### Жизненный цикл документа
 
@@ -136,6 +139,9 @@ active → archived → deleted (soft) → purged (hard delete)
 # On-demand
 python scripts/rag_directory_ingest.py --directory <path>
 
+# Принудительное переобновление даже без изменений
+python scripts/rag_directory_ingest.py --directory <path> --force-update
+
 # Daemon-режим
 python scripts/rag_directory_ingest.py --directory <path> --daemon --interval-seconds 900
 
@@ -143,7 +149,11 @@ python scripts/rag_directory_ingest.py --directory <path> --daemon --interval-se
 python scripts/rag_directory_ingest.py --directory <path> --dry-run
 ```
 
+Скрипт можно запускать и из любой текущей директории, если указать к нему абсолютный путь.
+
 Удалённые из директории файлы purge-ятся из RAG; изменённые — перезагружаются.
+С флагом `--force-update` перезагружаются также и неизменённые файлы.
+При загрузке каждого документа синхронизация формирует/обновляет запись в `rag_document_summaries`.
 
 ## Безопасная отправка
 
@@ -157,6 +167,9 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 - Результаты классификации → `ai_router_log` (intent, confidence, explain_code, response_time_ms)
 - Профилирование маршрутизации: `classify_ms`, `db_log_ms`, `dispatch_ms`, `context_update_ms`
 - RAG-запросы → `rag_query_log`
+- Полный `prompt/response` всех LLM-вызовов (classification/chat/fallback_chat/rag_answer/rag_summary) → `ai_model_io_log`
+- Перед записью в `ai_model_io_log` чувствительные данные маскируются (`email`, `телефон`, `ИНН`, `СНИЛС`)
+- Очистка старых full-text логов выполняется скриптом `scripts/ai_model_io_log_retention.sql` (30 дней)
 
 ## Конфигурация
 
@@ -169,6 +182,10 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Базовый URL |
 | `DEEPSEEK_MODEL` | `deepseek-chat` | Модель по умолчанию |
 | `AI_LLM_REQUEST_TIMEOUT` | `30` | Таймаут запроса (сек) |
+| `AI_LOG_MODEL_IO` | `1` | Логировать payload prompt и raw response модели |
+| `AI_LOG_MODEL_IO_MAX_CHARS` | `8000` | Лимит символов для prompt/response в логах |
+| `AI_MODEL_IO_DB_LOG_ENABLED` | `1` | Сохранять полный prompt/response в таблицу `ai_model_io_log` |
+| `AI_MODEL_IO_DB_RETENTION_DAYS` | `30` | Целевой retention full-text логов (для cron/cleanup) |
 | `AI_CONFIDENCE_THRESHOLD` | `0.6` | Порог маршрутизации в модуль |
 | `AI_CHAT_CONFIDENCE_THRESHOLD` | `0.3` | Порог свободного чата |
 | `AI_RATE_LIMIT_MAX` | `10` | Макс. запросов в окне |
@@ -187,8 +204,13 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `AI_RAG_MAX_FILE_SIZE_MB` | `20` | Макс. размер файла |
 | `AI_RAG_CHUNK_SIZE` | `1000` | Размер чанка |
 | `AI_RAG_CHUNK_OVERLAP` | `150` | Перекрытие чанков |
-| `AI_RAG_TOP_K` | `5` | Top-K чанков для ответа |
-| `AI_RAG_MAX_CONTEXT_CHARS` | `7000` | Макс. контекст |
+| `AI_RAG_TOP_K` | `8` | Top-K чанков для ответа |
+| `AI_RAG_MAX_CONTEXT_CHARS` | `14000` | Макс. контекст |
+| `AI_RAG_SUMMARY_ENABLED` | `1` | Включить AI/fallback summary |
+| `AI_RAG_SUMMARY_INPUT_MAX_CHARS` | `12000` | Макс. объём входа для summary |
+| `AI_RAG_SUMMARY_MAX_CHARS` | `1200` | Макс. длина summary |
+| `AI_RAG_PREFILTER_TOP_DOCS` | `12` | Число документов в summary-prefilter |
+| `AI_RAG_PROMPT_SUMMARY_DOCS` | `3` | Число summary в RAG-промпте |
 | `AI_RAG_CACHE_TTL_SECONDS` | `300` | TTL кэша |
 | `AI_RAG_HTML_SPLITTER_ENABLED` | `1` | HTML header-aware splitter |
 
@@ -205,6 +227,11 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 ```bash
 mysql -u root -p sprint_db < scripts/ai_router_setup.sql
 mysql -u root -p sprint_db < scripts/ai_rag_setup.sql
+mysql -u root -p sprint_db < scripts/ai_rag_document_summaries_setup.sql
+# Для существующих БД без FULLTEXT-индекса по summary_text:
+mysql -u root -p sprint_db < scripts/rag_document_summaries_fulltext_index.sql
+# Периодическая очистка full-text AI логов (по умолчанию 30 дней):
+mysql -u root -p sprint_db < scripts/ai_model_io_log_retention.sql
 ```
 
 ## База данных
@@ -214,6 +241,7 @@ mysql -u root -p sprint_db < scripts/ai_rag_setup.sql
 | Таблица | Описание |
 |---------|----------|
 | `ai_router_log` | Лог классификации (intent, confidence, response_time) |
+| `ai_model_io_log` | Полный prompt/response AI-вызовов (с маскировкой PII) |
 | `rag_documents` | Метаданные документов (статус, хеш, источник) |
 | `rag_chunks` | Чанки документов (FULLTEXT индекс) |
 | `rag_document_summaries` | AI-генерируемые саммари |

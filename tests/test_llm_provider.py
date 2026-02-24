@@ -228,6 +228,27 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         post_kwargs = mock_client.post.await_args.kwargs
         self.assertEqual(post_kwargs["json"]["model"], "deepseek-reasoner")
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.logger.info")
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.AI_LOG_MODEL_IO", True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    async def test_call_api_logs_prompt_and_raw_response(self, mock_async_client, mock_logger_info):
+        """При включённом флаге логируются prompt payload и сырой ответ модели."""
+        provider = DeepSeekProvider(api_key="test_key")
+
+        mock_client = mock_async_client.return_value.__aenter__.return_value
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "raw model response"}}]
+        }
+        mock_response.raise_for_status.return_value = None
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        await provider._call_api(messages=[{"role": "user", "content": "hi"}], purpose="response")
+
+        logged_messages = [call.args[0] for call in mock_logger_info.call_args_list if call.args]
+        self.assertTrue(any("LLM request payload:" in msg for msg in logged_messages))
+        self.assertTrue(any("LLM raw response:" in msg for msg in logged_messages))
+
     @patch("src.sbs_helper_telegram_bot.ai_router.settings.get_active_deepseek_model_for_classification", return_value="deepseek-chat")
     @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
     async def test_call_api_uses_classification_model(self, mock_async_client, mock_class_model):
@@ -247,6 +268,71 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
 
         post_kwargs = mock_client.post.await_args.kwargs
         self.assertEqual(post_kwargs["json"]["model"], "deepseek-chat")
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.AI_MODEL_IO_DB_LOG_ENABLED", True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.database.get_cursor")
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.database.get_db_connection")
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    async def test_call_api_stores_masked_full_text_in_db(
+        self,
+        mock_async_client,
+        mock_get_db_connection,
+        mock_get_cursor,
+    ):
+        """Полные request/response сохраняются в БД с маскировкой PII."""
+        provider = DeepSeekProvider(api_key="test_key")
+
+        mock_client = mock_async_client.return_value.__aenter__.return_value
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "email admin@test.ru phone +7 (999) 111-22-33"}}]
+        }
+        mock_response.raise_for_status.return_value = None
+        mock_response.elapsed.total_seconds.return_value = 0.25
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        mock_conn = mock_get_db_connection.return_value.__enter__.return_value
+        self.assertIsNotNone(mock_conn)
+        mock_cursor = mock_get_cursor.return_value.__enter__.return_value
+
+        await provider._call_api(
+            messages=[{"role": "user", "content": "мой email admin@test.ru и телефон +7 (999) 111-22-33"}],
+            purpose="chat",
+            user_id=77,
+        )
+
+        self.assertTrue(mock_cursor.execute.called)
+        sql_params = mock_cursor.execute.call_args.args[1]
+        self.assertEqual(sql_params[0], 77)
+        self.assertEqual(sql_params[3], "chat")
+        self.assertIn("[EMAIL_REDACTED]", sql_params[4])
+        self.assertIn("[PHONE_REDACTED]", sql_params[4])
+        self.assertNotIn("admin@test.ru", sql_params[4])
+        self.assertNotIn("111-22-33", sql_params[4])
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.AI_MODEL_IO_DB_LOG_ENABLED", True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.database.get_db_connection", side_effect=Exception("db down"))
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    async def test_call_api_db_log_failure_does_not_break_response(
+        self,
+        mock_async_client,
+        mock_get_db_connection,
+    ):
+        """Ошибка записи full-text лога в БД не должна ломать основной ответ."""
+        provider = DeepSeekProvider(api_key="test_key", model="deepseek-chat")
+
+        mock_client = mock_async_client.return_value.__aenter__.return_value
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+        mock_response.raise_for_status.return_value = None
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        result = await provider._call_api(messages=[{"role": "user", "content": "hi"}], purpose="chat")
+
+        self.assertEqual(result, "ok")
+        self.assertTrue(mock_get_db_connection.called)
 
 
 if __name__ == "__main__":

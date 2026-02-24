@@ -6,9 +6,21 @@ from __future__ import annotations
 import argparse
 import hashlib
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
+
+
+def _bootstrap_project_root() -> None:
+    """Добавить корень проекта в sys.path для прямого запуска скрипта."""
+    project_root = Path(__file__).resolve().parents[1]
+    project_root_str = str(project_root)
+    if project_root_str not in sys.path:
+        sys.path.insert(0, project_root_str)
+
+
+_bootstrap_project_root()
 
 from src.sbs_helper_telegram_bot.ai_router.rag_service import RagKnowledgeService
 
@@ -41,6 +53,7 @@ def run_ingest_cycle(
     directory: Path,
     recursive: bool,
     dry_run: bool,
+    force_update: bool,
     uploaded_by: int,
     service: Optional[RagKnowledgeService] = None,
 ) -> Dict[str, int]:
@@ -97,7 +110,7 @@ def run_ingest_cycle(
             str(row.get("status") or "") == "active" and str(row.get("content_hash") or "") == file_hash
             for row in source_rows
         )
-        if has_same_active:
+        if has_same_active and not force_update:
             stats["unchanged"] += 1
             continue
 
@@ -146,6 +159,7 @@ def daemon_loop(
     directory: Path,
     recursive: bool,
     dry_run: bool,
+    force_update: bool,
     uploaded_by: int,
     interval_seconds: int,
 ) -> None:
@@ -159,6 +173,7 @@ def daemon_loop(
                 directory=directory,
                 recursive=recursive,
                 dry_run=dry_run,
+                force_update=force_update,
                 uploaded_by=uploaded_by,
             )
             logger.info("Цикл синхронизации завершён: %s", stats)
@@ -200,6 +215,11 @@ def main() -> None:
         help="Показать изменения без записи в БД",
     )
     parser.add_argument(
+        "--force-update",
+        action="store_true",
+        help="Принудительно переобновлять файлы даже без изменения content_hash",
+    )
+    parser.add_argument(
         "--uploaded-by",
         type=int,
         default=0,
@@ -231,7 +251,13 @@ def main() -> None:
         raise SystemExit(1)
 
     recursive = not args.no_recursive
-    logger.info("Старт синхронизации RAG: directory=%s recursive=%s dry_run=%s", target_dir, recursive, args.dry_run)
+    logger.info(
+        "Старт синхронизации RAG: directory=%s recursive=%s dry_run=%s force_update=%s",
+        target_dir,
+        recursive,
+        args.dry_run,
+        args.force_update,
+    )
 
     try:
         if args.daemon:
@@ -239,6 +265,7 @@ def main() -> None:
                 directory=target_dir,
                 recursive=recursive,
                 dry_run=args.dry_run,
+                force_update=args.force_update,
                 uploaded_by=args.uploaded_by,
                 interval_seconds=args.interval_seconds,
             )
@@ -247,6 +274,7 @@ def main() -> None:
                 directory=target_dir,
                 recursive=recursive,
                 dry_run=args.dry_run,
+                force_update=args.force_update,
                 uploaded_by=args.uploaded_by,
             )
             logger.info("Синхронизация завершена: %s", stats)

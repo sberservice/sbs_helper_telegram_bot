@@ -5,6 +5,92 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.36] - 2026-02-24
+
+### Added
+- Добавлено полное хранение `prompt/response` всех LLM-вызовов (включая классификацию, chat и RAG) в новой таблице `ai_model_io_log`.
+- Добавлен SQL-скрипт `scripts/ai_model_io_log_retention.sql` для очистки full-text AI логов старше 30 дней.
+- Добавлена маскировка чувствительных данных перед записью AI логов в БД (`email`, `телефон`, `ИНН`, `СНИЛС`).
+- Добавлены тесты `tests/test_pii_masking.py` и расширены `tests/test_llm_provider.py` сценариями сохранения full-text логов и отказоустойчивости при ошибке БД.
+
+### Changed
+- `DeepSeekProvider` теперь записывает полный model I/O в БД через `ai_model_io_log` без влияния на основной ответ пользователю при ошибках логирования.
+- В RAG и chat-путях пробрасываются `purpose` и `user_id` для корректной категоризации full-text логов.
+- Обновлена документация (`README.md`, `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`) по новой схеме логирования и retention.
+
+### Fixed
+- Нет изменений.
+
+## [0.1.35] - 2026-02-24
+
+### Fixed
+- Снято ограничение на использование `HTMLHeaderTextSplitter` на Python 3.14+: `_is_langchain_splitter_supported` теперь определяет доступность LangChain splitters пробным импортом, а не проверкой версии Python. Предупреждения `pydantic.v1` подавляются через `warnings.catch_warnings`.
+
+## [0.1.34] - 2026-02-24
+
+### Added
+- В `scripts/rag_directory_ingest.py` добавлен CLI-флаг `--force-update` для принудительной перезагрузки файлов, даже если `content_hash` не изменился.
+- Добавлен тест `tests/test_rag_directory_ingest.py`, проверяющий принудительный re-ingest неизменённого файла.
+
+### Changed
+- `run_ingest_cycle()` и daemon-режим ingest-скрипта теперь поддерживают параметр `force_update`, влияющий на логику пропуска неизменённых файлов.
+- Обновлена документация по RAG-синхронизации (`docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`) с примером использования `--force-update`.
+
+### Fixed
+- Нет изменений.
+
+## [0.1.33] - 2026-02-23
+
+### Added
+- Добавлено логирование prompt payload, отправляемого в LLM, и raw response модели в `DeepSeekProvider` (`llm_provider.py`).
+- Добавлен env-переключатель `AI_LOG_MODEL_IO` и лимит `AI_LOG_MODEL_IO_MAX_CHARS` для контроля объёма логов.
+- Добавлен тест `tests/test_llm_provider.py`, проверяющий логирование request/response при вызове `_call_api()`.
+
+### Changed
+- При HTTP-ошибке DeepSeek в лог теперь добавляется trimmed body ответа для упрощения диагностики.
+- Обновлена документация (`README.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`) по новым параметрам логирования AI I/O.
+
+### Fixed
+- Нет изменений.
+
+## [0.1.32] - 2026-02-23
+
+### Added
+- Добавлен SQL-скрипт `scripts/rag_document_summaries_fulltext_index.sql` для безопасного добавления FULLTEXT-индекса по `rag_document_summaries.summary_text` в существующих БД.
+- Добавлены тесты в `tests/test_rag_service.py` для summary-aware prefilter, hybrid rerank чанков и передачи summary-блоков в RAG-промпт.
+
+### Changed
+- Обновлён retrieval в `RagKnowledgeService`: сначала выполняется prefilter активных документов по `rag_document_summaries`, затем ранжирование чанков усиливается бонусом релевантности summary документа.
+- В `answer_question()` summary top-документов теперь передаются в `build_rag_prompt(..., summary_blocks=...)` для enrichment системного контекста.
+- Обновлён `scripts/ai_rag_document_summaries_setup.sql`: добавлен FULLTEXT-индекс `ft_rag_doc_summary_text`.
+- Обновлена документация (`README.md`, `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`) по summary-aware retrieval и SQL-инициализации.
+
+### Fixed
+- Устранён разрыв между ingest и retrieval: `rag_document_summaries` больше не только заполняется при загрузке документов, но и реально используется для повышения релевантности RAG-ответов.
+
+## [0.1.31] - 2026-02-23
+
+### Added
+- Добавлен регрессионный тест `tests/test_rag_service.py`, проверяющий создание записи в `rag_document_summaries` при ingestion документа.
+
+### Changed
+- Обновлена документация (`docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`): уточнено, что пакетная синхронизация директории формирует/обновляет summary документов.
+
+### Fixed
+- Исправлен `RagKnowledgeService.ingest_document_from_bytes()`: теперь при on-demand/daemon ingest обязательно выполняется upsert в `rag_document_summaries`.
+- Добавлен безопасный fallback-summary, чтобы сбой AI-суммаризации не прерывал загрузку документа.
+
+## [0.1.30] - 2026-02-23
+
+### Added
+- Добавлен регрессионный тест `tests/test_rag_directory_ingest.py` на прямой запуск `scripts/rag_directory_ingest.py` из любой текущей директории.
+
+### Changed
+- Обновлена документация по пакетной синхронизации RAG (`docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`): уточнено, что скрипт можно запускать по абсолютному пути из любого `cwd`.
+
+### Fixed
+- Исправлен запуск `scripts/rag_directory_ingest.py` как standalone-скрипта: добавлен bootstrap корня проекта в `sys.path`, чтобы исключить `ModuleNotFoundError: No module named 'src'`.
+
 ## [0.1.29] - 2026-02-22
 
 ### Added
