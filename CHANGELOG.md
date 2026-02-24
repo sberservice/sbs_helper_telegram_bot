@@ -7,6 +7,19 @@
 
 ## [0.1.50] - 2026-02-25
 
+## [0.1.51] - 2026-02-25
+
+### Added
+- Нет изменений.
+
+### Changed
+- Нет изменений.
+
+### Fixed
+- Устранено `FutureWarning` в embedding-пайплайне CUDA: для FP16 autocast в `LocalEmbeddingProvider` теперь используется новый API `torch.amp.autocast('cuda', ...)` с обратнос совместимым fallback на `torch.cuda.amp.autocast(...)` для старых версий PyTorch.
+
+## [0.1.50] - 2026-02-25
+
 ### Added
 - Добавлен env-параметр `AI_RAG_VECTOR_EMBEDDING_FP16` для управления FP16-режимом локальной embedding-модели в vector RAG.
 - Добавлены регрессионные тесты в `tests/test_vector_search.py` на корректное включение `half()` при CUDA и безопасное игнорирование FP16 на CPU.
