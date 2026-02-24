@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import hashlib
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -30,6 +32,83 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+
+def _build_lock_file_path(directory: Path) -> Path:
+    """Построить путь lock-файла для конкретной директории синхронизации."""
+    digest = hashlib.sha256(directory.resolve().as_posix().encode("utf-8")).hexdigest()[:16]
+    return Path("/tmp") / f"rag_directory_ingest_{digest}.lock"
+
+
+def _acquire_single_instance_lock(lock_file_path: Path) -> int:
+    """Захватить lock-файл single-instance.
+
+    Возвращает файловый дескриптор lock-файла, который нужно закрыть
+    после завершения работы процесса.
+    """
+    current_pid = os.getpid()
+
+    def _try_create_lock() -> int:
+        fd = os.open(str(lock_file_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.write(fd, f"{current_pid}\n".encode("utf-8"))
+        os.fsync(fd)
+        return fd
+
+    try:
+        return _try_create_lock()
+    except FileExistsError:
+        existing_pid: Optional[int] = None
+        try:
+            raw_pid = lock_file_path.read_text(encoding="utf-8").strip()
+            if raw_pid:
+                existing_pid = int(raw_pid)
+        except (OSError, ValueError):
+            existing_pid = None
+
+        if existing_pid == current_pid:
+            raise RuntimeError(
+                "Текущий процесс уже удерживает lock синхронизации для этой директории."
+            )
+
+        if existing_pid and existing_pid != current_pid:
+            try:
+                os.kill(existing_pid, 0)
+                raise RuntimeError(
+                    f"Уже запущен другой процесс синхронизации (pid={existing_pid}). "
+                    "Остановите его или удалите stale lock-файл."
+                )
+            except ProcessLookupError:
+                logger.warning(
+                    "Обнаружен stale lock-файл %s (pid=%s), выполняется очистка",
+                    lock_file_path,
+                    existing_pid,
+                )
+            except PermissionError:
+                raise RuntimeError(
+                    f"Невозможно проверить процесс-владелец lock-файла (pid={existing_pid}). "
+                    "Проверьте процессы вручную."
+                )
+
+        try:
+            lock_file_path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise RuntimeError(f"Не удалось очистить lock-файл {lock_file_path}: {exc}") from exc
+
+        return _try_create_lock()
+
+
+def _release_single_instance_lock(lock_file_path: Path, lock_fd: Optional[int]) -> None:
+    """Освободить single-instance lock-файл."""
+    try:
+        if lock_fd is not None:
+            os.close(lock_fd)
+    except OSError:
+        pass
+
+    try:
+        lock_file_path.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("Не удалось удалить lock-файл %s: %s", lock_file_path, exc)
 
 
 def _normalize_source_url(file_path: Path) -> str:
@@ -251,6 +330,20 @@ def main() -> None:
         raise SystemExit(1)
 
     recursive = not args.no_recursive
+    lock_file_path = _build_lock_file_path(target_dir)
+    lock_fd: Optional[int] = None
+
+    try:
+        lock_fd = _acquire_single_instance_lock(lock_file_path)
+    except RuntimeError as exc:
+        logger.error("Запуск синхронизации отклонён: %s", exc)
+        raise SystemExit(1) from exc
+
+    def _cleanup_lock() -> None:
+        _release_single_instance_lock(lock_file_path, lock_fd)
+
+    atexit.register(_cleanup_lock)
+
     logger.info(
         "Старт синхронизации RAG: directory=%s recursive=%s dry_run=%s force_update=%s",
         target_dir,
@@ -281,6 +374,8 @@ def main() -> None:
     except KeyboardInterrupt as exc:
         logger.info("Остановлено пользователем")
         raise SystemExit(0) from exc
+    finally:
+        _release_single_instance_lock(lock_file_path, lock_fd)
 
 
 if __name__ == "__main__":

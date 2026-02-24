@@ -5,6 +5,43 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.47] - 2026-02-25
+
+### Added
+- Добавлена single-instance защита в `scripts/rag_directory_ingest.py`: для каждой директории синхронизации создаётся PID lock-файл в `/tmp`, повторный параллельный запуск завершается с понятной ошибкой.
+- Добавлены тесты в `tests/test_rag_directory_ingest.py` для проверки блокировки второго запуска и очистки stale lock-файла.
+
+### Fixed
+- Устранён практический источник длительных lock wait при `rag_directory_ingest.py`: предотвращён параллельный запуск нескольких процессов синхронизации по одной директории, который приводил к конкурирующим транзакциям в `rag_documents`/`rag_chunks`.
+
+## [0.1.46] - 2026-02-25
+
+### Fixed
+- Устранена основная причина `Lock wait timeout exceeded` при массовой синхронизации RAG: операции с Qdrant (`delete_document_points`, `set_payload`) вынесены за пределы открытых MySQL-транзакций в `delete_document()`, `set_document_status()` и `ingest_document_from_bytes()` (реактивация). Ранее Qdrant I/O (`wait=True`) выполнялся внутри транзакции, удерживая эксклюзивные блокировки строк на время дисковых операций.
+- Добавлен retry с backoff для `delete_document()` и `set_document_status()` при временных InnoDB-ошибках (`1205`/`1213`).
+
+## [0.1.45] - 2026-02-24
+
+### Added
+- Добавлен регрессионный тест в `tests/test_rag_service.py`, проверяющий retry ingest при временной MySQL-ошибке `1205` во время вставки в `rag_documents`.
+
+### Changed
+- Обновлена документация (`docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`): зафиксировано автоматическое повторение ingest-транзакций при временных блокировках БД.
+
+### Fixed
+- Исправлено аварийное завершение `scripts/rag_directory_ingest.py --force-update` при `Lock wait timeout exceeded`: в `RagKnowledgeService.ingest_document_from_bytes()` добавлен retry с backoff для временных InnoDB-ошибок (`1205`, `1213`) на критичных DB-этапах (`find/reactivate`, `insert document + chunks`).
+
+## [0.1.44] - 2026-02-24
+
+### Added
+- Добавлены регрессионные тесты в `tests/test_rag_service.py` на поведение retry при временной ошибке MySQL `1205` и на отсутствие retry для неретраибельных SQL-ошибок при записи `rag_chunk_embeddings`.
+
+### Changed
+- Обновлена документация по vector RAG (`docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`): зафиксировано batched-сохранение и автоматический retry для временных блокировок БД.
+
+### Fixed
+- Исправлены сбои сохранения метаданных `rag_chunk_embeddings` при конкурирующих транзакциях: запись переведена на `executemany` батчами и дополняется автоматическим retry с backoff для временных ошибок InnoDB (`1205 lock wait timeout`, `1213 deadlock`).
+
 ## [0.1.43] - 2026-02-24
 
 ### Added

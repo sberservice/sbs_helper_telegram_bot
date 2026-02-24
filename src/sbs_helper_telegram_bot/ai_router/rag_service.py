@@ -19,7 +19,7 @@ import asyncio
 import sys
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, TypeVar
 
 import src.common.database as database
 
@@ -37,6 +37,14 @@ _SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".docx", ".md", ".html", ".htm"}
 _RAG_CHUNK_SCAN_LIMIT = 3000
 _RAG_SUMMARY_SCAN_LIMIT = 3000
 _RAG_SUMMARY_SCORE_WEIGHT = 0.35
+_RAG_EMBEDDING_UPSERT_BATCH_SIZE = 25
+_RAG_EMBEDDING_UPSERT_MAX_RETRIES = 3
+_RAG_EMBEDDING_RETRY_BASE_DELAY_SECONDS = 0.25
+_MYSQL_RETRYABLE_ERRNOS = {1205, 1213}
+_RAG_DB_OPERATION_MAX_RETRIES = 3
+_RAG_DB_OPERATION_RETRY_BASE_DELAY_SECONDS = 0.25
+
+TResult = TypeVar("TResult")
 
 
 @dataclass
@@ -61,6 +69,30 @@ class RagKnowledgeService:
         """Проверить поддерживаемое расширение файла."""
         lower_name = (filename or "").lower()
         return any(lower_name.endswith(ext) for ext in _SUPPORTED_EXTENSIONS)
+
+    def _execute_with_db_retry(self, operation_name: str, operation: Callable[[], TResult]) -> TResult:
+        """Выполнить DB-операцию с retry для временных ошибок блокировок MySQL."""
+        for attempt in range(1, _RAG_DB_OPERATION_MAX_RETRIES + 1):
+            try:
+                return operation()
+            except Exception as exc:
+                mysql_errno = getattr(exc, "errno", None)
+                is_retryable = mysql_errno in _MYSQL_RETRYABLE_ERRNOS
+                if not is_retryable or attempt >= _RAG_DB_OPERATION_MAX_RETRIES:
+                    raise
+
+                delay = _RAG_DB_OPERATION_RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+                logger.warning(
+                    "Повтор DB-операции после временной ошибки MySQL: operation=%s errno=%s attempt=%s/%s sleep=%.2fs",
+                    operation_name,
+                    mysql_errno,
+                    attempt,
+                    _RAG_DB_OPERATION_MAX_RETRIES,
+                    delay,
+                )
+                time.sleep(delay)
+
+        raise RuntimeError(f"DB retry loop exhausted: {operation_name}")
 
     def ingest_document_from_bytes(
         self,
@@ -95,18 +127,25 @@ class RagKnowledgeService:
 
         content_hash = hashlib.sha256(payload).hexdigest()
 
-        with database.get_db_connection() as conn:
-            with database.get_cursor(conn) as cursor:
-                cursor.execute(
-                    """
-                    SELECT id, status FROM rag_documents
-                    WHERE content_hash = %s
-                    LIMIT 1
-                    """,
-                    (content_hash,),
-                )
-                existing = cursor.fetchone()
-                if existing:
+        _reactivated_document_id: Optional[int] = None
+
+        def _find_or_reactivate_existing_document() -> Optional[Dict[str, int]]:
+            nonlocal _reactivated_document_id
+            _reactivated_document_id = None
+            with database.get_db_connection() as conn:
+                with database.get_cursor(conn) as cursor:
+                    cursor.execute(
+                        """
+                        SELECT id, status FROM rag_documents
+                        WHERE content_hash = %s
+                        LIMIT 1
+                        """,
+                        (content_hash,),
+                    )
+                    existing = cursor.fetchone()
+                    if not existing:
+                        return None
+
                     existing_id = int(existing["id"])
                     existing_status = str(existing.get("status") or "")
 
@@ -129,8 +168,7 @@ class RagKnowledgeService:
                             cursor,
                             f"reactivate:{existing_id}:{uploaded_by}:{filename}",
                         )
-                        self._set_vector_document_status(existing_id, "active")
-                        self._clear_expired_cache()
+                        _reactivated_document_id = existing_id
                         logger.info(
                             "RAG ingest reactivated existing document: file=%s document_id=%s old_status=%s uploaded_by=%s",
                             filename,
@@ -152,6 +190,16 @@ class RagKnowledgeService:
                         "reactivated": 0,
                     }
 
+        existing_result = self._execute_with_db_retry(
+            operation_name="ingest.find_or_reactivate_by_hash",
+            operation=_find_or_reactivate_existing_document,
+        )
+        if existing_result:
+            if _reactivated_document_id is not None:
+                self._set_vector_document_status(_reactivated_document_id, "active")
+                self._clear_expired_cache()
+            return existing_result
+
         if self._is_html_file(filename):
             chunks = self._split_html_payload(payload)
         else:
@@ -168,47 +216,55 @@ class RagKnowledgeService:
             user_id=uploaded_by,
         )
 
-        with database.get_db_connection() as conn:
-            with database.get_cursor(conn) as cursor:
-                cursor.execute(
-                    """
-                    INSERT INTO rag_documents
-                        (filename, source_type, source_url, uploaded_by, status, content_hash, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, 'active', %s, NOW(), NOW())
-                    """,
-                    (filename, source_type, source_url, uploaded_by, content_hash),
-                )
-                document_id = int(cursor.lastrowid)
-                inserted_vector_chunks: List[Dict[str, object]] = []
-
-                for idx, chunk in enumerate(limited_chunks):
+        def _insert_document_and_chunks() -> Tuple[int, List[Dict[str, object]]]:
+            with database.get_db_connection() as conn:
+                with database.get_cursor(conn) as cursor:
                     cursor.execute(
                         """
-                        INSERT INTO rag_chunks
-                            (document_id, chunk_index, chunk_text, created_at)
-                        VALUES (%s, %s, %s, NOW())
+                        INSERT INTO rag_documents
+                            (filename, source_type, source_url, uploaded_by, status, content_hash, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, 'active', %s, NOW(), NOW())
                         """,
-                        (document_id, idx, chunk),
+                        (filename, source_type, source_url, uploaded_by, content_hash),
                     )
-                    inserted_vector_chunks.append(
-                        {
-                            "document_id": document_id,
-                            "chunk_index": idx,
-                            "filename": filename,
-                            "chunk_text": chunk,
-                            "status": "active",
-                        }
+                    local_document_id = int(cursor.lastrowid)
+                    local_inserted_vector_chunks: List[Dict[str, object]] = []
+
+                    for idx, chunk in enumerate(limited_chunks):
+                        cursor.execute(
+                            """
+                            INSERT INTO rag_chunks
+                                (document_id, chunk_index, chunk_text, created_at)
+                            VALUES (%s, %s, %s, NOW())
+                            """,
+                            (local_document_id, idx, chunk),
+                        )
+                        local_inserted_vector_chunks.append(
+                            {
+                                "document_id": local_document_id,
+                                "chunk_index": idx,
+                                "filename": filename,
+                                "chunk_text": chunk,
+                                "status": "active",
+                            }
+                        )
+
+                    self._upsert_document_summary(
+                        cursor=cursor,
+                        document_id=local_document_id,
+                        summary_text=summary_text,
+                        model_name=summary_model_name,
                     )
+                    self._bump_corpus_version(cursor, f"upload:{filename}")
 
-                self._upsert_document_summary(
-                    cursor=cursor,
-                    document_id=document_id,
-                    summary_text=summary_text,
-                    model_name=summary_model_name,
-                )
-                self._bump_corpus_version(cursor, f"upload:{filename}")
+            return local_document_id, local_inserted_vector_chunks
 
-            self._upsert_vectors_for_chunks(inserted_vector_chunks)
+        document_id, inserted_vector_chunks = self._execute_with_db_retry(
+            operation_name="ingest.insert_document_and_chunks",
+            operation=_insert_document_and_chunks,
+        )
+
+        self._upsert_vectors_for_chunks(inserted_vector_chunks)
 
         self._clear_expired_cache()
         logger.info(
@@ -486,38 +542,50 @@ class RagKnowledgeService:
         if new_status not in allowed_statuses:
             raise ValueError("Некорректный статус документа")
 
-        with database.get_db_connection() as conn:
-            with database.get_cursor(conn) as cursor:
-                cursor.execute(
-                    "SELECT status, filename FROM rag_documents WHERE id = %s LIMIT 1",
-                    (document_id,),
-                )
-                existing = cursor.fetchone()
-                if not existing:
-                    return False
+        def _update_status_in_db() -> Optional[Tuple[bool, str]]:
+            """Обновить статус в MySQL. Возвращает (changed, old_status) или None."""
+            with database.get_db_connection() as conn:
+                with database.get_cursor(conn) as cursor:
+                    cursor.execute(
+                        "SELECT status, filename FROM rag_documents WHERE id = %s LIMIT 1",
+                        (document_id,),
+                    )
+                    existing = cursor.fetchone()
+                    if not existing:
+                        return None
 
-                old_status = str(existing.get("status", ""))
-                filename = str(existing.get("filename", "document"))
+                    old_status = str(existing.get("status", ""))
+                    filename = str(existing.get("filename", "document"))
 
-                if old_status == new_status:
-                    return True
+                    if old_status == new_status:
+                        return (False, old_status)
 
-                cursor.execute(
-                    """
-                    UPDATE rag_documents
-                    SET status = %s, updated_at = NOW()
-                    WHERE id = %s
-                    """,
-                    (new_status, document_id),
-                )
-                self._set_vector_document_status(document_id, new_status)
-
-                if old_status == "active" or new_status == "active":
-                    self._bump_corpus_version(
-                        cursor,
-                        f"status:{document_id}:{old_status}->{new_status}:{updated_by}:{filename}",
+                    cursor.execute(
+                        """
+                        UPDATE rag_documents
+                        SET status = %s, updated_at = NOW()
+                        WHERE id = %s
+                        """,
+                        (new_status, document_id),
                     )
 
+                    if old_status == "active" or new_status == "active":
+                        self._bump_corpus_version(
+                            cursor,
+                            f"status:{document_id}:{old_status}->{new_status}:{updated_by}:{filename}",
+                        )
+
+            return (True, old_status)
+
+        result = self._execute_with_db_retry("set_document_status", _update_status_in_db)
+        if result is None:
+            return False
+
+        changed, old_status = result
+        if not changed:
+            return True
+
+        self._set_vector_document_status(document_id, new_status)
         self._clear_expired_cache()
         logger.info(
             "RAG document status changed: document_id=%s old=%s new=%s by=%s",
@@ -543,27 +611,34 @@ class RagKnowledgeService:
         if not hard_delete:
             return self.set_document_status(document_id, "deleted", updated_by)
 
-        with database.get_db_connection() as conn:
-            with database.get_cursor(conn) as cursor:
-                cursor.execute(
-                    "SELECT status, filename FROM rag_documents WHERE id = %s LIMIT 1",
-                    (document_id,),
-                )
-                existing = cursor.fetchone()
-                if not existing:
-                    return False
-
-                old_status = str(existing.get("status", ""))
-                filename = str(existing.get("filename", "document"))
-
-                cursor.execute("DELETE FROM rag_documents WHERE id = %s", (document_id,))
-                self._delete_vector_document(document_id)
-                if old_status == "active":
-                    self._bump_corpus_version(
-                        cursor,
-                        f"hard_delete:{document_id}:{updated_by}:{filename}",
+        def _delete_from_db() -> bool:
+            """Удалить документ из MySQL. Возвращает True если удалён, False если не найден."""
+            with database.get_db_connection() as conn:
+                with database.get_cursor(conn) as cursor:
+                    cursor.execute(
+                        "SELECT status, filename FROM rag_documents WHERE id = %s LIMIT 1",
+                        (document_id,),
                     )
+                    existing = cursor.fetchone()
+                    if not existing:
+                        return False
 
+                    old_status = str(existing.get("status", ""))
+                    filename = str(existing.get("filename", "document"))
+
+                    cursor.execute("DELETE FROM rag_documents WHERE id = %s", (document_id,))
+                    if old_status == "active":
+                        self._bump_corpus_version(
+                            cursor,
+                            f"hard_delete:{document_id}:{updated_by}:{filename}",
+                        )
+            return True
+
+        deleted = self._execute_with_db_retry("delete_document", _delete_from_db)
+        if not deleted:
+            return False
+
+        self._delete_vector_document(document_id)
         self._clear_expired_cache()
         logger.info(
             "RAG document deleted: document_id=%s hard_delete=%s by=%s",
@@ -1215,48 +1290,76 @@ class RagKnowledgeService:
         vector_dim = len(embeddings[0]) if embeddings else 0
         safe_error = (error_message or "")[:255] or None
 
+        query = """
+            INSERT INTO rag_chunk_embeddings
+                (document_id, chunk_index, embedding_model, embedding_dim, embedding_hash, embedding_status, error_message, embedded_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON DUPLICATE KEY UPDATE
+                embedding_dim = VALUES(embedding_dim),
+                embedding_hash = VALUES(embedding_hash),
+                embedding_status = VALUES(embedding_status),
+                error_message = VALUES(error_message),
+                embedded_at = NOW(),
+                updated_at = NOW()
+        """
+
+        params: List[Tuple[int, int, str, int, str, str, Optional[str]]] = []
+        for index, chunk in enumerate(chunks):
+            document_id = int(chunk.get("document_id") or 0)
+            chunk_index = int(chunk.get("chunk_index") or 0)
+            if document_id <= 0:
+                continue
+
+            if embeddings and index < len(embeddings):
+                vector = embeddings[index]
+                vector_hash = hashlib.sha256(
+                    ",".join(f"{float(value):.6f}" for value in vector).encode("utf-8")
+                ).hexdigest()
+            else:
+                vector_hash = hashlib.sha256(
+                    str(chunk.get("chunk_text") or "").encode("utf-8")
+                ).hexdigest()
+
+            params.append(
+                (
+                    document_id,
+                    chunk_index,
+                    model_name,
+                    vector_dim,
+                    vector_hash,
+                    safe_status,
+                    safe_error,
+                )
+            )
+
+        if not params:
+            return
+
         try:
-            with database.get_db_connection() as conn:
-                with database.get_cursor(conn) as cursor:
-                    for index, chunk in enumerate(chunks):
-                        document_id = int(chunk.get("document_id") or 0)
-                        chunk_index = int(chunk.get("chunk_index") or 0)
-                        if document_id <= 0:
-                            continue
+            for batch_start in range(0, len(params), _RAG_EMBEDDING_UPSERT_BATCH_SIZE):
+                batch = params[batch_start : batch_start + _RAG_EMBEDDING_UPSERT_BATCH_SIZE]
+                for attempt in range(1, _RAG_EMBEDDING_UPSERT_MAX_RETRIES + 1):
+                    try:
+                        with database.get_db_connection() as conn:
+                            with database.get_cursor(conn) as cursor:
+                                cursor.executemany(query, batch)
+                        break
+                    except Exception as exc:
+                        mysql_errno = getattr(exc, "errno", None)
+                        is_retryable = mysql_errno in _MYSQL_RETRYABLE_ERRNOS
+                        if not is_retryable or attempt >= _RAG_EMBEDDING_UPSERT_MAX_RETRIES:
+                            raise
 
-                        if embeddings and index < len(embeddings):
-                            vector = embeddings[index]
-                            vector_hash = hashlib.sha256(
-                                ",".join(f"{float(value):.6f}" for value in vector).encode("utf-8")
-                            ).hexdigest()
-                        else:
-                            vector_hash = hashlib.sha256(
-                                str(chunk.get("chunk_text") or "").encode("utf-8")
-                            ).hexdigest()
-
-                        cursor.execute(
-                            """
-                            INSERT INTO rag_chunk_embeddings
-                                (document_id, chunk_index, embedding_model, embedding_dim, embedding_hash, embedding_status, error_message, embedded_at, updated_at)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                            ON DUPLICATE KEY UPDATE
-                                embedding_dim = VALUES(embedding_dim),
-                                embedding_hash = VALUES(embedding_hash),
-                                embedding_status = VALUES(embedding_status),
-                                error_message = VALUES(error_message),
-                                embedded_at = NOW(),
-                                updated_at = NOW()
-                            """,
-                            (
-                                document_id,
-                                chunk_index,
-                                model_name,
-                                vector_dim,
-                                vector_hash,
-                                safe_status,
-                                safe_error,
-                            ),
+                        delay = _RAG_EMBEDDING_RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+                        logger.warning(
+                            "Повтор сохранения rag_chunk_embeddings после временной ошибки БД: errno=%s attempt=%s/%s batch_size=%s sleep=%.2fs",
+                            mysql_errno,
+                            attempt,
+                            _RAG_EMBEDDING_UPSERT_MAX_RETRIES,
+                            len(batch),
+                            delay,
                         )
+                        time.sleep(delay)
         except Exception as exc:
             logger.warning("Не удалось сохранить rag_chunk_embeddings: %s", exc)
 

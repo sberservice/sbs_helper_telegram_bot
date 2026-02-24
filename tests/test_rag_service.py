@@ -4,13 +4,20 @@ test_rag_service.py — тесты сервиса RAG базы знаний.
 
 import builtins
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.sbs_helper_telegram_bot.ai_router.rag_service import RagKnowledgeService
 
 
 class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
     """Тесты RagKnowledgeService."""
+
+    class _FakeMySqlError(Exception):
+        """Тестовая ошибка MySQL с атрибутом errno."""
+
+        def __init__(self, errno: int):
+            super().__init__(f"MySQL error: {errno}")
+            self.errno = errno
 
     def test_supported_file_extensions(self):
         """Проверка поддерживаемых расширений файлов."""
@@ -458,6 +465,71 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_generate_summary.assert_called_once()
         mock_bump.assert_called_once()
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.time.sleep")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.warning")
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._split_text")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._extract_text")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._generate_document_summary")
+    @patch.object(RagKnowledgeService, "_upsert_vectors_for_chunks")
+    def test_ingest_retries_on_lock_wait_timeout(
+        self,
+        mock_upsert_vectors,
+        mock_generate_summary,
+        mock_extract_text,
+        mock_split_text,
+        mock_get_cursor,
+        mock_get_db_connection,
+        mock_logger_warning,
+        mock_sleep,
+    ):
+        """Ingest повторяет транзакцию при lock timeout и завершает загрузку."""
+        service = RagKnowledgeService()
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = None
+        cursor.lastrowid = 555
+        mock_extract_text.return_value = "Полезный текст документа"
+        mock_split_text.return_value = ["Первый чанк"]
+        mock_generate_summary.return_value = ("Краткое summary документа", "deepseek-chat")
+
+        state = {"insert_failed_once": False}
+
+        def execute_side_effect(query, *args, **kwargs):
+            if "INSERT INTO rag_documents" in query and not state["insert_failed_once"]:
+                state["insert_failed_once"] = True
+                raise self._FakeMySqlError(1205)
+            return None
+
+        cursor.execute.side_effect = execute_side_effect
+
+        result = service.ingest_document_from_bytes(
+            filename="manual.txt",
+            payload=b"payload",
+            uploaded_by=7,
+            source_type="filesystem",
+            source_url="/kb/manual.txt",
+        )
+
+        self.assertEqual(result["document_id"], 555)
+        self.assertEqual(result["is_duplicate"], 0)
+        self.assertEqual(result["chunks_count"], 1)
+        self.assertTrue(state["insert_failed_once"])
+        self.assertEqual(
+            sum(1 for call in cursor.execute.call_args_list if "INSERT INTO rag_documents" in call.args[0]),
+            2,
+        )
+        mock_sleep.assert_called_once()
+        mock_upsert_vectors.assert_called_once()
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("Повтор DB-операции после временной ошибки MySQL")
+                for call in mock_logger_warning.call_args_list
+            )
+        )
+
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
     def test_list_documents_by_source(self, mock_get_cursor, mock_get_db_connection):
@@ -513,6 +585,190 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats["documents_processed"], 1)
         self.assertEqual(stats["chunks_indexed"], 2)
         self.assertEqual(stats["errors"], 0)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.time.sleep")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.warning")
+    @patch("src.common.database.get_cursor")
+    @patch("src.common.database.get_db_connection")
+    def test_record_chunk_embedding_metadata_retries_on_lock_wait(
+        self,
+        mock_get_db_connection,
+        mock_get_cursor,
+        mock_logger_warning,
+        mock_sleep,
+    ):
+        """При lock timeout запись метаданных повторяется и завершается успешно."""
+        service = RagKnowledgeService()
+        mock_get_db_connection.return_value.__enter__.return_value = object()
+        cursor = MagicMock()
+        cursor.executemany.side_effect = [self._FakeMySqlError(1205), None]
+        mock_get_cursor.return_value.__enter__.return_value = cursor
+
+        service._record_chunk_embedding_metadata(
+            chunks=[{"document_id": 1, "chunk_index": 0, "chunk_text": "text"}],
+            embeddings=[[0.1, 0.2]],
+            status="ready",
+            error_message=None,
+        )
+
+        self.assertEqual(cursor.executemany.call_count, 2)
+        mock_sleep.assert_called_once()
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("Повтор сохранения rag_chunk_embeddings")
+                for call in mock_logger_warning.call_args_list
+            )
+        )
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.time.sleep")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.warning")
+    @patch("src.common.database.get_cursor")
+    @patch("src.common.database.get_db_connection")
+    def test_record_chunk_embedding_metadata_does_not_retry_non_retryable_error(
+        self,
+        mock_get_db_connection,
+        mock_get_cursor,
+        mock_logger_warning,
+        mock_sleep,
+    ):
+        """Неретраибельная ошибка БД логируется без повторов."""
+        service = RagKnowledgeService()
+        mock_get_db_connection.return_value.__enter__.return_value = object()
+        cursor = MagicMock()
+        cursor.executemany.side_effect = self._FakeMySqlError(1064)
+        mock_get_cursor.return_value.__enter__.return_value = cursor
+
+        service._record_chunk_embedding_metadata(
+            chunks=[{"document_id": 2, "chunk_index": 1, "chunk_text": "text"}],
+            embeddings=[[0.3, 0.4]],
+            status="ready",
+            error_message=None,
+        )
+
+        self.assertEqual(cursor.executemany.call_count, 1)
+        mock_sleep.assert_not_called()
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("Не удалось сохранить rag_chunk_embeddings")
+                for call in mock_logger_warning.call_args_list
+            )
+        )
+
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.time.sleep")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.warning")
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    @patch.object(RagKnowledgeService, "_delete_vector_document")
+    def test_delete_document_retries_on_lock_wait(
+        self,
+        mock_delete_vector,
+        mock_get_cursor,
+        mock_get_db_connection,
+        mock_logger_warning,
+        mock_sleep,
+    ):
+        """Hard-delete повторяет транзакцию при lock timeout; Qdrant вызывается после коммита MySQL."""
+        service = RagKnowledgeService()
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {"status": "active", "filename": "doc.txt"}
+
+        state = {"delete_failed_once": False}
+
+        def execute_side_effect(query, *args, **kwargs):
+            if "DELETE FROM rag_documents" in query and not state["delete_failed_once"]:
+                state["delete_failed_once"] = True
+                raise self._FakeMySqlError(1205)
+            return None
+
+        cursor.execute.side_effect = execute_side_effect
+
+        result = service.delete_document(document_id=42, updated_by=7, hard_delete=True)
+
+        self.assertTrue(result)
+        self.assertTrue(state["delete_failed_once"])
+        mock_delete_vector.assert_called_once_with(42)
+        mock_sleep.assert_called_once()
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("Повтор DB-операции после временной ошибки MySQL")
+                for call in mock_logger_warning.call_args_list
+            )
+        )
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.time.sleep")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.warning")
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    @patch.object(RagKnowledgeService, "_set_vector_document_status")
+    def test_set_document_status_retries_on_lock_wait(
+        self,
+        mock_set_vector_status,
+        mock_get_cursor,
+        mock_get_db_connection,
+        mock_logger_warning,
+        mock_sleep,
+    ):
+        """set_document_status повторяет транзакцию при lock timeout; Qdrant — после коммита MySQL."""
+        service = RagKnowledgeService()
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {"status": "active", "filename": "doc.txt"}
+
+        state = {"update_failed_once": False}
+
+        def execute_side_effect(query, *args, **kwargs):
+            if "UPDATE rag_documents" in query and not state["update_failed_once"]:
+                state["update_failed_once"] = True
+                raise self._FakeMySqlError(1205)
+            return None
+
+        cursor.execute.side_effect = execute_side_effect
+
+        result = service.set_document_status(document_id=42, new_status="archived", updated_by=7)
+
+        self.assertTrue(result)
+        self.assertTrue(state["update_failed_once"])
+        mock_set_vector_status.assert_called_once_with(42, "archived")
+        mock_sleep.assert_called_once()
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("Повтор DB-операции после временной ошибки MySQL")
+                for call in mock_logger_warning.call_args_list
+            )
+        )
+
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    @patch.object(RagKnowledgeService, "_set_vector_document_status")
+    def test_ingest_reactivation_calls_qdrant_after_commit(
+        self,
+        mock_set_vector_status,
+        mock_get_cursor,
+        mock_get_db_connection,
+    ):
+        """При реактивации документа Qdrant обновляется после коммита MySQL транзакции."""
+        service = RagKnowledgeService()
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {"id": 99, "status": "deleted"}
+
+        result = service.ingest_document_from_bytes(
+            filename="manual.txt",
+            payload=b"payload",
+            uploaded_by=7,
+        )
+
+        self.assertEqual(result["document_id"], 99)
+        self.assertEqual(result["is_duplicate"], 1)
+        self.assertEqual(result["reactivated"], 1)
+        mock_set_vector_status.assert_called_once_with(99, "active")
 
 
 if __name__ == "__main__":

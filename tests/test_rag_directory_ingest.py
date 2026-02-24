@@ -7,7 +7,12 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from scripts.rag_directory_ingest import run_ingest_cycle
+from scripts.rag_directory_ingest import (
+    _acquire_single_instance_lock,
+    _build_lock_file_path,
+    _release_single_instance_lock,
+    run_ingest_cycle,
+)
 
 
 class FakeRagService:
@@ -228,6 +233,32 @@ class TestRagDirectoryIngestScript(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("--directory", result.stdout)
         self.assertIn("--force-update", result.stdout)
+
+    def test_single_instance_lock_blocks_second_acquire(self):
+        """Второй запуск для той же директории блокируется lock-файлом."""
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            lock_path = _build_lock_file_path(directory)
+
+            first_fd = _acquire_single_instance_lock(lock_path)
+            try:
+                with self.assertRaises(RuntimeError):
+                    _acquire_single_instance_lock(lock_path)
+            finally:
+                _release_single_instance_lock(lock_path, first_fd)
+
+    def test_single_instance_lock_recovers_from_stale_pid(self):
+        """Stale lock-файл очищается и позволяет новый запуск."""
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            lock_path = _build_lock_file_path(directory)
+            lock_path.write_text("999999\n", encoding="utf-8")
+
+            fd = _acquire_single_instance_lock(lock_path)
+            try:
+                self.assertTrue(lock_path.exists())
+            finally:
+                _release_single_instance_lock(lock_path, fd)
 
 
 if __name__ == "__main__":
