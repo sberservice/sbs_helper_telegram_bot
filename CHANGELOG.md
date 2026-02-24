@@ -5,6 +5,16 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.29] - 2026-02-22
+
+### Added
+- Добавлен README.md для модуля AI-маршрутизатора (`src/sbs_helper_telegram_bot/ai_router/README.md`).
+
+### Changed
+- Проект переименован в «SBS Helper AI Telegram Bot» с акцентом на AI-возможности.
+- Главный README.md полностью переработан: компактная структура, таблица модулей со ссылками на отдельные README.
+- Обновлены ссылки на проект в README модулей (ticket\_validator, gamification) и в `docs/MODULE_GUIDE_RU.md`.
+
 ## [0.1.28] - 2026-02-22
 
 ### Added
