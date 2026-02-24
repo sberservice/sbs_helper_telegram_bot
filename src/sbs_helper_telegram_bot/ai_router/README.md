@@ -105,9 +105,17 @@ CLOSED ──(5 ошибок)──► OPEN ──(300с)──► HALF_OPEN
 - Двухэтапный hybrid retrieval:
     - prefilter документов по `rag_document_summaries` (релевантность summary к вопросу),
     - ранжирование чанков с учётом lexical score чанка + бонуса от summary-релевантности документа.
+- Опционально: локальный векторный retrieval (Qdrant local mode + локальная embedding-модель) с fusion lexical/vector score.
 - Top-summary документы добавляются в системный RAG-промпт как дополнительный контекст.
 - In-memory TTL-кэш с инвалидацией по `rag_corpus_version`
 - Логирование запросов в `rag_query_log`
+
+### Vector backfill
+
+```bash
+python scripts/rag_vector_backfill.py --batch-size 100
+python scripts/rag_vector_backfill.py --dry-run --max-documents 200
+```
 
 ### Суммаризация документов
 
@@ -160,6 +168,8 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 - Экранирование MarkdownV2 с fallback на plain text
 - Плейсхолдер «⏳ Обрабатываю ваш запрос...» → edit → fallback новым сообщением
 - Для RAG-запросов плейсхолдер обновляется на «⏳ Ожидаю ответа ИИ»
+- Для `rag_qa` поддерживается ограниченное форматирование ответа модели: нумерованные/маркированные списки, **жирный текст**, `inline code`; неподдерживаемая markdown-разметка экранируется
+- Длинные ответы `rag_qa` автоматически разбиваются на несколько MarkdownV2-сообщений, чтобы избежать ошибки Telegram `Message is too long`
 - Восстановление `ReplyKeyboardMarkup` после AI-ответа
 
 ## Логирование
@@ -167,7 +177,9 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 - Результаты классификации → `ai_router_log` (intent, confidence, explain_code, response_time_ms)
 - Профилирование маршрутизации: `classify_ms`, `db_log_ms`, `dispatch_ms`, `context_update_ms`
 - RAG-запросы → `rag_query_log`
+- Диагностика retrieval-канала RAG: строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `lexical_hits`, `vector_hits`, `selected`, `top_source`
 - Полный `prompt/response` всех LLM-вызовов (classification/chat/fallback_chat/rag_answer/rag_summary) → `ai_model_io_log`
+- Для `deepseek-reasoner` добавлен runtime-fallback: при пустом `content` для chat/RAG выполняется один автоповтор на `deepseek-chat` с предупреждением в логах
 - Перед записью в `ai_model_io_log` чувствительные данные маскируются (`email`, `телефон`, `ИНН`, `СНИЛС`)
 - Очистка старых full-text логов выполняется скриптом `scripts/ai_model_io_log_retention.sql` (30 дней)
 
@@ -213,6 +225,37 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `AI_RAG_PROMPT_SUMMARY_DOCS` | `3` | Число summary в RAG-промпте |
 | `AI_RAG_CACHE_TTL_SECONDS` | `300` | TTL кэша |
 | `AI_RAG_HTML_SPLITTER_ENABLED` | `1` | HTML header-aware splitter |
+| `AI_RAG_VECTOR_ENABLED` | `0` | Включить локальный векторный retrieval |
+| `AI_RAG_HYBRID_ENABLED` | `1` | Использовать hybrid-слияние lexical/vector |
+| `AI_RAG_VECTOR_LOCAL_MODE` | `1` | Использовать Qdrant local mode |
+| `AI_RAG_VECTOR_DB_PATH` | `./data/qdrant` | Путь к локальному индексу |
+| `AI_RAG_VECTOR_COLLECTION` | `rag_chunks_v1` | Имя коллекции вектора |
+| `AI_RAG_VECTOR_DISTANCE` | `cosine` | Метрика (`cosine`/`dot`/`euclid`) |
+| `AI_RAG_VECTOR_TOP_K` | `12` | Top-K векторных кандидатов |
+| `AI_RAG_VECTOR_PREFETCH_K` | `40` | Глубина первичного поиска в индексе |
+| `AI_RAG_VECTOR_EMBEDDING_MODEL` | `BAAI/bge-m3` | Локальная embedding-модель |
+| `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE` | `8` | Batch size при вычислении эмбеддингов |
+| `AI_RAG_VECTOR_EMBEDDING_MAX_CHARS` | `6000` | Ограничение длины текста на embedding |
+| `AI_RAG_VECTOR_LEXICAL_WEIGHT` | `0.45` | Вес lexical score в hybrid |
+| `AI_RAG_VECTOR_SEMANTIC_WEIGHT` | `0.55` | Вес vector score в hybrid |
+
+### Практические пресеты
+
+**macOS (сбалансированный)**
+- `AI_RAG_VECTOR_EMBEDDING_MODEL=BAAI/bge-m3`
+- `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE=6`
+- `AI_RAG_VECTOR_TOP_K=14`
+- `AI_RAG_VECTOR_PREFETCH_K=42`
+- `AI_RAG_VECTOR_LEXICAL_WEIGHT=0.40`
+- `AI_RAG_VECTOR_SEMANTIC_WEIGHT=0.60`
+
+**Windows (i5-3550 + NVIDIA T400, стабильный профиль)**
+- `AI_RAG_VECTOR_EMBEDDING_MODEL=intfloat/multilingual-e5-small`
+- `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE=2`
+- `AI_RAG_VECTOR_TOP_K=10`
+- `AI_RAG_VECTOR_PREFETCH_K=24`
+- `AI_RAG_VECTOR_LEXICAL_WEIGHT=0.55`
+- `AI_RAG_VECTOR_SEMANTIC_WEIGHT=0.45`
 
 ### Runtime-настройки (admin panel)
 
@@ -228,6 +271,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 mysql -u root -p sprint_db < scripts/ai_router_setup.sql
 mysql -u root -p sprint_db < scripts/ai_rag_setup.sql
 mysql -u root -p sprint_db < scripts/ai_rag_document_summaries_setup.sql
+mysql -u root -p sprint_db < scripts/ai_rag_vector_setup.sql
 # Для существующих БД без FULLTEXT-индекса по summary_text:
 mysql -u root -p sprint_db < scripts/rag_document_summaries_fulltext_index.sql
 # Периодическая очистка full-text AI логов (по умолчанию 30 дней):

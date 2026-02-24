@@ -10,6 +10,7 @@ import unittest
 from src.sbs_helper_telegram_bot.ai_router.messages import (
     escape_markdown_v2,
     format_ai_chat_response,
+    format_rag_answer_markdown_v2,
 )
 
 
@@ -109,6 +110,30 @@ class TestFormatAIChatResponse(unittest.TestCase):
         """Обычный текст без спецсимволов — только добавляется префикс."""
         result = format_ai_chat_response("Привет мир")
         self.assertEqual(result, "🤖 Привет мир")
+
+
+class TestFormatRagAnswerMarkdownV2(unittest.TestCase):
+    """Тесты ограниченного markdown-форматирования RAG-ответов."""
+
+    def test_preserves_bold_inline_code_and_lists(self):
+        """Сохраняются **bold** и `code`, а остальное экранируется."""
+        text = (
+            "1. **Символьная ссылка по by-id**\n"
+            "Выполните: `sudo ln -s /dev/ttyACM0 ttyS99`"
+        )
+        result = format_rag_answer_markdown_v2(text)
+
+        self.assertIn("1\\.", result)
+        self.assertIn("*Символьная ссылка по by\-id*", result)
+        self.assertIn("`sudo ln -s /dev/ttyACM0 ttyS99`", result)
+
+    def test_escapes_unsupported_markup(self):
+        """Неподдерживаемая markdown-разметка экранируется безопасно."""
+        text = "[ссылка](https://example.com) и _курсив_"
+        result = format_rag_answer_markdown_v2(text)
+
+        self.assertIn("\\[ссылка\\]\\(https://example\\.com\\)", result)
+        self.assertIn("\\_курсив\\_", result)
 
 
 if __name__ == "__main__":

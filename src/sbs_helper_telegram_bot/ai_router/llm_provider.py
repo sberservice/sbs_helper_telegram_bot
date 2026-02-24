@@ -257,6 +257,8 @@ class DeepSeekProvider(LLMProvider):
         max_tokens: int = 512,
         purpose: str = "response",
         user_id: Optional[int] = None,
+        force_model: Optional[str] = None,
+        allow_empty_content_retry: bool = True,
     ) -> str:
         """
         Выполнить вызов к DeepSeek /v1/chat/completions.
@@ -273,8 +275,10 @@ class DeepSeekProvider(LLMProvider):
             httpx.HTTPStatusError: при HTTP-ошибках.
             ValueError: при некорректном ответе API.
         """
+        model_name = ai_settings.normalize_deepseek_model(force_model) if force_model else self._resolve_model(purpose=purpose)
+
         payload = {
-            "model": self._resolve_model(purpose=purpose),
+            "model": model_name,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -328,8 +332,9 @@ class DeepSeekProvider(LLMProvider):
         data = response.json()
 
         try:
-            content = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
+            message = data["choices"][0]["message"]
+            content = self._extract_message_content(message)
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
             logger.error("Некорректный ответ DeepSeek API: %s", data)
             self._log_model_io_to_db(
                 user_id=user_id,
@@ -342,6 +347,29 @@ class DeepSeekProvider(LLMProvider):
                 error_text=str(exc),
             )
             raise ValueError(f"Некорректная структура ответа API: {exc}") from exc
+
+        if (
+            allow_empty_content_retry
+            and not str(content or "").strip()
+            and model_name == ai_settings.DEEPSEEK_MODEL_REASONER
+            and purpose != "classification"
+        ):
+            fallback_model = ai_settings.DEEPSEEK_MODEL_CHAT
+            logger.warning(
+                "DeepSeek returned empty content, retry with fallback model: purpose=%s from_model=%s to_model=%s",
+                purpose,
+                model_name,
+                fallback_model,
+            )
+            return await self._call_api(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                purpose=purpose,
+                user_id=user_id,
+                force_model=fallback_model,
+                allow_empty_content_retry=False,
+            )
 
         self._log_model_response(
             purpose=purpose,
@@ -361,6 +389,29 @@ class DeepSeekProvider(LLMProvider):
         )
 
         return content
+
+    @staticmethod
+    def _extract_message_content(message: Any) -> str:
+        """Извлечь текстовый content из message OpenAI-совместимого формата."""
+        if not isinstance(message, dict):
+            raise ValueError("message must be dict")
+
+        content = message.get("content", "")
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "text":
+                    text_value = item.get("text", "")
+                    if isinstance(text_value, str) and text_value:
+                        parts.append(text_value)
+            return "\n".join(parts).strip()
+
+        return str(content or "")
 
     @staticmethod
     def _extract_response_time_ms(response: Any) -> Optional[int]:

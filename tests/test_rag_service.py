@@ -210,6 +210,75 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0][1], "doc-high.txt")
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_LEXICAL_WEIGHT", 0.4)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_SEMANTIC_WEIGHT", 0.6)
+    def test_merge_retrieval_candidates_hybrid(self):
+        """Hybrid-слияние объединяет lexical и vector кандидаты с дедупликацией."""
+        service = RagKnowledgeService()
+        lexical = [
+            (1.2, "doc-a.txt", "шаг 1 флешка", 1),
+            (0.8, "doc-b.txt", "шаг 2", 2),
+        ]
+        vector = [
+            (0.9, "doc-a.txt", "шаг 1 флешка", 1),
+            (0.95, "doc-c.txt", "USB Flash update", 3),
+        ]
+
+        rows = service._merge_retrieval_candidates(lexical_chunks=lexical, vector_chunks=vector, limit=3)
+
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0][1], "doc-a.txt")
+        self.assertEqual(rows[1][1], "doc-c.txt")
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", False)
+    def test_merge_retrieval_candidates_vector_only(self):
+        """При выключенном hybrid используются только vector-кандидаты."""
+        service = RagKnowledgeService()
+        lexical = [(1.5, "doc-a.txt", "lexical", 1)]
+        vector = [(0.7, "doc-v.txt", "vector", 9)]
+
+        rows = service._merge_retrieval_candidates(lexical_chunks=lexical, vector_chunks=vector, limit=2)
+
+        self.assertEqual(rows, vector)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.info")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", False)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", False)
+    @patch.object(RagKnowledgeService, "_merge_retrieval_candidates")
+    @patch.object(RagKnowledgeService, "_search_relevant_chunks_vector")
+    @patch.object(RagKnowledgeService, "_search_relevant_chunks")
+    @patch.object(RagKnowledgeService, "_prefilter_documents_by_summary")
+    def test_retrieve_context_logs_retrieval_mode_lexical_only(
+        self,
+        mock_prefilter,
+        mock_search_lexical,
+        mock_search_vector,
+        mock_merge,
+        mock_logger_info,
+    ):
+        """В логи пишется режим lexical_only для retrieval-цикла."""
+        service = RagKnowledgeService()
+        mock_prefilter.return_value = []
+        mock_search_lexical.return_value = [(1.0, "kb.txt", "lexical block", 10)]
+        mock_search_vector.return_value = []
+        mock_merge.return_value = [(1.0, "kb.txt", "lexical block", 10)]
+
+        chunks, summary_blocks = service._retrieve_context_for_question("Как прошить d200", limit=5)
+
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(summary_blocks, [])
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("RAG retrieval:")
+                and len(call.args) > 1
+                and call.args[1] == "lexical_only"
+                for call in mock_logger_info.call_args_list
+            )
+        )
+
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.build_rag_prompt")
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
@@ -413,6 +482,37 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["source_type"], "filesystem")
         cursor.execute.assert_called_once()
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", True)
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    def test_backfill_vector_index_dry_run(self, mock_get_cursor, mock_get_db_connection):
+        """Dry-run backfill считает чанки без записи в векторный индекс."""
+        service = RagKnowledgeService()
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            {
+                "id": 10,
+                "filename": "manual.txt",
+                "source_type": "filesystem",
+                "chunk_index": 0,
+                "chunk_text": "Шаг 1",
+            },
+            {
+                "id": 10,
+                "filename": "manual.txt",
+                "source_type": "filesystem",
+                "chunk_index": 1,
+                "chunk_text": "Шаг 2",
+            },
+        ]
+
+        stats = service.backfill_vector_index(batch_size=10, dry_run=True)
+
+        self.assertEqual(stats["documents_total"], 1)
+        self.assertEqual(stats["documents_processed"], 1)
+        self.assertEqual(stats["chunks_indexed"], 2)
+        self.assertEqual(stats["errors"], 0)
 
 
 if __name__ == "__main__":

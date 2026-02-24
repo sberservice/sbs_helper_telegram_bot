@@ -323,6 +323,52 @@ def _strip_markdown_v2_escaping(text: str) -> str:
     return result
 
 
+def _split_markdown_v2_message(text: str, max_chunk_len: int = 3900) -> list[str]:
+    """
+    Разбить длинный MarkdownV2-текст на безопасные части для Telegram.
+
+    Сплит выполняется с приоритетом переноса строки, затем пробела.
+    Дополнительно не допускается завершение чанка одинарным `\\`,
+    чтобы не ломать MarkdownV2-парсер Telegram.
+
+    Args:
+        text: Текст для отправки.
+        max_chunk_len: Максимальная длина одной части.
+
+    Returns:
+        Список частей текста (минимум одна часть).
+    """
+    if len(text) <= max_chunk_len:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+
+    while remaining:
+        if len(remaining) <= max_chunk_len:
+            chunk = remaining
+            remaining = ""
+        else:
+            chunk = remaining[:max_chunk_len]
+            split_idx = chunk.rfind("\n")
+            if split_idx < int(max_chunk_len * 0.5):
+                split_idx = chunk.rfind(" ")
+            if split_idx > 0:
+                chunk = remaining[:split_idx]
+                remaining = remaining[split_idx:].lstrip("\n ")
+            else:
+                remaining = remaining[max_chunk_len:]
+
+        if chunk.endswith("\\") and remaining:
+            chunk = chunk[:-1]
+            remaining = "\\" + remaining
+
+        if chunk:
+            chunks.append(chunk)
+
+    return chunks or [text]
+
+
 async def _edit_markdown_safe(sent_message, text: str) -> None:
     """
     Отредактировать ранее отправленное сообщение с MarkdownV2 и безопасным fallback.
@@ -1227,8 +1273,12 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             mark_step("ai_placeholder_sent")
 
+            classified_intent = None
+
             async def _on_ai_classified(classification) -> None:
                 """Обновить плейсхолдер, когда запрос распознан как RAG."""
+                nonlocal classified_intent
+                classified_intent = getattr(classification, "intent", "")
                 if getattr(classification, "intent", "") != "rag_qa":
                     return
                 try:
@@ -1252,8 +1302,16 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
             if response and status in ("routed", "chat", "rate_limited", "module_disabled"):
                 restore_keyboard = _get_last_reply_keyboard_or_main(context, is_admin)
+                is_rag_response = classified_intent == "rag_qa"
+                response_chunks = (
+                    _split_markdown_v2_message(response)
+                    if is_rag_response
+                    else [response]
+                )
                 try:
-                    await _edit_markdown_safe(placeholder, response)
+                    await _edit_markdown_safe(placeholder, response_chunks[0])
+                    for chunk in response_chunks[1:]:
+                        await _reply_markdown_safe(update.message, chunk, None)
                     try:
                         await update.message.reply_text(
                             "Выберите действие из меню или введите произвольный запрос:",
@@ -1281,9 +1339,11 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                         pass
                     await _reply_markdown_safe(
                         update.message,
-                        response,
+                        response_chunks[0],
                         restore_keyboard,
                     )
+                    for chunk in response_chunks[1:]:
+                        await _reply_markdown_safe(update.message, chunk, None)
                 mark_step("reply_ai_response")
                 profile_result = f"ai_{status}"
             else:

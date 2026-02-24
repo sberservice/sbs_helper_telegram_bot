@@ -25,7 +25,10 @@ RAG-поток позволяет:
 - Таблица полного AI I/O логирования: `ai_model_io_log` (prompt/response всех LLM-вызовов, включая RAG).
 - TTL-кэш ответов RAG в памяти процесса.
 - Summary-aware retrieval: prefilter документов по `rag_document_summaries`, hybrid rerank чанков с учётом релевантности summary и prompt enrichment top-summary блоками.
+- Опциональный локальный векторный retrieval (Qdrant local mode + локальная embedding-модель) с hybrid-слиянием lexical/vector кандидатов.
 - UX-статус для RAG: после классификации запроса как `rag_qa` бот меняет плейсхолдер с «Обрабатываю ваш запрос» на «Ожидаю ответа ИИ» до получения финального ответа.
+- Форматирование ответа `rag_qa` для Telegram MarkdownV2: сохраняются списки, `inline code`, жирный текст (`**...**` → Telegram-совместимый `*...*`), неподдерживаемая markdown-разметка экранируется.
+- Длинные RAG-ответы автоматически делятся на несколько сообщений, чтобы не упираться в лимит длины Telegram-сообщения.
 
 ## Как загрузить документ
 
@@ -51,6 +54,18 @@ Daemon-режим (регулярная синхронизация):
 
 ```bash
 python scripts/rag_directory_ingest.py --directory /path/to/docs --daemon --interval-seconds 900
+```
+
+Backfill локального векторного индекса по уже загруженным чанкам:
+
+```bash
+python scripts/rag_vector_backfill.py --batch-size 100
+```
+
+Оценка объёма backfill без записи в индекс:
+
+```bash
+python scripts/rag_vector_backfill.py --dry-run --max-documents 200
 ```
 
 Проверка без изменений в БД:
@@ -99,6 +114,8 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 	- модель генерации ответа (`model` в `AI chat request`, если сработал chat/fallback).
 - Это упрощает диагностику маршрутизации и проверку активной модели после переключения в админ-панели.
 - Ошибки в `ai_router` и RAG-обработчике логируются с traceback и явным типом исключения (`error_type`/`error_repr`), поэтому даже при пустом тексте исключения причина не теряется.
+- Для каждого retrieval-цикла RAG пишется диагностическая строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `lexical_hits`, `vector_hits`, `selected`, `top_source`.
+- Если `deepseek-reasoner` вернул пустой `content` для chat/RAG-ответа, провайдер автоматически делает один повтор на `deepseek-chat` и пишет предупреждение в лог (это снижает риск «немого» ответа пользователю).
 - Полный текст `prompt/response` также сохраняется в `ai_model_io_log` с маскировкой чувствительных данных (`email`, `телефон`, `ИНН`, `СНИЛС`).
 - Для очистки логов старше 30 дней используйте `scripts/ai_model_io_log_retention.sql` (подходит для запуска по cron).
 
@@ -118,6 +135,52 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_PROMPT_SUMMARY_DOCS`
 - `AI_RAG_CACHE_TTL_SECONDS`
 - `AI_RAG_HTML_SPLITTER_ENABLED`
+- `AI_RAG_VECTOR_ENABLED`
+- `AI_RAG_HYBRID_ENABLED`
+- `AI_RAG_VECTOR_LOCAL_MODE`
+- `AI_RAG_VECTOR_DB_PATH`
+- `AI_RAG_VECTOR_COLLECTION`
+- `AI_RAG_VECTOR_DISTANCE`
+- `AI_RAG_VECTOR_TOP_K`
+- `AI_RAG_VECTOR_PREFETCH_K`
+- `AI_RAG_VECTOR_EMBEDDING_MODEL`
+- `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE`
+- `AI_RAG_VECTOR_EMBEDDING_MAX_CHARS`
+- `AI_RAG_VECTOR_LEXICAL_WEIGHT`
+- `AI_RAG_VECTOR_SEMANTIC_WEIGHT`
+
+## Рекомендуемые профили окружения
+
+### Профиль A — macOS (сбалансированный)
+
+- `AI_RAG_VECTOR_ENABLED=1`
+- `AI_RAG_HYBRID_ENABLED=1`
+- `AI_RAG_VECTOR_EMBEDDING_MODEL=BAAI/bge-m3`
+- `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE=6`
+- `AI_RAG_VECTOR_EMBEDDING_MAX_CHARS=5000`
+- `AI_RAG_VECTOR_TOP_K=14`
+- `AI_RAG_VECTOR_PREFETCH_K=42`
+- `AI_RAG_TOP_K=8`
+- `AI_RAG_VECTOR_LEXICAL_WEIGHT=0.40`
+- `AI_RAG_VECTOR_SEMANTIC_WEIGHT=0.60`
+
+### Профиль B — Windows (i5-3550 + NVIDIA T400, стабильный)
+
+- `AI_RAG_VECTOR_ENABLED=1`
+- `AI_RAG_HYBRID_ENABLED=1`
+- `AI_RAG_VECTOR_EMBEDDING_MODEL=intfloat/multilingual-e5-small`
+- `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE=2`
+- `AI_RAG_VECTOR_EMBEDDING_MAX_CHARS=3500`
+- `AI_RAG_VECTOR_TOP_K=10`
+- `AI_RAG_VECTOR_PREFETCH_K=24`
+- `AI_RAG_TOP_K=7`
+- `AI_RAG_VECTOR_LEXICAL_WEIGHT=0.55`
+- `AI_RAG_VECTOR_SEMANTIC_WEIGHT=0.45`
+
+Примечания по Windows-профилю:
+- Профиль ориентирован на CPU-стабильность и умеренную память.
+- Если доступен CUDA и есть запас по памяти, можно увеличить `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE` до `3-4`.
+- Если latency высокая, сначала уменьшайте `AI_RAG_VECTOR_PREFETCH_K`, затем `AI_RAG_VECTOR_TOP_K`.
 
 Runtime-ключ в `bot_settings`:
 - `ai_rag_html_splitter_enabled` (`1` — включён, `0` — выключен)
@@ -127,6 +190,7 @@ Runtime-ключ в `bot_settings`:
 ```bash
 mysql -u root -p sprint_db < scripts/ai_rag_setup.sql
 mysql -u root -p sprint_db < scripts/ai_rag_document_summaries_setup.sql
+mysql -u root -p sprint_db < scripts/ai_rag_vector_setup.sql
 # Для существующих БД без FULLTEXT-индекса summary_text:
 mysql -u root -p sprint_db < scripts/rag_document_summaries_fulltext_index.sql
 ```
@@ -134,6 +198,7 @@ mysql -u root -p sprint_db < scripts/rag_document_summaries_fulltext_index.sql
 ## Ограничения текущего этапа
 
 - Retrieval использует lexical scoring по summary+чанкам (без векторной БД): сначала prefilter документов по summary, затем rerank чанков с бонусом от summary-релевантности.
+- Векторный режим требует локально установленные пакеты `qdrant-client` и `sentence-transformers`, а также доступность embedding-модели на текущем хосте.
 - Кэш хранится в памяти процесса и не шарится между инстансами.
 - Нет UI для управления документами (архивация/удаление) — только загрузка.
 - Metadata заголовков HTML сохраняется внутри текста чанка, так как текущая схема БД хранит только `chunk_text`.

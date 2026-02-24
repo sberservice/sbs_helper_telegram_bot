@@ -25,6 +25,10 @@ import src.common.database as database
 
 from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
 from src.sbs_helper_telegram_bot.ai_router.prompts import build_rag_prompt, build_rag_summary_prompt
+from src.sbs_helper_telegram_bot.ai_router.vector_search import (
+    LocalEmbeddingProvider,
+    LocalVectorIndex,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +53,8 @@ class RagKnowledgeService:
     def __init__(self, cache_ttl_seconds: int = ai_settings.AI_RAG_CACHE_TTL_SECONDS):
         self._cache_ttl_seconds = cache_ttl_seconds
         self._answer_cache: Dict[str, CachedAnswer] = {}
+        self._embedding_provider: Optional[LocalEmbeddingProvider] = None
+        self._vector_index: Optional[LocalVectorIndex] = None
 
     @staticmethod
     def is_supported_file(filename: str) -> bool:
@@ -123,6 +129,7 @@ class RagKnowledgeService:
                             cursor,
                             f"reactivate:{existing_id}:{uploaded_by}:{filename}",
                         )
+                        self._set_vector_document_status(existing_id, "active")
                         self._clear_expired_cache()
                         logger.info(
                             "RAG ingest reactivated existing document: file=%s document_id=%s old_status=%s uploaded_by=%s",
@@ -172,6 +179,7 @@ class RagKnowledgeService:
                     (filename, source_type, source_url, uploaded_by, content_hash),
                 )
                 document_id = int(cursor.lastrowid)
+                inserted_vector_chunks: List[Dict[str, object]] = []
 
                 for idx, chunk in enumerate(limited_chunks):
                     cursor.execute(
@@ -182,6 +190,15 @@ class RagKnowledgeService:
                         """,
                         (document_id, idx, chunk),
                     )
+                    inserted_vector_chunks.append(
+                        {
+                            "document_id": document_id,
+                            "chunk_index": idx,
+                            "filename": filename,
+                            "chunk_text": chunk,
+                            "status": "active",
+                        }
+                    )
 
                 self._upsert_document_summary(
                     cursor=cursor,
@@ -190,6 +207,8 @@ class RagKnowledgeService:
                     model_name=summary_model_name,
                 )
                 self._bump_corpus_version(cursor, f"upload:{filename}")
+
+            self._upsert_vectors_for_chunks(inserted_vector_chunks)
 
         self._clear_expired_cache()
         logger.info(
@@ -491,6 +510,7 @@ class RagKnowledgeService:
                     """,
                     (new_status, document_id),
                 )
+                self._set_vector_document_status(document_id, new_status)
 
                 if old_status == "active" or new_status == "active":
                     self._bump_corpus_version(
@@ -537,6 +557,7 @@ class RagKnowledgeService:
                 filename = str(existing.get("filename", "document"))
 
                 cursor.execute("DELETE FROM rag_documents WHERE id = %s", (document_id,))
+                self._delete_vector_document(document_id)
                 if old_status == "active":
                     self._bump_corpus_version(
                         cursor,
@@ -634,14 +655,128 @@ class RagKnowledgeService:
         prefilter_doc_ids = [doc_id for doc_id, _, _, _ in prefilter_docs]
         summary_scores = {doc_id: score for doc_id, _, _, score in prefilter_docs}
 
-        chunks = self._search_relevant_chunks(
+        lexical_chunks = self._search_relevant_chunks(
             question,
             limit=limit,
             prefiltered_doc_ids=prefilter_doc_ids or None,
             summary_scores=summary_scores,
         )
+
+        vector_chunks = self._search_relevant_chunks_vector(
+            question=question,
+            prefiltered_doc_ids=prefilter_doc_ids or None,
+        )
+
+        chunks = self._merge_retrieval_candidates(
+            lexical_chunks=lexical_chunks,
+            vector_chunks=vector_chunks,
+            limit=limit,
+        )
+        mode = self._determine_retrieval_mode(
+            lexical_chunks=lexical_chunks,
+            vector_chunks=vector_chunks,
+            selected_chunks=chunks,
+        )
+        top_source = str(chunks[0][1]) if chunks else "none"
+        logger.info(
+            "RAG retrieval: mode=%s tokens=%s prefilter_docs=%s lexical_hits=%s vector_hits=%s selected=%s top_source=%s",
+            mode,
+            len(tokens),
+            len(prefilter_docs),
+            len(lexical_chunks),
+            len(vector_chunks),
+            len(chunks),
+            top_source,
+        )
         summary_blocks = self._build_summary_blocks(prefilter_docs)
         return chunks, summary_blocks
+
+    def _search_relevant_chunks_vector(
+        self,
+        question: str,
+        prefiltered_doc_ids: Optional[List[int]],
+    ) -> List[Tuple[float, str, str, int]]:
+        """Найти релевантные чанки через локальный векторный индекс."""
+        if not self._is_vector_search_enabled():
+            return []
+
+        embedding_provider = self._get_embedding_provider()
+        vector_index = self._get_vector_index()
+        if embedding_provider is None or vector_index is None:
+            return []
+
+        query_vectors = embedding_provider.encode_texts([question])
+        if not query_vectors:
+            return []
+
+        candidates = vector_index.search(
+            query_vector=query_vectors[0],
+            limit=max(1, int(ai_settings.AI_RAG_VECTOR_TOP_K)),
+            allowed_document_ids=prefiltered_doc_ids,
+        )
+        return [(item.score, item.source, item.chunk_text, item.document_id) for item in candidates]
+
+    def _merge_retrieval_candidates(
+        self,
+        lexical_chunks: List[Tuple[float, str, str, int]],
+        vector_chunks: List[Tuple[float, str, str, int]],
+        limit: int,
+    ) -> List[Tuple[float, str, str, int]]:
+        """Объединить lexical и vector кандидаты в единый ранжированный список."""
+        safe_limit = max(1, limit)
+        if not vector_chunks:
+            return lexical_chunks[:safe_limit]
+
+        if not ai_settings.AI_RAG_HYBRID_ENABLED:
+            return vector_chunks[:safe_limit]
+
+        lexical_weight = max(0.0, float(ai_settings.AI_RAG_VECTOR_LEXICAL_WEIGHT))
+        vector_weight = max(0.0, float(ai_settings.AI_RAG_VECTOR_SEMANTIC_WEIGHT))
+
+        merged: Dict[Tuple[int, str], Dict[str, object]] = {}
+
+        for score, source, chunk_text, document_id in lexical_chunks:
+            key = (document_id, chunk_text.strip())
+            merged[key] = {
+                "lexical_score": float(score),
+                "vector_score": 0.0,
+                "source": source,
+                "chunk_text": chunk_text,
+                "document_id": document_id,
+            }
+
+        for score, source, chunk_text, document_id in vector_chunks:
+            key = (document_id, chunk_text.strip())
+            row = merged.get(key)
+            if row is None:
+                row = {
+                    "lexical_score": 0.0,
+                    "vector_score": 0.0,
+                    "source": source,
+                    "chunk_text": chunk_text,
+                    "document_id": document_id,
+                }
+                merged[key] = row
+            row["vector_score"] = max(float(row.get("vector_score") or 0.0), float(score))
+
+        ranked: List[Tuple[float, str, str, int]] = []
+        for row in merged.values():
+            lexical_score = float(row.get("lexical_score") or 0.0)
+            vector_score = float(row.get("vector_score") or 0.0)
+            fused_score = (lexical_score * lexical_weight) + (vector_score * vector_weight)
+            if fused_score <= 0:
+                continue
+            ranked.append(
+                (
+                    fused_score,
+                    str(row.get("source") or "document"),
+                    str(row.get("chunk_text") or ""),
+                    int(row.get("document_id") or 0),
+                )
+            )
+
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        return ranked[:safe_limit]
 
     def _extract_text(self, filename: str, payload: bytes) -> str:
         """Извлечь текст из поддерживаемого формата документа."""
@@ -971,6 +1106,255 @@ class RagKnowledgeService:
         if summary_score <= 0:
             return 0.0
         return min(summary_score, 2.0) * _RAG_SUMMARY_SCORE_WEIGHT
+
+    def _determine_retrieval_mode(
+        self,
+        lexical_chunks: List[Tuple[float, str, str, int]],
+        vector_chunks: List[Tuple[float, str, str, int]],
+        selected_chunks: List[Tuple[float, str, str, int]],
+    ) -> str:
+        """Определить режим retrieval для диагностического логирования."""
+        if not selected_chunks:
+            return "lexical_only"
+
+        has_lexical = len(lexical_chunks) > 0
+        has_vector = len(vector_chunks) > 0
+
+        if has_lexical and has_vector and ai_settings.AI_RAG_HYBRID_ENABLED:
+            return "hybrid"
+
+        if has_vector and (not ai_settings.AI_RAG_HYBRID_ENABLED or not has_lexical):
+            return "vector_only"
+
+        if has_lexical and not has_vector and ai_settings.AI_RAG_HYBRID_ENABLED and self._is_vector_search_enabled():
+            return "lexical_fallback"
+
+        return "lexical_only"
+
+    def _is_vector_search_enabled(self) -> bool:
+        """Проверить, включён ли векторный retrieval через конфигурацию."""
+        return bool(ai_settings.AI_RAG_VECTOR_ENABLED)
+
+    def _get_embedding_provider(self) -> Optional[LocalEmbeddingProvider]:
+        """Получить lazy-singleton провайдера локальных эмбеддингов."""
+        if not self._is_vector_search_enabled():
+            return None
+
+        if self._embedding_provider is None:
+            self._embedding_provider = LocalEmbeddingProvider()
+
+        if not self._embedding_provider.is_ready():
+            return None
+        return self._embedding_provider
+
+    def _get_vector_index(self) -> Optional[LocalVectorIndex]:
+        """Получить lazy-singleton локального векторного индекса."""
+        if not self._is_vector_search_enabled():
+            return None
+
+        if self._vector_index is None:
+            self._vector_index = LocalVectorIndex()
+
+        if not self._vector_index.is_ready():
+            return None
+        return self._vector_index
+
+    def _upsert_vectors_for_chunks(self, chunks: List[Dict[str, object]]) -> int:
+        """Записать эмбеддинги чанков в локальный векторный индекс."""
+        if not chunks or not self._is_vector_search_enabled():
+            return 0
+
+        embedding_provider = self._get_embedding_provider()
+        vector_index = self._get_vector_index()
+        if embedding_provider is None or vector_index is None:
+            return 0
+
+        texts = [str(chunk.get("chunk_text") or "") for chunk in chunks]
+        embeddings = embedding_provider.encode_texts(texts)
+        if not embeddings:
+            self._record_chunk_embedding_metadata(
+                chunks=chunks,
+                embeddings=[],
+                status="failed",
+                error_message="embedding_unavailable",
+            )
+            return 0
+
+        upserted = vector_index.upsert_chunks(chunks=chunks, embeddings=embeddings)
+        if upserted > 0:
+            self._record_chunk_embedding_metadata(
+                chunks=chunks,
+                embeddings=embeddings,
+                status="ready",
+                error_message=None,
+            )
+        else:
+            self._record_chunk_embedding_metadata(
+                chunks=chunks,
+                embeddings=[],
+                status="failed",
+                error_message="vector_upsert_failed",
+            )
+        if upserted > 0:
+            logger.info("RAG vector upsert: chunks=%s", upserted)
+        return upserted
+
+    def _record_chunk_embedding_metadata(
+        self,
+        chunks: List[Dict[str, object]],
+        embeddings: List[List[float]],
+        status: str,
+        error_message: Optional[str],
+    ) -> None:
+        """Сохранить технические метаданные векторной индексации чанков в БД."""
+        if not chunks:
+            return
+
+        safe_status = status if status in {"ready", "failed", "stale"} else "failed"
+        model_name = str(ai_settings.AI_RAG_VECTOR_EMBEDDING_MODEL or "unknown")[:128]
+        vector_dim = len(embeddings[0]) if embeddings else 0
+        safe_error = (error_message or "")[:255] or None
+
+        try:
+            with database.get_db_connection() as conn:
+                with database.get_cursor(conn) as cursor:
+                    for index, chunk in enumerate(chunks):
+                        document_id = int(chunk.get("document_id") or 0)
+                        chunk_index = int(chunk.get("chunk_index") or 0)
+                        if document_id <= 0:
+                            continue
+
+                        if embeddings and index < len(embeddings):
+                            vector = embeddings[index]
+                            vector_hash = hashlib.sha256(
+                                ",".join(f"{float(value):.6f}" for value in vector).encode("utf-8")
+                            ).hexdigest()
+                        else:
+                            vector_hash = hashlib.sha256(
+                                str(chunk.get("chunk_text") or "").encode("utf-8")
+                            ).hexdigest()
+
+                        cursor.execute(
+                            """
+                            INSERT INTO rag_chunk_embeddings
+                                (document_id, chunk_index, embedding_model, embedding_dim, embedding_hash, embedding_status, error_message, embedded_at, updated_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                            ON DUPLICATE KEY UPDATE
+                                embedding_dim = VALUES(embedding_dim),
+                                embedding_hash = VALUES(embedding_hash),
+                                embedding_status = VALUES(embedding_status),
+                                error_message = VALUES(error_message),
+                                embedded_at = NOW(),
+                                updated_at = NOW()
+                            """,
+                            (
+                                document_id,
+                                chunk_index,
+                                model_name,
+                                vector_dim,
+                                vector_hash,
+                                safe_status,
+                                safe_error,
+                            ),
+                        )
+        except Exception as exc:
+            logger.warning("Не удалось сохранить rag_chunk_embeddings: %s", exc)
+
+    def _set_vector_document_status(self, document_id: int, status: str) -> int:
+        """Синхронизировать статус документа в векторном индексе."""
+        if not self._is_vector_search_enabled():
+            return 0
+
+        vector_index = self._get_vector_index()
+        if vector_index is None:
+            return 0
+        return vector_index.mark_document_status(document_id=document_id, status=status)
+
+    def _delete_vector_document(self, document_id: int) -> int:
+        """Удалить векторные точки документа при hard-delete."""
+        if not self._is_vector_search_enabled():
+            return 0
+
+        vector_index = self._get_vector_index()
+        if vector_index is None:
+            return 0
+        return vector_index.delete_document_points(document_id=document_id)
+
+    def backfill_vector_index(
+        self,
+        batch_size: int = 100,
+        source_type: Optional[str] = None,
+        dry_run: bool = False,
+        max_documents: Optional[int] = None,
+    ) -> Dict[str, int]:
+        """Выполнить пакетное заполнение локального векторного индекса по активным документам."""
+        stats = {
+            "documents_total": 0,
+            "documents_processed": 0,
+            "chunks_indexed": 0,
+            "errors": 0,
+        }
+        if not self._is_vector_search_enabled():
+            return stats
+
+        safe_batch_size = max(1, int(batch_size))
+
+        query = """
+            SELECT d.id, d.filename, d.source_type, c.chunk_index, c.chunk_text
+            FROM rag_documents d
+            JOIN rag_chunks c ON c.document_id = d.id
+            WHERE d.status = 'active'
+        """
+        params: List[object] = []
+        if source_type:
+            query += " AND d.source_type = %s"
+            params.append(source_type)
+        query += " ORDER BY d.id ASC, c.chunk_index ASC"
+
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(query, tuple(params))
+                rows = cursor.fetchall() or []
+
+        grouped: Dict[int, List[Dict[str, object]]] = {}
+        for row in rows:
+            document_id = int(row.get("id") or 0)
+            if document_id <= 0:
+                continue
+            grouped.setdefault(document_id, []).append(
+                {
+                    "document_id": document_id,
+                    "chunk_index": int(row.get("chunk_index") or 0),
+                    "filename": str(row.get("filename") or "document"),
+                    "chunk_text": str(row.get("chunk_text") or ""),
+                    "status": "active",
+                }
+            )
+
+        document_ids = sorted(grouped.keys())
+        if max_documents is not None and int(max_documents) > 0:
+            document_ids = document_ids[: int(max_documents)]
+
+        stats["documents_total"] = len(document_ids)
+
+        for document_id in document_ids:
+            chunks = grouped.get(document_id, [])
+            if not chunks:
+                continue
+
+            try:
+                if dry_run:
+                    stats["chunks_indexed"] += len(chunks)
+                else:
+                    for start in range(0, len(chunks), safe_batch_size):
+                        batch = chunks[start : start + safe_batch_size]
+                        stats["chunks_indexed"] += self._upsert_vectors_for_chunks(batch)
+                stats["documents_processed"] += 1
+            except Exception as exc:
+                stats["errors"] += 1
+                logger.warning("Ошибка backfill vector index для document_id=%s: %s", document_id, exc)
+
+        return stats
 
     @staticmethod
     def _tokenize(text: str) -> List[str]:

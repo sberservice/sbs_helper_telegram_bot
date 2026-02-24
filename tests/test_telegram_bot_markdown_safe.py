@@ -10,6 +10,7 @@ from telegram.error import BadRequest
 
 from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import (
     _reply_markdown_safe,
+    _split_markdown_v2_message,
     _format_profile_steps,
     text_entered,
     BUTTON_MAIN_MENU,
@@ -111,6 +112,28 @@ class TestUpdateProfiling(unittest.IsolatedAsyncioTestCase):
         self.assertIn("main_menu_build=", profile_call.args[4])
         self.assertIn("telegram_send_main_menu=", profile_call.args[4])
         self.assertIn("reply_main_menu=", profile_call.args[4])
+
+
+class TestSplitMarkdownV2Message(unittest.TestCase):
+    """Проверка разбиения длинных MarkdownV2-сообщений."""
+
+    def test_short_text_returns_single_chunk(self):
+        """Короткий текст не разбивается."""
+        self.assertEqual(_split_markdown_v2_message("короткий", max_chunk_len=20), ["короткий"])
+
+    def test_split_prefers_newline_boundary(self):
+        """Разбиение предпочитает перенос строки при наличии."""
+        text = "строка 1\nстрока 2\nстрока 3"
+        chunks = _split_markdown_v2_message(text, max_chunk_len=12)
+        self.assertGreaterEqual(len(chunks), 2)
+        self.assertTrue(chunks[0].endswith("1"))
+
+    def test_chunk_never_ends_with_single_backslash(self):
+        """Чанк не должен завершаться одинарным \\ для MarkdownV2."""
+        text = "A" * 9 + "\\" + "B" * 9
+        chunks = _split_markdown_v2_message(text, max_chunk_len=10)
+        self.assertGreaterEqual(len(chunks), 2)
+        self.assertFalse(chunks[0].endswith("\\"))
 
 
 if __name__ == "__main__":

@@ -105,6 +105,35 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "✅ Код найден")
         mock_handler.execute.assert_awaited_once()
 
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=["ai_router"])
+    @patch.object(IntentRouter, "_log_to_db")
+    async def test_rag_qa_uses_original_text_when_question_missing(self, mock_log, mock_modules, mock_enabled):
+        """Для intent=rag_qa вопрос берётся из original_text, если parameters.question пустой."""
+        provider = AsyncMock()
+        provider.classify.return_value = ClassificationResult(
+            intent="rag_qa",
+            confidence=0.95,
+            parameters={},
+            explain_code="RAG_QA",
+        )
+
+        router = _make_router(provider=provider)
+        rag_handler = AsyncMock()
+        rag_handler.intent_name = "rag_qa"
+        rag_handler.module_key = "ai_router"
+        rag_handler.execute.return_value = "📚 *Ответ по базе знаний*\n\nТест"
+        router._handlers["rag_qa"] = rag_handler
+
+        result, status = await router.route("Прошивка d200 с флешки", user_id=2)
+
+        self.assertEqual(status, "routed")
+        self.assertIn("Ответ по базе знаний", result)
+        rag_handler.execute.assert_awaited_once_with(
+            {"question": "Прошивка d200 с флешки"},
+            2,
+        )
+
     @patch("src.common.bot_settings.is_module_enabled")
     @patch("src.common.bot_settings.get_enabled_modules", return_value=["upos_errors"])
     @patch.object(IntentRouter, "_log_to_db")

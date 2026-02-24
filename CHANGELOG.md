@@ -5,6 +5,81 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.42] - 2026-02-24
+
+### Added
+- Добавлены регрессионные тесты для RAG-форматирования и доставки длинных MarkdownV2-ответов: `tests/test_ai_router_escape.py`, `tests/test_intent_handlers.py`, `tests/test_telegram_bot_markdown_safe.py`.
+
+### Changed
+- Для ответов `rag_qa` включено ограниченное сохранение форматирования в Telegram MarkdownV2: поддерживаются списки, жирный текст и `inline code`, а неподдерживаемая markdown-разметка безопасно экранируется.
+- Обновлена документация по RAG UX и безопасной отправке: `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Устранён UX-дефект, при котором форматированный RAG-ответ (например, `**жирный**`, `код`, структурированные пункты) отображался как «сырой» текст из-за полного экранирования.
+- Снижен риск ошибки Telegram `Message is too long`: длинные ответы `rag_qa` теперь автоматически разбиваются на несколько сообщений.
+
+## [0.1.41] - 2026-02-24
+
+### Added
+- Добавлены регрессионные тесты в `tests/test_llm_provider.py`: автоповтор на `deepseek-chat` при пустом ответе `deepseek-reasoner` и извлечение текста из structured `content` (list-формат).
+
+### Changed
+- Обновлена документация (`docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`) с описанием runtime-fallback при пустом `content` у `deepseek-reasoner`.
+
+### Fixed
+- Исправлен сценарий «тихого» ответа модели: `DeepSeekProvider` теперь автоматически повторяет chat/RAG-запрос один раз на `deepseek-chat`, если `deepseek-reasoner` вернул пустой финальный `content`.
+
+## [0.1.40] - 2026-02-24
+
+### Added
+- Добавлен диагностический лог `RAG retrieval:` в `RagKnowledgeService` с полями `mode`, `tokens`, `prefilter_docs`, `lexical_hits`, `vector_hits`, `selected`, `top_source` для прозрачной отладки retrieval-канала.
+- Добавлен регрессионный тест в `tests/test_rag_service.py`, проверяющий наличие и формат лога `RAG retrieval:` с режимом `lexical_only`.
+
+### Changed
+- Обновлена документация по логированию в `docs/AI_RAG_GUIDE.md` и `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Нет изменений.
+
+## [0.1.39] - 2026-02-24
+
+### Added
+- Добавлен регрессионный тест `tests/test_vector_search.py`, проверяющий корректную сборку Qdrant-фильтра по списку `document_id` без ошибки валидации.
+
+### Changed
+- Нет изменений.
+
+### Fixed
+- Исправлена ошибка `ValidationError` в локальном vector retrieval: фильтр Qdrant больше не использует `min_should=1` в `models.Filter` и формирует ограничение по документам через `MatchAny`.
+
+## [0.1.38] - 2026-02-24
+
+### Added
+- Добавлены готовые пресеты локального vector RAG для двух классов окружений: macOS (сбалансированный BGE-M3) и Windows-машины с i5-3550 + NVIDIA T400 (стабильный профиль с `intfloat/multilingual-e5-small`).
+
+### Changed
+- Обновлены конфигурационные примеры и документация по запуску/тюнингу vector retrieval: `.env.example`, `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Нет изменений.
+
+## [0.1.37] - 2026-02-24
+
+### Added
+- Добавлен опциональный локальный векторный слой RAG: модуль `src/sbs_helper_telegram_bot/ai_router/vector_search.py` (Qdrant local mode + локальные эмбеддинги) с безопасным fallback на lexical retrieval.
+- Добавлен SQL-скрипт `scripts/ai_rag_vector_setup.sql` для хранения метаданных векторной индексации чанков (`rag_chunk_embeddings`).
+- Добавлен CLI-скрипт `scripts/rag_vector_backfill.py` для пакетной индексации уже загруженных RAG-документов.
+- Добавлены тесты: hybrid merge/vector-only merge в `tests/test_rag_service.py`, fallback вопроса `rag_qa` в `tests/test_ai_router.py`, dry-run backfill в `tests/test_rag_service.py`.
+
+### Changed
+- В `RagKnowledgeService` реализован hybrid retrieval: объединение lexical и vector кандидатов с конфигурируемыми весами и сохранением summary-enrichment.
+- Ingest/CRUD документы теперь синхронизируют состояние локального векторного индекса (upsert при загрузке, статус при archive/restore/delete, удаление точек при hard-delete).
+- В `IntentRouter` добавлен fallback: для intent `rag_qa` автоматически используется `original_text`, если классификатор не передал параметр `question`.
+- Обновлена документация (`README.md`, `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`) и `.env.example` по локальному vector/hybrid режиму.
+
+### Fixed
+- Снижена вероятность пропуска релевантных шагов в RAG-ответах для переформулированных запросов за счёт добавления семантического (vector) канала retrieval.
+
 ## [0.1.36] - 2026-02-24
 
 ### Added

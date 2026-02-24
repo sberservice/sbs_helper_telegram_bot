@@ -360,6 +360,8 @@ class IntentRouter:
                 params = classification.parameters
                 if intent == "ticket_validation" and not params.get("ticket_text"):
                     params["ticket_text"] = original_text
+                if intent == "rag_qa" and len(str(params.get("question", "")).strip()) < 3:
+                    params["question"] = original_text
 
                 response = await handler.execute(params, user_id)
                 dispatch_meta["path"] = "handler"

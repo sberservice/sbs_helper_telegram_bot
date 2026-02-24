@@ -269,6 +269,71 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         post_kwargs = mock_client.post.await_args.kwargs
         self.assertEqual(post_kwargs["json"]["model"], "deepseek-chat")
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.settings.get_active_deepseek_model_for_response", return_value="deepseek-reasoner")
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    async def test_call_api_retries_with_chat_model_on_empty_reasoner_content(
+        self,
+        mock_async_client,
+        mock_response_model,
+    ):
+        """При пустом ответе reasoner выполняется автоповтор на deepseek-chat."""
+        provider = DeepSeekProvider(api_key="test_key")
+
+        mock_client = mock_async_client.return_value.__aenter__.return_value
+
+        first_response = MagicMock()
+        first_response.json.return_value = {
+            "choices": [{"message": {"content": ""}}]
+        }
+        first_response.raise_for_status.return_value = None
+
+        second_response = MagicMock()
+        second_response.json.return_value = {
+            "choices": [{"message": {"content": "fallback answer"}}]
+        }
+        second_response.raise_for_status.return_value = None
+
+        mock_client.post = AsyncMock(side_effect=[first_response, second_response])
+
+        result = await provider._call_api(
+            messages=[{"role": "user", "content": "hi"}],
+            purpose="rag_answer",
+        )
+
+        self.assertEqual(result, "fallback answer")
+        self.assertEqual(mock_client.post.await_count, 2)
+
+        first_call_kwargs = mock_client.post.await_args_list[0].kwargs
+        second_call_kwargs = mock_client.post.await_args_list[1].kwargs
+        self.assertEqual(first_call_kwargs["json"]["model"], "deepseek-reasoner")
+        self.assertEqual(second_call_kwargs["json"]["model"], "deepseek-chat")
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    async def test_call_api_supports_structured_list_content(self, mock_async_client):
+        """_call_api корректно извлекает текст из content в list-формате."""
+        provider = DeepSeekProvider(api_key="test_key", model="deepseek-chat")
+
+        mock_client = mock_async_client.return_value.__aenter__.return_value
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": [
+                            {"type": "text", "text": "Первая строка"},
+                            {"type": "text", "text": "Вторая строка"},
+                        ]
+                    }
+                }
+            ]
+        }
+        mock_response.raise_for_status.return_value = None
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        result = await provider._call_api(messages=[{"role": "user", "content": "hi"}], purpose="chat")
+
+        self.assertEqual(result, "Первая строка\nВторая строка")
+
     @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.AI_MODEL_IO_DB_LOG_ENABLED", True)
     @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.database.get_cursor")
     @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.database.get_db_connection")
