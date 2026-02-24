@@ -204,8 +204,11 @@ class IntentRouter:
             self._circuit_breaker.record_success()
         except Exception as exc:
             self._circuit_breaker.record_failure()
-            logger.error(
-                "AI classification error: user=%s, error=%s", user_id, exc
+            logger.exception(
+                "AI classification error: user=%s, error_type=%s, error_repr=%r",
+                user_id,
+                type(exc).__name__,
+                exc,
             )
             return None, "error"
 
@@ -214,10 +217,12 @@ class IntentRouter:
                 await on_classified(classification)
             except Exception as callback_exc:
                 logger.warning(
-                    "AI on_classified callback failed: user=%s, intent=%s, error=%s",
+                    "AI on_classified callback failed: user=%s, intent=%s, error_type=%s, error_repr=%r",
                     user_id,
                     classification.intent,
+                    type(callback_exc).__name__,
                     callback_exc,
+                    exc_info=True,
                 )
 
         # 8. Записываем rate-limit
@@ -326,9 +331,11 @@ class IntentRouter:
                     return response, "routed", dispatch_meta
                 except Exception as exc:
                     logger.warning(
-                        "AI reroute general_chat->rag_qa failed: user=%s, error=%s",
+                        "AI reroute general_chat->rag_qa failed: user=%s, error_type=%s, error_repr=%r",
                         user_id,
+                        type(exc).__name__,
                         exc,
+                        exc_info=True,
                     )
 
         # Обработчик модуля
@@ -359,10 +366,11 @@ class IntentRouter:
                 dispatch_meta["handler_ms"] = int((time.monotonic() - handler_started_at) * 1000)
                 return response, "routed", dispatch_meta
             except Exception as exc:
-                logger.error(
-                    "AI handler error: intent=%s, user=%s, error=%s",
+                logger.exception(
+                    "AI handler error: intent=%s, user=%s, error_type=%s, error_repr=%r",
                     intent,
                     user_id,
+                    type(exc).__name__,
                     exc,
                 )
                 dispatch_meta["path"] = "handler_error"
@@ -392,7 +400,12 @@ class IntentRouter:
                 return format_ai_chat_response(chat_response), "chat", dispatch_meta
             except Exception as exc:
                 self._circuit_breaker.record_failure()
-                logger.error("AI chat error: user=%s, error=%s", user_id, exc)
+                logger.exception(
+                    "AI chat error: user=%s, error_type=%s, error_repr=%r",
+                    user_id,
+                    type(exc).__name__,
+                    exc,
+                )
                 dispatch_meta["path"] = "general_chat_error"
                 return None, "error", dispatch_meta
 
@@ -425,7 +438,12 @@ class IntentRouter:
                 return format_ai_chat_response(chat_response), "chat", dispatch_meta
             except Exception as exc:
                 self._circuit_breaker.record_failure()
-                logger.error("AI chat fallback error: user=%s, error=%s", user_id, exc)
+                logger.exception(
+                    "AI chat fallback error: user=%s, error_type=%s, error_repr=%r",
+                    user_id,
+                    type(exc).__name__,
+                    exc,
+                )
                 dispatch_meta["path"] = "fallback_chat_error"
                 return None, "error", dispatch_meta
 

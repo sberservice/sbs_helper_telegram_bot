@@ -334,6 +334,28 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "ok")
         self.assertTrue(mock_get_db_connection.called)
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.logger.exception")
+    async def test_chat_logs_exception_type_for_empty_message(self, mock_logger_exception):
+        """При пустом тексте исключения лог содержит тип ошибки и traceback."""
+        provider = DeepSeekProvider(api_key="test_key")
+
+        empty_exc = Exception()
+        provider._call_api = AsyncMock(side_effect=empty_exc)
+
+        with self.assertRaises(Exception):
+            await provider.chat(
+                messages=[{"role": "user", "content": "hi"}],
+                system_prompt="sys",
+                user_id=123,
+                purpose="chat",
+            )
+
+        mock_logger_exception.assert_called_once()
+        log_args = mock_logger_exception.call_args.args
+        self.assertIn("DeepSeek chat error", log_args[0])
+        self.assertEqual(log_args[1], "Exception")
+        self.assertIs(log_args[2], empty_exc)
+
 
 if __name__ == "__main__":
     unittest.main()

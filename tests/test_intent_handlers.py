@@ -211,6 +211,29 @@ class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
         result = await handler.execute({"question": "Неизвестный вопрос"}, user_id=22)
         self.assertIn("не найден точный ответ", result)
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.intent_handlers.logger.exception")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service")
+    async def test_rag_exception_with_empty_message_logs_type(
+        self,
+        mock_get_rag_service,
+        mock_logger_exception,
+    ):
+        """При пустом тексте исключения в логе сохраняется тип ошибки."""
+        mock_service = AsyncMock()
+        empty_exc = Exception()
+        mock_service.answer_question.side_effect = empty_exc
+        mock_get_rag_service.return_value = mock_service
+
+        handler = RagQaHandler()
+        result = await handler.execute({"question": "Какой SLA?"}, user_id=22)
+
+        self.assertIn("Не удалось получить ответ", result)
+        mock_logger_exception.assert_called_once()
+        log_args = mock_logger_exception.call_args.args
+        self.assertIn("Ошибка RAG-обработчика", log_args[0])
+        self.assertEqual(log_args[2], "Exception")
+        self.assertIs(log_args[3], empty_exc)
+
 
 class TestKtrHandler(unittest.IsolatedAsyncioTestCase):
     """Тесты исполнения KtrHandler."""
