@@ -30,6 +30,7 @@ class LocalEmbeddingProvider:
     def __init__(self) -> None:
         self._model = None
         self._model_name = ai_settings.AI_RAG_VECTOR_EMBEDDING_MODEL
+        self._device = "cpu"
 
     def is_ready(self) -> bool:
         """Проверить, что модель эмбеддингов доступна для инференса."""
@@ -67,14 +68,51 @@ class LocalEmbeddingProvider:
             return True
 
         try:
+            self._device = self._resolve_device()
             from sentence_transformers import SentenceTransformer
 
-            self._model = SentenceTransformer(self._model_name)
-            logger.info("Локальная embedding-модель загружена: %s", self._model_name)
+            self._model = SentenceTransformer(self._model_name, device=self._device)
+            logger.info(
+                "Локальная embedding-модель загружена: model=%s device=%s",
+                self._model_name,
+                self._device,
+            )
             return True
         except Exception as exc:
             logger.warning("Не удалось загрузить embedding-модель %s: %s", self._model_name, exc)
             return False
+
+    @staticmethod
+    def _resolve_device() -> str:
+        """Определить целевое устройство для вычисления эмбеддингов."""
+        configured = str(ai_settings.AI_RAG_VECTOR_DEVICE or "auto").strip().lower()
+        if configured not in {"auto", "cuda", "cpu"}:
+            logger.warning(
+                "Неизвестное значение AI_RAG_VECTOR_DEVICE=%s, используется auto",
+                configured,
+            )
+            configured = "auto"
+
+        if configured == "cpu":
+            return "cpu"
+
+        cuda_available = False
+        try:
+            import torch
+
+            cuda_available = bool(torch.cuda.is_available())
+        except Exception as exc:
+            logger.info("PyTorch CUDA недоступен, используется CPU: %s", exc)
+
+        if configured == "cuda":
+            if cuda_available:
+                return "cuda"
+            logger.warning("Запрошен AI_RAG_VECTOR_DEVICE=cuda, но CUDA недоступен, используется CPU")
+            return "cpu"
+
+        if cuda_available:
+            return "cuda"
+        return "cpu"
 
 
 class LocalVectorIndex:

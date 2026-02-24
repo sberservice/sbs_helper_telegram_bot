@@ -98,7 +98,7 @@ CLOSED ──(5 ошибок)──► OPEN ──(300с)──► HALF_OPEN
 
 **HTML-документы**: приоритетный header-aware chunking через `HTMLHeaderTextSplitter` (h1–h6); при недоступности — fallback на plain-text.
 
-**Python 3.14+**: LangChain-splitters автоматически отключаются из-за несовместимости `pydantic.v1`; используется встроенный fallback.
+**Python 3.14+**: LangChain splitters поддерживаются; встроенный fallback используется только при ошибке импорта/инициализации splitter-а.
 
 ### Retrieval
 
@@ -234,6 +234,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `AI_RAG_VECTOR_TOP_K` | `12` | Top-K векторных кандидатов |
 | `AI_RAG_VECTOR_PREFETCH_K` | `40` | Глубина первичного поиска в индексе |
 | `AI_RAG_VECTOR_EMBEDDING_MODEL` | `BAAI/bge-m3` | Локальная embedding-модель |
+| `AI_RAG_VECTOR_DEVICE` | `auto` | Устройство embedding-модели (`auto`/`cuda`/`cpu`) |
 | `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE` | `8` | Batch size при вычислении эмбеддингов |
 | `AI_RAG_VECTOR_EMBEDDING_MAX_CHARS` | `6000` | Ограничение длины текста на embedding |
 | `AI_RAG_VECTOR_LEXICAL_WEIGHT` | `0.45` | Вес lexical score в hybrid |
@@ -251,11 +252,16 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 
 **Windows (i5-3550 + NVIDIA T400, стабильный профиль)**
 - `AI_RAG_VECTOR_EMBEDDING_MODEL=intfloat/multilingual-e5-small`
+- `AI_RAG_VECTOR_DEVICE=auto`
 - `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE=2`
 - `AI_RAG_VECTOR_TOP_K=10`
 - `AI_RAG_VECTOR_PREFETCH_K=24`
 - `AI_RAG_VECTOR_LEXICAL_WEIGHT=0.55`
 - `AI_RAG_VECTOR_SEMANTIC_WEIGHT=0.45`
+
+Пояснение для T400:
+- `AI_RAG_VECTOR_DEVICE=auto` автоматически выбирает `cuda` при доступном GPU и переключается на `cpu`, если CUDA недоступен.
+- Для строгого GPU-режима можно использовать `AI_RAG_VECTOR_DEVICE=cuda`.
 
 ### Runtime-настройки (admin panel)
 

@@ -5,6 +5,19 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.43] - 2026-02-24
+
+### Added
+- Добавлен новый env-параметр `AI_RAG_VECTOR_DEVICE` (`auto|cuda|cpu`) для управления устройством локальной embedding-модели в vector RAG.
+- Добавлены тесты `tests/test_vector_search.py` для проверки выбора устройства (`auto/cuda`) и передачи `device` в `SentenceTransformer`.
+
+### Changed
+- `LocalEmbeddingProvider` в `src/sbs_helper_telegram_bot/ai_router/vector_search.py` теперь явно выбирает устройство (`cuda` при доступности GPU, иначе `cpu`) и логирует выбранный `device` при загрузке модели.
+- Обновлены конфигурационные примеры и документация для Windows-профиля с NVIDIA T400: `.env.example`, `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Снижен риск «тихого» запуска embedding-инференса на CPU без явной диагностики: выбор устройства стал контролируемым через конфиг и прозрачным в логах.
+
 ## [0.1.42] - 2026-02-24
 
 ### Added

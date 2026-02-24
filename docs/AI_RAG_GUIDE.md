@@ -144,6 +144,7 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_VECTOR_TOP_K`
 - `AI_RAG_VECTOR_PREFETCH_K`
 - `AI_RAG_VECTOR_EMBEDDING_MODEL`
+- `AI_RAG_VECTOR_DEVICE`
 - `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE`
 - `AI_RAG_VECTOR_EMBEDDING_MAX_CHARS`
 - `AI_RAG_VECTOR_LEXICAL_WEIGHT`
@@ -169,6 +170,7 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_VECTOR_ENABLED=1`
 - `AI_RAG_HYBRID_ENABLED=1`
 - `AI_RAG_VECTOR_EMBEDDING_MODEL=intfloat/multilingual-e5-small`
+- `AI_RAG_VECTOR_DEVICE=auto`
 - `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE=2`
 - `AI_RAG_VECTOR_EMBEDDING_MAX_CHARS=3500`
 - `AI_RAG_VECTOR_TOP_K=10`
@@ -179,8 +181,22 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 
 Примечания по Windows-профилю:
 - Профиль ориентирован на CPU-стабильность и умеренную память.
+- `AI_RAG_VECTOR_DEVICE=auto` выбирает `cuda`, если GPU доступен, и безопасно переключается на `cpu`, если CUDA недоступен.
+- Для принудительного запуска эмбеддингов на GPU можно указать `AI_RAG_VECTOR_DEVICE=cuda`.
 - Если доступен CUDA и есть запас по памяти, можно увеличить `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE` до `3-4`.
 - Если latency высокая, сначала уменьшайте `AI_RAG_VECTOR_PREFETCH_K`, затем `AI_RAG_VECTOR_TOP_K`.
+
+Проверка CUDA на Windows (T400):
+
+```powershell
+nvidia-smi
+```
+
+Проверка PyTorch CUDA в активном окружении:
+
+```powershell
+python -c "import torch; print('cuda=', torch.cuda.is_available()); print('cuda_version=', torch.version.cuda); print('device=', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
+```
 
 Runtime-ключ в `bot_settings`:
 - `ai_rag_html_splitter_enabled` (`1` — включён, `0` — выключен)
