@@ -5,6 +5,12 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.48] - 2026-02-25
+
+### Fixed
+- Исправлен кроссплатформенный дефект `scripts/rag_directory_ingest.py` на Windows: lock-файл single-instance теперь создаётся в системной temp-директории (`tempfile.gettempdir()`), а не в жёстко заданном `/tmp`, из-за чего ранее возникал `FileNotFoundError`.
+- Добавлен тест в `tests/test_rag_directory_ingest.py`, проверяющий построение lock-пути через системный temp-dir.
+
 ## [0.1.47] - 2026-02-25
 
 ### Added

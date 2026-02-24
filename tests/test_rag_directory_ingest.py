@@ -6,6 +6,7 @@ import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from scripts.rag_directory_ingest import (
     _acquire_single_instance_lock,
@@ -246,6 +247,17 @@ class TestRagDirectoryIngestScript(unittest.TestCase):
                     _acquire_single_instance_lock(lock_path)
             finally:
                 _release_single_instance_lock(lock_path, first_fd)
+
+    def test_lock_file_path_uses_system_temp_dir(self):
+        """Путь lock-файла строится через системный temp-dir (кроссплатформенно)."""
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            with patch("scripts.rag_directory_ingest.tempfile.gettempdir", return_value="C:/Temp"):
+                lock_path = _build_lock_file_path(directory)
+
+        self.assertEqual(lock_path.parent.as_posix(), "C:/Temp")
+        self.assertTrue(lock_path.name.startswith("rag_directory_ingest_"))
+        self.assertTrue(lock_path.name.endswith(".lock"))
 
     def test_single_instance_lock_recovers_from_stale_pid(self):
         """Stale lock-файл очищается и позволяет новый запуск."""

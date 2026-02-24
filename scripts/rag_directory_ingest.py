@@ -9,6 +9,7 @@ import hashlib
 import logging
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 def _build_lock_file_path(directory: Path) -> Path:
     """Построить путь lock-файла для конкретной директории синхронизации."""
     digest = hashlib.sha256(directory.resolve().as_posix().encode("utf-8")).hexdigest()[:16]
-    return Path("/tmp") / f"rag_directory_ingest_{digest}.lock"
+    return Path(tempfile.gettempdir()) / f"rag_directory_ingest_{digest}.lock"
 
 
 def _acquire_single_instance_lock(lock_file_path: Path) -> int:
@@ -47,6 +48,7 @@ def _acquire_single_instance_lock(lock_file_path: Path) -> int:
     после завершения работы процесса.
     """
     current_pid = os.getpid()
+    lock_file_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _try_create_lock() -> int:
         fd = os.open(str(lock_file_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
