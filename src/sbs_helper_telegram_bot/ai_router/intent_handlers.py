@@ -12,7 +12,10 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from src.sbs_helper_telegram_bot.ai_router.messages import escape_markdown_v2
+from src.sbs_helper_telegram_bot.ai_router.messages import (
+    escape_markdown_v2,
+    format_rag_answer_markdown_v2,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -489,7 +492,7 @@ class RagQaHandler(IntentHandler):
                     "Попробуйте переформулировать вопрос или уточнить формулировку\\."
                 )
 
-            safe_answer = escape_markdown_v2(answer)
+            safe_answer = format_rag_answer_markdown_v2(answer)
             return f"📚 *Ответ по базе знаний*\n\n{safe_answer}"
         except Exception as exc:
             logger.exception(

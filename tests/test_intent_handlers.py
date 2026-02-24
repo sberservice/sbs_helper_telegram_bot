@@ -201,6 +201,24 @@ class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Ответ из базы знаний", result)
 
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service")
+    async def test_answer_from_rag_preserves_supported_markdown(self, mock_get_rag_service):
+        """RAG-ответ сохраняет поддерживаемый markdown и экранирует остальное."""
+        mock_service = AsyncMock()
+        mock_service.answer_question.return_value = (
+            "1. **Важно**\n"
+            "Команда: `echo ok`\n"
+            "Ссылка [x](https://example.com)"
+        )
+        mock_get_rag_service.return_value = mock_service
+
+        handler = RagQaHandler()
+        result = await handler.execute({"question": "Покажи формат"}, user_id=22)
+
+        self.assertIn("*Важно*", result)
+        self.assertIn("`echo ok`", result)
+        self.assertIn("\\[x\\]\\(https://example\\.com\\)", result)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service")
     async def test_not_found_in_rag(self, mock_get_rag_service):
         """Если релевантных чанков нет — возвращается корректный fallback."""
         mock_service = AsyncMock()
