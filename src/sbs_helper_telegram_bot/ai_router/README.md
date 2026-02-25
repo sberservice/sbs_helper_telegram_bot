@@ -98,7 +98,7 @@ CLOSED ──(5 ошибок)──► OPEN ──(300с)──► HALF_OPEN
 
 Загрузка через Telegram (`#rag`) не выполняет немедленный vector upsert: эмбеддинги формируются отдельным запуском `scripts/rag_vector_backfill.py`.
 
-**HTML-документы**: приоритетный header-aware chunking через `HTMLHeaderTextSplitter` (h1–h6); при недоступности — fallback на plain-text.
+**HTML-документы**: приоритетный semantic-preserving chunking через `HTMLSemanticPreservingSplitter` (h1–h6); при недоступности используется `HTMLHeaderTextSplitter`, затем fallback на plain-text.
 
 **Python 3.14+**: LangChain splitters поддерживаются; встроенный fallback используется только при ошибке импорта/инициализации splitter-а.
 
@@ -172,13 +172,8 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 Для одной и той же директории синхронизации разрешён только один активный процесс `rag_directory_ingest.py` (PID lock-файл в системной temp-директории); второй запуск завершается с ошибкой, чтобы исключить конкуренцию транзакций.
 Для обновления локального векторного индекса после синхронизации запускайте `rag_vector_backfill.py`.
 При загрузке каждого документа синхронизация формирует/обновляет запись в `rag_document_summaries`.
-Для summary в сценарии directory-ingest можно задать отдельную модель через env `AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL` (`deepseek-chat` или `deepseek-reasoner`); при невалидном значении используется стандартная response-модель.
 
 ## Безопасная отправка
-
-- Экранирование MarkdownV2 с fallback на plain text
-- Плейсхолдер «⏳ Обрабатываю ваш запрос...» → edit → fallback новым сообщением
-- Для RAG-запросов плейсхолдер обновляется на «⏳ Ожидаю ответа ИИ»
 - Для `rag_qa` поддерживается ограниченное форматирование ответа модели: нумерованные/маркированные списки, **жирный текст**, `inline code`; неподдерживаемая markdown-разметка экранируется
 - Вложенная разметка вида `**\`code\`**` в `rag_qa` корректно восстанавливается и не выводит служебные плейсхолдеры в пользовательский текст
 - Длинные ответы `rag_qa` автоматически разбиваются на несколько MarkdownV2-сообщений, чтобы избежать ошибки Telegram `Message is too long`
@@ -194,6 +189,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 - `selected` показывает число финальных чанков, `selected_unique_docs` — число уникальных документов среди них, `selected_top_docs` — top уникальных `document_id` по порядку ранжирования
 - Доказательство summary-приоритизации: строка `RAG priority evidence:` в многострочном ранжированном формате с блоками `prefilter_top` и `selected_top` (до top-5; для `selected_top` добавлены `doc`, `chunk`, `origin`, разложение lexical-компоненты `lex_raw/lex_bonus/lex_total`, формула `hybrid=(lex_total*lexical_weight)+(vector_score*vector_weight)` и `summary_bonus`; `lex_bonus`/`summary_bonus` считаются по нормализованному summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле)
 - Диагностика chunking при ingest: строка `RAG chunking strategy:` с полями `file`, `format`, `strategy`, `slicer`, `chunk_size`, `chunk_overlap`, `chunks`, `html_splitter_enabled`, `langchain_splitter_supported`
+- Успешная векторная индексация чанков: строка `RAG vector upsert:` с полями `chunks` и `duration_ms` (время upsert в миллисекундах)
 - Полный `prompt/response` всех LLM-вызовов (classification/chat/fallback_chat/rag_answer/rag_summary) → `ai_model_io_log`
 - Для `deepseek-reasoner` добавлен runtime-fallback: при пустом `content` для chat/RAG выполняется один автоповтор на `deepseek-chat` с предупреждением в логах
 - Перед записью в `ai_model_io_log` чувствительные данные маскируются (`email`, `телефон`, `ИНН`, `СНИЛС`)
@@ -204,12 +200,21 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 ### Переменные окружения
 
 | Переменная | По умолчанию | Описание |
+| `AI_RAG_LEXICAL_SCORER` | `legacy` | Режим lexical scoring: `legacy` или `bm25` |
+| `AI_RAG_BM25_K1` | `1.5` | Параметр `k1` для BM25 |
+| `AI_RAG_BM25_B` | `0.75` | Параметр `b` для BM25 |
+| `AI_RAG_RU_NORMALIZATION_ENABLED` | `1` | Включить RU-нормализацию токенов |
+| `AI_RAG_RU_NORMALIZATION_MODE` | `lemma_then_stem` | Режим RU-нормализации: `lemma_then_stem`/`lemma_only`/`stem_only` |
 |------------|-------------|----------|
 | `AI_PROVIDER` | `deepseek` | Провайдер LLM |
 | `DEEPSEEK_API_KEY` | — | API-ключ |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Базовый URL |
 | `DEEPSEEK_MODEL` | `deepseek-chat` | Модель по умолчанию |
 | `AI_LLM_REQUEST_TIMEOUT` | `30` | Таймаут запроса (сек) |
+| `AI_LLM_CLASSIFICATION_TEMPERATURE` | `0.1` | Температура для intent-классификации |
+| `AI_LLM_CLASSIFICATION_MAX_TOKENS` | `1024` | Лимит токенов для intent-классификации |
+| `AI_LLM_CHAT_TEMPERATURE` | `0.7` | Температура для chat/RAG-ответов |
+| `AI_LLM_CHAT_MAX_TOKENS` | `1024` | Лимит токенов для chat/RAG-ответов |
 | `AI_LOG_MODEL_IO` | `1` | Логировать payload prompt и raw response модели |
 | `AI_LOG_MODEL_IO_MAX_CHARS` | `8000` | Лимит символов для prompt/response в логах |
 | `AI_MODEL_IO_DB_LOG_ENABLED` | `1` | Сохранять полный prompt/response в таблицу `ai_model_io_log` |
@@ -248,7 +253,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `AI_RAG_SUMMARY_VECTOR_WEIGHT` | `10` | Вес semantic vector similarity summary в prefilter scoring (`prefilter_score = lexical + vec * weight`) |
 | `AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL` | — | Отдельная DeepSeek-модель для summary только в `rag_directory_ingest.py` (`deepseek-chat`/`deepseek-reasoner`) |
 | `AI_RAG_CACHE_TTL_SECONDS` | `300` | TTL кэша |
-| `AI_RAG_HTML_SPLITTER_ENABLED` | `1` | HTML header-aware splitter |
+| `AI_RAG_HTML_SPLITTER_ENABLED` | `1` | HTML semantic-preserving splitter |
 | `AI_RAG_VECTOR_ENABLED` | `0` | Включить локальный векторный retrieval |
 | `AI_RAG_HYBRID_ENABLED` | `1` | Использовать hybrid-слияние lexical/vector |
 | `AI_RAG_VECTOR_LOCAL_MODE` | `1` | Использовать Qdrant local mode |

@@ -59,6 +59,22 @@ ALLOWED_DEEPSEEK_MODELS: Final[tuple[str, ...]] = (
 # Максимальное время ожидания ответа от LLM API.
 LLM_REQUEST_TIMEOUT: Final[int] = int(os.getenv("AI_LLM_REQUEST_TIMEOUT", "30"))
 
+# Параметры генерации LLM для intent-классификации.
+LLM_CLASSIFICATION_TEMPERATURE: Final[float] = float(
+    os.getenv("AI_LLM_CLASSIFICATION_TEMPERATURE", "0.1")
+)
+LLM_CLASSIFICATION_MAX_TOKENS: Final[int] = int(
+    os.getenv("AI_LLM_CLASSIFICATION_MAX_TOKENS", "1024")
+)
+
+# Параметры генерации LLM для свободного диалога/chat-ответов.
+LLM_CHAT_TEMPERATURE: Final[float] = float(
+    os.getenv("AI_LLM_CHAT_TEMPERATURE", "0.7")
+)
+LLM_CHAT_MAX_TOKENS: Final[int] = int(
+    os.getenv("AI_LLM_CHAT_MAX_TOKENS", "1024")
+)
+
 # Логирование prompt/response модели
 # Включить логирование входа/выхода модели в приложении.
 AI_LOG_MODEL_IO: Final[bool] = os.getenv("AI_LOG_MODEL_IO", "1") == "1"
@@ -219,6 +235,22 @@ AI_RAG_VECTOR_LEXICAL_WEIGHT: Final[float] = float(os.getenv("AI_RAG_VECTOR_LEXI
 # Вес semantic-score в гибридной формуле ранжирования.
 AI_RAG_VECTOR_SEMANTIC_WEIGHT: Final[float] = float(os.getenv("AI_RAG_VECTOR_SEMANTIC_WEIGHT", "0.55"))
 
+# Лексический retrieval: режим ранжирования и нормализация русского текста
+# Режим lexical scoring: legacy (coverage+density) или bm25.
+AI_RAG_LEXICAL_SCORER: Final[str] = os.getenv("AI_RAG_LEXICAL_SCORER", "legacy")
+# Ключ runtime-настройки режима lexical scoring в bot_settings.
+AI_RAG_LEXICAL_SCORER_SETTING_KEY: Final[str] = "ai_rag_lexical_scorer"
+# Параметр k1 для BM25.
+AI_RAG_BM25_K1: Final[float] = float(os.getenv("AI_RAG_BM25_K1", "1.5"))
+# Параметр b для BM25.
+AI_RAG_BM25_B: Final[float] = float(os.getenv("AI_RAG_BM25_B", "0.75"))
+# Включить нормализацию русских токенов (лемматизация/стемминг).
+AI_RAG_RU_NORMALIZATION_ENABLED: Final[bool] = os.getenv("AI_RAG_RU_NORMALIZATION_ENABLED", "1") == "1"
+# Ключ runtime-настройки нормализации русского текста в bot_settings.
+AI_RAG_RU_NORMALIZATION_ENABLED_SETTING_KEY: Final[str] = "ai_rag_ru_normalization_enabled"
+# Режим нормализации русского текста: lemma_then_stem, lemma_only, stem_only.
+AI_RAG_RU_NORMALIZATION_MODE: Final[str] = os.getenv("AI_RAG_RU_NORMALIZATION_MODE", "lemma_then_stem")
+
 # Включение header-aware HTML splitter для RAG chunking
 # Флаг включения HTML splitter с учётом заголовков h1-h6.
 AI_RAG_HTML_SPLITTER_ENABLED: Final[bool] = os.getenv("AI_RAG_HTML_SPLITTER_ENABLED", "1") == "1"
@@ -319,3 +351,31 @@ def is_rag_html_splitter_enabled() -> bool:
 
     normalized = str(db_value).strip().lower()
     return normalized in {"1", "true", "yes", "on"}
+
+
+def get_rag_lexical_scorer() -> str:
+    """Получить активный режим lexical scoring (`legacy` или `bm25`)."""
+    db_value = _safe_get_setting(AI_RAG_LEXICAL_SCORER_SETTING_KEY)
+    raw_value = db_value if db_value is not None else AI_RAG_LEXICAL_SCORER
+    normalized = str(raw_value or "").strip().lower()
+    if normalized in {"legacy", "bm25"}:
+        return normalized
+    return "legacy"
+
+
+def is_rag_ru_normalization_enabled() -> bool:
+    """Проверить, включена ли нормализация русских токенов для lexical retrieval."""
+    db_value = _safe_get_setting(AI_RAG_RU_NORMALIZATION_ENABLED_SETTING_KEY)
+    if db_value is None:
+        return AI_RAG_RU_NORMALIZATION_ENABLED
+
+    normalized = str(db_value).strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+
+def get_rag_ru_normalization_mode() -> str:
+    """Получить режим нормализации русских токенов."""
+    normalized = str(AI_RAG_RU_NORMALIZATION_MODE or "").strip().lower()
+    if normalized in {"lemma_then_stem", "lemma_only", "stem_only"}:
+        return normalized
+    return "lemma_then_stem"

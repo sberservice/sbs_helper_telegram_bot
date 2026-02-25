@@ -44,7 +44,7 @@ class FakeRagService:
 
     def get_chunking_diagnostics(self):
         return {
-            "html_strategy": "html_header_splitter_with_fallback",
+            "html_strategy": "html_semantic_preserving_splitter_with_fallback",
             "plain_text_strategy": "extract_text_then_split_text",
             "text_slicer": "RecursiveCharacterTextSplitter(langchain.text_splitter)",
             "chunk_size": 1000,

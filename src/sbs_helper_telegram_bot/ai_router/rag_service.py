@@ -16,8 +16,10 @@ import io
 import logging
 import re
 import asyncio
+import math
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple, TypeVar
 
@@ -32,7 +34,13 @@ from src.sbs_helper_telegram_bot.ai_router.vector_search import (
 
 logger = logging.getLogger(__name__)
 
+try:
+    from rank_bm25 import BM25Okapi
+except Exception:
+    BM25Okapi = None
+
 _TOKEN_RE = re.compile(r"[a-zа-яё0-9]{3,}", re.IGNORECASE)
+_CYRILLIC_TOKEN_RE = re.compile(r"[а-яё]", re.IGNORECASE)
 _SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".docx", ".md", ".html", ".htm"}
 _RAG_CHUNK_SCAN_LIMIT = 3000
 _RAG_SUMMARY_SCAN_LIMIT = 3000
@@ -65,6 +73,10 @@ class RagKnowledgeService:
         self._vector_index: Optional[LocalVectorIndex] = None
         self._summary_embedding_cache: Dict[int, List[float]] = {}
         self._summary_embedding_corpus_version: int = -1
+        self._ru_morph_analyzer: Optional[object] = None
+        self._ru_stemmer: Optional[object] = None
+        self._normalized_token_cache: Dict[str, str] = {}
+        self._normalization_dependency_warning_logged: bool = False
 
     @staticmethod
     def is_supported_file(filename: str) -> bool:
@@ -97,7 +109,7 @@ class RagKnowledgeService:
             "langchain_splitter_supported": bool(langchain_supported),
             "text_slicer": self._resolve_text_slicer_name(),
             "html_strategy": (
-                "html_header_splitter_with_fallback"
+                "html_semantic_preserving_splitter_with_fallback"
                 if html_splitter_enabled
                 else "plain_text_fallback(html_splitter_disabled)"
             ),
@@ -858,12 +870,14 @@ class RagKnowledgeService:
         )
         lexical_weight = max(0.0, float(ai_settings.AI_RAG_VECTOR_LEXICAL_WEIGHT))
         vector_weight = max(0.0, float(ai_settings.AI_RAG_VECTOR_SEMANTIC_WEIGHT))
+        lexical_scorer = ai_settings.get_rag_lexical_scorer()
         selected_unique_docs = len({int(self._unpack_chunk_row(chunk)[3]) for chunk in chunks})
         selected_top_docs = self._build_selected_top_docs_snapshot(chunks)
         top_source = self._format_log_source(str(self._unpack_chunk_row(chunks[0])[1]) if chunks else "none")
         logger.info(
-            "RAG retrieval: mode=%s tokens=%s prefilter_docs=%s prefilter_scope_docs=%s fallback_docs=%s lexical_hits=%s vector_hits=%s selected=%s selected_unique_docs=%s selected_top_docs=%s top_source=%s",
+            "RAG retrieval: mode=%s lexical_scorer=%s tokens=%s prefilter_docs=%s prefilter_scope_docs=%s fallback_docs=%s lexical_hits=%s vector_hits=%s selected=%s selected_unique_docs=%s selected_top_docs=%s top_source=%s",
             mode,
+            lexical_scorer,
             len(tokens),
             len(prefilter_docs),
             len(prefilter_scope_doc_ids),
@@ -1223,7 +1237,7 @@ class RagKnowledgeService:
     def _split_html_payload(self, payload: bytes, filename: str = "document.html") -> List[str]:
         """Разбить HTML-документ на чанки с приоритетом по заголовкам."""
         if not ai_settings.is_rag_html_splitter_enabled():
-            logger.info("HTMLHeaderTextSplitter отключен через bot_settings, используется fallback")
+            logger.info("HTML splitter отключен через bot_settings, используется fallback")
             chunks = self._split_text(self._extract_html_text(payload))
             self._log_chunking_strategy(
                 file_name=filename,
@@ -1234,47 +1248,38 @@ class RagKnowledgeService:
             return chunks
 
         raw_html = self._decode_text_payload(payload)
-        header_chunks = self._split_html_with_header_splitter(raw_html)
-        if header_chunks:
+        semantic_chunks = self._split_html_with_semantic_preserving_splitter(raw_html)
+        if semantic_chunks:
             self._log_chunking_strategy(
                 file_name=filename,
                 file_format="html",
-                strategy="html_header_splitter",
-                chunks_count=len(header_chunks),
+                strategy="html_semantic_preserving_splitter",
+                chunks_count=len(semantic_chunks),
             )
-            return header_chunks
+            return semantic_chunks
 
-        logger.info("HTMLHeaderTextSplitter недоступен или не дал чанков, включен fallback")
+        logger.info("HTMLSemanticPreservingSplitter/HTMLHeaderTextSplitter недоступны или не дали чанков, включен fallback")
         chunks = self._split_text(self._extract_html_text(payload))
         self._log_chunking_strategy(
             file_name=filename,
             file_format="html",
-            strategy="plain_text_fallback(header_splitter_empty_or_unavailable)",
+            strategy="plain_text_fallback(html_splitter_empty_or_unavailable)",
             chunks_count=len(chunks),
         )
         return chunks
 
-    def _split_html_with_header_splitter(self, raw_html: str) -> List[str]:
-        """Попытаться разбить HTML через HTMLHeaderTextSplitter с переносом заголовков в текст."""
+    def _split_html_with_semantic_preserving_splitter(self, raw_html: str) -> List[str]:
+        """Попытаться разбить HTML через semantic-preserving splitter с переносом заголовков в текст."""
         normalized_html = (raw_html or "").strip()
         if not normalized_html:
             return []
 
         try:
-            splitter_cls = self._get_html_header_splitter_class()
-            splitter = splitter_cls(
-                headers_to_split_on=[
-                    ("h1", "h1"),
-                    ("h2", "h2"),
-                    ("h3", "h3"),
-                    ("h4", "h4"),
-                    ("h5", "h5"),
-                    ("h6", "h6"),
-                ]
-            )
+            splitter_cls = self._get_html_splitter_class()
+            splitter = self._build_html_splitter(splitter_cls)
             documents = splitter.split_text(normalized_html)
         except Exception as exc:
-            logger.warning("Не удалось применить HTMLHeaderTextSplitter: %s", exc)
+            logger.warning("Не удалось применить HTML splitter: %s", exc)
             return []
 
         chunks: List[str] = []
@@ -1299,8 +1304,28 @@ class RagKnowledgeService:
         return [chunk for chunk in chunks if chunk.strip()]
 
     @staticmethod
-    def _get_html_header_splitter_class():
-        """Получить класс HTMLHeaderTextSplitter из доступного пространства имён."""
+    def _build_html_splitter(splitter_cls):
+        """Построить HTML splitter с совместимыми параметрами конструктора."""
+        headers_to_split_on = [
+            ("h1", "h1"),
+            ("h2", "h2"),
+            ("h3", "h3"),
+            ("h4", "h4"),
+            ("h5", "h5"),
+            ("h6", "h6"),
+        ]
+        try:
+            return splitter_cls(
+                headers_to_split_on=headers_to_split_on,
+                max_chunk_size=ai_settings.AI_RAG_CHUNK_SIZE,
+                chunk_overlap=ai_settings.AI_RAG_CHUNK_OVERLAP,
+            )
+        except TypeError:
+            return splitter_cls(headers_to_split_on=headers_to_split_on)
+
+    @staticmethod
+    def _get_html_splitter_class():
+        """Получить приоритетный HTML splitter: semantic-preserving, затем header splitter."""
         if not RagKnowledgeService._is_langchain_splitter_supported():
             raise RuntimeError("LangChain splitter отключен для текущей версии Python")
 
@@ -1309,17 +1334,43 @@ class RagKnowledgeService:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
+                from langchain_text_splitters import HTMLSemanticPreservingSplitter
+
+            return HTMLSemanticPreservingSplitter
+        except Exception:
+            pass
+
+        return RagKnowledgeService._get_html_header_splitter_class()
+
+    @staticmethod
+    def _get_html_header_splitter_class():
+        """Получить fallback-класс HTMLHeaderTextSplitter из доступного пространства имён."""
+        import warnings
+
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
                 from langchain_text_splitters import HTMLHeaderTextSplitter
+
             return HTMLHeaderTextSplitter
         except Exception:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 from langchain.text_splitter import HTMLHeaderTextSplitter
+
             return HTMLHeaderTextSplitter
 
     @staticmethod
     def _is_langchain_splitter_supported() -> bool:
         """Проверить, можно ли безопасно использовать LangChain splitters в текущем Python."""
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                from langchain_text_splitters import HTMLSemanticPreservingSplitter  # noqa: F401
+            return True
+        except Exception:
+            pass
         try:
             import warnings
             with warnings.catch_warnings():
@@ -1393,6 +1444,8 @@ class RagKnowledgeService:
         if not tokens:
             return []
 
+        lexical_scorer = ai_settings.get_rag_lexical_scorer()
+
         safe_limit = max(1, limit)
         summary_scores = summary_scores or {}
         normalized_summary_scores = normalized_summary_scores or {}
@@ -1428,12 +1481,20 @@ class RagKnowledgeService:
 
         scored: List[Tuple[float, str, str, int, int]] = []
 
-        for row in rows:
+        bm25_scores: List[float] = []
+        if lexical_scorer == "bm25":
+            chunk_tokens_corpus = [self._tokenize(str(row.get("chunk_text") or "")) for row in rows]
+            bm25_scores = self._score_corpus_bm25(chunk_tokens_corpus, tokens)
+
+        for index, row in enumerate(rows):
             chunk_text = row.get("chunk_text") or ""
             chunk_index = int(row.get("chunk_index") or 0)
             source = row.get("filename") or "document"
             document_id = int(row.get("document_id") or 0)
-            chunk_score = self._score_chunk(chunk_text, tokens)
+            if lexical_scorer == "bm25":
+                chunk_score = float(bm25_scores[index]) if index < len(bm25_scores) else 0.0
+            else:
+                chunk_score = self._score_chunk(chunk_text, tokens)
             summary_score = summary_scores.get(document_id, 0.0)
             normalized_summary_score = normalized_summary_scores.get(document_id)
             if normalized_summary_score is None:
@@ -1528,14 +1589,31 @@ class RagKnowledgeService:
             summaries=summaries_for_vector,
         )
         vector_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_VECTOR_WEIGHT))
+        lexical_scorer = ai_settings.get_rag_lexical_scorer()
+        summary_bm25_scores: Dict[int, float] = {}
+        if lexical_scorer == "bm25":
+            summary_corpus_tokens = [self._tokenize(summary_text) for _, _, summary_text in valid_rows]
+            corpus_scores = self._score_corpus_bm25(summary_corpus_tokens, question_tokens)
+            for index, (document_id, _, _) in enumerate(valid_rows):
+                summary_bm25_scores[document_id] = float(corpus_scores[index]) if index < len(corpus_scores) else 0.0
+
+        token_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT))
 
         scored_docs: List[Tuple[int, str, str, float]] = []
         for document_id, filename, summary_text in valid_rows:
-            lexical_score = self._score_summary_text(
-                summary_text=summary_text,
-                question_tokens=question_tokens,
-                question=question,
-            )
+            if lexical_scorer == "bm25":
+                lexical_score = summary_bm25_scores.get(document_id, 0.0) * token_weight
+                lexical_score += self._score_summary_phrase_match(
+                    summary_text=summary_text,
+                    question_tokens=question_tokens,
+                    question=question,
+                )
+            else:
+                lexical_score = self._score_summary_text(
+                    summary_text=summary_text,
+                    question_tokens=question_tokens,
+                    question=question,
+                )
             vec_score = float(vector_scores.get(document_id, 0.0))
             score = lexical_score + (vec_score * vector_weight)
             if score <= 0:
@@ -1644,9 +1722,23 @@ class RagKnowledgeService:
         if not low_summary:
             return 0.0
 
-        phrase_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT))
         token_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT))
         token_score = self._score_chunk(summary_text, question_tokens)
+        phrase_score = self._score_summary_phrase_match(
+            summary_text=summary_text,
+            question_tokens=question_tokens,
+            question=question,
+        )
+
+        return (token_score * token_weight) + phrase_score
+
+    def _score_summary_phrase_match(self, summary_text: str, question_tokens: List[str], question: str) -> float:
+        """Оценить фразовое совпадение вопроса и summary (с учётом word-boundary)."""
+        low_summary = self._normalize_for_phrase_match(summary_text)
+        if not low_summary:
+            return 0.0
+
+        phrase_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT))
         phrase_score = 0.0
 
         normalized_question = self._normalize_for_phrase_match(question)
@@ -1657,7 +1749,7 @@ class RagKnowledgeService:
         elif normalized_token_phrase and self._word_boundary_match(normalized_token_phrase, low_summary):
             phrase_score = 0.8
 
-        return (token_score * token_weight) + (phrase_score * phrase_weight)
+        return phrase_score * phrase_weight
 
     @staticmethod
     def _normalize_for_phrase_match(text: str) -> str:
@@ -1853,7 +1945,9 @@ class RagKnowledgeService:
             )
             return 0
 
+        upsert_started_at = time.perf_counter()
         upserted = vector_index.upsert_chunks(chunks=chunks, embeddings=embeddings)
+        upsert_duration_ms = (time.perf_counter() - upsert_started_at) * 1000
         if upserted > 0:
             self._record_chunk_embedding_metadata(
                 chunks=chunks,
@@ -1869,7 +1963,7 @@ class RagKnowledgeService:
                 error_message="vector_upsert_failed",
             )
         if upserted > 0:
-            logger.info("RAG vector upsert: chunks=%s", upserted)
+            logger.info("RAG vector upsert: chunks=%s duration_ms=%.2f", upserted, upsert_duration_ms)
         return upserted
 
     def _record_chunk_embedding_metadata(
@@ -2057,10 +2151,155 @@ class RagKnowledgeService:
 
         return stats
 
+    def _tokenize(self, text: str) -> List[str]:
+        """Токенизировать текст для lexical retrieval c опциональной нормализацией RU."""
+        tokens = _TOKEN_RE.findall((text or "").lower())
+        if not tokens:
+            return []
+
+        if not ai_settings.is_rag_ru_normalization_enabled():
+            return tokens
+
+        return [self._normalize_token(token) for token in tokens if token]
+
+    def _normalize_token(self, token: str) -> str:
+        """Нормализовать токен с кэшем (лемматизация/стемминг для русского)."""
+        safe_token = (token or "").strip().lower()
+        if not safe_token:
+            return ""
+
+        cached = self._normalized_token_cache.get(safe_token)
+        if cached is not None:
+            return cached
+
+        if not _CYRILLIC_TOKEN_RE.search(safe_token):
+            self._normalized_token_cache[safe_token] = safe_token
+            return safe_token
+
+        mode = ai_settings.get_rag_ru_normalization_mode()
+        normalized = safe_token
+        if mode in {"lemma_then_stem", "lemma_only"}:
+            normalized = self._lemmatize_ru_token(normalized)
+        if mode in {"lemma_then_stem", "stem_only"}:
+            normalized = self._stem_ru_token(normalized)
+
+        normalized = normalized or safe_token
+        self._normalized_token_cache[safe_token] = normalized
+        return normalized
+
+    def _lemmatize_ru_token(self, token: str) -> str:
+        """Лемматизировать русский токен через pymorphy3 с graceful fallback."""
+        analyzer = self._get_ru_morph_analyzer()
+        if analyzer is None:
+            return token
+
+        try:
+            parsed = analyzer.parse(token)
+            if parsed:
+                normal_form = str(getattr(parsed[0], "normal_form", "") or "").strip().lower()
+                if normal_form:
+                    return normal_form
+        except Exception:
+            return token
+
+        return token
+
+    def _stem_ru_token(self, token: str) -> str:
+        """Применить стемминг русского токена через snowballstemmer."""
+        stemmer = self._get_ru_stemmer()
+        if stemmer is None:
+            return token
+
+        try:
+            stemmed = stemmer.stemWord(token)
+            return str(stemmed or token).strip().lower()
+        except Exception:
+            return token
+
+    def _get_ru_morph_analyzer(self) -> Optional[object]:
+        """Ленивая инициализация pymorphy3 MorphAnalyzer."""
+        if self._ru_morph_analyzer is not None:
+            return self._ru_morph_analyzer
+
+        try:
+            import pymorphy3
+
+            self._ru_morph_analyzer = pymorphy3.MorphAnalyzer()
+            return self._ru_morph_analyzer
+        except Exception as exc:
+            if not self._normalization_dependency_warning_logged:
+                logger.warning("RU-нормализация: pymorphy3 недоступен, fallback без лемматизации: %s", exc)
+                self._normalization_dependency_warning_logged = True
+            return None
+
+    def _get_ru_stemmer(self) -> Optional[object]:
+        """Ленивая инициализация snowballstemmer для русского."""
+        if self._ru_stemmer is not None:
+            return self._ru_stemmer
+
+        try:
+            import snowballstemmer
+
+            self._ru_stemmer = snowballstemmer.stemmer("russian")
+            return self._ru_stemmer
+        except Exception as exc:
+            if not self._normalization_dependency_warning_logged:
+                logger.warning("RU-нормализация: snowballstemmer недоступен, fallback без стемминга: %s", exc)
+                self._normalization_dependency_warning_logged = True
+            return None
+
     @staticmethod
-    def _tokenize(text: str) -> List[str]:
-        """Токенизировать текст для lexical retrieval."""
-        return _TOKEN_RE.findall((text or "").lower())
+    def _score_corpus_bm25(corpus_tokens: List[List[str]], query_tokens: List[str]) -> List[float]:
+        """Вычислить BM25-score для корпуса документов по токенам запроса."""
+        if not corpus_tokens or not query_tokens:
+            return [0.0 for _ in corpus_tokens]
+
+        safe_corpus = [tokens if tokens else [""] for tokens in corpus_tokens]
+
+        if BM25Okapi is not None:
+            try:
+                bm25 = BM25Okapi(
+                    safe_corpus,
+                    k1=max(0.01, float(ai_settings.AI_RAG_BM25_K1)),
+                    b=max(0.0, min(1.0, float(ai_settings.AI_RAG_BM25_B))),
+                )
+                return [max(0.0, float(score)) for score in bm25.get_scores(query_tokens)]
+            except Exception:
+                pass
+
+        k1 = max(0.01, float(ai_settings.AI_RAG_BM25_K1))
+        b = max(0.0, min(1.0, float(ai_settings.AI_RAG_BM25_B)))
+        doc_count = len(safe_corpus)
+        avg_doc_len = sum(len(doc_tokens) for doc_tokens in safe_corpus) / max(doc_count, 1)
+
+        doc_freq: Dict[str, int] = {}
+        term_freq_by_doc: List[Counter[str]] = []
+        for doc_tokens in safe_corpus:
+            tf = Counter(doc_tokens)
+            term_freq_by_doc.append(tf)
+            for token in tf.keys():
+                doc_freq[token] = doc_freq.get(token, 0) + 1
+
+        query_tf = Counter(query_tokens)
+        scores: List[float] = [0.0 for _ in safe_corpus]
+
+        for token, qf in query_tf.items():
+            df = doc_freq.get(token, 0)
+            if df <= 0:
+                continue
+
+            idf = math.log(1.0 + ((doc_count - df + 0.5) / (df + 0.5)))
+            for idx, tf in enumerate(term_freq_by_doc):
+                freq = tf.get(token, 0)
+                if freq <= 0:
+                    continue
+                doc_len = len(safe_corpus[idx])
+                denominator = freq + (k1 * (1.0 - b + (b * doc_len / max(avg_doc_len, 1e-9))))
+                if denominator <= 0:
+                    continue
+                scores[idx] += idf * ((freq * (k1 + 1.0)) / denominator) * qf
+
+        return [max(0.0, float(score)) for score in scores]
 
     @staticmethod
     def _score_chunk(chunk_text: str, question_tokens: List[str]) -> float:

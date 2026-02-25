@@ -235,17 +235,17 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(diagnostics["chunk_size"], 1000)
         self.assertEqual(diagnostics["chunk_overlap"], 150)
         self.assertEqual(diagnostics["text_slicer"], "RecursiveCharacterTextSplitter(langchain.text_splitter)")
-        self.assertEqual(diagnostics["html_strategy"], "html_header_splitter_with_fallback")
+        self.assertEqual(diagnostics["html_strategy"], "html_semantic_preserving_splitter_with_fallback")
         self.assertEqual(diagnostics["plain_text_strategy"], "extract_text_then_split_text")
         self.assertTrue(diagnostics["html_splitter_enabled"])
         self.assertTrue(diagnostics["langchain_splitter_supported"])
 
-    def test_split_html_payload_uses_header_splitter_when_available(self):
-        """HTML-чанкинг использует результат header-splitter, если он вернул чанки."""
+    def test_split_html_payload_uses_semantic_splitter_when_available(self):
+        """HTML-чанкинг использует результат semantic-splitter, если он вернул чанки."""
         service = RagKnowledgeService()
         html = b"<html><body><h1>SLA</h1><p>4 hours</p></body></html>"
 
-        with patch.object(service, "_split_html_with_header_splitter", return_value=["SLA\n4 hours"]) as mock_splitter:
+        with patch.object(service, "_split_html_with_semantic_preserving_splitter", return_value=["SLA\n4 hours"]) as mock_splitter:
             with patch.object(service, "_extract_html_text") as mock_extract:
                 chunks = service._split_html_payload(html)
 
@@ -253,12 +253,12 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_splitter.assert_called_once()
         mock_extract.assert_not_called()
 
-    def test_split_html_payload_falls_back_when_header_splitter_empty(self):
-        """При пустом результате header-splitter включается fallback по очищенному тексту."""
+    def test_split_html_payload_falls_back_when_semantic_splitter_empty(self):
+        """При пустом результате semantic-splitter включается fallback по очищенному тексту."""
         service = RagKnowledgeService()
         html = b"<html><body><h1>SLA</h1><p>4 hours</p></body></html>"
 
-        with patch.object(service, "_split_html_with_header_splitter", return_value=[]):
+        with patch.object(service, "_split_html_with_semantic_preserving_splitter", return_value=[]):
             with patch.object(service, "_extract_html_text", return_value="SLA 4 hours") as mock_extract:
                 with patch.object(service, "_split_text", return_value=["SLA 4 hours"]) as mock_split_text:
                     chunks = service._split_html_payload(html)
@@ -267,23 +267,23 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_extract.assert_called_once()
         mock_split_text.assert_called_once_with("SLA 4 hours")
 
-    def test_split_html_payload_skips_header_splitter_when_disabled_in_settings(self):
+    def test_split_html_payload_skips_semantic_splitter_when_disabled_in_settings(self):
         """При выключенном флаге HTML splitter используется только fallback path."""
         service = RagKnowledgeService()
         html = b"<html><body><h1>SLA</h1><p>4 hours</p></body></html>"
 
         with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_html_splitter_enabled", return_value=False):
-            with patch.object(service, "_split_html_with_header_splitter") as mock_header_splitter:
+            with patch.object(service, "_split_html_with_semantic_preserving_splitter") as mock_semantic_splitter:
                 with patch.object(service, "_extract_html_text", return_value="SLA 4 hours") as mock_extract:
                     with patch.object(service, "_split_text", return_value=["SLA 4 hours"]) as mock_split_text:
                         chunks = service._split_html_payload(html)
 
         self.assertEqual(chunks, ["SLA 4 hours"])
-        mock_header_splitter.assert_not_called()
+        mock_semantic_splitter.assert_not_called()
         mock_extract.assert_called_once()
         mock_split_text.assert_called_once_with("SLA 4 hours")
 
-    def test_split_html_with_header_splitter_flattens_headers_into_chunks(self):
+    def test_split_html_with_semantic_splitter_flattens_headers_into_chunks(self):
         """Заголовки из metadata переносятся в начало текстового чанка."""
         service = RagKnowledgeService()
 
@@ -303,12 +303,26 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             def split_text(self, html):
                 return fake_docs
 
-        with patch.object(service, "_get_html_header_splitter_class", return_value=FakeSplitter):
+        with patch.object(service, "_get_html_splitter_class", return_value=FakeSplitter):
             with patch.object(service, "_split_text", return_value=["SLA\nКритический\nПодробные условия"]) as mock_split_text:
-                chunks = service._split_html_with_header_splitter("<h1>SLA</h1><h2>Критический</h2><p>Подробные условия</p>")
+            chunks = service._split_html_with_semantic_preserving_splitter("<h1>SLA</h1><h2>Критический</h2><p>Подробные условия</p>")
 
         self.assertEqual(chunks, ["SLA\nКритический\nПодробные условия"])
         mock_split_text.assert_called_once_with("SLA\nКритический\nПодробные условия")
+
+    def test_build_html_splitter_falls_back_to_header_only_signature(self):
+        """Инициализация HTML splitter корректно откатывается на старую сигнатуру конструктора."""
+
+        class HeaderOnlySplitter:
+            def __init__(self, headers_to_split_on):
+                self.headers_to_split_on = headers_to_split_on
+
+        splitter = RagKnowledgeService._build_html_splitter(HeaderOnlySplitter)
+
+        self.assertEqual(
+            splitter.headers_to_split_on,
+            [("h1", "h1"), ("h2", "h2"), ("h3", "h3"), ("h4", "h4"), ("h5", "h5"), ("h6", "h6")],
+        )
 
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
@@ -333,6 +347,42 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         result = service._search_relevant_chunks("Какой SLA выезда?", limit=1)
         self.assertEqual(len(result), 1)
         self.assertIn("SLA", result[0][2])
+        self.assertEqual(result[0][4], 8)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_lexical_scorer", return_value="bm25")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    def test_search_relevant_chunks_bm25_scoring(self, mock_get_cursor, mock_get_db_connection, mock_norm, mock_mode):
+        """В режиме BM25 retrieval приоритизирует чанк с более сильным токенным совпадением."""
+        service = RagKnowledgeService()
+
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            {
+                "chunk_text": "SLA выезда 4 часа при критическом инциденте",
+                "chunk_index": 8,
+                "filename": "reglament.txt",
+                "document_id": 11,
+            },
+            {
+                "chunk_text": "Общие правила графика отпусков",
+                "chunk_index": 2,
+                "filename": "other.txt",
+                "document_id": 12,
+            },
+            {
+                "chunk_text": "Регламент отпусков и графика смен",
+                "chunk_index": 3,
+                "filename": "other2.txt",
+                "document_id": 13,
+            },
+        ]
+
+        result = service._search_relevant_chunks("Какой SLA выезда?", limit=1)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][1], "reglament.txt")
         self.assertEqual(result[0][4], 8)
 
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
@@ -443,6 +493,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         cursor.fetchall.return_value = [
             {"document_id": 1, "summary_text": "SLA выезда 4 часа и эскалация", "filename": "sla.txt"},
             {"document_id": 2, "summary_text": "Отпуск и график", "filename": "hr.txt"},
+            {"document_id": 3, "summary_text": "График дежурств и отпусков", "filename": "ops.txt"},
         ]
 
         rows, vec_scores = service._prefilter_documents_by_summary(
@@ -455,6 +506,66 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0][0], 1)
         self.assertEqual(rows[0][1], "sla.txt")
         self.assertIsInstance(vec_scores, dict)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT", 0.0)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT", 1.0)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_lexical_scorer", return_value="bm25")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch.object(RagKnowledgeService, "_compute_summary_vector_scores", return_value={})
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    def test_prefilter_documents_by_summary_bm25(
+        self,
+        mock_get_cursor,
+        mock_get_db_connection,
+        mock_vec_scores,
+        mock_norm,
+        mock_mode,
+    ):
+        """Summary-prefilter в режиме BM25 отдаёт приоритет документу с релевантным summary."""
+        service = RagKnowledgeService()
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            {"document_id": 1, "summary_text": "SLA выезда 4 часа и эскалация", "filename": "sla.txt"},
+            {"document_id": 2, "summary_text": "Отпуск и график", "filename": "hr.txt"},
+            {"document_id": 3, "summary_text": "График дежурств и отпусков", "filename": "ops.txt"},
+        ]
+
+        rows, _ = service._prefilter_documents_by_summary(
+            question="Какой SLA выезда",
+            question_tokens=service._tokenize("Какой SLA выезда"),
+            limit=2,
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][0], 1)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=True)
+    def test_tokenize_applies_ru_normalization(self, mock_norm_enabled, mock_norm_mode):
+        """Токенизация применяет RU-нормализацию, когда флаг включён."""
+        service = RagKnowledgeService()
+
+        with patch.object(service, "_lemmatize_ru_token", side_effect=lambda token: "магазин" if token == "магазины" else token):
+            with patch.object(service, "_stem_ru_token", side_effect=lambda token: "магаз" if token == "магазин" else token):
+                tokens = service._tokenize("Магазины X5 работают")
+
+        self.assertIn("магаз", tokens)
+        self.assertIn("работают", tokens)
+
+    def test_score_corpus_bm25_scores_relevant_document_higher(self):
+        """BM25-счётчик отдаёт больший score более релевантному документу."""
+        corpus = [
+            ["sla", "выезд", "критический", "инцидент"],
+            ["отпуск", "график", "выходные"],
+            ["регламент", "отпуск", "график", "дежурство"],
+        ]
+        query = ["sla", "выезд"]
+
+        scores = RagKnowledgeService._score_corpus_bm25(corpus, query)
+
+        self.assertEqual(len(scores), 3)
+        self.assertGreater(scores[0], scores[1])
 
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
@@ -684,6 +795,36 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(rows, vector)
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.info")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.time.perf_counter", side_effect=[10.0, 10.125])
+    def test_upsert_vectors_for_chunks_logs_duration_ms(
+        self,
+        mock_perf_counter,
+        mock_logger_info,
+    ):
+        """Лог upsert векторов содержит длительность операции в миллисекундах."""
+        service = RagKnowledgeService()
+        chunks = [{"document_id": 1, "chunk_index": 0, "chunk_text": "тест"}]
+
+        embedding_provider = MagicMock()
+        embedding_provider.encode_texts.return_value = [[0.1, 0.2]]
+        vector_index = MagicMock()
+        vector_index.upsert_chunks.return_value = 1
+
+        with patch.object(service, "_get_embedding_provider", return_value=embedding_provider):
+            with patch.object(service, "_get_vector_index", return_value=vector_index):
+                with patch.object(service, "_record_chunk_embedding_metadata"):
+                    result = service._upsert_vectors_for_chunks(chunks)
+
+        self.assertEqual(result, 1)
+        self.assertEqual(mock_perf_counter.call_count, 2)
+        mock_logger_info.assert_called_once_with(
+            "RAG vector upsert: chunks=%s duration_ms=%.2f",
+            1,
+            125.0,
+        )
+
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.info")
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", False)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", False)
@@ -726,6 +867,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
                 and isinstance(call.args[0], str)
                 and call.args[0].startswith("RAG retrieval:")
                 and "prefilter_scope_docs=%s" in call.args[0]
+                and "lexical_scorer=%s" in call.args[0]
                 for call in mock_logger_info.call_args_list
             )
         )

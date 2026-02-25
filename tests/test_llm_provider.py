@@ -294,6 +294,52 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         post_kwargs = mock_client.post.await_args.kwargs
         self.assertEqual(post_kwargs["json"]["model"], "deepseek-reasoner")
 
+    async def test_classify_uses_generation_params_from_settings(self):
+        """classify использует temperature/max_tokens из ai_router.settings."""
+        provider = DeepSeekProvider(api_key="test_key")
+        provider._call_api = AsyncMock(return_value='{"intent":"general_chat","confidence":0.9}')
+
+        with patch(
+            "src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.LLM_CLASSIFICATION_TEMPERATURE",
+            0.25,
+        ), patch(
+            "src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.LLM_CLASSIFICATION_MAX_TOKENS",
+            2048,
+        ):
+            result = await provider.classify(
+                messages=[{"role": "user", "content": "hi"}],
+                system_prompt="system",
+                user_id=42,
+            )
+
+        self.assertEqual(result.intent, "general_chat")
+        call_kwargs = provider._call_api.await_args.kwargs
+        self.assertEqual(call_kwargs["temperature"], 0.25)
+        self.assertEqual(call_kwargs["max_tokens"], 2048)
+
+    async def test_chat_uses_generation_params_from_settings(self):
+        """chat использует temperature/max_tokens из ai_router.settings."""
+        provider = DeepSeekProvider(api_key="test_key")
+        provider._call_api = AsyncMock(return_value="ok")
+
+        with patch(
+            "src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.LLM_CHAT_TEMPERATURE",
+            0.55,
+        ), patch(
+            "src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.LLM_CHAT_MAX_TOKENS",
+            1536,
+        ):
+            result = await provider.chat(
+                messages=[{"role": "user", "content": "hi"}],
+                system_prompt="system",
+                purpose="response",
+            )
+
+        self.assertEqual(result, "ok")
+        call_kwargs = provider._call_api.await_args.kwargs
+        self.assertEqual(call_kwargs["temperature"], 0.55)
+        self.assertEqual(call_kwargs["max_tokens"], 1536)
+
     @patch("src.sbs_helper_telegram_bot.ai_router.settings.get_active_deepseek_model_for_response", return_value="deepseek-reasoner")
     @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
     async def test_call_api_retries_with_chat_model_on_empty_reasoner_content(
