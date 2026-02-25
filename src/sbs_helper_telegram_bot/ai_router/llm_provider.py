@@ -187,8 +187,8 @@ class DeepSeekProvider(LLMProvider):
             # чтобы JSON-ответ не обрезался до закрывающих скобок.
             raw = await self._call_api(
                 full_messages,
-                temperature=0.1,
-                max_tokens=1024,
+                temperature=ai_settings.LLM_CLASSIFICATION_TEMPERATURE,
+                max_tokens=ai_settings.LLM_CLASSIFICATION_MAX_TOKENS,
                 purpose="classification",
                 user_id=user_id,
             )
@@ -220,8 +220,8 @@ class DeepSeekProvider(LLMProvider):
         try:
             raw = await self._call_api(
                 full_messages,
-                temperature=0.7,
-                max_tokens=1024,
+                temperature=ai_settings.LLM_CHAT_TEMPERATURE,
+                max_tokens=ai_settings.LLM_CHAT_MAX_TOKENS,
                 purpose=purpose,
                 user_id=user_id,
                 force_model=model_override,

@@ -17,14 +17,14 @@ RAG-поток позволяет:
 - Админ-загрузка документов через Telegram: отправка файла с подписью `#rag`.
 - Синхронизация директории документов через helper-скрипт `scripts/rag_directory_ingest.py` (on-demand и daemon-режим).
 - Поддерживаемые форматы: `PDF`, `DOCX`, `TXT`, `MD`, `HTML`.
-- Для `HTML` используется `HTMLHeaderTextSplitter` (если доступен в окружении), чтобы учитывать структуру заголовков `h1-h6`.
-- Для `HTML` предусмотрен безопасный fallback на очищенный plain-text chunking, если header-splitter недоступен или не вернул чанков.
-- Для `HTML` доступен runtime-переключатель `ai_rag_html_splitter_enabled` в админ-настройках AI (можно принудительно выключить header-splitter).
-- На Python `3.14+` LangChain splitters работают корректно (предупреждения `pydantic.v1` подавляются); fallback chunking включается только если импорт splitter-а завершился ошибкой.
+- Для `HTML` используется `HTMLSemanticPreservingSplitter` (если доступен в окружении), чтобы учитывать структуру заголовков `h1-h6` и лучше сохранять семантику документа.
+- Для `HTML` предусмотрен безопасный fallback на очищенный plain-text chunking, если semantic splitter (или его fallback `HTMLHeaderTextSplitter`) недоступен или не вернул чанков.
+- Для `HTML` доступен runtime-переключатель `ai_rag_html_splitter_enabled` в админ-настройках AI (можно принудительно выключить HTML splitter).
+- На Python `3.14+` LangChain splitters работают корректно (предупреждения `pydantic.v1` подавляются); fallback chunking включается только если импорт/инициализация splitter-а завершились ошибкой.
 - Таблицы БД: `rag_documents`, `rag_chunks`, `rag_corpus_version`, `rag_query_log`.
 - Таблица полного AI I/O логирования: `ai_model_io_log` (prompt/response всех LLM-вызовов, включая RAG).
 - TTL-кэш ответов RAG в памяти процесса.
-- Summary-aware retrieval: prefilter документов по `rag_document_summaries` с гибридным scoring (`word-boundary phrase match + token overlap + semantic vector similarity`), controlled fallback документов для recall, hybrid rerank чанков с учётом релевантности summary и prompt enrichment top-summary блоками.
+- Summary-aware retrieval: prefilter документов по `rag_document_summaries` с гибридным scoring (`BM25/legacy lexical + word-boundary phrase match + semantic vector similarity`), controlled fallback документов для recall, hybrid rerank чанков с учётом релевантности summary и prompt enrichment top-summary блоками.
 - Опциональный локальный векторный retrieval (Qdrant local mode + локальная embedding-модель) с hybrid-слиянием lexical/vector кандидатов.
 - UX-статус для RAG: после классификации запроса как `rag_qa` бот меняет плейсхолдер с «Обрабатываю ваш запрос» на «Ожидаю ответа ИИ» до получения финального ответа.
 - Форматирование ответа `rag_qa` для Telegram MarkdownV2: сохраняются списки, `inline code`, жирный текст (`**...**` → Telegram-совместимый `*...*`), неподдерживаемая markdown-разметка экранируется.
@@ -130,6 +130,7 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `selected` отражает число выбранных чанков, `selected_unique_docs` — число уникальных документов среди этих чанков, `selected_top_docs` — top уникальных `document_id` по порядку ранжирования.
 - Для каждого retrieval-цикла RAG пишется строка `RAG priority evidence:` в многострочном ранжированном формате (`prefilter_top` и `selected_top`, до top-5), где для `prefilter_top` видны `summary`, `lexical`, `vec`, `vec_w` (взвешенный вклад `vec * AI_RAG_SUMMARY_VECTOR_WEIGHT`) и `source`, а для `selected_top` — `doc`, `chunk`, `fused`, `summary`, `origin` (`prefilter`/`fallback`/`global`), разложение lexical-компоненты (`lex_raw`, `lex_bonus`, `lex_total`), формула `hybrid=(lex_total*lexical_weight)+(vector_score*vector_weight)`, `summary_bonus` и `source`; `lex_bonus`/`summary_bonus` считаются из нормализованного summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле.
 - Для каждого ingest документа пишется диагностическая строка `RAG chunking strategy:` с полями `file`, `format`, `strategy`, `slicer`, `chunk_size`, `chunk_overlap`, `chunks`, `html_splitter_enabled`, `langchain_splitter_supported`.
+- При успешном vector upsert пишется строка `RAG vector upsert:` с полями `chunks` и `duration_ms`, где `duration_ms` — длительность операции upsert в миллисекундах.
 - Для технической записи `rag_chunk_embeddings` при временных DB-блокировках пишется предупреждение о retry c `errno`, номером попытки и размером батча.
 - Если `deepseek-reasoner` вернул пустой `content` для chat/RAG-ответа, провайдер автоматически делает один повтор на `deepseek-chat` и пишет предупреждение в лог (это снижает риск «немого» ответа пользователю).
 - Полный текст `prompt/response` также сохраняется в `ai_model_io_log` с маскировкой чувствительных данных (`email`, `телефон`, `ИНН`, `СНИЛС`).
@@ -156,6 +157,11 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_SUMMARY_POSTRANK_WEIGHT`
 - `AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS`
 - `AI_RAG_SUMMARY_VECTOR_WEIGHT`
+- `AI_RAG_LEXICAL_SCORER`
+- `AI_RAG_BM25_K1`
+- `AI_RAG_BM25_B`
+- `AI_RAG_RU_NORMALIZATION_ENABLED`
+- `AI_RAG_RU_NORMALIZATION_MODE`
 - `AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL`
 - `AI_RAG_CACHE_TTL_SECONDS`
 - `AI_RAG_HTML_SPLITTER_ENABLED`
@@ -242,7 +248,8 @@ mysql -u root -p sprint_db < sql/rag_document_summaries_fulltext_index.sql
 
 ## Ограничения текущего этапа
 
-- Retrieval использует lexical scoring по summary+чанкам (без векторной БД): сначала prefilter документов по summary, затем rerank чанков с бонусом от summary-релевантности.
+- Retrieval использует lexical scoring по summary+чанкам: режим `legacy` (coverage+density) или `bm25` (Okapi BM25) задаётся через `AI_RAG_LEXICAL_SCORER`; сначала выполняется prefilter документов по summary, затем rerank чанков с бонусом от summary-релевантности.
+- Для русского языка доступна опциональная нормализация токенов (`AI_RAG_RU_NORMALIZATION_ENABLED=1`) с режимами `lemma_then_stem`, `lemma_only`, `stem_only`.
 - Векторный режим требует локально установленные пакеты `qdrant-client` и `sentence-transformers`, а также доступность embedding-модели на текущем хосте.
 - Кэш хранится в памяти процесса и не шарится между инстансами.
 - Нет UI для управления документами (архивация/удаление) — только загрузка.

@@ -5,7 +5,66 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.73] - 2026-02-25
+
+### Added
+- Добавлены новые env-настройки в `src/sbs_helper_telegram_bot/ai_router/settings.py` для параметров генерации LLM: `AI_LLM_CLASSIFICATION_TEMPERATURE`, `AI_LLM_CLASSIFICATION_MAX_TOKENS`, `AI_LLM_CHAT_TEMPERATURE`, `AI_LLM_CHAT_MAX_TOKENS`.
+- Добавлены регрессионные тесты в `tests/test_llm_provider.py`, проверяющие, что `classify` и `chat` используют `temperature/max_tokens` из `ai_router.settings`.
+
+### Changed
+- В `src/sbs_helper_telegram_bot/ai_router/llm_provider.py` убраны захардкоженные значения `temperature/max_tokens` для `classify` и `chat`; теперь используются конфигурируемые параметры из `settings`.
+- Обновлена таблица конфигурации в `src/sbs_helper_telegram_bot/ai_router/README.md` с описанием новых переменных окружения.
+
+## [0.1.72] - 2026-02-25
+
+### Added
+- Добавлен регрессионный тест в `tests/test_rag_service.py`, проверяющий, что лог `RAG vector upsert:` включает длительность операции в поле `duration_ms`.
+
+### Changed
+- В `src/sbs_helper_telegram_bot/ai_router/rag_service.py` расширено логирование успешного vector upsert: теперь строка `RAG vector upsert:` содержит не только `chunks`, но и `duration_ms`.
+- Обновлена документация по RAG-логированию в `docs/AI_RAG_GUIDE.md` и `src/sbs_helper_telegram_bot/ai_router/README.md` с описанием поля `duration_ms`.
+
+## [0.1.71] - 2026-02-25
+
+### Changed
+- В `src/sbs_helper_telegram_bot/ai_router/rag_service.py` HTML-чанкинг в RAG переведён на приоритетный `HTMLSemanticPreservingSplitter` с совместимым fallback на `HTMLHeaderTextSplitter`, а при недоступности splitter-ов сохраняется безопасный fallback на plain-text chunking.
+- Обновлены диагностические названия стратегий HTML-чанкинга (`html_semantic_preserving_splitter_with_fallback` / `html_semantic_preserving_splitter`) для более точного runtime-логирования.
+- Актуализирована документация в `docs/AI_RAG_GUIDE.md` и `src/sbs_helper_telegram_bot/ai_router/README.md` под новую стратегию HTML-обработки.
+
+### Added
+- Добавлен регрессионный тест в `tests/test_rag_service.py`, проверяющий совместимость инициализации HTML splitter-а со старой сигнатурой конструктора (без `max_chunk_size/chunk_overlap`).
+
 ## [0.1.66] - 2026-02-25
+
+## [0.1.70] - 2026-02-25
+
+### Changed
+- В диагностическую строку `RAG retrieval:` в `src/sbs_helper_telegram_bot/ai_router/rag_service.py` добавлено поле `lexical_scorer`, показывающее активный режим lexical ранжирования (`legacy` или `bm25`) для каждого retrieval-цикла.
+
+### Added
+- Добавлена регрессионная проверка в `tests/test_rag_service.py`, фиксирующая наличие `lexical_scorer` в формате retrieval-лога.
+
+## [0.1.69] - 2026-02-25
+
+### Added
+- В `.env.example` добавлен готовый профиль `lexical BM25 для русского языка` с параметрами `AI_RAG_LEXICAL_SCORER`, `AI_RAG_BM25_K1`, `AI_RAG_BM25_B`, `AI_RAG_RU_NORMALIZATION_ENABLED`, `AI_RAG_RU_NORMALIZATION_MODE`.
+
+### Changed
+- Упрощён старт BM25-конфигурации: теперь достаточно раскомментировать блок пресета в `.env.example` и перезапустить бота.
+
+## [0.1.68] - 2026-02-25
+
+### Added
+- Добавлены новые env/runtime-настройки lexical retrieval в `src/sbs_helper_telegram_bot/ai_router/settings.py`: `AI_RAG_LEXICAL_SCORER` (`legacy|bm25`), `AI_RAG_BM25_K1`, `AI_RAG_BM25_B`, `AI_RAG_RU_NORMALIZATION_ENABLED`, `AI_RAG_RU_NORMALIZATION_MODE` и безопасные getter-функции для feature-flag переключения.
+- Добавлены регрессионные тесты в `tests/test_rag_service.py` для BM25-ранжирования чанков, BM25-prefilter по summary, RU-нормализации токенов и базовой проверки BM25-score.
+
+### Changed
+- В `src/sbs_helper_telegram_bot/ai_router/rag_service.py` lexical retrieval для чанков и summary-prefilter теперь поддерживает режим `bm25` (Python BM25) с fallback на `legacy`-скoring.
+- Для русского lexical-пайплайна добавлена опциональная нормализация токенов (лемматизация + стемминг) с in-memory кэшированием нормализованных форм.
+- Обновлена документация по retrieval-конфигурации в `docs/AI_RAG_GUIDE.md` и `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Устранена ограниченность lexical-поиска на русских словоформах: при включённой RU-нормализации повышается recall для морфологических вариантов запроса/документа.
 
 ## [0.1.67] - 2026-02-25
 
