@@ -36,13 +36,13 @@ _TOKEN_RE = re.compile(r"[a-zа-яё0-9]{3,}", re.IGNORECASE)
 _SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".docx", ".md", ".html", ".htm"}
 _RAG_CHUNK_SCAN_LIMIT = 3000
 _RAG_SUMMARY_SCAN_LIMIT = 3000
-_RAG_SUMMARY_SCORE_WEIGHT = 0.35
 _RAG_EMBEDDING_UPSERT_BATCH_SIZE = 25
 _RAG_EMBEDDING_UPSERT_MAX_RETRIES = 3
 _RAG_EMBEDDING_RETRY_BASE_DELAY_SECONDS = 0.25
 _MYSQL_RETRYABLE_ERRNOS = {1205, 1213}
 _RAG_DB_OPERATION_MAX_RETRIES = 3
 _RAG_DB_OPERATION_RETRY_BASE_DELAY_SECONDS = 0.25
+_SPACES_RE = re.compile(r"\s+")
 
 TResult = TypeVar("TResult")
 
@@ -69,6 +69,61 @@ class RagKnowledgeService:
         """Проверить поддерживаемое расширение файла."""
         lower_name = (filename or "").lower()
         return any(lower_name.endswith(ext) for ext in _SUPPORTED_EXTENSIONS)
+
+    @classmethod
+    def _resolve_text_slicer_name(cls) -> str:
+        """Определить имя активного slicer-а для текстового chunking."""
+        if not cls._is_langchain_splitter_supported():
+            return "manual_window_slicer"
+
+        try:
+            from langchain.text_splitter import RecursiveCharacterTextSplitter  # noqa: F401
+
+            return "RecursiveCharacterTextSplitter(langchain.text_splitter)"
+        except Exception:
+            return "manual_window_slicer"
+
+    def get_chunking_diagnostics(self) -> Dict[str, object]:
+        """Вернуть текущую диагностику стратегии чанкинга для runtime-логирования."""
+        html_splitter_enabled = ai_settings.is_rag_html_splitter_enabled()
+        langchain_supported = self._is_langchain_splitter_supported()
+
+        return {
+            "chunk_size": int(ai_settings.AI_RAG_CHUNK_SIZE),
+            "chunk_overlap": int(ai_settings.AI_RAG_CHUNK_OVERLAP),
+            "html_splitter_enabled": bool(html_splitter_enabled),
+            "langchain_splitter_supported": bool(langchain_supported),
+            "text_slicer": self._resolve_text_slicer_name(),
+            "html_strategy": (
+                "html_header_splitter_with_fallback"
+                if html_splitter_enabled
+                else "plain_text_fallback(html_splitter_disabled)"
+            ),
+            "plain_text_strategy": "extract_text_then_split_text",
+        }
+
+    def _log_chunking_strategy(
+        self,
+        *,
+        file_name: str,
+        file_format: str,
+        strategy: str,
+        chunks_count: int,
+    ) -> None:
+        """Записать в лог выбранную стратегию chunking для документа."""
+        diagnostics = self.get_chunking_diagnostics()
+        logger.info(
+            "RAG chunking strategy: file=%s format=%s strategy=%s slicer=%s chunk_size=%s chunk_overlap=%s chunks=%s html_splitter_enabled=%s langchain_splitter_supported=%s",
+            file_name,
+            file_format,
+            strategy,
+            diagnostics.get("text_slicer"),
+            diagnostics.get("chunk_size"),
+            diagnostics.get("chunk_overlap"),
+            chunks_count,
+            diagnostics.get("html_splitter_enabled"),
+            diagnostics.get("langchain_splitter_supported"),
+        )
 
     def _execute_with_db_retry(self, operation_name: str, operation: Callable[[], TResult]) -> TResult:
         """Выполнить DB-операцию с retry для временных ошибок блокировок MySQL."""
@@ -203,10 +258,16 @@ class RagKnowledgeService:
             return existing_result
 
         if self._is_html_file(filename):
-            chunks = self._split_html_payload(payload)
+            chunks = self._split_html_payload(payload, filename=filename)
         else:
             extracted_text = self._extract_text(filename, payload)
             chunks = self._split_text(extracted_text)
+            self._log_chunking_strategy(
+                file_name=filename,
+                file_format="text",
+                strategy="extract_text_then_split_text",
+                chunks_count=len(chunks),
+            )
 
         if not chunks:
             raise ValueError("В документе не найден полезный текст")
@@ -727,11 +788,21 @@ class RagKnowledgeService:
             return [], []
 
         prefilter_docs = self._prefilter_documents_by_summary(
+            question=question,
             question_tokens=tokens,
             limit=ai_settings.AI_RAG_PREFILTER_TOP_DOCS,
         )
         prefilter_doc_ids = [doc_id for doc_id, _, _, _ in prefilter_docs]
         summary_scores = {doc_id: score for doc_id, _, _, score in prefilter_docs}
+        fallback_doc_ids: List[int] = []
+        fallback_docs_limit = max(0, int(ai_settings.AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS))
+
+        if prefilter_doc_ids and fallback_docs_limit > 0:
+            fallback_doc_ids = self._get_fallback_active_document_ids(
+                exclude_document_ids=list(prefilter_doc_ids),
+                limit=fallback_docs_limit,
+            )
+            prefilter_doc_ids.extend(fallback_doc_ids)
 
         lexical_chunks = self._search_relevant_chunks(
             question,
@@ -749,6 +820,7 @@ class RagKnowledgeService:
             lexical_chunks=lexical_chunks,
             vector_chunks=vector_chunks,
             limit=limit,
+            summary_scores=summary_scores,
         )
         mode = self._determine_retrieval_mode(
             lexical_chunks=lexical_chunks,
@@ -757,17 +829,51 @@ class RagKnowledgeService:
         )
         top_source = str(chunks[0][1]) if chunks else "none"
         logger.info(
-            "RAG retrieval: mode=%s tokens=%s prefilter_docs=%s lexical_hits=%s vector_hits=%s selected=%s top_source=%s",
+            "RAG retrieval: mode=%s tokens=%s prefilter_docs=%s fallback_docs=%s lexical_hits=%s vector_hits=%s selected=%s top_source=%s",
             mode,
             len(tokens),
             len(prefilter_docs),
+            len(fallback_doc_ids),
             len(lexical_chunks),
             len(vector_chunks),
             len(chunks),
             top_source,
         )
+        logger.info(
+            "RAG priority evidence: prefilter_top=%s selected_top=%s",
+            self._build_prefilter_priority_snapshot(prefilter_docs),
+            self._build_selected_priority_snapshot(chunks, summary_scores),
+        )
         summary_blocks = self._build_summary_blocks(prefilter_docs)
         return chunks, summary_blocks
+
+    @staticmethod
+    def _build_prefilter_priority_snapshot(prefilter_docs: List[Tuple[int, str, str, float]]) -> str:
+        """Сформировать компактный лог prefilter-документов с их summary-score."""
+        if not prefilter_docs:
+            return "none"
+
+        top_docs = prefilter_docs[:5]
+        parts = [f"doc={doc_id}:{filename}:summary={score:.3f}" for doc_id, filename, _, score in top_docs]
+        return "; ".join(parts)
+
+    @staticmethod
+    def _build_selected_priority_snapshot(
+        chunks: List[Tuple[float, str, str, int]],
+        summary_scores: Dict[int, float],
+    ) -> str:
+        """Сформировать компактный лог финально выбранных чанков и вкладов summary-score."""
+        if not chunks:
+            return "none"
+
+        top_chunks = chunks[:5]
+        parts = []
+        for fused_score, source, _chunk_text, document_id in top_chunks:
+            summary_score = float(summary_scores.get(document_id, 0.0))
+            parts.append(
+                f"doc={document_id}:{source}:fused={float(fused_score):.3f}:summary={summary_score:.3f}"
+            )
+        return "; ".join(parts)
 
     def _search_relevant_chunks_vector(
         self,
@@ -799,9 +905,12 @@ class RagKnowledgeService:
         lexical_chunks: List[Tuple[float, str, str, int]],
         vector_chunks: List[Tuple[float, str, str, int]],
         limit: int,
+        summary_scores: Optional[Dict[int, float]] = None,
     ) -> List[Tuple[float, str, str, int]]:
         """Объединить lexical и vector кандидаты в единый ранжированный список."""
         safe_limit = max(1, limit)
+        summary_scores = summary_scores or {}
+
         if not vector_chunks:
             return lexical_chunks[:safe_limit]
 
@@ -841,7 +950,10 @@ class RagKnowledgeService:
         for row in merged.values():
             lexical_score = float(row.get("lexical_score") or 0.0)
             vector_score = float(row.get("vector_score") or 0.0)
+            document_id = int(row.get("document_id") or 0)
+            summary_score = float(summary_scores.get(document_id, 0.0))
             fused_score = (lexical_score * lexical_weight) + (vector_score * vector_weight)
+            fused_score += self._summary_postrank_bonus(summary_score)
             if fused_score <= 0:
                 continue
             ranked.append(
@@ -924,19 +1036,39 @@ class RagKnowledgeService:
         compact = re.sub(r"\n\s*\n+", "\n", compact)
         return compact.strip()
 
-    def _split_html_payload(self, payload: bytes) -> List[str]:
+    def _split_html_payload(self, payload: bytes, filename: str = "document.html") -> List[str]:
         """Разбить HTML-документ на чанки с приоритетом по заголовкам."""
         if not ai_settings.is_rag_html_splitter_enabled():
             logger.info("HTMLHeaderTextSplitter отключен через bot_settings, используется fallback")
-            return self._split_text(self._extract_html_text(payload))
+            chunks = self._split_text(self._extract_html_text(payload))
+            self._log_chunking_strategy(
+                file_name=filename,
+                file_format="html",
+                strategy="plain_text_fallback(html_splitter_disabled)",
+                chunks_count=len(chunks),
+            )
+            return chunks
 
         raw_html = self._decode_text_payload(payload)
         header_chunks = self._split_html_with_header_splitter(raw_html)
         if header_chunks:
+            self._log_chunking_strategy(
+                file_name=filename,
+                file_format="html",
+                strategy="html_header_splitter",
+                chunks_count=len(header_chunks),
+            )
             return header_chunks
 
         logger.info("HTMLHeaderTextSplitter недоступен или не дал чанков, включен fallback")
-        return self._split_text(self._extract_html_text(payload))
+        chunks = self._split_text(self._extract_html_text(payload))
+        self._log_chunking_strategy(
+            file_name=filename,
+            file_format="html",
+            strategy="plain_text_fallback(header_splitter_empty_or_unavailable)",
+            chunks_count=len(chunks),
+        )
+        return chunks
 
     def _split_html_with_header_splitter(self, raw_html: str) -> List[str]:
         """Попытаться разбить HTML через HTMLHeaderTextSplitter с переносом заголовков в текст."""
@@ -1125,6 +1257,7 @@ class RagKnowledgeService:
 
     def _prefilter_documents_by_summary(
         self,
+        question: str,
         question_tokens: List[str],
         limit: int,
     ) -> List[Tuple[int, str, str, float]]:
@@ -1155,7 +1288,11 @@ class RagKnowledgeService:
             summary_text = str(row.get("summary_text") or "").strip()
             if not document_id or not summary_text:
                 continue
-            score = self._score_chunk(summary_text, question_tokens)
+            score = self._score_summary_text(
+                summary_text=summary_text,
+                question_tokens=question_tokens,
+                question=question,
+            )
             if score <= 0:
                 continue
             scored_docs.append((document_id, filename, summary_text, score))
@@ -1183,7 +1320,89 @@ class RagKnowledgeService:
         """Рассчитать бонус чанку на основе релевантности summary документа."""
         if summary_score <= 0:
             return 0.0
-        return min(summary_score, 2.0) * _RAG_SUMMARY_SCORE_WEIGHT
+        score_cap = max(0.0, float(ai_settings.AI_RAG_SUMMARY_SCORE_CAP))
+        bonus_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_BONUS_WEIGHT))
+        return min(summary_score, score_cap) * bonus_weight
+
+    @staticmethod
+    def _summary_postrank_bonus(summary_score: float) -> float:
+        """Рассчитать пост-бонус документа при финальном hybrid-ранжировании."""
+        if summary_score <= 0:
+            return 0.0
+        score_cap = max(0.0, float(ai_settings.AI_RAG_SUMMARY_SCORE_CAP))
+        postrank_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_POSTRANK_WEIGHT))
+        return min(summary_score, score_cap) * postrank_weight
+
+    def _score_summary_text(self, summary_text: str, question_tokens: List[str], question: str) -> float:
+        """Оценить релевантность summary по фразовому и токенному совпадению."""
+        low_summary = self._normalize_for_phrase_match(summary_text)
+        if not low_summary:
+            return 0.0
+
+        phrase_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT))
+        token_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT))
+        token_score = self._score_chunk(summary_text, question_tokens)
+        phrase_score = 0.0
+
+        normalized_question = self._normalize_for_phrase_match(question)
+        normalized_token_phrase = self._normalize_for_phrase_match(" ".join(question_tokens))
+
+        if len(normalized_question) >= 3 and normalized_question in low_summary:
+            phrase_score = 1.0
+        elif normalized_token_phrase and normalized_token_phrase in low_summary:
+            phrase_score = 0.8
+
+        return (token_score * token_weight) + (phrase_score * phrase_weight)
+
+    @staticmethod
+    def _normalize_for_phrase_match(text: str) -> str:
+        """Нормализовать текст для фразового матчингa без учёта регистра и лишних пробелов."""
+        normalized = _SPACES_RE.sub(" ", (text or "").lower())
+        return normalized.strip()
+
+    @staticmethod
+    def _get_fallback_active_document_ids(
+        exclude_document_ids: List[int],
+        limit: int,
+    ) -> List[int]:
+        """Получить fallback-список активных документов для сохранения recall."""
+        safe_limit = max(0, min(int(limit), 100))
+        if safe_limit <= 0:
+            return []
+
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                if exclude_document_ids:
+                    placeholders = ",".join(["%s"] * len(exclude_document_ids))
+                    cursor.execute(
+                        f"""
+                        SELECT id
+                        FROM rag_documents
+                        WHERE status = 'active' AND id NOT IN ({placeholders})
+                        ORDER BY updated_at DESC, id DESC
+                        LIMIT %s
+                        """,
+                        tuple(exclude_document_ids) + (safe_limit,),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT id
+                        FROM rag_documents
+                        WHERE status = 'active'
+                        ORDER BY updated_at DESC, id DESC
+                        LIMIT %s
+                        """,
+                        (safe_limit,),
+                    )
+                rows = cursor.fetchall() or []
+
+        fallback_ids: List[int] = []
+        for row in rows:
+            document_id = int(row.get("id") or 0)
+            if document_id > 0:
+                fallback_ids.append(document_id)
+        return fallback_ids
 
     def _determine_retrieval_mode(
         self,

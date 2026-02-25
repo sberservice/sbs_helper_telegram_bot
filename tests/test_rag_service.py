@@ -60,6 +60,26 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         self.assertGreaterEqual(len(chunks), 3)
 
+    def test_get_chunking_diagnostics(self):
+        """Диагностика chunking возвращает ожидаемые поля и стратегии."""
+        service = RagKnowledgeService()
+
+        with patch.object(service, "_is_langchain_splitter_supported", return_value=True):
+            with patch.object(service, "_resolve_text_slicer_name", return_value="RecursiveCharacterTextSplitter(langchain.text_splitter)"):
+                with patch(
+                    "src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_html_splitter_enabled",
+                    return_value=True,
+                ):
+                    diagnostics = service.get_chunking_diagnostics()
+
+        self.assertEqual(diagnostics["chunk_size"], 1000)
+        self.assertEqual(diagnostics["chunk_overlap"], 150)
+        self.assertEqual(diagnostics["text_slicer"], "RecursiveCharacterTextSplitter(langchain.text_splitter)")
+        self.assertEqual(diagnostics["html_strategy"], "html_header_splitter_with_fallback")
+        self.assertEqual(diagnostics["plain_text_strategy"], "extract_text_then_split_text")
+        self.assertTrue(diagnostics["html_splitter_enabled"])
+        self.assertTrue(diagnostics["langchain_splitter_supported"])
+
     def test_split_html_payload_uses_header_splitter_when_available(self):
         """HTML-чанкинг использует результат header-splitter, если он вернул чанки."""
         service = RagKnowledgeService()
@@ -188,6 +208,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         ]
 
         rows = service._prefilter_documents_by_summary(
+            question="Какой SLA выезда",
             question_tokens=service._tokenize("Какой SLA выезда"),
             limit=2,
         )
@@ -212,6 +233,80 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             limit=2,
             prefiltered_doc_ids=[10, 11],
             summary_scores={10: 0.1, 11: 1.2},
+        )
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0][1], "doc-high.txt")
+
+    def test_score_summary_text_prefers_exact_phrase(self):
+        """Фразовое совпадение в summary даёт заметный приоритет над чистым token-overlap."""
+        service = RagKnowledgeService()
+        question = "X5 shop group"
+        tokens = service._tokenize(question)
+
+        phrase_score = service._score_summary_text(
+            summary_text="Регламент X5 shop group для SLA магазинов.",
+            question_tokens=tokens,
+            question=question,
+        )
+        token_only_score = service._score_summary_text(
+            summary_text="Регламент shop operations group для SLA магазинов.",
+            question_tokens=tokens,
+            question=question,
+        )
+
+        self.assertGreater(phrase_score, token_only_score)
+
+    @patch.object(RagKnowledgeService, "_build_summary_blocks", return_value=[])
+    @patch.object(RagKnowledgeService, "_determine_retrieval_mode", return_value="hybrid")
+    @patch.object(RagKnowledgeService, "_merge_retrieval_candidates", return_value=[])
+    @patch.object(RagKnowledgeService, "_search_relevant_chunks_vector", return_value=[])
+    @patch.object(RagKnowledgeService, "_search_relevant_chunks", return_value=[])
+    @patch.object(RagKnowledgeService, "_get_fallback_active_document_ids", return_value=[99, 100])
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS", 2)
+    @patch.object(
+        RagKnowledgeService,
+        "_prefilter_documents_by_summary",
+        return_value=[(5, "x5.txt", "summary with x5 shop group", 2.1)],
+    )
+    def test_retrieve_context_uses_summary_prefilter_fallback_docs(
+        self,
+        mock_prefilter,
+        mock_fallback,
+        mock_search_lexical,
+        mock_search_vector,
+        mock_merge,
+        mock_mode,
+        mock_summary_blocks,
+    ):
+        """При summary-hit retrieval добавляет fallback-документы для сохранения recall."""
+        service = RagKnowledgeService()
+
+        service._retrieve_context_for_question("X5 shop group SLA", limit=5)
+
+        mock_prefilter.assert_called_once()
+        _, kwargs = mock_search_lexical.call_args
+        self.assertEqual(kwargs["prefiltered_doc_ids"], [5, 99, 100])
+        self.assertEqual(kwargs["summary_scores"], {5: 2.1})
+        mock_fallback.assert_called_once_with(exclude_document_ids=[5], limit=2)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_POSTRANK_WEIGHT", 0.2)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_SCORE_CAP", 2.5)
+    def test_merge_retrieval_candidates_applies_summary_postrank_bonus(self):
+        """Post-merge bonus поднимает документы с высоким summary-score при равном vector score."""
+        service = RagKnowledgeService()
+        lexical = []
+        vector = [
+            (0.9, "doc-low.txt", "chunk-low", 1),
+            (0.9, "doc-high.txt", "chunk-high", 2),
+        ]
+
+        rows = service._merge_retrieval_candidates(
+            lexical_chunks=lexical,
+            vector_chunks=vector,
+            limit=2,
+            summary_scores={2: 2.0},
         )
 
         self.assertEqual(len(rows), 2)
@@ -282,6 +377,14 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
                 and call.args[0].startswith("RAG retrieval:")
                 and len(call.args) > 1
                 and call.args[1] == "lexical_only"
+                for call in mock_logger_info.call_args_list
+            )
+        )
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("RAG priority evidence:")
                 for call in mock_logger_info.call_args_list
             )
         )

@@ -24,7 +24,7 @@ RAG-поток позволяет:
 - Таблицы БД: `rag_documents`, `rag_chunks`, `rag_corpus_version`, `rag_query_log`.
 - Таблица полного AI I/O логирования: `ai_model_io_log` (prompt/response всех LLM-вызовов, включая RAG).
 - TTL-кэш ответов RAG в памяти процесса.
-- Summary-aware retrieval: prefilter документов по `rag_document_summaries`, hybrid rerank чанков с учётом релевантности summary и prompt enrichment top-summary блоками.
+- Summary-aware retrieval: prefilter документов по `rag_document_summaries` с гибридным scoring (`exact phrase + token overlap`), controlled fallback документов для recall, hybrid rerank чанков с учётом релевантности summary и prompt enrichment top-summary блоками.
 - Опциональный локальный векторный retrieval (Qdrant local mode + локальная embedding-модель) с hybrid-слиянием lexical/vector кандидатов.
 - UX-статус для RAG: после классификации запроса как `rag_qa` бот меняет плейсхолдер с «Обрабатываю ваш запрос» на «Ожидаю ответа ИИ» до получения финального ответа.
 - Форматирование ответа `rag_qa` для Telegram MarkdownV2: сохраняются списки, `inline code`, жирный текст (`**...**` → Telegram-совместимый `*...*`), неподдерживаемая markdown-разметка экранируется.
@@ -86,6 +86,7 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - сканирует директорию рекурсивно (можно отключить флагом `--no-recursive`),
 - загружает новые/изменённые документы,
 - с флагом `--force-update` повторно загружает и неизменённые документы,
+- перед началом цикла пишет `Chunking конфигурация:` с активной стратегией (`html_strategy`, `plain_text_strategy`), выбранным `slicer`, `chunk_size`/`chunk_overlap` и статусом доступности LangChain splitter,
 - для DB-операций (`delete`, `set_status`, `ingest`) при временных блокировках (`1205`/`1213`) автоматически выполняет retry с коротким backoff; Qdrant I/O вынесен за пределы MySQL-транзакций для минимизации времени удержания блокировок,
 - для каждой директории синхронизации разрешён только один активный процесс `rag_directory_ingest.py` (PID lock-файл в системной temp-директории), повторный запуск для той же директории завершается с ошибкой,
 - не выполняет vector upsert во время ingest; для обновления локального векторного индекса после синхронизации запускайте `rag_vector_backfill.py`,
@@ -123,7 +124,9 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 	- модель генерации ответа (`model` в `AI chat request`, если сработал chat/fallback).
 - Это упрощает диагностику маршрутизации и проверку активной модели после переключения в админ-панели.
 - Ошибки в `ai_router` и RAG-обработчике логируются с traceback и явным типом исключения (`error_type`/`error_repr`), поэтому даже при пустом тексте исключения причина не теряется.
-- Для каждого retrieval-цикла RAG пишется диагностическая строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `lexical_hits`, `vector_hits`, `selected`, `top_source`.
+- Для каждого retrieval-цикла RAG пишется диагностическая строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `top_source`.
+- Для каждого retrieval-цикла RAG пишется строка `RAG priority evidence:` с top-5 prefilter-документами и top-5 финально выбранными чанками (`doc`, `source`, `fused`, `summary`), чтобы проверить фактический эффект приоритизации по summary.
+- Для каждого ingest документа пишется диагностическая строка `RAG chunking strategy:` с полями `file`, `format`, `strategy`, `slicer`, `chunk_size`, `chunk_overlap`, `chunks`, `html_splitter_enabled`, `langchain_splitter_supported`.
 - Для технической записи `rag_chunk_embeddings` при временных DB-блокировках пишется предупреждение о retry c `errno`, номером попытки и размером батча.
 - Если `deepseek-reasoner` вернул пустой `content` для chat/RAG-ответа, провайдер автоматически делает один повтор на `deepseek-chat` и пишет предупреждение в лог (это снижает риск «немого» ответа пользователю).
 - Полный текст `prompt/response` также сохраняется в `ai_model_io_log` с маскировкой чувствительных данных (`email`, `телефон`, `ИНН`, `СНИЛС`).
@@ -143,6 +146,12 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_SUMMARY_MAX_CHARS`
 - `AI_RAG_PREFILTER_TOP_DOCS`
 - `AI_RAG_PROMPT_SUMMARY_DOCS`
+- `AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT`
+- `AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT`
+- `AI_RAG_SUMMARY_SCORE_CAP`
+- `AI_RAG_SUMMARY_BONUS_WEIGHT`
+- `AI_RAG_SUMMARY_POSTRANK_WEIGHT`
+- `AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS`
 - `AI_RAG_CACHE_TTL_SECONDS`
 - `AI_RAG_HTML_SPLITTER_ENABLED`
 - `AI_RAG_VECTOR_ENABLED`

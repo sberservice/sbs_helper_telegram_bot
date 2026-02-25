@@ -105,8 +105,8 @@ CLOSED ──(5 ошибок)──► OPEN ──(300с)──► HALF_OPEN
 ### Retrieval
 
 - Двухэтапный hybrid retrieval:
-    - prefilter документов по `rag_document_summaries` (релевантность summary к вопросу),
-    - ранжирование чанков с учётом lexical score чанка + бонуса от summary-релевантности документа.
+    - prefilter документов по `rag_document_summaries` (гибрид: exact phrase + token overlap) с fallback-пулом документов для сохранения recall,
+    - ранжирование чанков с учётом lexical score чанка + бонуса от summary-релевантности документа + post-merge summary-бонуса в hybrid fusion.
 - Опционально: локальный векторный retrieval (Qdrant local mode + локальная embedding-модель) с fusion lexical/vector score.
 - Top-summary документы добавляются в системный RAG-промпт как дополнительный контекст.
 - In-memory TTL-кэш с инвалидацией по `rag_corpus_version`
@@ -167,6 +167,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 
 Удалённые из директории файлы purge-ятся из RAG; изменённые — перезагружаются.
 С флагом `--force-update` перезагружаются также и неизменённые файлы.
+Перед каждым циклом синхронизации пишется строка `Chunking конфигурация:` с активной стратегией (`html_strategy`, `plain_text_strategy`), выбранным `slicer`, параметрами `chunk_size`/`chunk_overlap` и флагами доступности splitter-ов.
 При временных DB-блокировках (`1205`/`1213`) DB-операции (`delete`, `set_status`, `ingest`) автоматически повторяются с коротким backoff. Qdrant I/O вынесен за пределы MySQL-транзакций для минимизации времени удержания блокировок.
 Для одной и той же директории синхронизации разрешён только один активный процесс `rag_directory_ingest.py` (PID lock-файл в системной temp-директории); второй запуск завершается с ошибкой, чтобы исключить конкуренцию транзакций.
 Для обновления локального векторного индекса после синхронизации запускайте `rag_vector_backfill.py`.
@@ -186,7 +187,9 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 - Результаты классификации → `ai_router_log` (intent, confidence, explain_code, response_time_ms)
 - Профилирование маршрутизации: `classify_ms`, `db_log_ms`, `dispatch_ms`, `context_update_ms`
 - RAG-запросы → `rag_query_log`
-- Диагностика retrieval-канала RAG: строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `lexical_hits`, `vector_hits`, `selected`, `top_source`
+- Диагностика retrieval-канала RAG: строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `top_source`
+- Доказательство summary-приоритизации: строка `RAG priority evidence:` с top-5 prefilter-документами и top-5 выбранными чанками (`doc`, `source`, `fused`, `summary`)
+- Диагностика chunking при ingest: строка `RAG chunking strategy:` с полями `file`, `format`, `strategy`, `slicer`, `chunk_size`, `chunk_overlap`, `chunks`, `html_splitter_enabled`, `langchain_splitter_supported`
 - Полный `prompt/response` всех LLM-вызовов (classification/chat/fallback_chat/rag_answer/rag_summary) → `ai_model_io_log`
 - Для `deepseek-reasoner` добавлен runtime-fallback: при пустом `content` для chat/RAG выполняется один автоповтор на `deepseek-chat` с предупреждением в логах
 - Перед записью в `ai_model_io_log` чувствительные данные маскируются (`email`, `телефон`, `ИНН`, `СНИЛС`)
@@ -232,6 +235,12 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `AI_RAG_SUMMARY_MAX_CHARS` | `1200` | Макс. длина summary |
 | `AI_RAG_PREFILTER_TOP_DOCS` | `12` | Число документов в summary-prefilter |
 | `AI_RAG_PROMPT_SUMMARY_DOCS` | `3` | Число summary в RAG-промпте |
+| `AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT` | `1.6` | Вес exact phrase-совпадения вопроса с document summary |
+| `AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT` | `1.0` | Вес token-overlap score для document summary |
+| `AI_RAG_SUMMARY_SCORE_CAP` | `2.5` | Верхняя граница summary-score перед применением бонусов |
+| `AI_RAG_SUMMARY_BONUS_WEIGHT` | `0.45` | Вес summary-бонуса в lexical scoring чанков |
+| `AI_RAG_SUMMARY_POSTRANK_WEIGHT` | `0.20` | Вес summary-бонуса после hybrid merge |
+| `AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS` | `2` | Число fallback-документов без summary-hit для сохранения recall |
 | `AI_RAG_CACHE_TTL_SECONDS` | `300` | TTL кэша |
 | `AI_RAG_HTML_SPLITTER_ENABLED` | `1` | HTML header-aware splitter |
 | `AI_RAG_VECTOR_ENABLED` | `0` | Включить локальный векторный retrieval |
