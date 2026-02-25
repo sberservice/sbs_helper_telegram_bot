@@ -42,6 +42,17 @@ class FakeRagService:
         )
         return True
 
+    def get_chunking_diagnostics(self):
+        return {
+            "html_strategy": "html_header_splitter_with_fallback",
+            "plain_text_strategy": "extract_text_then_split_text",
+            "text_slicer": "RecursiveCharacterTextSplitter(langchain.text_splitter)",
+            "chunk_size": 1000,
+            "chunk_overlap": 150,
+            "html_splitter_enabled": True,
+            "langchain_splitter_supported": True,
+        }
+
     def ingest_document_from_bytes(
         self,
         filename,
@@ -90,6 +101,25 @@ class TestRagDirectoryIngestScript(unittest.TestCase):
         self.assertEqual(stats["purged"], 0)
         self.assertEqual(len(service.ingest_calls), 1)
         self.assertFalse(service.ingest_calls[0]["upsert_vectors"])
+
+    def test_run_ingest_cycle_logs_chunking_configuration(self):
+        """Перед ingest пишется диагностический лог с выбранной стратегией chunking."""
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "kb.txt").write_text("hello", encoding="utf-8")
+
+            service = FakeRagService(existing_documents=[])
+            with self.assertLogs("scripts.rag_directory_ingest", level="INFO") as captured:
+                run_ingest_cycle(
+                    directory=directory,
+                    recursive=True,
+                    dry_run=False,
+                    force_update=False,
+                    uploaded_by=42,
+                    service=service,
+                )
+
+        self.assertTrue(any("Chunking конфигурация:" in msg for msg in captured.output))
 
     def test_run_ingest_cycle_purges_removed_files(self):
         """Отсутствующие в директории файлы удаляются через purge."""

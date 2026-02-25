@@ -5,6 +5,42 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.54] - 2026-02-25
+
+## [0.1.55] - 2026-02-25
+
+### Added
+- Добавлена диагностическая строка `RAG priority evidence:` в `src/sbs_helper_telegram_bot/ai_router/rag_service.py` с top-5 prefilter-документами и top-5 финально выбранными чанками (`doc`, `source`, `fused`, `summary`) для наглядной проверки эффекта summary-приоритизации.
+- Добавлен регрессионный тест в `tests/test_rag_service.py`, проверяющий наличие `RAG priority evidence:` в логах retrieval-цикла.
+
+### Changed
+- Обновлена документация по RAG-диагностике: `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Упрощена оперативная верификация сценариев типа `X5 shop group`: теперь в runtime-логах явно видно, какие документы получили summary-приоритет и как это отразилось в финальном топе чанков.
+
+### Added
+- Добавлены новые env-настройки приоритизации summary retrieval в `src/sbs_helper_telegram_bot/ai_router/settings.py`: `AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT`, `AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT`, `AI_RAG_SUMMARY_SCORE_CAP`, `AI_RAG_SUMMARY_BONUS_WEIGHT`, `AI_RAG_SUMMARY_POSTRANK_WEIGHT`, `AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS`.
+- Добавлены регрессионные тесты в `tests/test_rag_service.py` на фразовый приоритет summary, controlled fallback документов и post-merge summary-bonus в hybrid retrieval.
+
+### Changed
+- Усилен summary-aware retrieval в `src/sbs_helper_telegram_bot/ai_router/rag_service.py`: prefilter документов теперь использует гибридный scoring (`exact phrase + token overlap`), а при наличии summary-hit добавляет fallback-пул активных документов для сохранения recall.
+- В hybrid fusion добавлен дополнительный document-level summary-bonus после merge lexical/vector кандидатов для более стабильного приоритета документов с релевантным summary.
+- Обновлена документация: `README.md`, `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Снижен риск ситуации, когда документ с релевантным фразовым summary (например, `X5 shop group`) недостаточно приоритизируется при равных vector/lexical сигналах.
+
+## [0.1.53] - 2026-02-25
+
+### Added
+- Добавлено диагностическое логирование стратегии чанкинга в `scripts/rag_directory_ingest.py`: перед каждым циклом синхронизации пишется строка `Chunking конфигурация:` с активными `html/plain_text` стратегиями, выбранным `slicer`, `chunk_size`/`chunk_overlap` и флагами доступности splitter-ов.
+- Добавлен регрессионный тест в `tests/test_rag_directory_ingest.py`, проверяющий наличие chunking-диагностики в runtime-логах ingest-скрипта.
+
+### Changed
+- В `src/sbs_helper_telegram_bot/ai_router/rag_service.py` расширено runtime-логирование ingest: теперь для каждого документа пишется строка `RAG chunking strategy:` с фактически выбранной стратегией (`html_header_splitter` или fallback), используемым slicer-ом и числом сформированных чанков.
+- Обновлена документация по RAG-логированию: `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
 ## [0.1.52] - 2026-02-25
 
 ### Added

@@ -122,6 +122,20 @@ AI_RAG_SUMMARY_INPUT_MAX_CHARS: Final[int] = int(os.getenv("AI_RAG_SUMMARY_INPUT
 AI_RAG_SUMMARY_MAX_CHARS: Final[int] = int(os.getenv("AI_RAG_SUMMARY_MAX_CHARS", "1200"))
 AI_RAG_PREFILTER_TOP_DOCS: Final[int] = int(os.getenv("AI_RAG_PREFILTER_TOP_DOCS", "12"))
 AI_RAG_PROMPT_SUMMARY_DOCS: Final[int] = int(os.getenv("AI_RAG_PROMPT_SUMMARY_DOCS", "3"))
+AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT: Final[float] = float(
+    os.getenv("AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT", "1.6")
+)
+AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT: Final[float] = float(
+    os.getenv("AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT", "1.0")
+)
+AI_RAG_SUMMARY_SCORE_CAP: Final[float] = float(os.getenv("AI_RAG_SUMMARY_SCORE_CAP", "2.5"))
+AI_RAG_SUMMARY_BONUS_WEIGHT: Final[float] = float(os.getenv("AI_RAG_SUMMARY_BONUS_WEIGHT", "0.45"))
+AI_RAG_SUMMARY_POSTRANK_WEIGHT: Final[float] = float(
+    os.getenv("AI_RAG_SUMMARY_POSTRANK_WEIGHT", "0.20")
+)
+AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS: Final[int] = int(
+    os.getenv("AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS", "2")
+)
 
 # TTL-кэш ответов RAG (секунды)
 AI_RAG_CACHE_TTL_SECONDS: Final[int] = int(os.getenv("AI_RAG_CACHE_TTL_SECONDS", "300"))

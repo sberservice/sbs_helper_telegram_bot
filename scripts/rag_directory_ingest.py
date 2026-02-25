@@ -130,6 +130,30 @@ def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _log_chunking_diagnostics(rag_service: RagKnowledgeService) -> None:
+    """Записать в лог активную конфигурацию chunking перед синхронизацией."""
+    if not hasattr(rag_service, "get_chunking_diagnostics"):
+        logger.info("Chunking конфигурация: диагностика недоступна для текущего сервиса")
+        return
+
+    try:
+        diagnostics = rag_service.get_chunking_diagnostics()
+    except Exception as exc:
+        logger.warning("Не удалось получить chunking-диагностику: %s", exc)
+        return
+
+    logger.info(
+        "Chunking конфигурация: html_strategy=%s plain_text_strategy=%s slicer=%s chunk_size=%s chunk_overlap=%s html_splitter_enabled=%s langchain_splitter_supported=%s",
+        diagnostics.get("html_strategy"),
+        diagnostics.get("plain_text_strategy"),
+        diagnostics.get("text_slicer"),
+        diagnostics.get("chunk_size"),
+        diagnostics.get("chunk_overlap"),
+        diagnostics.get("html_splitter_enabled"),
+        diagnostics.get("langchain_splitter_supported"),
+    )
+
+
 def run_ingest_cycle(
     directory: Path,
     recursive: bool,
@@ -140,6 +164,7 @@ def run_ingest_cycle(
 ) -> Dict[str, int]:
     """Выполнить один цикл синхронизации директории с RAG."""
     rag_service = service or RagKnowledgeService()
+    _log_chunking_diagnostics(rag_service)
     root_dir = directory.resolve()
     root_prefix = root_dir.as_posix().rstrip("/") + "/"
 
