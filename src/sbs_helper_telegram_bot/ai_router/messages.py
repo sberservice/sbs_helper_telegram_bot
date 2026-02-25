@@ -56,11 +56,11 @@ def format_rag_answer_markdown_v2(text: str) -> str:
     if not text:
         return ""
 
-    placeholders: dict[str, str] = {}
+    placeholders: dict[str, tuple[str, str]] = {}
 
     def _store(token_type: str, content: str) -> str:
         token = f"RAGTOKEN{token_type}{len(placeholders)}END"
-        placeholders[token] = content
+        placeholders[token] = (token_type, content)
         return token
 
     prepared = _RAG_INLINE_CODE_RE.sub(
@@ -74,8 +74,8 @@ def format_rag_answer_markdown_v2(text: str) -> str:
 
     escaped = escape_markdown_v2(prepared)
 
-    for token, content in placeholders.items():
-        if "CODE" in token:
+    for token, (token_type, content) in reversed(list(placeholders.items())):
+        if token_type == "CODE":
             replacement = f"`{_escape_inline_code_content(content)}`"
         else:
             replacement = f"*{escape_markdown_v2(content)}*"

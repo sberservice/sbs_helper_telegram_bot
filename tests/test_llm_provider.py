@@ -269,6 +269,31 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         post_kwargs = mock_client.post.await_args.kwargs
         self.assertEqual(post_kwargs["json"]["model"], "deepseek-chat")
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.settings.get_active_deepseek_model_for_response", return_value="deepseek-chat")
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    async def test_chat_uses_model_override_when_provided(self, mock_async_client, mock_response_model):
+        """chat использует model_override для конкретного вызова."""
+        provider = DeepSeekProvider(api_key="test_key")
+
+        mock_client = mock_async_client.return_value.__aenter__.return_value
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+        mock_response.raise_for_status.return_value = None
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        result = await provider.chat(
+            messages=[{"role": "user", "content": "hi"}],
+            system_prompt="system",
+            purpose="rag_summary",
+            model_override="deepseek-reasoner",
+        )
+
+        self.assertEqual(result, "ok")
+        post_kwargs = mock_client.post.await_args.kwargs
+        self.assertEqual(post_kwargs["json"]["model"], "deepseek-reasoner")
+
     @patch("src.sbs_helper_telegram_bot.ai_router.settings.get_active_deepseek_model_for_response", return_value="deepseek-reasoner")
     @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
     async def test_call_api_retries_with_chat_model_on_empty_reasoner_content(

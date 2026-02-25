@@ -39,6 +39,25 @@ class TestAIModelSettings(unittest.TestCase):
         self.assertFalse(ai_settings.is_rag_html_splitter_enabled())
         mock_get_setting.assert_called_once_with(ai_settings.AI_RAG_HTML_SPLITTER_ENABLED_SETTING_KEY)
 
+    @patch(
+        "src.sbs_helper_telegram_bot.ai_router.settings.AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL",
+        "deepseek-reasoner",
+    )
+    def test_get_directory_ingest_summary_model_override_valid(self):
+        """Для directory-ingest возвращается валидный env override модели summary."""
+        self.assertEqual(
+            ai_settings.get_directory_ingest_summary_model_override(),
+            "deepseek-reasoner",
+        )
+
+    @patch(
+        "src.sbs_helper_telegram_bot.ai_router.settings.AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL",
+        "unsupported-model",
+    )
+    def test_get_directory_ingest_summary_model_override_invalid_returns_none(self):
+        """Невалидный env override для directory-ingest игнорируется безопасным fallback."""
+        self.assertIsNone(ai_settings.get_directory_ingest_summary_model_override())
+
 
 class TestAdminAISwitch(unittest.IsolatedAsyncioTestCase):
     """Тесты переключения модели в админ-панели."""

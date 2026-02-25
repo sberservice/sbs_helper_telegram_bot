@@ -135,6 +135,16 @@ class TestFormatRagAnswerMarkdownV2(unittest.TestCase):
         self.assertIn("\\[ссылка\\]\\(https://example\\.com\\)", result)
         self.assertIn("\\_курсив\\_", result)
 
+    def test_nested_bold_inline_code_does_not_leak_placeholders(self):
+        """Во вложенной разметке **`code`** внутренние токены не должны утекать."""
+        text = "Нажмите **`ON/OFF`**, затем **`2`** и выберите **`System Config`**"
+        result = format_rag_answer_markdown_v2(text)
+
+        self.assertNotIn("RAGTOKEN", result)
+        self.assertIn("*`ON/OFF`*", result)
+        self.assertIn("*`2`*", result)
+        self.assertIn("*`System Config`*", result)
+
 
 if __name__ == "__main__":
     unittest.main()
