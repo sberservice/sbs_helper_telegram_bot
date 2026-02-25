@@ -127,10 +127,6 @@ class LocalEmbeddingProvider:
         try:
             import torch
 
-            amp_autocast = getattr(getattr(torch, "amp", None), "autocast", None)
-            if callable(amp_autocast):
-                return amp_autocast("cuda", dtype=torch.float16)
-
             return torch.cuda.amp.autocast(dtype=torch.float16)
         except Exception as exc:
             logger.warning(

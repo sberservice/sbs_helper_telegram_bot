@@ -77,6 +77,7 @@ async def handle_rag_document_upload(update: Update, context: ContextTypes.DEFAU
             payload=payload,
             uploaded_by=user_id,
             source_type="telegram",
+            upsert_vectors=False,
         )
 
         if result.get("is_duplicate"):

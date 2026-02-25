@@ -101,6 +101,7 @@ class RagKnowledgeService:
         uploaded_by: int,
         source_type: str = "telegram",
         source_url: Optional[str] = None,
+        upsert_vectors: bool = True,
     ) -> Dict[str, int]:
         """
         Загрузить документ в базу знаний.
@@ -111,6 +112,7 @@ class RagKnowledgeService:
             uploaded_by: Telegram ID администратора.
             source_type: Тип источника.
             source_url: URL источника (если применимо).
+            upsert_vectors: Выполнять ли немедленный upsert векторных эмбеддингов.
 
         Returns:
             Статистика загрузки документа.
@@ -264,7 +266,8 @@ class RagKnowledgeService:
             operation=_insert_document_and_chunks,
         )
 
-        self._upsert_vectors_for_chunks(inserted_vector_chunks)
+        if upsert_vectors:
+            self._upsert_vectors_for_chunks(inserted_vector_chunks)
 
         self._clear_expired_cache()
         logger.info(

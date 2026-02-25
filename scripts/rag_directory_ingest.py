@@ -212,6 +212,7 @@ def run_ingest_cycle(
                 uploaded_by=uploaded_by,
                 source_type="filesystem",
                 source_url=source_url,
+                upsert_vectors=False,
             )
             if int(ingest_result.get("is_duplicate", 0)) == 1:
                 stats["duplicates"] += 1

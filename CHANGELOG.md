@@ -5,18 +5,29 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
-## [0.1.50] - 2026-02-25
+## [0.1.52] - 2026-02-25
+
+### Added
+- Добавлен регрессионный тест в `tests/test_rag_admin_bot_part.py`, проверяющий, что загрузка документа через `#rag` вызывает ingest с `upsert_vectors=False`.
+
+### Changed
+- Изменён Telegram ingestion-поток (`src/sbs_helper_telegram_bot/ai_router/rag_admin_bot_part.py`): админ-загрузка `#rag` теперь сохраняет документ и чанки без немедленной генерации эмбеддингов.
+- Обновлена документация (`docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`): для Telegram-загрузки явно зафиксирован backfill-only процесс векторной индексации через `scripts/rag_vector_backfill.py`.
+
+### Fixed
+- Устранено расхождение между путями ingest: и directory-sync, и Telegram `#rag` теперь используют единый подход без inline vector upsert, исключая частичную дубликацию индексации.
 
 ## [0.1.51] - 2026-02-25
 
 ### Added
-- Нет изменений.
+- Добавлен регрессионный тест в `tests/test_rag_directory_ingest.py`, проверяющий, что `scripts/rag_directory_ingest.py` отключает немедленный vector upsert при ingest документов.
 
 ### Changed
-- Нет изменений.
+- Изменён ingestion-поток `scripts/rag_directory_ingest.py`: синхронизация директории теперь загружает документы и чанки без генерации эмбеддингов, а обновление локального векторного индекса выполняется только через `scripts/rag_vector_backfill.py`.
+- Обновлена документация по RAG-процессу (`docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`) с явным разделением этапов ingest и vector backfill.
 
 ### Fixed
-- Устранено `FutureWarning` в embedding-пайплайне CUDA: для FP16 autocast в `LocalEmbeddingProvider` теперь используется новый API `torch.amp.autocast('cuda', ...)` с обратнос совместимым fallback на `torch.cuda.amp.autocast(...)` для старых версий PyTorch.
+- Устранена избыточная векторная обработка при directory ingest, которая могла дублировать/ускорять конкурирующие операции локальной индексации при отдельном запуске backfill.
 
 ## [0.1.50] - 2026-02-25
 

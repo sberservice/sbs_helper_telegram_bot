@@ -42,7 +42,15 @@ class FakeRagService:
         )
         return True
 
-    def ingest_document_from_bytes(self, filename, payload, uploaded_by, source_type="telegram", source_url=None):
+    def ingest_document_from_bytes(
+        self,
+        filename,
+        payload,
+        uploaded_by,
+        source_type="telegram",
+        source_url=None,
+        upsert_vectors=True,
+    ):
         self.ingest_calls.append(
             {
                 "filename": filename,
@@ -50,6 +58,7 @@ class FakeRagService:
                 "uploaded_by": uploaded_by,
                 "source_type": source_type,
                 "source_url": source_url,
+                "upsert_vectors": upsert_vectors,
             }
         )
         return {"document_id": 123, "chunks_count": 5, "is_duplicate": 0}
@@ -80,6 +89,7 @@ class TestRagDirectoryIngestScript(unittest.TestCase):
         self.assertEqual(stats["ingested"], 1)
         self.assertEqual(stats["purged"], 0)
         self.assertEqual(len(service.ingest_calls), 1)
+        self.assertFalse(service.ingest_calls[0]["upsert_vectors"])
 
     def test_run_ingest_cycle_purges_removed_files(self):
         """Отсутствующие в директории файлы удаляются через purge."""
