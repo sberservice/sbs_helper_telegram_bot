@@ -33,7 +33,7 @@
 ## Установка
 
 ```bash
-mysql -u root -p sprint_db < scripts/feedback_setup.sql
+mysql -u root -p sprint_db < sql/feedback_setup.sql
 ```
 
 ## База данных

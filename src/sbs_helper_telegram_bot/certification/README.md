@@ -52,7 +52,7 @@
 mysql -u root -p < schema.sql
 
 # Начальные данные
-mysql -u root -p sprint_db < scripts/certification_setup.sql
+mysql -u root -p sprint_db < sql/certification_setup.sql
 ```
 
 ## Настройки теста

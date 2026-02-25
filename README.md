@@ -49,16 +49,16 @@ cp .env.example .env   # Заполнить TELEGRAM_TOKEN, MYSQL_*, DEEPSEEK_AP
 
 ```bash
 mysql -u root -p < schema.sql
-# Модули (все скрипты в scripts/*_setup.sql):
+# Модули (все скрипты в sql/*_setup.sql):
 for f in bot_settings_setup initial_ticket_types initial_validation_rules \
          map_rules_to_ticket_types certification_setup ktr_setup upos_error_setup \
          gamification_setup feedback_setup news_setup ai_router_setup ai_rag_setup \
          ai_rag_document_summaries_setup ai_rag_vector_setup chat_members_setup health_check_setup \
          health_outage_calendar_setup; do
-  mysql -u root -p sprint_db < "scripts/${f}.sql"
+  mysql -u root -p sprint_db < "sql/${f}.sql"
 done
 # Для существующих БД без FULLTEXT-индекса summary_text:
-mysql -u root -p sprint_db < scripts/rag_document_summaries_fulltext_index.sql
+mysql -u root -p sprint_db < sql/rag_document_summaries_fulltext_index.sql
 ```
 
 ### Запуск
@@ -81,9 +81,9 @@ python run_bot.py
 | **RAG** | `AI_RAG_ENABLED`, `AI_RAG_CHUNK_SIZE`, `AI_RAG_TOP_K`, `AI_RAG_PREFILTER_TOP_DOCS`, `AI_RAG_VECTOR_ENABLED` | База знаний документов |
 | **Сеть** | `TELEGRAM_HTTP_MAX_RETRIES`, `TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS` | Сетевые профили |
 
-Для хранения полных AI/RAG логов (`prompt/response`) используется таблица `ai_model_io_log` (создаётся в `scripts/ai_router_setup.sql`).
+Для хранения полных AI/RAG логов (`prompt/response`) используется таблица `ai_model_io_log` (создаётся в `sql/ai_router_setup.sql`).
 Записи маскируют чувствительные данные (email/телефон/ИНН/СНИЛС) перед сохранением.
-Очистка старых записей выполняется через `scripts/ai_model_io_log_retention.sql` (по умолчанию старше 30 дней).
+Очистка старых записей выполняется через `sql/ai_model_io_log_retention.sql` (по умолчанию старше 30 дней).
 
 Полный список переменных — в `.env.example`. AI-модели переключаются в runtime через админ-панель (`🧠 AI модель`).
 

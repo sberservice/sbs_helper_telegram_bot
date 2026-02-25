@@ -37,7 +37,7 @@
 ## Установка
 
 ```bash
-mysql -u root -p sprint_db < scripts/news_setup.sql
+mysql -u root -p sprint_db < sql/news_setup.sql
 ```
 
 ## База данных

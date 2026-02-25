@@ -71,7 +71,7 @@ mysql -u user -p database < schema.sql
 ### 2. Загрузка типов заявок
 
 ```bash
-mysql -u user -p database < scripts/initial_ticket_types.sql
+mysql -u user -p database < sql/initial_ticket_types.sql
 ```
 
 Типы заявок по умолчанию:
@@ -85,7 +85,7 @@ mysql -u user -p database < scripts/initial_ticket_types.sql
 
 ```bash
 # Создание сопоставлений правил с типами
-mysql -u user -p database < scripts/map_rules_to_ticket_types.sql
+mysql -u user -p database < sql/map_rules_to_ticket_types.sql
 ```
 
 ## Примеры использования

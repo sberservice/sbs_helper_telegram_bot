@@ -27,7 +27,7 @@
 ### 1. Создание таблиц базы данных
 
 ```bash
-mysql -u <user> -p <database> < scripts/gamification_setup.sql
+mysql -u <user> -p <database> < sql/gamification_setup.sql
 ```
 
 ## Структура модуля

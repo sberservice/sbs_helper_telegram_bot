@@ -36,7 +36,7 @@
 ## Установка
 
 ```bash
-mysql -u username -p database_name < scripts/upos_error_setup.sql
+mysql -u username -p database_name < sql/upos_error_setup.sql
 ```
 
 ## Использование

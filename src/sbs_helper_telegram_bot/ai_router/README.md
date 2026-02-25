@@ -190,7 +190,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 - Полный `prompt/response` всех LLM-вызовов (classification/chat/fallback_chat/rag_answer/rag_summary) → `ai_model_io_log`
 - Для `deepseek-reasoner` добавлен runtime-fallback: при пустом `content` для chat/RAG выполняется один автоповтор на `deepseek-chat` с предупреждением в логах
 - Перед записью в `ai_model_io_log` чувствительные данные маскируются (`email`, `телефон`, `ИНН`, `СНИЛС`)
-- Очистка старых full-text логов выполняется скриптом `scripts/ai_model_io_log_retention.sql` (30 дней)
+- Очистка старых full-text логов выполняется скриптом `sql/ai_model_io_log_retention.sql` (30 дней)
 
 ## Конфигурация
 
@@ -287,14 +287,14 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 ## Установка
 
 ```bash
-mysql -u root -p sprint_db < scripts/ai_router_setup.sql
-mysql -u root -p sprint_db < scripts/ai_rag_setup.sql
-mysql -u root -p sprint_db < scripts/ai_rag_document_summaries_setup.sql
-mysql -u root -p sprint_db < scripts/ai_rag_vector_setup.sql
+mysql -u root -p sprint_db < sql/ai_router_setup.sql
+mysql -u root -p sprint_db < sql/ai_rag_setup.sql
+mysql -u root -p sprint_db < sql/ai_rag_document_summaries_setup.sql
+mysql -u root -p sprint_db < sql/ai_rag_vector_setup.sql
 # Для существующих БД без FULLTEXT-индекса по summary_text:
-mysql -u root -p sprint_db < scripts/rag_document_summaries_fulltext_index.sql
+mysql -u root -p sprint_db < sql/rag_document_summaries_fulltext_index.sql
 # Периодическая очистка full-text AI логов (по умолчанию 30 дней):
-mysql -u root -p sprint_db < scripts/ai_model_io_log_retention.sql
+mysql -u root -p sprint_db < sql/ai_model_io_log_retention.sql
 ```
 
 ## База данных

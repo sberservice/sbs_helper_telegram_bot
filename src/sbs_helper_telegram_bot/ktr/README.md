@@ -36,7 +36,7 @@
 ## Установка
 
 ```bash
-mysql -u user -p database < scripts/ktr_setup.sql
+mysql -u user -p database < sql/ktr_setup.sql
 ```
 
 ## Импорт из CSV

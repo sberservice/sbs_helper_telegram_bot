@@ -1,7 +1,7 @@
 -- ============================================================================
 -- rag_document_summaries_fulltext_index.sql — добавление FULLTEXT-индекса summary
 -- ============================================================================
--- Запустить: mysql -u <user> -p <database> < scripts/rag_document_summaries_fulltext_index.sql
+-- Запустить: mysql -u <user> -p <database> < sql/rag_document_summaries_fulltext_index.sql
 -- ============================================================================
 
 SET @idx_exists := (

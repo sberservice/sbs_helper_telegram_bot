@@ -127,7 +127,7 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - Для технической записи `rag_chunk_embeddings` при временных DB-блокировках пишется предупреждение о retry c `errno`, номером попытки и размером батча.
 - Если `deepseek-reasoner` вернул пустой `content` для chat/RAG-ответа, провайдер автоматически делает один повтор на `deepseek-chat` и пишет предупреждение в лог (это снижает риск «немого» ответа пользователю).
 - Полный текст `prompt/response` также сохраняется в `ai_model_io_log` с маскировкой чувствительных данных (`email`, `телефон`, `ИНН`, `СНИЛС`).
-- Для очистки логов старше 30 дней используйте `scripts/ai_model_io_log_retention.sql` (подходит для запуска по cron).
+- Для очистки логов старше 30 дней используйте `sql/ai_model_io_log_retention.sql` (подходит для запуска по cron).
 
 ## Переменные окружения
 
@@ -219,11 +219,11 @@ Runtime-ключ в `bot_settings`:
 ## SQL-инициализация
 
 ```bash
-mysql -u root -p sprint_db < scripts/ai_rag_setup.sql
-mysql -u root -p sprint_db < scripts/ai_rag_document_summaries_setup.sql
-mysql -u root -p sprint_db < scripts/ai_rag_vector_setup.sql
+mysql -u root -p sprint_db < sql/ai_rag_setup.sql
+mysql -u root -p sprint_db < sql/ai_rag_document_summaries_setup.sql
+mysql -u root -p sprint_db < sql/ai_rag_vector_setup.sql
 # Для существующих БД без FULLTEXT-индекса summary_text:
-mysql -u root -p sprint_db < scripts/rag_document_summaries_fulltext_index.sql
+mysql -u root -p sprint_db < sql/rag_document_summaries_fulltext_index.sql
 ```
 
 ## Ограничения текущего этапа

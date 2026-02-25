@@ -43,9 +43,9 @@ mysql -u root -p < schema.sql
 ### 2. Загрузить начальные данные
 
 ```bash
-mysql -u root -p sprint_db < scripts/initial_ticket_types.sql
-mysql -u root -p sprint_db < scripts/initial_validation_rules.sql
-mysql -u root -p sprint_db < scripts/map_rules_to_ticket_types.sql
+mysql -u root -p sprint_db < sql/initial_ticket_types.sql
+mysql -u root -p sprint_db < sql/initial_validation_rules.sql
+mysql -u root -p sprint_db < sql/map_rules_to_ticket_types.sql
 ```
 
 ## Использование
