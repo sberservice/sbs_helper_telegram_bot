@@ -63,6 +63,8 @@ class RagKnowledgeService:
         self._answer_cache: Dict[str, CachedAnswer] = {}
         self._embedding_provider: Optional[LocalEmbeddingProvider] = None
         self._vector_index: Optional[LocalVectorIndex] = None
+        self._summary_embedding_cache: Dict[int, List[float]] = {}
+        self._summary_embedding_corpus_version: int = -1
 
     @staticmethod
     def is_supported_file(filename: str) -> bool:
@@ -157,6 +159,7 @@ class RagKnowledgeService:
         source_type: str = "telegram",
         source_url: Optional[str] = None,
         upsert_vectors: bool = True,
+        summary_model_scope: str = "default",
     ) -> Dict[str, int]:
         """
         Загрузить документ в базу знаний.
@@ -168,6 +171,7 @@ class RagKnowledgeService:
             source_type: Тип источника.
             source_url: URL источника (если применимо).
             upsert_vectors: Выполнять ли немедленный upsert векторных эмбеддингов.
+            summary_model_scope: Контекст выбора модели summary (например, directory_ingest).
 
         Returns:
             Статистика загрузки документа.
@@ -277,6 +281,7 @@ class RagKnowledgeService:
             filename,
             limited_chunks,
             user_id=uploaded_by,
+            summary_model_scope=summary_model_scope,
         )
 
         def _insert_document_and_chunks() -> Tuple[int, List[Dict[str, object]]]:
@@ -350,6 +355,7 @@ class RagKnowledgeService:
         filename: str,
         chunks: List[str],
         user_id: Optional[int] = None,
+        summary_model_scope: str = "default",
     ) -> Tuple[str, Optional[str]]:
         """Сгенерировать summary документа с fallback на extractive-режим."""
         fallback_summary = self._build_fallback_summary(chunks)
@@ -371,6 +377,15 @@ class RagKnowledgeService:
             from src.sbs_helper_telegram_bot.ai_router.llm_provider import get_provider
 
             provider = get_provider()
+            model_override: Optional[str] = None
+            if summary_model_scope == "directory_ingest":
+                model_override = ai_settings.get_directory_ingest_summary_model_override()
+                if model_override is None and ai_settings.AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL:
+                    logger.warning(
+                        "Некорректное значение AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL=%s, используется модель ответов по умолчанию",
+                        ai_settings.AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL,
+                    )
+
             system_prompt = build_rag_summary_prompt(
                 document_name=filename,
                 document_excerpt=excerpt,
@@ -379,16 +394,19 @@ class RagKnowledgeService:
 
             async def _request_summary() -> str:
                 return await provider.chat(
-                    messages=[{"role": "user", "content": "Сформируй summary документа."}],
+                    messages=[{"role": "user", "content": "Сформируй summary документа. Подумай, какие в нем могут быть ключевые отличия в сути от других подобных похожих документов, чтобы далее было проще найти именно этот документ."}],
                     system_prompt=system_prompt,
                     user_id=user_id,
                     purpose="rag_summary",
+                    model_override=model_override,
                 )
 
             raw_summary = asyncio.run(_request_summary())
             normalized_summary = self._normalize_summary_text(raw_summary)
             if normalized_summary:
-                return normalized_summary, provider.get_model_name(purpose="response")
+                if model_override:
+                    return normalized_summary, ai_settings.normalize_deepseek_model(model_override)
+                return normalized_summary, provider.get_model_name(purpose="rag_summary")
         except Exception as exc:
             logger.warning("Не удалось сгенерировать AI-summary для %s: %s", filename, exc)
 
@@ -751,7 +769,8 @@ class RagKnowledgeService:
         total_chars = 0
         max_chars = ai_settings.AI_RAG_MAX_CONTEXT_CHARS
 
-        for index, (_, source, chunk_text, _) in enumerate(chunks, start=1):
+        for index, chunk in enumerate(chunks, start=1):
+            _, source, chunk_text, _document_id, _chunk_index = self._unpack_chunk_row(chunk)
             block = f"[Блок {index} | {source}]\n{chunk_text}"
             if total_chars + len(block) > max_chars:
                 break
@@ -787,13 +806,15 @@ class RagKnowledgeService:
         if not tokens:
             return [], []
 
-        prefilter_docs = self._prefilter_documents_by_summary(
+        prefilter_docs, summary_vector_scores = self._prefilter_documents_by_summary(
             question=question,
             question_tokens=tokens,
             limit=ai_settings.AI_RAG_PREFILTER_TOP_DOCS,
         )
         prefilter_doc_ids = [doc_id for doc_id, _, _, _ in prefilter_docs]
+        base_prefilter_doc_ids = list(prefilter_doc_ids)
         summary_scores = {doc_id: score for doc_id, _, _, score in prefilter_docs}
+        normalized_summary_scores = self._build_relative_summary_scores(summary_scores)
         fallback_doc_ids: List[int] = []
         fallback_docs_limit = max(0, int(ai_settings.AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS))
 
@@ -804,16 +825,19 @@ class RagKnowledgeService:
             )
             prefilter_doc_ids.extend(fallback_doc_ids)
 
+        prefilter_scope_doc_ids = list(dict.fromkeys(prefilter_doc_ids))
+
         lexical_chunks = self._search_relevant_chunks(
             question,
             limit=limit,
-            prefiltered_doc_ids=prefilter_doc_ids or None,
+            prefiltered_doc_ids=prefilter_scope_doc_ids or None,
             summary_scores=summary_scores,
+            normalized_summary_scores=normalized_summary_scores,
         )
 
         vector_chunks = self._search_relevant_chunks_vector(
             question=question,
-            prefiltered_doc_ids=prefilter_doc_ids or None,
+            prefiltered_doc_ids=prefilter_scope_doc_ids or None,
         )
 
         chunks = self._merge_retrieval_candidates(
@@ -821,65 +845,213 @@ class RagKnowledgeService:
             vector_chunks=vector_chunks,
             limit=limit,
             summary_scores=summary_scores,
+            normalized_summary_scores=normalized_summary_scores,
         )
         mode = self._determine_retrieval_mode(
             lexical_chunks=lexical_chunks,
             vector_chunks=vector_chunks,
             selected_chunks=chunks,
         )
-        top_source = str(chunks[0][1]) if chunks else "none"
+        selected_component_scores = self._build_selected_component_scores(
+            lexical_chunks=lexical_chunks,
+            vector_chunks=vector_chunks,
+        )
+        lexical_weight = max(0.0, float(ai_settings.AI_RAG_VECTOR_LEXICAL_WEIGHT))
+        vector_weight = max(0.0, float(ai_settings.AI_RAG_VECTOR_SEMANTIC_WEIGHT))
+        selected_unique_docs = len({int(self._unpack_chunk_row(chunk)[3]) for chunk in chunks})
+        selected_top_docs = self._build_selected_top_docs_snapshot(chunks)
+        top_source = self._format_log_source(str(self._unpack_chunk_row(chunks[0])[1]) if chunks else "none")
         logger.info(
-            "RAG retrieval: mode=%s tokens=%s prefilter_docs=%s fallback_docs=%s lexical_hits=%s vector_hits=%s selected=%s top_source=%s",
+            "RAG retrieval: mode=%s tokens=%s prefilter_docs=%s prefilter_scope_docs=%s fallback_docs=%s lexical_hits=%s vector_hits=%s selected=%s selected_unique_docs=%s selected_top_docs=%s top_source=%s",
             mode,
             len(tokens),
             len(prefilter_docs),
+            len(prefilter_scope_doc_ids),
             len(fallback_doc_ids),
             len(lexical_chunks),
             len(vector_chunks),
             len(chunks),
+            selected_unique_docs,
+            selected_top_docs,
             top_source,
         )
         logger.info(
-            "RAG priority evidence: prefilter_top=%s selected_top=%s",
-            self._build_prefilter_priority_snapshot(prefilter_docs),
-            self._build_selected_priority_snapshot(chunks, summary_scores),
+            "RAG priority evidence:\n  prefilter_top:\n%s\n  selected_top:\n%s",
+            self._build_prefilter_priority_snapshot(prefilter_docs, summary_vector_scores),
+            self._build_selected_priority_snapshot(
+                chunks,
+                summary_scores,
+                prefilter_scope_doc_ids=prefilter_scope_doc_ids,
+                base_prefilter_doc_ids=base_prefilter_doc_ids,
+                component_scores=selected_component_scores,
+                lexical_weight=lexical_weight,
+                vector_weight=vector_weight,
+                normalized_summary_scores=normalized_summary_scores,
+            ),
         )
         summary_blocks = self._build_summary_blocks(prefilter_docs)
         return chunks, summary_blocks
 
     @staticmethod
-    def _build_prefilter_priority_snapshot(prefilter_docs: List[Tuple[int, str, str, float]]) -> str:
-        """Сформировать компактный лог prefilter-документов с их summary-score."""
-        if not prefilter_docs:
+    def _format_log_source(source: str, max_length: int = 96) -> str:
+        """Подготовить source к компактному человекочитаемому виду для логов."""
+        compact = _SPACES_RE.sub(" ", str(source or "").strip())
+        if not compact:
             return "none"
 
-        top_docs = prefilter_docs[:5]
-        parts = [f"doc={doc_id}:{filename}:summary={score:.3f}" for doc_id, filename, _, score in top_docs]
-        return "; ".join(parts)
+        if len(compact) <= max_length:
+            return compact
 
-    @staticmethod
+        head_len = max(12, int(max_length * 0.65))
+        tail_len = max(8, max_length - head_len - 1)
+        return f"{compact[:head_len]}…{compact[-tail_len:]}"
+
+    @classmethod
+    def _build_prefilter_priority_snapshot(
+        cls,
+        prefilter_docs: List[Tuple[int, str, str, float]],
+        vector_scores: Optional[Dict[int, float]] = None,
+        vector_weight: Optional[float] = None,
+    ) -> str:
+        """Сформировать человекочитаемый лог prefilter-документов с разложением итогового score."""
+        if not prefilter_docs:
+            return "    (none)"
+
+        vector_scores = vector_scores or {}
+        effective_weight = max(
+            0.0,
+            float(
+                ai_settings.AI_RAG_SUMMARY_VECTOR_WEIGHT if vector_weight is None else vector_weight
+            ),
+        )
+        top_docs = prefilter_docs[:5]
+        parts = []
+        for rank, (doc_id, filename, _, score) in enumerate(top_docs, start=1):
+            vec = float(vector_scores.get(doc_id, 0.0))
+            weighted_vec = vec * effective_weight
+            lexical_part = score - weighted_vec
+            parts.append(
+                "    "
+                f"{rank}. doc={doc_id} summary={score:.3f} lexical={lexical_part:.3f} "
+                f"vec={vec:.3f} vec_w={weighted_vec:.3f} source={cls._format_log_source(filename)}"
+            )
+        return "\n".join(parts)
+
+    @classmethod
     def _build_selected_priority_snapshot(
+        cls,
         chunks: List[Tuple[float, str, str, int]],
         summary_scores: Dict[int, float],
+        prefilter_scope_doc_ids: Optional[List[int]] = None,
+        base_prefilter_doc_ids: Optional[List[int]] = None,
+        component_scores: Optional[Dict[Tuple[int, str], Tuple[float, float]]] = None,
+        lexical_weight: Optional[float] = None,
+        vector_weight: Optional[float] = None,
+        normalized_summary_scores: Optional[Dict[int, float]] = None,
     ) -> str:
-        """Сформировать компактный лог финально выбранных чанков и вкладов summary-score."""
+        """Сформировать человекочитаемый лог финально выбранных чанков и вкладов summary-score."""
+        if not chunks:
+            return "    (none)"
+
+        prefilter_scope_set = {int(doc_id) for doc_id in (prefilter_scope_doc_ids or [])}
+        base_prefilter_set = {int(doc_id) for doc_id in (base_prefilter_doc_ids or [])}
+        component_scores = component_scores or {}
+        effective_lexical_weight = max(
+            0.0,
+            float(ai_settings.AI_RAG_VECTOR_LEXICAL_WEIGHT if lexical_weight is None else lexical_weight),
+        )
+        effective_vector_weight = max(
+            0.0,
+            float(ai_settings.AI_RAG_VECTOR_SEMANTIC_WEIGHT if vector_weight is None else vector_weight),
+        )
+        effective_normalized_scores = (
+            normalized_summary_scores
+            if normalized_summary_scores is not None
+            else cls._build_relative_summary_scores(summary_scores)
+        )
+        top_chunks = chunks[:5]
+        parts = []
+        for rank, chunk in enumerate(top_chunks, start=1):
+            fused_score, source, chunk_text, document_id, chunk_index = cls._unpack_chunk_row(chunk)
+            summary_score = float(summary_scores.get(document_id, 0.0))
+            normalized_summary_score = float(effective_normalized_scores.get(document_id, 0.0))
+            chunk_key = (int(document_id), str(chunk_text or "").strip())
+            lexical_score, vector_score = component_scores.get(chunk_key, (0.0, 0.0))
+            lexical_total = float(lexical_score)
+            lexical_bonus_full = cls._summary_score_bonus_from_normalized(normalized_summary_score)
+            lexical_bonus = max(0.0, min(lexical_bonus_full, lexical_total))
+            lexical_raw = max(0.0, lexical_total - lexical_bonus)
+            hybrid_base = (float(lexical_score) * effective_lexical_weight) + (float(vector_score) * effective_vector_weight)
+            summary_bonus = cls._summary_postrank_bonus_from_normalized(normalized_summary_score)
+            if document_id in base_prefilter_set:
+                origin = "prefilter"
+            elif document_id in prefilter_scope_set:
+                origin = "fallback"
+            else:
+                origin = "global"
+            parts.append(
+                "    "
+                f"{rank}. doc={document_id} chunk={chunk_index} fused={float(fused_score):.3f} "
+                f"summary={summary_score:.3f} origin={origin} "
+                f"lex_raw={lexical_raw:.3f} lex_bonus={lexical_bonus:.3f} lex_total={lexical_total:.3f} "
+                f"hybrid=({lexical_total:.3f}*{effective_lexical_weight:.3f})+({float(vector_score):.3f}*{effective_vector_weight:.3f})={hybrid_base:.3f} "
+                f"summary_bonus={summary_bonus:.3f} source={cls._format_log_source(source)}"
+            )
+        return "\n".join(parts)
+
+    @staticmethod
+    def _build_selected_component_scores(
+        lexical_chunks: List[Tuple[float, str, str, int]],
+        vector_chunks: List[Tuple[float, str, str, int]],
+    ) -> Dict[Tuple[int, str], Tuple[float, float]]:
+        """Собрать lexical/vector score-компоненты для выбранных чанков по dedup-ключу merge."""
+        components: Dict[Tuple[int, str], Tuple[float, float]] = {}
+
+        for chunk in lexical_chunks:
+            lexical_score, _source, chunk_text, document_id, _chunk_index = RagKnowledgeService._unpack_chunk_row(chunk)
+            key = (int(document_id), str(chunk_text or "").strip())
+            current_lexical, current_vector = components.get(key, (0.0, 0.0))
+            components[key] = (max(current_lexical, float(lexical_score)), current_vector)
+
+        for chunk in vector_chunks:
+            vector_score, _source, chunk_text, document_id, _chunk_index = RagKnowledgeService._unpack_chunk_row(chunk)
+            key = (int(document_id), str(chunk_text or "").strip())
+            current_lexical, current_vector = components.get(key, (0.0, 0.0))
+            components[key] = (current_lexical, max(current_vector, float(vector_score)))
+
+        return components
+
+    @staticmethod
+    def _build_selected_top_docs_snapshot(
+        chunks: List[Tuple[float, str, str, int]],
+        max_docs: int = 5,
+    ) -> str:
+        """Сформировать compact snapshot top уникальных document_id по порядку ранжирования."""
         if not chunks:
             return "none"
 
-        top_chunks = chunks[:5]
-        parts = []
-        for fused_score, source, _chunk_text, document_id in top_chunks:
-            summary_score = float(summary_scores.get(document_id, 0.0))
-            parts.append(
-                f"doc={document_id}:{source}:fused={float(fused_score):.3f}:summary={summary_score:.3f}"
-            )
-        return "; ".join(parts)
+        safe_limit = max(1, int(max_docs))
+        ordered_unique_doc_ids: List[int] = []
+        seen_doc_ids: set[int] = set()
+        for chunk in chunks:
+            _score, _source, _chunk_text, document_id, _chunk_index = RagKnowledgeService._unpack_chunk_row(chunk)
+            doc_id = int(document_id)
+            if doc_id in seen_doc_ids:
+                continue
+            seen_doc_ids.add(doc_id)
+            ordered_unique_doc_ids.append(doc_id)
+            if len(ordered_unique_doc_ids) >= safe_limit:
+                break
+
+        if not ordered_unique_doc_ids:
+            return "none"
+        return ",".join(str(doc_id) for doc_id in ordered_unique_doc_ids)
 
     def _search_relevant_chunks_vector(
         self,
         question: str,
         prefiltered_doc_ids: Optional[List[int]],
-    ) -> List[Tuple[float, str, str, int]]:
+    ) -> List[Tuple[float, str, str, int, int]]:
         """Найти релевантные чанки через локальный векторный индекс."""
         if not self._is_vector_search_enabled():
             return []
@@ -898,7 +1070,7 @@ class RagKnowledgeService:
             limit=max(1, int(ai_settings.AI_RAG_VECTOR_TOP_K)),
             allowed_document_ids=prefiltered_doc_ids,
         )
-        return [(item.score, item.source, item.chunk_text, item.document_id) for item in candidates]
+        return [(item.score, item.source, item.chunk_text, item.document_id, item.chunk_index) for item in candidates]
 
     def _merge_retrieval_candidates(
         self,
@@ -906,10 +1078,12 @@ class RagKnowledgeService:
         vector_chunks: List[Tuple[float, str, str, int]],
         limit: int,
         summary_scores: Optional[Dict[int, float]] = None,
-    ) -> List[Tuple[float, str, str, int]]:
+        normalized_summary_scores: Optional[Dict[int, float]] = None,
+    ) -> List[Tuple[float, str, str, int, int]]:
         """Объединить lexical и vector кандидаты в единый ранжированный список."""
         safe_limit = max(1, limit)
         summary_scores = summary_scores or {}
+        normalized_summary_scores = normalized_summary_scores or {}
 
         if not vector_chunks:
             return lexical_chunks[:safe_limit]
@@ -920,20 +1094,23 @@ class RagKnowledgeService:
         lexical_weight = max(0.0, float(ai_settings.AI_RAG_VECTOR_LEXICAL_WEIGHT))
         vector_weight = max(0.0, float(ai_settings.AI_RAG_VECTOR_SEMANTIC_WEIGHT))
 
-        merged: Dict[Tuple[int, str], Dict[str, object]] = {}
+        merged: Dict[Tuple[int, int, str], Dict[str, object]] = {}
 
-        for score, source, chunk_text, document_id in lexical_chunks:
-            key = (document_id, chunk_text.strip())
+        for chunk in lexical_chunks:
+            score, source, chunk_text, document_id, chunk_index = self._unpack_chunk_row(chunk)
+            key = self._chunk_merge_key(document_id=document_id, chunk_text=chunk_text, chunk_index=chunk_index)
             merged[key] = {
                 "lexical_score": float(score),
                 "vector_score": 0.0,
                 "source": source,
                 "chunk_text": chunk_text,
                 "document_id": document_id,
+                "chunk_index": int(chunk_index),
             }
 
-        for score, source, chunk_text, document_id in vector_chunks:
-            key = (document_id, chunk_text.strip())
+        for chunk in vector_chunks:
+            score, source, chunk_text, document_id, chunk_index = self._unpack_chunk_row(chunk)
+            key = self._chunk_merge_key(document_id=document_id, chunk_text=chunk_text, chunk_index=chunk_index)
             row = merged.get(key)
             if row is None:
                 row = {
@@ -942,18 +1119,24 @@ class RagKnowledgeService:
                     "source": source,
                     "chunk_text": chunk_text,
                     "document_id": document_id,
+                    "chunk_index": int(chunk_index),
                 }
                 merged[key] = row
             row["vector_score"] = max(float(row.get("vector_score") or 0.0), float(score))
 
-        ranked: List[Tuple[float, str, str, int]] = []
+        ranked: List[Tuple[float, str, str, int, int]] = []
         for row in merged.values():
             lexical_score = float(row.get("lexical_score") or 0.0)
             vector_score = float(row.get("vector_score") or 0.0)
             document_id = int(row.get("document_id") or 0)
+            chunk_index = int(row.get("chunk_index") or 0)
             summary_score = float(summary_scores.get(document_id, 0.0))
+            normalized_summary_score = normalized_summary_scores.get(document_id)
             fused_score = (lexical_score * lexical_weight) + (vector_score * vector_weight)
-            fused_score += self._summary_postrank_bonus(summary_score)
+            if normalized_summary_score is None:
+                fused_score += self._summary_postrank_bonus(summary_score)
+            else:
+                fused_score += self._summary_postrank_bonus_from_normalized(float(normalized_summary_score))
             if fused_score <= 0:
                 continue
             ranked.append(
@@ -962,6 +1145,7 @@ class RagKnowledgeService:
                     str(row.get("source") or "document"),
                     str(row.get("chunk_text") or ""),
                     int(row.get("document_id") or 0),
+                    chunk_index,
                 )
             )
 
@@ -1202,7 +1386,8 @@ class RagKnowledgeService:
         limit: int,
         prefiltered_doc_ids: Optional[List[int]] = None,
         summary_scores: Optional[Dict[int, float]] = None,
-    ) -> List[Tuple[float, str, str, int]]:
+        normalized_summary_scores: Optional[Dict[int, float]] = None,
+    ) -> List[Tuple[float, str, str, int, int]]:
         """Найти релевантные чанки в БД по гибридному lexical scoring."""
         tokens = self._tokenize(question)
         if not tokens:
@@ -1210,6 +1395,7 @@ class RagKnowledgeService:
 
         safe_limit = max(1, limit)
         summary_scores = summary_scores or {}
+        normalized_summary_scores = normalized_summary_scores or {}
 
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -1217,7 +1403,7 @@ class RagKnowledgeService:
                     placeholders = ",".join(["%s"] * len(prefiltered_doc_ids))
                     cursor.execute(
                         f"""
-                        SELECT c.chunk_text, d.filename, d.id AS document_id
+                        SELECT c.chunk_text, c.chunk_index, d.filename, d.id AS document_id
                         FROM rag_chunks c
                         JOIN rag_documents d ON d.id = c.document_id
                         WHERE d.status = 'active' AND d.id IN ({placeholders})
@@ -1229,7 +1415,7 @@ class RagKnowledgeService:
                 else:
                     cursor.execute(
                         """
-                        SELECT c.chunk_text, d.filename, d.id AS document_id
+                        SELECT c.chunk_text, c.chunk_index, d.filename, d.id AS document_id
                         FROM rag_chunks c
                         JOIN rag_documents d ON d.id = c.document_id
                         WHERE d.status = 'active'
@@ -1240,30 +1426,75 @@ class RagKnowledgeService:
                     )
                 rows = cursor.fetchall() or []
 
-        scored: List[Tuple[float, str, str, int]] = []
+        scored: List[Tuple[float, str, str, int, int]] = []
 
         for row in rows:
             chunk_text = row.get("chunk_text") or ""
+            chunk_index = int(row.get("chunk_index") or 0)
             source = row.get("filename") or "document"
             document_id = int(row.get("document_id") or 0)
             chunk_score = self._score_chunk(chunk_text, tokens)
             summary_score = summary_scores.get(document_id, 0.0)
-            score = chunk_score + self._summary_score_bonus(summary_score)
+            normalized_summary_score = normalized_summary_scores.get(document_id)
+            if normalized_summary_score is None:
+                summary_bonus = self._summary_score_bonus(summary_score)
+            else:
+                summary_bonus = self._summary_score_bonus_from_normalized(float(normalized_summary_score))
+            score = chunk_score + summary_bonus
             if score > 0:
-                scored.append((score, source, chunk_text, document_id))
+                scored.append((score, source, chunk_text, document_id, chunk_index))
 
         scored.sort(key=lambda item: item[0], reverse=True)
         return scored[:safe_limit]
+
+    @staticmethod
+    def _unpack_chunk_row(chunk: Tuple[object, ...]) -> Tuple[float, str, str, int, int]:
+        """Нормализовать запись чанка к формату (score, source, text, document_id, chunk_index)."""
+        if len(chunk) >= 5:
+            score, source, chunk_text, document_id, chunk_index = chunk[:5]
+            return (
+                float(score or 0.0),
+                str(source or "document"),
+                str(chunk_text or ""),
+                int(document_id or 0),
+                int(chunk_index or 0),
+            )
+
+        if len(chunk) == 4:
+            score, source, chunk_text, document_id = chunk
+            return (
+                float(score or 0.0),
+                str(source or "document"),
+                str(chunk_text or ""),
+                int(document_id or 0),
+                0,
+            )
+
+        raise ValueError("Некорректный формат чанка для retrieval")
+
+    @staticmethod
+    def _chunk_merge_key(document_id: int, chunk_text: str, chunk_index: int) -> Tuple[int, int, str]:
+        """Собрать dedup-ключ merge с приоритетом chunk_index при его наличии."""
+        safe_doc_id = int(document_id or 0)
+        safe_chunk_index = int(chunk_index or 0)
+        normalized_text = str(chunk_text or "").strip()
+        if safe_chunk_index > 0:
+            return safe_doc_id, safe_chunk_index, ""
+        return safe_doc_id, 0, normalized_text
 
     def _prefilter_documents_by_summary(
         self,
         question: str,
         question_tokens: List[str],
         limit: int,
-    ) -> List[Tuple[int, str, str, float]]:
-        """Отобрать релевантные документы по таблице summary перед поиском чанков."""
+    ) -> Tuple[List[Tuple[int, str, str, float]], Dict[int, float]]:
+        """Отобрать релевантные документы по таблице summary перед поиском чанков.
+
+        Returns:
+            (список ранжированных документов, словарь vector-similarity по document_id)
+        """
         if not question_tokens:
-            return []
+            return [], {}
 
         safe_limit = max(1, min(limit, 100))
         with database.get_db_connection() as conn:
@@ -1281,24 +1512,38 @@ class RagKnowledgeService:
                 )
                 rows = cursor.fetchall() or []
 
-        scored_docs: List[Tuple[int, str, str, float]] = []
+        summaries_for_vector: List[Tuple[int, str]] = []
+        valid_rows: List[Tuple[int, str, str]] = []
         for row in rows:
             document_id = int(row.get("document_id") or 0)
             filename = str(row.get("filename") or "document")
             summary_text = str(row.get("summary_text") or "").strip()
             if not document_id or not summary_text:
                 continue
-            score = self._score_summary_text(
+            valid_rows.append((document_id, filename, summary_text))
+            summaries_for_vector.append((document_id, summary_text))
+
+        vector_scores = self._compute_summary_vector_scores(
+            question=question,
+            summaries=summaries_for_vector,
+        )
+        vector_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_VECTOR_WEIGHT))
+
+        scored_docs: List[Tuple[int, str, str, float]] = []
+        for document_id, filename, summary_text in valid_rows:
+            lexical_score = self._score_summary_text(
                 summary_text=summary_text,
                 question_tokens=question_tokens,
                 question=question,
             )
+            vec_score = float(vector_scores.get(document_id, 0.0))
+            score = lexical_score + (vec_score * vector_weight)
             if score <= 0:
                 continue
             scored_docs.append((document_id, filename, summary_text, score))
 
         scored_docs.sort(key=lambda item: item[3], reverse=True)
-        return scored_docs[:safe_limit]
+        return scored_docs[:safe_limit], vector_scores
 
     @staticmethod
     def _build_summary_blocks(prefilter_docs: List[Tuple[int, str, str, float]]) -> List[str]:
@@ -1318,23 +1563,83 @@ class RagKnowledgeService:
     @staticmethod
     def _summary_score_bonus(summary_score: float) -> float:
         """Рассчитать бонус чанку на основе релевантности summary документа."""
-        if summary_score <= 0:
+        normalized_summary_score = RagKnowledgeService._normalize_summary_score(summary_score)
+        return RagKnowledgeService._summary_score_bonus_from_normalized(normalized_summary_score)
+
+    @staticmethod
+    def _summary_score_bonus_from_normalized(normalized_summary_score: float) -> float:
+        """Рассчитать бонус чанку из нормализованного summary-score (0..1)."""
+        safe_score = max(0.0, min(1.0, float(normalized_summary_score or 0.0)))
+        if safe_score <= 0:
             return 0.0
-        score_cap = max(0.0, float(ai_settings.AI_RAG_SUMMARY_SCORE_CAP))
+
         bonus_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_BONUS_WEIGHT))
-        return min(summary_score, score_cap) * bonus_weight
+        return safe_score * bonus_weight
 
     @staticmethod
     def _summary_postrank_bonus(summary_score: float) -> float:
         """Рассчитать пост-бонус документа при финальном hybrid-ранжировании."""
+        normalized_summary_score = RagKnowledgeService._normalize_summary_score(summary_score)
+        return RagKnowledgeService._summary_postrank_bonus_from_normalized(normalized_summary_score)
+
+    @staticmethod
+    def _summary_postrank_bonus_from_normalized(normalized_summary_score: float) -> float:
+        """Рассчитать пост-бонус документа из нормализованного summary-score (0..1)."""
+        safe_score = max(0.0, min(1.0, float(normalized_summary_score or 0.0)))
+        if safe_score <= 0:
+            return 0.0
+
+        postrank_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_POSTRANK_WEIGHT))
+        return safe_score * postrank_weight
+
+    @staticmethod
+    def _normalize_summary_score(summary_score: float) -> float:
+        """Нормализовать summary-score документа в диапазон 0..1 по верхней границе cap."""
         if summary_score <= 0:
             return 0.0
+
         score_cap = max(0.0, float(ai_settings.AI_RAG_SUMMARY_SCORE_CAP))
-        postrank_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_POSTRANK_WEIGHT))
-        return min(summary_score, score_cap) * postrank_weight
+        if score_cap <= 0:
+            return 0.0
+
+        return min(summary_score, score_cap) / score_cap
+
+    @staticmethod
+    def _build_relative_summary_scores(summary_scores: Dict[int, float]) -> Dict[int, float]:
+        """Нормализовать summary-score документов в текущем пуле retrieval по min-max в диапазон 0..1."""
+        if not summary_scores:
+            return {}
+
+        cleaned_scores: Dict[int, float] = {}
+        for document_id, score in summary_scores.items():
+            safe_doc_id = int(document_id or 0)
+            safe_score = max(0.0, float(score or 0.0))
+            if safe_doc_id <= 0 or safe_score <= 0:
+                continue
+            cleaned_scores[safe_doc_id] = safe_score
+
+        if not cleaned_scores:
+            return {}
+
+        min_score = min(cleaned_scores.values())
+        max_score = max(cleaned_scores.values())
+        if max_score <= min_score:
+            return {doc_id: 1.0 for doc_id in cleaned_scores}
+
+        denominator = max_score - min_score
+        normalized_scores: Dict[int, float] = {}
+        for doc_id, score in cleaned_scores.items():
+            normalized = (score - min_score) / denominator
+            normalized_scores[doc_id] = max(0.0, min(1.0, normalized))
+
+        return normalized_scores
 
     def _score_summary_text(self, summary_text: str, question_tokens: List[str], question: str) -> float:
-        """Оценить релевантность summary по фразовому и токенному совпадению."""
+        """Оценить релевантность summary по фразовому и токенному совпадению.
+
+        Фразовый матч использует word-boundary regex, чтобы 'X5' не
+        совпадало внутри 'VX520'.
+        """
         low_summary = self._normalize_for_phrase_match(summary_text)
         if not low_summary:
             return 0.0
@@ -1347,9 +1652,9 @@ class RagKnowledgeService:
         normalized_question = self._normalize_for_phrase_match(question)
         normalized_token_phrase = self._normalize_for_phrase_match(" ".join(question_tokens))
 
-        if len(normalized_question) >= 3 and normalized_question in low_summary:
+        if len(normalized_question) >= 2 and self._word_boundary_match(normalized_question, low_summary):
             phrase_score = 1.0
-        elif normalized_token_phrase and normalized_token_phrase in low_summary:
+        elif normalized_token_phrase and self._word_boundary_match(normalized_token_phrase, low_summary):
             phrase_score = 0.8
 
         return (token_score * token_weight) + (phrase_score * phrase_weight)
@@ -1359,6 +1664,76 @@ class RagKnowledgeService:
         """Нормализовать текст для фразового матчингa без учёта регистра и лишних пробелов."""
         normalized = _SPACES_RE.sub(" ", (text or "").lower())
         return normalized.strip()
+
+    @staticmethod
+    def _word_boundary_match(phrase: str, text: str) -> bool:
+        """Проверить наличие фразы в тексте по word-boundary (\\b).
+
+        Используется вместо оператора ``in``, чтобы ``'x5'`` не
+        совпадало внутри ``'vx520'``.
+        """
+        if not phrase or not text:
+            return False
+        try:
+            return bool(re.search(r"\b" + re.escape(phrase) + r"\b", text, re.IGNORECASE))
+        except re.error:
+            return phrase in text
+
+    def _compute_summary_vector_scores(
+        self,
+        question: str,
+        summaries: List[Tuple[int, str]],
+    ) -> Dict[int, float]:
+        """Вычислить семантическое сходство вопроса и каждого summary через эмбеддинги.
+
+        Результат — словарь {document_id: cosine_similarity}.  Если
+        embedding-провайдер недоступен, возвращается пустой словарь
+        (graceful degradation).
+        """
+        if not summaries:
+            return {}
+
+        embedding_provider = self._get_embedding_provider()
+        if embedding_provider is None:
+            return {}
+
+        corpus_version = self._get_corpus_version()
+        if corpus_version != self._summary_embedding_corpus_version:
+            self._summary_embedding_cache.clear()
+            self._summary_embedding_corpus_version = corpus_version
+
+        question_vectors = embedding_provider.encode_texts([question])
+        if not question_vectors:
+            return {}
+        q_vec = question_vectors[0]
+
+        uncached_ids: List[int] = []
+        uncached_texts: List[str] = []
+        for doc_id, summary_text in summaries:
+            if doc_id not in self._summary_embedding_cache:
+                uncached_ids.append(doc_id)
+                uncached_texts.append(summary_text)
+
+        if uncached_texts:
+            new_vectors = embedding_provider.encode_texts(uncached_texts)
+            for idx, doc_id in enumerate(uncached_ids):
+                if idx < len(new_vectors):
+                    self._summary_embedding_cache[doc_id] = new_vectors[idx]
+
+        scores: Dict[int, float] = {}
+        for doc_id, _ in summaries:
+            s_vec = self._summary_embedding_cache.get(doc_id)
+            if s_vec is None:
+                continue
+            similarity = self._cosine_dot(q_vec, s_vec)
+            scores[doc_id] = max(0.0, similarity)
+
+        return scores
+
+    @staticmethod
+    def _cosine_dot(vec_a: List[float], vec_b: List[float]) -> float:
+        """Вычислить скалярное произведение (≈cosine similarity для L2-нормированных)."""
+        return sum(a * b for a, b in zip(vec_a, vec_b))
 
     @staticmethod
     def _get_fallback_active_document_ids(
@@ -1454,6 +1829,7 @@ class RagKnowledgeService:
 
         if not self._vector_index.is_ready():
             return None
+
         return self._vector_index
 
     def _upsert_vectors_for_chunks(self, chunks: List[Dict[str, object]]) -> int:

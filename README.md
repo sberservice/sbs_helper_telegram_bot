@@ -78,7 +78,7 @@ python run_bot.py
 | **Telegram** | `TELEGRAM_TOKEN` | Токен бота |
 | **MySQL** | `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` | Подключение к БД |
 | **AI** | `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `AI_CONFIDENCE_THRESHOLD`, `AI_LOG_MODEL_IO`, `AI_MODEL_IO_DB_LOG_ENABLED` | LLM-провайдер, пороги и логирование prompt/response |
-| **RAG** | `AI_RAG_ENABLED`, `AI_RAG_CHUNK_SIZE`, `AI_RAG_TOP_K`, `AI_RAG_PREFILTER_TOP_DOCS`, `AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT`, `AI_RAG_VECTOR_ENABLED` | База знаний документов |
+| **RAG** | `AI_RAG_ENABLED`, `AI_RAG_CHUNK_SIZE`, `AI_RAG_TOP_K`, `AI_RAG_PREFILTER_TOP_DOCS`, `AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT`, `AI_RAG_SUMMARY_VECTOR_WEIGHT`, `AI_RAG_VECTOR_ENABLED` | База знаний документов |
 | **Сеть** | `TELEGRAM_HTTP_MAX_RETRIES`, `TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS` | Сетевые профили |
 
 Для хранения полных AI/RAG логов (`prompt/response`) используется таблица `ai_model_io_log` (создаётся в `sql/ai_router_setup.sql`).

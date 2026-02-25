@@ -61,6 +61,7 @@ class FakeRagService:
         source_type="telegram",
         source_url=None,
         upsert_vectors=True,
+        summary_model_scope="default",
     ):
         self.ingest_calls.append(
             {
@@ -70,6 +71,7 @@ class FakeRagService:
                 "source_type": source_type,
                 "source_url": source_url,
                 "upsert_vectors": upsert_vectors,
+                "summary_model_scope": summary_model_scope,
             }
         )
         return {"document_id": 123, "chunks_count": 5, "is_duplicate": 0}
@@ -101,6 +103,7 @@ class TestRagDirectoryIngestScript(unittest.TestCase):
         self.assertEqual(stats["purged"], 0)
         self.assertEqual(len(service.ingest_calls), 1)
         self.assertFalse(service.ingest_calls[0]["upsert_vectors"])
+        self.assertEqual(service.ingest_calls[0]["summary_model_scope"], "directory_ingest")
 
     def test_run_ingest_cycle_logs_chunking_configuration(self):
         """Перед ingest пишется диагностический лог с выбранной стратегией chunking."""

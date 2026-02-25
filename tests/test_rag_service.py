@@ -60,6 +60,166 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         self.assertGreaterEqual(len(chunks), 3)
 
+    def test_format_log_source_truncates_long_value(self):
+        """Длинный source в логах сокращается с многоточием для читаемости."""
+        source = "https://wiki.example.ru/" + ("very_long_section_" * 20) + "tail"
+
+        compact = RagKnowledgeService._format_log_source(source, max_length=48)
+
+        self.assertLessEqual(len(compact), 48)
+        self.assertIn("…", compact)
+
+    def test_build_prefilter_priority_snapshot_multiline(self):
+        """Snapshot prefilter формируется в многострочном виде с разложением score."""
+        docs = [
+            (71, "doc_with_really_long_name_" * 6, "summary", 1.075),
+            (65, "pax_s300.html", "summary", 1.044),
+        ]
+        vector_scores = {71: 0.625, 65: 0.574}
+
+        snapshot = RagKnowledgeService._build_prefilter_priority_snapshot(
+            docs,
+            vector_scores,
+            vector_weight=0.6,
+        )
+
+        self.assertIn("1. doc=71", snapshot)
+        self.assertIn("2. doc=65", snapshot)
+        self.assertIn("summary=1.075", snapshot)
+        self.assertIn("lexical=0.700", snapshot)
+        self.assertIn("vec=0.625", snapshot)
+        self.assertIn("vec_w=0.375", snapshot)
+        self.assertIn("\n", snapshot)
+
+    def test_build_prefilter_priority_snapshot_uses_vector_weight(self):
+        """В prefilter snapshot видно изменение weighted vec при смене vector-weight."""
+        docs = [(66, "vx520.html", "summary", 5.614)]
+        vector_scores = {66: 0.491}
+
+        snapshot_low = RagKnowledgeService._build_prefilter_priority_snapshot(
+            docs,
+            vector_scores,
+            vector_weight=1.0,
+        )
+        snapshot_high = RagKnowledgeService._build_prefilter_priority_snapshot(
+            docs,
+            vector_scores,
+            vector_weight=10.0,
+        )
+
+        self.assertIn("vec=0.491", snapshot_low)
+        self.assertIn("vec_w=0.491", snapshot_low)
+        self.assertIn("vec_w=4.910", snapshot_high)
+
+    def test_build_selected_priority_snapshot_multiline(self):
+        """Snapshot selected формируется в многострочном виде с fused/summary score."""
+        chunks = [
+            (1.087, "https://wiki.example.ru/" + ("abc_" * 24), "chunk", 74, 12),
+            (1.060, "iras_k900.html", "chunk", 63, 4),
+        ]
+        summary_scores = {74: 0.736, 63: 0.702}
+        component_scores = {
+            (74, "chunk"): (0.9, 0.95),
+            (63, "chunk"): (0.8, 0.9),
+        }
+
+        snapshot = RagKnowledgeService._build_selected_priority_snapshot(
+            chunks,
+            summary_scores,
+            component_scores=component_scores,
+            lexical_weight=0.4,
+            vector_weight=0.6,
+        )
+
+        self.assertIn("1. doc=74 chunk=12", snapshot)
+        self.assertIn("2. doc=63 chunk=4", snapshot)
+        self.assertIn("fused=1.087", snapshot)
+        self.assertIn("summary=0.736", snapshot)
+        self.assertIn("origin=global", snapshot)
+        self.assertIn("lex_raw=0.450", snapshot)
+        self.assertIn("lex_bonus=0.450", snapshot)
+        self.assertIn("lex_total=0.900", snapshot)
+        self.assertIn("hybrid=(0.900*0.400)+(0.950*0.600)=0.930", snapshot)
+        self.assertIn("summary_bonus=", snapshot)
+        self.assertIn("\n", snapshot)
+
+    def test_build_relative_summary_scores_uses_min_max(self):
+        """Нормализация summary-score в retrieval-пуле использует min-max диапазон 0..1."""
+        normalized = RagKnowledgeService._build_relative_summary_scores({10: 10.0, 11: 6.0, 12: 8.0})
+
+        self.assertAlmostEqual(normalized[10], 1.0)
+        self.assertAlmostEqual(normalized[11], 0.0)
+        self.assertAlmostEqual(normalized[12], 0.5)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_SCORE_CAP", 2.5)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_BONUS_WEIGHT", 0.45)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_POSTRANK_WEIGHT", 0.2)
+    def test_summary_bonus_uses_normalized_summary_score(self):
+        """Summary-бонусы используют нормализованный score документа в диапазоне 0..1."""
+        lexical_bonus = RagKnowledgeService._summary_score_bonus(10.0)
+        postrank_bonus = RagKnowledgeService._summary_postrank_bonus(10.0)
+
+        self.assertAlmostEqual(lexical_bonus, 0.45)
+        self.assertAlmostEqual(postrank_bonus, 0.2)
+
+        lexical_bonus_partial = RagKnowledgeService._summary_score_bonus(1.25)
+        postrank_bonus_partial = RagKnowledgeService._summary_postrank_bonus(1.25)
+
+        self.assertAlmostEqual(lexical_bonus_partial, 0.225)
+        self.assertAlmostEqual(postrank_bonus_partial, 0.1)
+
+    def test_build_selected_priority_snapshot_marks_prefilter_and_fallback_origin(self):
+        """Snapshot selected помечает происхождение документа: prefilter/fallback/global."""
+        chunks = [
+            (1.2, "doc-prefilter.txt", "chunk-a", 10),
+            (1.1, "doc-fallback.txt", "chunk-b", 99),
+            (1.0, "doc-global.txt", "chunk-c", 500),
+        ]
+
+        snapshot = RagKnowledgeService._build_selected_priority_snapshot(
+            chunks,
+            summary_scores={10: 2.0},
+            prefilter_scope_doc_ids=[10, 99],
+            base_prefilter_doc_ids=[10],
+        )
+
+        self.assertIn("doc=10", snapshot)
+        self.assertIn("origin=prefilter", snapshot)
+        self.assertIn("doc=99", snapshot)
+        self.assertIn("origin=fallback", snapshot)
+        self.assertIn("doc=500", snapshot)
+        self.assertIn("origin=global", snapshot)
+
+    def test_build_selected_top_docs_snapshot_returns_unique_doc_ids_in_rank_order(self):
+        """Snapshot top docs для retrieval-лога содержит уникальные doc-id по порядку ранжирования."""
+        chunks = [
+            (3.5, "d200.html", "chunk-1", 7),
+            (3.4, "d200.html", "chunk-2", 7),
+            (3.3, "vx820.html", "chunk-1", 118),
+            (3.2, "vx520.html", "chunk-1", 117),
+            (3.1, "vx520.html", "chunk-2", 117),
+            (3.0, "d230.html", "chunk-1", 113),
+        ]
+
+        snapshot = RagKnowledgeService._build_selected_top_docs_snapshot(chunks, max_docs=5)
+
+        self.assertEqual(snapshot, "7,118,117,113")
+
+    def test_build_selected_component_scores_uses_merge_dedup_key(self):
+        """Компоненты lexical/vector собираются по dedup-ключу (document_id, chunk_text.strip)."""
+        lexical = [
+            (1.5, "doc-a.txt", "chunk A", 7),
+            (1.2, "doc-a.txt", "chunk A", 7),
+        ]
+        vector = [
+            (0.9, "doc-a.txt", "chunk A", 7),
+            (0.7, "doc-a.txt", "chunk A", 7),
+        ]
+
+        components = RagKnowledgeService._build_selected_component_scores(lexical, vector)
+
+        self.assertEqual(components[(7, "chunk A")], (1.5, 0.9))
+
     def test_get_chunking_diagnostics(self):
         """Диагностика chunking возвращает ожидаемые поля и стратегии."""
         service = RagKnowledgeService()
@@ -158,13 +318,22 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         cursor = mock_get_cursor.return_value.__enter__.return_value
         cursor.fetchall.return_value = [
-            {"chunk_text": "SLA выезда 4 часа при критическом инциденте", "filename": "reglament.txt"},
-            {"chunk_text": "Нерелевантный текст про отпуск", "filename": "other.txt"},
+            {
+                "chunk_text": "SLA выезда 4 часа при критическом инциденте",
+                "chunk_index": 8,
+                "filename": "reglament.txt",
+            },
+            {
+                "chunk_text": "Нерелевантный текст про отпуск",
+                "chunk_index": 2,
+                "filename": "other.txt",
+            },
         ]
 
         result = service._search_relevant_chunks("Какой SLA выезда?", limit=1)
         self.assertEqual(len(result), 1)
         self.assertIn("SLA", result[0][2])
+        self.assertEqual(result[0][4], 8)
 
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
@@ -196,10 +365,79 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second, "SLA 4 часа")
         provider.chat.assert_awaited_once()
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_directory_ingest_summary_model_override", return_value="deepseek-reasoner")
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    def test_generate_document_summary_uses_directory_ingest_model_override(
+        self,
+        mock_get_provider,
+        mock_get_override,
+    ):
+        """Для scope=directory_ingest summary вызывается с model_override из env-конфига."""
+        service = RagKnowledgeService()
+        provider = MagicMock()
+        provider.chat = AsyncMock(return_value="Краткое summary")
+        provider.get_model_name.return_value = "deepseek-chat"
+        mock_get_provider.return_value = provider
+
+        summary, model_name = service._generate_document_summary(
+            filename="manual.txt",
+            chunks=["Полезный текст документа"],
+            user_id=17,
+            summary_model_scope="directory_ingest",
+        )
+
+        self.assertEqual(summary, "Краткое summary")
+        self.assertEqual(model_name, "deepseek-reasoner")
+        provider.chat.assert_awaited_once()
+        chat_kwargs = provider.chat.await_args.kwargs
+        self.assertEqual(chat_kwargs.get("purpose"), "rag_summary")
+        self.assertEqual(chat_kwargs.get("model_override"), "deepseek-reasoner")
+        provider.get_model_name.assert_not_called()
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.warning")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL", "invalid-model")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_directory_ingest_summary_model_override", return_value=None)
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    def test_generate_document_summary_invalid_override_falls_back_to_default_model(
+        self,
+        mock_get_provider,
+        mock_get_override,
+        mock_logger_warning,
+    ):
+        """Невалидный env override для directory-ingest логируется и не ломает summary-вызов."""
+        service = RagKnowledgeService()
+        provider = MagicMock()
+        provider.chat = AsyncMock(return_value="Краткое summary")
+        provider.get_model_name.return_value = "deepseek-chat"
+        mock_get_provider.return_value = provider
+
+        summary, model_name = service._generate_document_summary(
+            filename="manual.txt",
+            chunks=["Полезный текст документа"],
+            user_id=18,
+            summary_model_scope="directory_ingest",
+        )
+
+        self.assertEqual(summary, "Краткое summary")
+        self.assertEqual(model_name, "deepseek-chat")
+        provider.chat.assert_awaited_once()
+        chat_kwargs = provider.chat.await_args.kwargs
+        self.assertIsNone(chat_kwargs.get("model_override"))
+        provider.get_model_name.assert_called_once_with(purpose="rag_summary")
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("Некорректное значение AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL")
+                for call in mock_logger_warning.call_args_list
+            )
+        )
+
+    @patch.object(RagKnowledgeService, "_compute_summary_vector_scores", return_value={})
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
-    def test_prefilter_documents_by_summary(self, mock_get_cursor, mock_get_db_connection):
-        """Prefilter по summary выбирает документы с максимальной релевантностью."""
+    def test_prefilter_documents_by_summary(self, mock_get_cursor, mock_get_db_connection, mock_vec_scores):
+        """Prefilter по summary выбирает документы с максимальной lexical-релевантностью."""
         service = RagKnowledgeService()
         cursor = mock_get_cursor.return_value.__enter__.return_value
         cursor.fetchall.return_value = [
@@ -207,7 +445,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             {"document_id": 2, "summary_text": "Отпуск и график", "filename": "hr.txt"},
         ]
 
-        rows = service._prefilter_documents_by_summary(
+        rows, vec_scores = service._prefilter_documents_by_summary(
             question="Какой SLA выезда",
             question_tokens=service._tokenize("Какой SLA выезда"),
             limit=2,
@@ -216,6 +454,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][0], 1)
         self.assertEqual(rows[0][1], "sla.txt")
+        self.assertIsInstance(vec_scores, dict)
 
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
@@ -257,6 +496,106 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         self.assertGreater(phrase_score, token_only_score)
 
+    def test_word_boundary_match_rejects_substring(self):
+        """Word-boundary match \u043d\u0435 \u0441\u043e\u0432\u043f\u0430\u0434\u0430\u0435\u0442 \u0441 \u043f\u043e\u0434\u0441\u0442\u0440\u043e\u043a\u043e\u0439: 'x5' \u043d\u0435 \u043d\u0430\u0445\u043e\u0434\u0438\u0442 'vx520'."""
+        self.assertTrue(RagKnowledgeService._word_boundary_match("x5", "\u0440\u0435\u0433\u043b\u0430\u043c\u0435\u043d\u0442 x5 \u043c\u0430\u0433\u0430\u0437\u0438\u043d\u043e\u0432"))
+        self.assertFalse(RagKnowledgeService._word_boundary_match("x5", "\u0442\u0435\u0440\u043c\u0438\u043d\u0430\u043b vx520 \u043e\u0431\u0441\u043b\u0443\u0436\u0438\u0432\u0430\u043d\u0438\u0435"))
+        self.assertTrue(RagKnowledgeService._word_boundary_match("x5", "X5-\u0442\u0435\u0440\u043c\u0438\u043d\u0430\u043b"))
+        self.assertFalse(RagKnowledgeService._word_boundary_match("", "\u0442\u0435\u043a\u0441\u0442"))
+        self.assertFalse(RagKnowledgeService._word_boundary_match("x5", ""))
+
+    def test_score_summary_text_x5_vs_vx520(self):
+        """\u0424\u0440\u0430\u0437\u043e\u0432\u044b\u0439 \u043c\u0430\u0442\u0447 X5 \u043d\u0435 \u0441\u0440\u0430\u0431\u0430\u0442\u044b\u0432\u0430\u0435\u0442 \u043d\u0430 VX520 \u0431\u043b\u0430\u0433\u043e\u0434\u0430\u0440\u044f word-boundary."""
+        service = RagKnowledgeService()
+        question = "X5 shop"
+        tokens = service._tokenize(question)
+
+        score_x5 = service._score_summary_text(
+            summary_text="\u0420\u0435\u0433\u043b\u0430\u043c\u0435\u043d\u0442 X5 shop \u0434\u043b\u044f SLA \u043c\u0430\u0433\u0430\u0437\u0438\u043d\u043e\u0432.",
+            question_tokens=tokens,
+            question=question,
+        )
+        score_vx520 = service._score_summary_text(
+            summary_text="\u0420\u0435\u0433\u043b\u0430\u043c\u0435\u043d\u0442 VX520 shop \u0434\u043b\u044f \u0442\u0435\u0440\u043c\u0438\u043d\u0430\u043b\u043e\u0432.",
+            question_tokens=tokens,
+            question=question,
+        )
+
+        self.assertGreater(
+            score_x5,
+            score_vx520,
+            "X5 summary \u0434\u043e\u043b\u0436\u043d\u043e \u0441\u043a\u043e\u0440\u0438\u0442\u044c\u0441\u044f \u0437\u043d\u0430\u0447\u0438\u0442\u0435\u043b\u044c\u043d\u043e \u0432\u044b\u0448\u0435 VX520 summary",
+        )
+
+    def test_cosine_dot_normalized_vectors(self):
+        """\u0421\u043a\u0430\u043b\u044f\u0440\u043d\u043e\u0435 \u043f\u0440\u043e\u0438\u0437\u0432\u0435\u0434\u0435\u043d\u0438\u0435 L2-\u043d\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u044b\u0445 \u0432\u0435\u043a\u0442\u043e\u0440\u043e\u0432 \u0432\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442 cosine similarity."""
+        same = RagKnowledgeService._cosine_dot([1.0, 0.0, 0.0], [1.0, 0.0, 0.0])
+        self.assertAlmostEqual(same, 1.0, places=5)
+
+        orthogonal = RagKnowledgeService._cosine_dot([1.0, 0.0], [0.0, 1.0])
+        self.assertAlmostEqual(orthogonal, 0.0, places=5)
+
+        partial = RagKnowledgeService._cosine_dot([0.6, 0.8], [0.8, 0.6])
+        self.assertAlmostEqual(partial, 0.96, places=5)
+
+    def test_compute_summary_vector_scores_graceful_when_no_provider(self):
+        """_compute_summary_vector_scores \u0432\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442 {} \u043a\u043e\u0433\u0434\u0430 embedding-\u043f\u0440\u043e\u0432\u0430\u0439\u0434\u0435\u0440 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d."""
+        service = RagKnowledgeService()
+
+        with patch.object(service, "_get_embedding_provider", return_value=None):
+            scores = service._compute_summary_vector_scores(
+                question="X5 shop",
+                summaries=[(1, "summary X5"), (2, "summary VX520")],
+            )
+
+        self.assertEqual(scores, {})
+
+    def test_compute_summary_vector_scores_returns_similarities(self):
+        """_compute_summary_vector_scores \u0432\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442 \u043a\u043e\u0441\u0438\u043d\u0443\u0441\u043d\u043e\u0435 \u0441\u0445\u043e\u0434\u0441\u0442\u0432\u043e \u0434\u043b\u044f \u043a\u0430\u0436\u0434\u043e\u0433\u043e summary."""
+        service = RagKnowledgeService()
+
+        mock_provider = MagicMock()
+        mock_provider.encode_texts.side_effect = [
+            [[1.0, 0.0, 0.0]],
+            [[0.9, 0.1, 0.0], [0.1, 0.9, 0.0]],
+        ]
+
+        with patch.object(service, "_get_embedding_provider", return_value=mock_provider):
+            with patch.object(service, "_get_corpus_version", return_value=42):
+                scores = service._compute_summary_vector_scores(
+                    question="X5 shop",
+                    summaries=[(10, "summary X5"), (20, "summary VX520")],
+                )
+
+        self.assertIn(10, scores)
+        self.assertIn(20, scores)
+        self.assertGreater(scores[10], scores[20])
+
+    def test_compute_summary_vector_scores_uses_cache(self):
+        """_compute_summary_vector_scores \u043a\u044d\u0448\u0438\u0440\u0443\u0435\u0442 \u044d\u043c\u0431\u0435\u0434\u0434\u0438\u043d\u0433\u0438 summary \u0438 \u043d\u0435 \u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0440\u0430\u0448\u0438\u0432\u0430\u0435\u0442."""
+        service = RagKnowledgeService()
+
+        mock_provider = MagicMock()
+        mock_provider.encode_texts.side_effect = [
+            [[1.0, 0.0]],
+            [[0.9, 0.1]],
+            [[0.5, 0.5]],
+        ]
+
+        with patch.object(service, "_get_embedding_provider", return_value=mock_provider):
+            with patch.object(service, "_get_corpus_version", return_value=1):
+                service._compute_summary_vector_scores(
+                    question="Q1",
+                    summaries=[(10, "summary A")],
+                )
+                scores2 = service._compute_summary_vector_scores(
+                    question="Q2",
+                    summaries=[(10, "summary A")],
+                )
+
+        self.assertEqual(mock_provider.encode_texts.call_count, 3)
+        self.assertIn(10, scores2)
+
     @patch.object(RagKnowledgeService, "_build_summary_blocks", return_value=[])
     @patch.object(RagKnowledgeService, "_determine_retrieval_mode", return_value="hybrid")
     @patch.object(RagKnowledgeService, "_merge_retrieval_candidates", return_value=[])
@@ -267,7 +606,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
     @patch.object(
         RagKnowledgeService,
         "_prefilter_documents_by_summary",
-        return_value=[(5, "x5.txt", "summary with x5 shop group", 2.1)],
+        return_value=([(5, "x5.txt", "summary with x5 shop group", 2.1)], {}),
     )
     def test_retrieve_context_uses_summary_prefilter_fallback_docs(
         self,
@@ -288,6 +627,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         _, kwargs = mock_search_lexical.call_args
         self.assertEqual(kwargs["prefiltered_doc_ids"], [5, 99, 100])
         self.assertEqual(kwargs["summary_scores"], {5: 2.1})
+        self.assertEqual(kwargs["normalized_summary_scores"], {5: 1.0})
         mock_fallback.assert_called_once_with(exclude_document_ids=[5], limit=2)
 
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", True)
@@ -361,7 +701,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
     ):
         """В логи пишется режим lexical_only для retrieval-цикла."""
         service = RagKnowledgeService()
-        mock_prefilter.return_value = []
+        mock_prefilter.return_value = ([], {})
         mock_search_lexical.return_value = [(1.0, "kb.txt", "lexical block", 10)]
         mock_search_vector.return_value = []
         mock_merge.return_value = [(1.0, "kb.txt", "lexical block", 10)]
@@ -377,6 +717,25 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
                 and call.args[0].startswith("RAG retrieval:")
                 and len(call.args) > 1
                 and call.args[1] == "lexical_only"
+                for call in mock_logger_info.call_args_list
+            )
+        )
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("RAG retrieval:")
+                and "prefilter_scope_docs=%s" in call.args[0]
+                for call in mock_logger_info.call_args_list
+            )
+        )
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("RAG retrieval:")
+                and "selected_unique_docs=%s" in call.args[0]
+                and "selected_top_docs=%s" in call.args[0]
                 for call in mock_logger_info.call_args_list
             )
         )

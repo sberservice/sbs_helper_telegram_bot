@@ -24,7 +24,7 @@ RAG-поток позволяет:
 - Таблицы БД: `rag_documents`, `rag_chunks`, `rag_corpus_version`, `rag_query_log`.
 - Таблица полного AI I/O логирования: `ai_model_io_log` (prompt/response всех LLM-вызовов, включая RAG).
 - TTL-кэш ответов RAG в памяти процесса.
-- Summary-aware retrieval: prefilter документов по `rag_document_summaries` с гибридным scoring (`exact phrase + token overlap`), controlled fallback документов для recall, hybrid rerank чанков с учётом релевантности summary и prompt enrichment top-summary блоками.
+- Summary-aware retrieval: prefilter документов по `rag_document_summaries` с гибридным scoring (`word-boundary phrase match + token overlap + semantic vector similarity`), controlled fallback документов для recall, hybrid rerank чанков с учётом релевантности summary и prompt enrichment top-summary блоками.
 - Опциональный локальный векторный retrieval (Qdrant local mode + локальная embedding-модель) с hybrid-слиянием lexical/vector кандидатов.
 - UX-статус для RAG: после классификации запроса как `rag_qa` бот меняет плейсхолдер с «Обрабатываю ваш запрос» на «Ожидаю ответа ИИ» до получения финального ответа.
 - Форматирование ответа `rag_qa` для Telegram MarkdownV2: сохраняются списки, `inline code`, жирный текст (`**...**` → Telegram-совместимый `*...*`), неподдерживаемая markdown-разметка экранируется.
@@ -91,6 +91,7 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - для каждой директории синхронизации разрешён только один активный процесс `rag_directory_ingest.py` (PID lock-файл в системной temp-директории), повторный запуск для той же директории завершается с ошибкой,
 - не выполняет vector upsert во время ingest; для обновления локального векторного индекса после синхронизации запускайте `rag_vector_backfill.py`,
 - при загрузке формирует/обновляет `rag_document_summaries` для каждого документа,
+- для directory-ingest может использовать отдельную модель summary через env `AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL` (`deepseek-chat` или `deepseek-reasoner`),
 - удалённые из директории документы удаляет из RAG через purge (`hard delete`),
 - без `--force-update` для одинакового `content_hash` использует существующий документ (дубликаты не плодятся).
 
@@ -124,8 +125,10 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 	- модель генерации ответа (`model` в `AI chat request`, если сработал chat/fallback).
 - Это упрощает диагностику маршрутизации и проверку активной модели после переключения в админ-панели.
 - Ошибки в `ai_router` и RAG-обработчике логируются с traceback и явным типом исключения (`error_type`/`error_repr`), поэтому даже при пустом тексте исключения причина не теряется.
-- Для каждого retrieval-цикла RAG пишется диагностическая строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `top_source`.
-- Для каждого retrieval-цикла RAG пишется строка `RAG priority evidence:` с top-5 prefilter-документами и top-5 финально выбранными чанками (`doc`, `source`, `fused`, `summary`), чтобы проверить фактический эффект приоритизации по summary.
+- Для каждого retrieval-цикла RAG пишется диагностическая строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `prefilter_scope_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `selected_unique_docs`, `selected_top_docs`, `top_source`; длинные `source` автоматически сокращаются для читаемости.
+- `prefilter_docs` отражает только top-N документов этапа summary-prefilter, а `prefilter_scope_docs` — фактический размер области поиска после добавления fallback-документов.
+- `selected` отражает число выбранных чанков, `selected_unique_docs` — число уникальных документов среди этих чанков, `selected_top_docs` — top уникальных `document_id` по порядку ранжирования.
+- Для каждого retrieval-цикла RAG пишется строка `RAG priority evidence:` в многострочном ранжированном формате (`prefilter_top` и `selected_top`, до top-5), где для `prefilter_top` видны `summary`, `lexical`, `vec`, `vec_w` (взвешенный вклад `vec * AI_RAG_SUMMARY_VECTOR_WEIGHT`) и `source`, а для `selected_top` — `doc`, `chunk`, `fused`, `summary`, `origin` (`prefilter`/`fallback`/`global`), разложение lexical-компоненты (`lex_raw`, `lex_bonus`, `lex_total`), формула `hybrid=(lex_total*lexical_weight)+(vector_score*vector_weight)`, `summary_bonus` и `source`; `lex_bonus`/`summary_bonus` считаются из нормализованного summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле.
 - Для каждого ingest документа пишется диагностическая строка `RAG chunking strategy:` с полями `file`, `format`, `strategy`, `slicer`, `chunk_size`, `chunk_overlap`, `chunks`, `html_splitter_enabled`, `langchain_splitter_supported`.
 - Для технической записи `rag_chunk_embeddings` при временных DB-блокировках пишется предупреждение о retry c `errno`, номером попытки и размером батча.
 - Если `deepseek-reasoner` вернул пустой `content` для chat/RAG-ответа, провайдер автоматически делает один повтор на `deepseek-chat` и пишет предупреждение в лог (это снижает риск «немого» ответа пользователю).
@@ -152,6 +155,8 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_SUMMARY_BONUS_WEIGHT`
 - `AI_RAG_SUMMARY_POSTRANK_WEIGHT`
 - `AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS`
+- `AI_RAG_SUMMARY_VECTOR_WEIGHT`
+- `AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL`
 - `AI_RAG_CACHE_TTL_SECONDS`
 - `AI_RAG_HTML_SPLITTER_ENABLED`
 - `AI_RAG_VECTOR_ENABLED`
@@ -183,8 +188,8 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_VECTOR_TOP_K=14`
 - `AI_RAG_VECTOR_PREFETCH_K=42`
 - `AI_RAG_TOP_K=8`
-- `AI_RAG_VECTOR_LEXICAL_WEIGHT=0.40`
-- `AI_RAG_VECTOR_SEMANTIC_WEIGHT=0.60`
+- `AI_RAG_VECTOR_LEXICAL_WEIGHT=0.20`
+- `AI_RAG_VECTOR_SEMANTIC_WEIGHT=0.80`
 
 ### Профиль B — Windows (i5-3550 + NVIDIA T400, стабильный)
 

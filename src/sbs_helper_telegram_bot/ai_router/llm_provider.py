@@ -83,6 +83,7 @@ class LLMProvider(ABC):
         system_prompt: str,
         user_id: Optional[int] = None,
         purpose: str = "response",
+        model_override: Optional[str] = None,
     ) -> str:
         """
         Получить свободный текстовый ответ от LLM.
@@ -211,6 +212,7 @@ class DeepSeekProvider(LLMProvider):
         system_prompt: str,
         user_id: Optional[int] = None,
         purpose: str = "response",
+        model_override: Optional[str] = None,
     ) -> str:
         """Получить свободный текстовый ответ через DeepSeek API."""
         full_messages = [{"role": "system", "content": system_prompt}] + messages
@@ -222,6 +224,7 @@ class DeepSeekProvider(LLMProvider):
                 max_tokens=1024,
                 purpose=purpose,
                 user_id=user_id,
+                force_model=model_override,
             )
         except Exception as exc:
             logger.exception(

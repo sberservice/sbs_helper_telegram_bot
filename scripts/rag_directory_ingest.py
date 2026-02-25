@@ -238,6 +238,7 @@ def run_ingest_cycle(
                 source_type="filesystem",
                 source_url=source_url,
                 upsert_vectors=False,
+                summary_model_scope="directory_ingest",
             )
             if int(ingest_result.get("is_duplicate", 0)) == 1:
                 stats["duplicates"] += 1

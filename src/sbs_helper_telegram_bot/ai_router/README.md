@@ -105,7 +105,7 @@ CLOSED ──(5 ошибок)──► OPEN ──(300с)──► HALF_OPEN
 ### Retrieval
 
 - Двухэтапный hybrid retrieval:
-    - prefilter документов по `rag_document_summaries` (гибрид: exact phrase + token overlap) с fallback-пулом документов для сохранения recall,
+    - prefilter документов по `rag_document_summaries` (гибрид: word-boundary phrase match + token overlap + semantic vector similarity) с fallback-пулом документов для сохранения recall,
     - ранжирование чанков с учётом lexical score чанка + бонуса от summary-релевантности документа + post-merge summary-бонуса в hybrid fusion.
 - Опционально: локальный векторный retrieval (Qdrant local mode + локальная embedding-модель) с fusion lexical/vector score.
 - Top-summary документы добавляются в системный RAG-промпт как дополнительный контекст.
@@ -172,6 +172,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 Для одной и той же директории синхронизации разрешён только один активный процесс `rag_directory_ingest.py` (PID lock-файл в системной temp-директории); второй запуск завершается с ошибкой, чтобы исключить конкуренцию транзакций.
 Для обновления локального векторного индекса после синхронизации запускайте `rag_vector_backfill.py`.
 При загрузке каждого документа синхронизация формирует/обновляет запись в `rag_document_summaries`.
+Для summary в сценарии directory-ingest можно задать отдельную модель через env `AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL` (`deepseek-chat` или `deepseek-reasoner`); при невалидном значении используется стандартная response-модель.
 
 ## Безопасная отправка
 
@@ -179,6 +180,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 - Плейсхолдер «⏳ Обрабатываю ваш запрос...» → edit → fallback новым сообщением
 - Для RAG-запросов плейсхолдер обновляется на «⏳ Ожидаю ответа ИИ»
 - Для `rag_qa` поддерживается ограниченное форматирование ответа модели: нумерованные/маркированные списки, **жирный текст**, `inline code`; неподдерживаемая markdown-разметка экранируется
+- Вложенная разметка вида `**\`code\`**` в `rag_qa` корректно восстанавливается и не выводит служебные плейсхолдеры в пользовательский текст
 - Длинные ответы `rag_qa` автоматически разбиваются на несколько MarkdownV2-сообщений, чтобы избежать ошибки Telegram `Message is too long`
 - Восстановление `ReplyKeyboardMarkup` после AI-ответа
 
@@ -187,8 +189,10 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 - Результаты классификации → `ai_router_log` (intent, confidence, explain_code, response_time_ms)
 - Профилирование маршрутизации: `classify_ms`, `db_log_ms`, `dispatch_ms`, `context_update_ms`
 - RAG-запросы → `rag_query_log`
-- Диагностика retrieval-канала RAG: строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `top_source`
-- Доказательство summary-приоритизации: строка `RAG priority evidence:` с top-5 prefilter-документами и top-5 выбранными чанками (`doc`, `source`, `fused`, `summary`)
+- Диагностика retrieval-канала RAG: строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `prefilter_scope_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `selected_unique_docs`, `selected_top_docs`, `top_source`; длинные `source` автоматически сокращаются
+- `prefilter_docs` показывает только top-N summary-prefilter, а `prefilter_scope_docs` — итоговый размер области поиска после добавления fallback-документов
+- `selected` показывает число финальных чанков, `selected_unique_docs` — число уникальных документов среди них, `selected_top_docs` — top уникальных `document_id` по порядку ранжирования
+- Доказательство summary-приоритизации: строка `RAG priority evidence:` в многострочном ранжированном формате с блоками `prefilter_top` и `selected_top` (до top-5; для `selected_top` добавлены `doc`, `chunk`, `origin`, разложение lexical-компоненты `lex_raw/lex_bonus/lex_total`, формула `hybrid=(lex_total*lexical_weight)+(vector_score*vector_weight)` и `summary_bonus`; `lex_bonus`/`summary_bonus` считаются по нормализованному summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле)
 - Диагностика chunking при ingest: строка `RAG chunking strategy:` с полями `file`, `format`, `strategy`, `slicer`, `chunk_size`, `chunk_overlap`, `chunks`, `html_splitter_enabled`, `langchain_splitter_supported`
 - Полный `prompt/response` всех LLM-вызовов (classification/chat/fallback_chat/rag_answer/rag_summary) → `ai_model_io_log`
 - Для `deepseek-reasoner` добавлен runtime-fallback: при пустом `content` для chat/RAG выполняется один автоповтор на `deepseek-chat` с предупреждением в логах
@@ -237,10 +241,12 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `AI_RAG_PROMPT_SUMMARY_DOCS` | `3` | Число summary в RAG-промпте |
 | `AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT` | `1.6` | Вес exact phrase-совпадения вопроса с document summary |
 | `AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT` | `1.0` | Вес token-overlap score для document summary |
-| `AI_RAG_SUMMARY_SCORE_CAP` | `2.5` | Верхняя граница summary-score перед применением бонусов |
-| `AI_RAG_SUMMARY_BONUS_WEIGHT` | `0.45` | Вес summary-бонуса в lexical scoring чанков |
-| `AI_RAG_SUMMARY_POSTRANK_WEIGHT` | `0.20` | Вес summary-бонуса после hybrid merge |
-| `AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS` | `2` | Число fallback-документов без summary-hit для сохранения recall |
+| `AI_RAG_SUMMARY_SCORE_CAP` | `2.5` | Верхняя граница fallback-нормализации summary-score в диапазон `0..1` (основной retrieval использует min-max по prefilter-пулу) |
+| `AI_RAG_SUMMARY_BONUS_WEIGHT` | `0.45` | Вес бонуса нормализованного summary-score в lexical scoring чанков |
+| `AI_RAG_SUMMARY_POSTRANK_WEIGHT` | `0.20` | Вес пост-бонуса нормализованного summary-score после hybrid merge |
+| `AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS` | `0` | Число fallback-документов без summary-hit для сохранения recall |
+| `AI_RAG_SUMMARY_VECTOR_WEIGHT` | `10` | Вес semantic vector similarity summary в prefilter scoring (`prefilter_score = lexical + vec * weight`) |
+| `AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL` | — | Отдельная DeepSeek-модель для summary только в `rag_directory_ingest.py` (`deepseek-chat`/`deepseek-reasoner`) |
 | `AI_RAG_CACHE_TTL_SECONDS` | `300` | TTL кэша |
 | `AI_RAG_HTML_SPLITTER_ENABLED` | `1` | HTML header-aware splitter |
 | `AI_RAG_VECTOR_ENABLED` | `0` | Включить локальный векторный retrieval |

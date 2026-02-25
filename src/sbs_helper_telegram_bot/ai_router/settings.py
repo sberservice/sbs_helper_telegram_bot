@@ -13,38 +13,60 @@ import os
 # Идентификаторы модуля
 # =============================================
 
+# Ключ модуля AI-роутера в общей конфигурации модулей.
 AI_MODULE_KEY: Final[str] = "ai_router"
+# Ключ флага включения/выключения AI-роутера в таблице bot_settings.
 AI_SETTING_KEY: Final[str] = "module_ai_router_enabled"
 
 # =============================================
 # Настройки LLM-провайдера
 # =============================================
 
+# Имя активного LLM-провайдера (сейчас используется DeepSeek).
 AI_PROVIDER: Final[str] = os.getenv("AI_PROVIDER", "deepseek")
+# API-ключ доступа к DeepSeek.
 DEEPSEEK_API_KEY: Final[str] = os.getenv("DEEPSEEK_API_KEY", "")
+# Базовый URL DeepSeek API.
 DEEPSEEK_BASE_URL: Final[str] = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+# Модель DeepSeek по умолчанию, если не переопределена через bot_settings.
 DEEPSEEK_MODEL: Final[str] = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 
 # Ключи настроек модели в bot_settings (переключаются из админ-панели)
+# Legacy-ключ модели (старый единый ключ для всех задач).
 AI_DEEPSEEK_MODEL_SETTING_KEY_LEGACY: Final[str] = "ai_deepseek_model"
+# Ключ модели для intent-классификации.
 AI_DEEPSEEK_MODEL_CLASSIFICATION_SETTING_KEY: Final[str] = "ai_deepseek_model_classification"
+# Ключ модели для генерации ответов (chat/RAG).
 AI_DEEPSEEK_MODEL_RESPONSE_SETTING_KEY: Final[str] = "ai_deepseek_model_response"
+# Модель для генерации summary только в сценарии directory-ingest (из env).
+AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL: Final[str] = os.getenv(
+    "AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL",
+    "deepseek-reasoner",
+)
 
 # Поддерживаемые модели DeepSeek для runtime-переключения
+# Название chat-модели DeepSeek.
 DEEPSEEK_MODEL_CHAT: Final[str] = "deepseek-chat"
+# Название reasoner-модели DeepSeek.
 DEEPSEEK_MODEL_REASONER: Final[str] = "deepseek-reasoner"
+# Белый список разрешённых имён моделей DeepSeek.
 ALLOWED_DEEPSEEK_MODELS: Final[tuple[str, ...]] = (
     DEEPSEEK_MODEL_CHAT,
     DEEPSEEK_MODEL_REASONER,
 )
 
 # Таймаут HTTP-запросов к LLM (секунды)
+# Максимальное время ожидания ответа от LLM API.
 LLM_REQUEST_TIMEOUT: Final[int] = int(os.getenv("AI_LLM_REQUEST_TIMEOUT", "30"))
 
 # Логирование prompt/response модели
+# Включить логирование входа/выхода модели в приложении.
 AI_LOG_MODEL_IO: Final[bool] = os.getenv("AI_LOG_MODEL_IO", "1") == "1"
+# Максимальная длина логируемого prompt/response (символов).
 AI_LOG_MODEL_IO_MAX_CHARS: Final[int] = int(os.getenv("AI_LOG_MODEL_IO_MAX_CHARS", "8000"))
+# Включить сохранение логов model I/O в БД.
 AI_MODEL_IO_DB_LOG_ENABLED: Final[bool] = os.getenv("AI_MODEL_IO_DB_LOG_ENABLED", "1") == "1"
+# Срок хранения записей model I/O в БД (дней).
 AI_MODEL_IO_DB_RETENTION_DAYS: Final[int] = int(os.getenv("AI_MODEL_IO_DB_RETENTION_DAYS", "30"))
 
 # =============================================
@@ -105,60 +127,102 @@ MAX_INPUT_LENGTH: Final[int] = int(os.getenv("AI_MAX_INPUT_LENGTH", "4000"))
 AI_RAG_ENABLED: Final[bool] = os.getenv("AI_RAG_ENABLED", "1") == "1"
 
 # Лимиты входящих документов
+# Максимальный размер загружаемого файла в MB.
 AI_RAG_MAX_FILE_SIZE_MB: Final[int] = int(os.getenv("AI_RAG_MAX_FILE_SIZE_MB", "20"))
+# Ограничение числа чанков на документ после разбиения.
 AI_RAG_MAX_CHUNKS_PER_DOC: Final[int] = int(os.getenv("AI_RAG_MAX_CHUNKS_PER_DOC", "500"))
 
 # Параметры chunking
+# Целевой размер одного чанка (символов).
 AI_RAG_CHUNK_SIZE: Final[int] = int(os.getenv("AI_RAG_CHUNK_SIZE", "1000"))
+# Перекрытие соседних чанков (символов).
 AI_RAG_CHUNK_OVERLAP: Final[int] = int(os.getenv("AI_RAG_CHUNK_OVERLAP", "150"))
 
-# Параметры retrieval. Значение по умолчанию AI_RAG_TOP_K=5
-AI_RAG_TOP_K: Final[int] = int(os.getenv("AI_RAG_TOP_K", "8")) 
+# Параметры retrieval. Значение по умолчанию AI_RAG_TOP_K=8
+# Сколько верхних чанков передавать в финальный контекст ответа.
+AI_RAG_TOP_K: Final[int] = int(os.getenv("AI_RAG_TOP_K", "8"))
+# Верхняя граница суммарного размера контекста RAG (символов).
 AI_RAG_MAX_CONTEXT_CHARS: Final[int] = int(os.getenv("AI_RAG_MAX_CONTEXT_CHARS", "14000"))
 
 # AI-summary для документов (используется при ingest и retrieval)
+# Включить генерацию и использование summary документов.
 AI_RAG_SUMMARY_ENABLED: Final[bool] = os.getenv("AI_RAG_SUMMARY_ENABLED", "1") == "1"
+# Максимальный объём текста документа для входа в summary-генерацию (символов).
 AI_RAG_SUMMARY_INPUT_MAX_CHARS: Final[int] = int(os.getenv("AI_RAG_SUMMARY_INPUT_MAX_CHARS", "12000"))
+# Максимальная длина сохранённого summary (символов).
 AI_RAG_SUMMARY_MAX_CHARS: Final[int] = int(os.getenv("AI_RAG_SUMMARY_MAX_CHARS", "1200"))
-AI_RAG_PREFILTER_TOP_DOCS: Final[int] = int(os.getenv("AI_RAG_PREFILTER_TOP_DOCS", "12"))
-AI_RAG_PROMPT_SUMMARY_DOCS: Final[int] = int(os.getenv("AI_RAG_PROMPT_SUMMARY_DOCS", "3"))
+# Количество top-документов после summary-prefilter для chunk retrieval.
+AI_RAG_PREFILTER_TOP_DOCS: Final[int] = int(os.getenv("AI_RAG_PREFILTER_TOP_DOCS", "4"))
+# Сколько summary-блоков включать в системный prompt ответа.
+AI_RAG_PROMPT_SUMMARY_DOCS: Final[int] = int(os.getenv("AI_RAG_PROMPT_SUMMARY_DOCS", "1"))
+# Вес точного/фразового совпадения вопроса с summary.
 AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT: Final[float] = float(
-    os.getenv("AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT", "1.6")
+    os.getenv("AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT", "1")
 )
+# Вес токенного совпадения вопроса с summary.
 AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT: Final[float] = float(
     os.getenv("AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT", "1.0")
 )
+# Верхняя граница summary-score для fallback-нормализации в диапазон 0..1.
+# В retrieval-пайплайне используется относительная min-max нормализация внутри текущего prefilter-пула.
 AI_RAG_SUMMARY_SCORE_CAP: Final[float] = float(os.getenv("AI_RAG_SUMMARY_SCORE_CAP", "2.5"))
+# Вес бонуса нормализованного summary-score на этапе lexical chunk scoring.
+# Не влияет на prefilter документов; для prefilter используется AI_RAG_SUMMARY_VECTOR_WEIGHT.
 AI_RAG_SUMMARY_BONUS_WEIGHT: Final[float] = float(os.getenv("AI_RAG_SUMMARY_BONUS_WEIGHT", "0.45"))
+# Вес пост-бонуса нормализованного summary-score на этапе финального hybrid ранжирования 0.20
 AI_RAG_SUMMARY_POSTRANK_WEIGHT: Final[float] = float(
-    os.getenv("AI_RAG_SUMMARY_POSTRANK_WEIGHT", "0.20")
+    os.getenv("AI_RAG_SUMMARY_POSTRANK_WEIGHT", "1")
 )
+# Число fallback-документов (вне top prefilter) для повышения recall.
 AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS: Final[int] = int(
-    os.getenv("AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS", "2")
+    os.getenv("AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS", "0")
+)
+# Вес семантического (vector) вклада summary при prefilter документов.
+# Влияет на ранжирование prefilter_docs и на поле vec_w в диагностическом логе prefilter_top.
+AI_RAG_SUMMARY_VECTOR_WEIGHT: Final[float] = float(
+    os.getenv("AI_RAG_SUMMARY_VECTOR_WEIGHT", "20")
 )
 
 # TTL-кэш ответов RAG (секунды)
+# Время жизни кешированного ответа на одинаковый запрос.
 AI_RAG_CACHE_TTL_SECONDS: Final[int] = int(os.getenv("AI_RAG_CACHE_TTL_SECONDS", "300"))
 
 # Векторный retrieval (локальный индекс и локальная embedding-модель)
+# Глобальный флаг включения векторного retrieval.
 AI_RAG_VECTOR_ENABLED: Final[bool] = os.getenv("AI_RAG_VECTOR_ENABLED", "0") == "1"
+# Включить гибридное объединение lexical + vector кандидатов.
 AI_RAG_HYBRID_ENABLED: Final[bool] = os.getenv("AI_RAG_HYBRID_ENABLED", "1") == "1"
+# Использовать локальный режим векторного индекса (без внешнего сервиса).
 AI_RAG_VECTOR_LOCAL_MODE: Final[bool] = os.getenv("AI_RAG_VECTOR_LOCAL_MODE", "1") == "1"
+# Путь к директории локального векторного хранилища.
 AI_RAG_VECTOR_DB_PATH: Final[str] = os.getenv("AI_RAG_VECTOR_DB_PATH", "./data/qdrant")
+# Имя коллекции чанков в векторном индексе.
 AI_RAG_VECTOR_COLLECTION: Final[str] = os.getenv("AI_RAG_VECTOR_COLLECTION", "rag_chunks_v1")
+# Метрика расстояния в векторном индексе (например, cosine).
 AI_RAG_VECTOR_DISTANCE: Final[str] = os.getenv("AI_RAG_VECTOR_DISTANCE", "cosine")
+# Сколько top-кандидатов брать из векторного поиска.
 AI_RAG_VECTOR_TOP_K: Final[int] = int(os.getenv("AI_RAG_VECTOR_TOP_K", "12"))
+# Размер prefetch-выборки кандидатов до финального vector top-k.
 AI_RAG_VECTOR_PREFETCH_K: Final[int] = int(os.getenv("AI_RAG_VECTOR_PREFETCH_K", "40"))
+# Имя embedding-модели для расчёта векторов.
 AI_RAG_VECTOR_EMBEDDING_MODEL: Final[str] = os.getenv("AI_RAG_VECTOR_EMBEDDING_MODEL", "BAAI/bge-m3")
+# Устройство для инференса эмбеддингов (auto/cpu/cuda/mps).
 AI_RAG_VECTOR_DEVICE: Final[str] = os.getenv("AI_RAG_VECTOR_DEVICE", "auto")
+# Использовать fp16 при вычислении эмбеддингов (если поддерживается устройством).
 AI_RAG_VECTOR_EMBEDDING_FP16: Final[bool] = os.getenv("AI_RAG_VECTOR_EMBEDDING_FP16", "0") == "1"
+# Размер батча при вычислении эмбеддингов.
 AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE: Final[int] = int(os.getenv("AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE", "8"))
+# Максимальная длина текста для одного embedding-запроса (символов).
 AI_RAG_VECTOR_EMBEDDING_MAX_CHARS: Final[int] = int(os.getenv("AI_RAG_VECTOR_EMBEDDING_MAX_CHARS", "6000"))
+# Вес lexical-score в гибридной формуле ранжирования.
 AI_RAG_VECTOR_LEXICAL_WEIGHT: Final[float] = float(os.getenv("AI_RAG_VECTOR_LEXICAL_WEIGHT", "0.45"))
+# Вес semantic-score в гибридной формуле ранжирования.
 AI_RAG_VECTOR_SEMANTIC_WEIGHT: Final[float] = float(os.getenv("AI_RAG_VECTOR_SEMANTIC_WEIGHT", "0.55"))
 
 # Включение header-aware HTML splitter для RAG chunking
+# Флаг включения HTML splitter с учётом заголовков h1-h6.
 AI_RAG_HTML_SPLITTER_ENABLED: Final[bool] = os.getenv("AI_RAG_HTML_SPLITTER_ENABLED", "1") == "1"
+# Ключ настройки HTML splitter в bot_settings для runtime-переключения.
 AI_RAG_HTML_SPLITTER_ENABLED_SETTING_KEY: Final[str] = "ai_rag_html_splitter_enabled"
 
 
@@ -229,6 +293,22 @@ def get_active_deepseek_model_for_response() -> str:
 def get_active_deepseek_model() -> str:
     """Совместимость со старым API: активная модель ответов (chat/RAG)."""
     return get_active_deepseek_model_for_response()
+
+
+def get_directory_ingest_summary_model_override() -> str | None:
+    """Получить override-модель для summary в `rag_directory_ingest`.
+
+    Возвращает `None`, если override не задан или значение не входит
+    в whitelist поддерживаемых DeepSeek-моделей.
+    """
+    raw_value = (AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL or "").strip().lower()
+    if not raw_value:
+        return None
+
+    if raw_value in ALLOWED_DEEPSEEK_MODELS:
+        return raw_value
+
+    return None
 
 
 def is_rag_html_splitter_enabled() -> bool:

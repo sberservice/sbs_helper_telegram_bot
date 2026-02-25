@@ -5,13 +5,150 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
-## [0.1.54] - 2026-02-25
+## [0.1.66] - 2026-02-25
 
-## [0.1.55] - 2026-02-25
+## [0.1.67] - 2026-02-25
 
 ### Added
-- Добавлена диагностическая строка `RAG priority evidence:` в `src/sbs_helper_telegram_bot/ai_router/rag_service.py` с top-5 prefilter-документами и top-5 финально выбранными чанками (`doc`, `source`, `fused`, `summary`) для наглядной проверки эффекта summary-приоритизации.
-- Добавлен регрессионный тест в `tests/test_rag_service.py`, проверяющий наличие `RAG priority evidence:` в логах retrieval-цикла.
+- Добавлен регрессионный тест в `tests/test_rag_service.py`, проверяющий min-max нормализацию `summary_score` в prefilter-пуле и передачу `normalized_summary_scores` в lexical retrieval.
+
+### Changed
+- В `src/sbs_helper_telegram_bot/ai_router/rag_service.py` summary-бонусы для чанков и postrank теперь используют относительную нормализацию `summary_score` в диапазон `0..1` по текущему prefilter-пулу (`min-max`) перед применением весов.
+- Диагностический блок `RAG priority evidence -> selected_top` синхронизирован с новой схемой расчёта `lex_bonus`/`summary_bonus`.
+- Обновлены пояснения в `src/sbs_helper_telegram_bot/ai_router/settings.py`, `docs/AI_RAG_GUIDE.md` и `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Устранена ситуация, когда документы с разными high `summary_score` получали одинаковый бонус из-за cap-clamp; теперь бонус дифференцируется в пределах текущего retrieval-пула.
+
+## [0.1.66] - 2026-02-25
+
+### Added
+- Добавлен регрессионный тест в `tests/test_rag_service.py`, проверяющий нормализацию `summary_score` документа в диапазон `0..1` перед применением `lexical` и `postrank` бонусов.
+
+### Changed
+- В `src/sbs_helper_telegram_bot/ai_router/rag_service.py` формулы `_summary_score_bonus()` и `_summary_postrank_bonus()` переведены на нормализованный `summary_score`: теперь бонусы рассчитываются как `normalize(summary_score, cap) * weight`, где `normalize = min(score, cap) / cap`.
+- Уточнены описания конфигурации и лог-диагностики в `src/sbs_helper_telegram_bot/ai_router/settings.py`, `docs/AI_RAG_GUIDE.md` и `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Снижено доминирование document-level summary в chunk ranking: теперь вклад summary-бонуса ограничен диапазоном `0..weight`, что делает итоговый `fused` более сопоставимым с lexical/vector компонентами.
+
+## [0.1.65] - 2026-02-25
+
+### Added
+- Добавлены регрессионные проверки в `tests/test_rag_service.py` для поля `chunk` в `selected_top` и для передачи `chunk_index` из lexical retrieval.
+
+### Changed
+- Расширено логирование `RAG priority evidence` в `src/sbs_helper_telegram_bot/ai_router/rag_service.py`: в строках `selected_top` после `doc` теперь выводится индекс чанка `chunk`.
+- Обновлены описания диагностического формата в `docs/AI_RAG_GUIDE.md` и `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Устранена неоднозначность при разборе retrieval-логов: теперь видно, какой именно чанк документа попал в финальный top.
+
+## [0.1.63] - 2026-02-25
+
+## [0.1.64] - 2026-02-25
+
+### Added
+- Добавлен регрессионный тест в `tests/test_rag_service.py`, проверяющий детализацию lexical-компоненты в `selected_top` (`lex_raw`, `lex_bonus`, `lex_total`) и формулу `hybrid=(lex_total*lexical_weight)+(vector_score*vector_weight)`.
+
+### Changed
+- Улучшено логирование `RAG priority evidence` в `src/sbs_helper_telegram_bot/ai_router/rag_service.py`: в `selected_top` lexical-часть теперь декомпозируется на `lex_raw` (базовый chunk lexical), `lex_bonus` (summary bonus на lexical-этапе) и `lex_total` (итог lexical-компоненты до hybrid-взвешивания).
+- Обновлена документация по форматам retrieval-логов: `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Устранена неоднозначность интерпретации `lexical_score` в `selected_top`: теперь явно видно, почему lexical-компонента может превышать диапазон `0..1`.
+
+## [0.1.63] - 2026-02-25
+
+### Added
+- Добавлены регрессионные тесты в `tests/test_rag_service.py` для проверки разложения `selected_top` на weighted-компоненты (`hybrid=(lexical_score*lexical_weight)+(vector_score*vector_weight)`) и для проверки сборки lexical/vector-компонент по dedup-ключу merge.
+
+### Changed
+- Расширено логирование `RAG priority evidence` в `src/sbs_helper_telegram_bot/ai_router/rag_service.py`: в `selected_top` теперь выводится не только `fused`, но и детальный вклад lexical/vector в формате `hybrid=(lexical_score*lexical_weight)+(vector_score*vector_weight)` плюс `summary_bonus`.
+- Обновлена документация по диагностике retrieval: `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Устранена непрозрачность расчёта `fused` в runtime-логах RAG: теперь по каждой строке `selected_top` видно, как сформирован базовый hybrid-score до добавления summary-бонуса.
+
+## [0.1.62] - 2026-02-25
+
+### Added
+- Добавлен регрессионный тест в `tests/test_rag_service.py`, проверяющий новые retrieval-диагностики `selected_unique_docs` и `selected_top_docs`, а также helper для снимка top уникальных `document_id`.
+
+### Changed
+- Расширена строка `RAG retrieval:` в `src/sbs_helper_telegram_bot/ai_router/rag_service.py`: добавлены поля `selected_unique_docs` (количество уникальных документов в финальных чанках) и `selected_top_docs` (top уникальных `document_id` по порядку ранжирования).
+- Обновлена документация по диагностике retrieval: `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Устранена неоднозначность интерпретации `selected_top` в runtime-логах RAG: теперь явно видно различие между количеством выбранных чанков и количеством документов, из которых эти чанки получены.
+
+## [0.1.61] - 2026-02-25
+
+### Added
+- Добавлен регрессионный тест в `tests/test_rag_service.py`, проверяющий маркировку происхождения `selected_top` (`origin=prefilter|fallback|global`) и наличие поля `prefilter_scope_docs` в строке `RAG retrieval:`.
+
+### Changed
+- Улучшена диагностика retrieval в `src/sbs_helper_telegram_bot/ai_router/rag_service.py`: в `RAG retrieval:` добавлено поле `prefilter_scope_docs` (фактический размер области поиска после fallback), а в `RAG priority evidence -> selected_top` добавлено поле `origin` для каждого выбранного чанка.
+- Обновлена документация по логированию RAG: `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Устранена неоднозначность в runtime-логах RAG, из-за которой документ мог появляться в `selected_top`, но визуально «отсутствовать» в `prefilter_top` без явного объяснения роли fallback/глобального поиска.
+
+## [0.1.60] - 2026-02-25
+
+### Added
+- Добавлена env-настройка `AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL` для выбора модели генерации summary только в сценарии `scripts/rag_directory_ingest.py` (поддерживаются `deepseek-chat` и `deepseek-reasoner`).
+- Добавлены регрессионные тесты в `tests/test_rag_service.py`, `tests/test_llm_provider.py`, `tests/test_rag_directory_ingest.py` и `tests/test_ai_model_switch.py`, покрывающие ingest-only override модели summary и безопасный fallback.
+
+### Changed
+- Расширен ingest-поток в `src/sbs_helper_telegram_bot/ai_router/rag_service.py`: `ingest_document_from_bytes()` принимает `summary_model_scope`, а `rag_directory_ingest.py` передаёт scope `directory_ingest` для точечного переключения модели summary без влияния на остальные `rag_summary`/chat-вызовы.
+- Расширен API `DeepSeekProvider.chat()` в `src/sbs_helper_telegram_bot/ai_router/llm_provider.py`: добавлен параметр `model_override` для одноразового override модели в конкретном вызове.
+- Обновлена документация по RAG-конфигурации и directory-ingest: `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Устранено ограничение, при котором directory-ingest summary всегда использовал response-модель; теперь возможен отдельный выбор summary-модели без глобального переключения AI-ответов.
+
+## [0.1.59] - 2026-02-25
+
+### Added
+- Добавлен регрессионный тест в `tests/test_rag_service.py`, подтверждающий отображение взвешенного векторного вклада (`vec_w`) в `prefilter_top` и его изменение при смене `AI_RAG_SUMMARY_VECTOR_WEIGHT`.
+
+### Changed
+- Улучшена диагностическая строка `RAG priority evidence: prefilter_top` в `src/sbs_helper_telegram_bot/ai_router/rag_service.py`: теперь для каждого документа логируется разложение итогового score (`summary`, `lexical`, `vec`, `vec_w`), где `vec_w = vec * AI_RAG_SUMMARY_VECTOR_WEIGHT`.
+- Уточнены комментарии в `src/sbs_helper_telegram_bot/ai_router/settings.py` о разграничении ролей `AI_RAG_SUMMARY_BONUS_WEIGHT` (chunk scoring) и `AI_RAG_SUMMARY_VECTOR_WEIGHT` (prefilter docs).
+- Обновлена документация RAG по prefilter-диагностике и формуле в `docs/AI_RAG_GUIDE.md` и `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Устранена неоднозначность интерпретации prefilter-логов: теперь влияние `AI_RAG_SUMMARY_VECTOR_WEIGHT` на ранжирование документов видно напрямую, без ручных вычислений.
+
+## [0.1.58] - 2026-02-25
+
+### Fixed
+- Исправлено форматирование RAG-ответов с вложенной разметкой вида `**\`code\`**`: внутренние служебные токены больше не попадают в сообщения пользователю (устранены артефакты `RAGTOKENCODE...`).
+
+## [0.1.57] - 2026-02-25
+
+### Added
+- Добавлены регрессионные тесты в `tests/test_rag_service.py` для нового человекочитаемого форматирования retrieval-логов: сокращение длинного `source` и многострочный ранжированный snapshot для `prefilter_top/selected_top`.
+
+### Changed
+- Улучшено логирование в `src/sbs_helper_telegram_bot/ai_router/rag_service.py`: `RAG priority evidence:` теперь выводится в многострочном ранжированном формате, а `top_source` в `RAG retrieval:` автоматически сокращается при длинных путях/URL.
+- Обновлена документация по RAG-диагностике: `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Устранена низкая читаемость эксплуатационных логов retrieval при длинных именах источников и плотном однострочном выводе evidence.
+
+## [0.1.56] - 2026-02-25
+
+### Added
+- Семантический векторный поиск по summary документов: при доступном embedding-провайдере `_prefilter_documents_by_summary` дополнительно вычисляет cosine similarity между вопросом и каждым summary, что позволяет отличать «X5» от «VX520» на уровне смысла.
+- Новая переменная окружения `AI_RAG_SUMMARY_VECTOR_WEIGHT` (по умолчанию `0.6`) — вес векторного сходства summary в prefilter scoring.
+- Кэширование summary-эмбеддингов в памяти с автоматической инвалидацией при изменении corpus version.
+- Диагностическая строка `RAG priority evidence: prefilter_top` теперь показывает отдельный `vec=` компонент для каждого документа.
+
+### Changed
+- Фразовый match в `_score_summary_text` заменён с substring (`in`) на word-boundary regex (`\b`), чтобы «X5» не совпадало внутри «VX520».
+- Минимальная длина фразы для phrase-match снижена с 3 до 2 символов для поддержки коротких терминов (X5, D2 и т.д.).
 
 ### Changed
 - Обновлена документация по RAG-диагностике: `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`.
@@ -30,6 +167,14 @@
 
 ### Fixed
 - Снижен риск ситуации, когда документ с релевантным фразовым summary (например, `X5 shop group`) недостаточно приоритизируется при равных vector/lexical сигналах.
+
+## [0.1.55] - 2026-02-25
+
+### Added
+- Добавлена диагностическая строка `RAG priority evidence:` в `src/sbs_helper_telegram_bot/ai_router/rag_service.py` с top-5 prefilter-документами и top-5 финально выбранными чанками (`doc`, `source`, `fused`, `summary`) для наглядной проверки эффекта summary-приоритизации.
+- Добавлен регрессионный тест в `tests/test_rag_service.py`, проверяющий наличие `RAG priority evidence:` в логах retrieval-цикла.
+
+## [0.1.54] - 2026-02-25
 
 ## [0.1.53] - 2026-02-25
 
