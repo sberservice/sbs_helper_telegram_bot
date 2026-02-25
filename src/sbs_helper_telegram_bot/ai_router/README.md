@@ -96,6 +96,8 @@ CLOSED ──(5 ошибок)──► OPEN ──(300с)──► HALF_OPEN
 3. SHA-256 дедупликация (повторная загрузка реактивирует запись)
 4. Сохранение в БД с FULLTEXT-индексом
 
+Загрузка через Telegram (`#rag`) не выполняет немедленный vector upsert: эмбеддинги формируются отдельным запуском `scripts/rag_vector_backfill.py`.
+
 **HTML-документы**: приоритетный header-aware chunking через `HTMLHeaderTextSplitter` (h1–h6); при недоступности — fallback на plain-text.
 
 **Python 3.14+**: LangChain splitters поддерживаются; встроенный fallback используется только при ошибке импорта/инициализации splitter-а.
@@ -116,6 +118,8 @@ CLOSED ──(5 ошибок)──► OPEN ──(300с)──► HALF_OPEN
 python scripts/rag_vector_backfill.py --batch-size 100
 python scripts/rag_vector_backfill.py --dry-run --max-documents 200
 ```
+
+`rag_directory_ingest.py` не выполняет генерацию эмбеддингов: обновление локального векторного индекса выполняется только через `rag_vector_backfill.py`.
 
 При сохранении метаданных в `rag_chunk_embeddings` используется batched upsert и автоматический retry для временных ошибок MySQL (`1205`/`1213`) с коротким backoff.
 
@@ -165,7 +169,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 С флагом `--force-update` перезагружаются также и неизменённые файлы.
 При временных DB-блокировках (`1205`/`1213`) DB-операции (`delete`, `set_status`, `ingest`) автоматически повторяются с коротким backoff. Qdrant I/O вынесен за пределы MySQL-транзакций для минимизации времени удержания блокировок.
 Для одной и той же директории синхронизации разрешён только один активный процесс `rag_directory_ingest.py` (PID lock-файл в системной temp-директории); второй запуск завершается с ошибкой, чтобы исключить конкуренцию транзакций.
-Если локальный Qdrant-путь (`AI_RAG_VECTOR_DB_PATH`) уже занят другим процессом, векторная индексация автоматически отключается для текущего процесса синхронизации, а загрузка документов продолжается в lexical fallback.
+Для обновления локального векторного индекса после синхронизации запускайте `rag_vector_backfill.py`.
 При загрузке каждого документа синхронизация формирует/обновляет запись в `rag_document_summaries`.
 
 ## Безопасная отправка

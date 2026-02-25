@@ -7,12 +7,47 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.sbs_helper_telegram_bot.ai_router.rag_admin_bot_part import (
+    handle_rag_document_upload,
     handle_rag_admin_command,
 )
 
 
 class TestRagAdminCommands(unittest.IsolatedAsyncioTestCase):
     """Тесты текстовых команд #rag ..."""
+
+    async def test_document_upload_disables_immediate_vector_upsert(self):
+        """Загрузка #rag-документа отключает немедленный vector upsert."""
+        placeholder = SimpleNamespace(edit_text=AsyncMock())
+        message = SimpleNamespace(
+            caption="#rag",
+            document=SimpleNamespace(file_name="kb.txt", file_id="file-1"),
+            reply_text=AsyncMock(return_value=placeholder),
+        )
+        update = SimpleNamespace(
+            message=message,
+            effective_user=SimpleNamespace(id=1),
+        )
+
+        tg_file = SimpleNamespace(download_as_bytearray=AsyncMock(return_value=bytearray(b"payload")))
+        context = SimpleNamespace(bot=SimpleNamespace(get_file=AsyncMock(return_value=tg_file)))
+
+        mock_service = MagicMock()
+        mock_service.is_supported_file.return_value = True
+        mock_service.ingest_document_from_bytes = AsyncMock(
+            return_value={"document_id": 10, "chunks_count": 2, "is_duplicate": 0}
+        )
+
+        with patch("src.sbs_helper_telegram_bot.ai_router.rag_admin_bot_part.check_if_user_admin", return_value=True), \
+             patch("src.sbs_helper_telegram_bot.ai_router.rag_admin_bot_part.get_rag_service", return_value=mock_service):
+            await handle_rag_document_upload(update, context)
+
+        mock_service.ingest_document_from_bytes.assert_awaited_once_with(
+            filename="kb.txt",
+            payload=b"payload",
+            uploaded_by=1,
+            source_type="telegram",
+            upsert_vectors=False,
+        )
 
     async def test_non_admin_rejected(self):
         """Не-админ не может выполнять RAG-команды."""
