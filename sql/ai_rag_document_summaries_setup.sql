@@ -1,7 +1,7 @@
 -- ============================================================================
 -- ai_rag_document_summaries_setup.sql — миграция таблицы AI-summary для RAG
 -- ============================================================================
--- Запустить: mysql -u <user> -p <database> < scripts/ai_rag_document_summaries_setup.sql
+-- Запустить: mysql -u <user> -p <database> < sql/ai_rag_document_summaries_setup.sql
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS rag_document_summaries (

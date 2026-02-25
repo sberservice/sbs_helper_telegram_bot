@@ -1,7 +1,7 @@
 -- ============================================================================
 -- ai_rag_vector_setup.sql — метаданные векторной индексации RAG-чанков
 -- ============================================================================
--- Запустить: mysql -u <user> -p <database> < scripts/ai_rag_vector_setup.sql
+-- Запустить: mysql -u <user> -p <database> < sql/ai_rag_vector_setup.sql
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS rag_chunk_embeddings (

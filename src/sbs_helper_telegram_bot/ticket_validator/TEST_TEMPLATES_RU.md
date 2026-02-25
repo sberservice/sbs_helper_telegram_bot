@@ -113,7 +113,7 @@
 Таблицы тестовых шаблонов включены в основной `schema.sql`. Загрузите образцы шаблонов:
 
 ```bash
-mysql -u user -p database < scripts/sample_test_templates.sql
+mysql -u user -p database < sql/sample_test_templates.sql
 ```
 
 ## Функции API
