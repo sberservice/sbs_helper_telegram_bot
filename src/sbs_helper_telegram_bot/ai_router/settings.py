@@ -210,6 +210,22 @@ AI_RAG_VECTOR_ENABLED: Final[bool] = os.getenv("AI_RAG_VECTOR_ENABLED", "0") == 
 AI_RAG_HYBRID_ENABLED: Final[bool] = os.getenv("AI_RAG_HYBRID_ENABLED", "1") == "1"
 # Использовать локальный режим векторного индекса (без внешнего сервиса).
 AI_RAG_VECTOR_LOCAL_MODE: Final[bool] = os.getenv("AI_RAG_VECTOR_LOCAL_MODE", "1") == "1"
+# URL удалённого Qdrant (например, https://qdrant.example.com:6333).
+AI_RAG_VECTOR_REMOTE_URL: Final[str] = os.getenv("AI_RAG_VECTOR_REMOTE_URL", "").strip()
+# API-ключ удалённого Qdrant (если требуется сервером).
+AI_RAG_VECTOR_REMOTE_API_KEY: Final[str] = os.getenv("AI_RAG_VECTOR_REMOTE_API_KEY", "")
+# Таймаут запросов к удалённому Qdrant в секундах.
+AI_RAG_VECTOR_REMOTE_TIMEOUT_SECONDS: Final[float] = float(
+    os.getenv("AI_RAG_VECTOR_REMOTE_TIMEOUT_SECONDS", "5")
+)
+# Порог последовательных ошибок remote перед переключением на local.
+AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD: Final[int] = int(
+    os.getenv("AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD", "3")
+)
+# Время cooldown (секунды) перед повторной попыткой remote после failover.
+AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS: Final[int] = int(
+    os.getenv("AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS", "120")
+)
 # Путь к директории локального векторного хранилища.
 AI_RAG_VECTOR_DB_PATH: Final[str] = os.getenv("AI_RAG_VECTOR_DB_PATH", "./data/qdrant")
 # Имя коллекции чанков в векторном индексе.

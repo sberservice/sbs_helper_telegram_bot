@@ -48,6 +48,120 @@ class TestLocalVectorIndex(unittest.TestCase):
         self.assertIsNone(second_client)
         self.assertEqual(fake_constructor.call_count, 1)
 
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD", 3)
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
+    def test_get_client_prefers_remote_when_available(self):
+        """При доступном remote backend выбирается удалённый Qdrant-клиент."""
+
+        class _RemoteClient:
+            def get_collections(self):
+                return {"collections": []}
+
+        class _LocalClient:
+            pass
+
+        counters = {"remote": 0, "local": 0}
+
+        def _constructor(**kwargs):
+            if kwargs.get("url"):
+                counters["remote"] += 1
+                return _RemoteClient()
+            counters["local"] += 1
+            return _LocalClient()
+
+        fake_qdrant_module = types.SimpleNamespace(QdrantClient=_constructor)
+        with mock.patch.dict("sys.modules", {"qdrant_client": fake_qdrant_module}):
+            index = LocalVectorIndex()
+            client = index._get_client()
+
+        self.assertIsNotNone(client)
+        self.assertEqual(counters["remote"], 1)
+        self.assertEqual(counters["local"], 0)
+
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD", 2)
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS", 300)
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
+    def test_get_client_fallbacks_to_local_after_remote_failures_threshold(self):
+        """После N ошибок remote backend временно отключается, клиент переключается на local."""
+
+        class _RemoteClient:
+            def get_collections(self):
+                raise RuntimeError("remote unavailable")
+
+        class _LocalClient:
+            pass
+
+        counters = {"remote": 0, "local": 0}
+
+        def _constructor(**kwargs):
+            if kwargs.get("url"):
+                counters["remote"] += 1
+                return _RemoteClient()
+            counters["local"] += 1
+            return _LocalClient()
+
+        fake_qdrant_module = types.SimpleNamespace(QdrantClient=_constructor)
+        with mock.patch.dict("sys.modules", {"qdrant_client": fake_qdrant_module}):
+            index = LocalVectorIndex()
+            first_client = index._get_client()
+            second_client = index._get_client()
+            third_client = index._get_client()
+
+        self.assertIsNotNone(first_client)
+        self.assertIsNotNone(second_client)
+        self.assertIsNotNone(third_client)
+        self.assertEqual(counters["remote"], 2)
+        self.assertEqual(counters["local"], 1)
+
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD", 1)
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS", 300)
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
+    def test_search_uses_local_when_remote_not_responding(self):
+        """Поиск переключается на local backend, если remote не отвечает."""
+
+        class _RemoteClient:
+            def get_collections(self):
+                return {"collections": []}
+
+            def search(self, **_kwargs):
+                raise RuntimeError("remote search failed")
+
+        class _Point:
+            def __init__(self):
+                self.payload = {
+                    "document_id": 101,
+                    "chunk_index": 0,
+                    "filename": "local_doc.md",
+                    "chunk_text": "Локальный fallback результат",
+                }
+                self.score = 0.91
+
+        class _LocalClient:
+            def search(self, **_kwargs):
+                return [_Point()]
+
+        counters = {"remote": 0, "local": 0}
+
+        def _constructor(**kwargs):
+            if kwargs.get("url"):
+                counters["remote"] += 1
+                return _RemoteClient()
+            counters["local"] += 1
+            return _LocalClient()
+
+        fake_qdrant_module = types.SimpleNamespace(QdrantClient=_constructor)
+        with mock.patch.dict("sys.modules", {"qdrant_client": fake_qdrant_module}):
+            index = LocalVectorIndex()
+            result = index.search(query_vector=[0.1, 0.2], limit=5)
+
+        self.assertEqual(counters["remote"], 1)
+        self.assertEqual(counters["local"], 1)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].source, "local_doc.md")
+
 
 class TestLocalEmbeddingProvider(unittest.TestCase):
     """Проверки выбора устройства и инициализации embedding-модели."""
