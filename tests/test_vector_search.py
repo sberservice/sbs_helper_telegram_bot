@@ -31,6 +31,24 @@ class TestLocalVectorIndex(unittest.TestCase):
         match_payload = document_filter.get("match") or {}
         self.assertEqual(match_payload.get("any"), [11, 12])
 
+    @mock.patch(
+        "src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_SUMMARY_VECTOR_COLLECTION",
+        "rag_summary_v2",
+    )
+    def test_summary_collection_name_defaults_from_settings(self):
+        """Имя summary-коллекции берётся из AI_RAG_SUMMARY_VECTOR_COLLECTION."""
+        index = LocalVectorIndex()
+        self.assertEqual(index._summary_collection_name, "rag_summary_v2")
+
+    def test_build_summary_point_id_is_stable(self):
+        """ID summary-точки стабилен для одного document_id и различается для разных документов."""
+        first = LocalVectorIndex._build_summary_point_id(100)
+        second = LocalVectorIndex._build_summary_point_id(100)
+        other = LocalVectorIndex._build_summary_point_id(101)
+
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, other)
+
     @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
     @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_API_KEY", "secret")
     @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)

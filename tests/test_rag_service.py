@@ -10,7 +10,7 @@ from src.sbs_helper_telegram_bot.ai_router.messages import (
     AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
     AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
 )
-from src.sbs_helper_telegram_bot.ai_router.rag_service import RagKnowledgeService
+from src.sbs_helper_telegram_bot.ai_router.rag_service import RagKnowledgeService, preload_rag_runtime_dependencies
 
 
 class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
@@ -22,6 +22,34 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         def __init__(self, errno: int):
             super().__init__(f"MySQL error: {errno}")
             self.errno = errno
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=True)
+    def test_preload_rag_runtime_dependencies_loads_vector_and_ru_dependencies(self, _mock_ru_enabled, _mock_ru_mode):
+        """Preload на старте прогревает vector-модель и RU-нормализацию."""
+        service = RagKnowledgeService()
+
+        with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service", return_value=service):
+            with patch.object(service, "_is_vector_search_enabled", return_value=True):
+                with patch.object(service, "_get_embedding_provider", return_value=object()) as mock_provider:
+                    with patch.object(service, "_get_vector_index", return_value=object()) as mock_vector_index:
+                        with patch.object(service, "_get_ru_morph_analyzer", return_value=object()) as mock_morph:
+                            with patch.object(service, "_get_ru_stemmer", return_value=object()) as mock_stemmer:
+                                with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.info") as mock_logger_info:
+                                    result = preload_rag_runtime_dependencies()
+
+        self.assertTrue(result["vector_provider_ready"])
+        self.assertTrue(result["vector_index_ready"])
+        self.assertTrue(result["ru_morph_ready"])
+        self.assertTrue(result["ru_stemmer_ready"])
+        mock_provider.assert_called_once()
+        mock_vector_index.assert_called_once()
+        mock_morph.assert_called_once()
+        mock_stemmer.assert_called_once()
+
+        logged_messages = [str(call_args.args[0]) for call_args in mock_logger_info.call_args_list]
+        self.assertIn("RAG preload: start", logged_messages)
+        self.assertIn("RAG preload: done status=%s duration_ms=%s vector_enabled=%s vector_provider_ready=%s vector_index_ready=%s ru_normalization_enabled=%s ru_normalization_mode=%s ru_morph_ready=%s ru_stemmer_ready=%s", logged_messages)
 
     def test_supported_file_extensions(self):
         """Проверка поддерживаемых расширений файлов."""
@@ -249,9 +277,10 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         service = RagKnowledgeService()
         html = b"<html><body><h1>SLA</h1><p>4 hours</p></body></html>"
 
-        with patch.object(service, "_split_html_with_semantic_preserving_splitter", return_value=["SLA\n4 hours"]) as mock_splitter:
-            with patch.object(service, "_extract_html_text") as mock_extract:
-                chunks = service._split_html_payload(html)
+        with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_html_splitter_enabled", return_value=True):
+            with patch.object(service, "_split_html_with_semantic_preserving_splitter", return_value=["SLA\n4 hours"]) as mock_splitter:
+                with patch.object(service, "_extract_html_text") as mock_extract:
+                    chunks = service._split_html_payload(html)
 
         self.assertEqual(chunks, ["SLA\n4 hours"])
         mock_splitter.assert_called_once()
@@ -262,10 +291,11 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         service = RagKnowledgeService()
         html = b"<html><body><h1>SLA</h1><p>4 hours</p></body></html>"
 
-        with patch.object(service, "_split_html_with_semantic_preserving_splitter", return_value=[]):
-            with patch.object(service, "_extract_html_text", return_value="SLA 4 hours") as mock_extract:
-                with patch.object(service, "_split_text", return_value=["SLA 4 hours"]) as mock_split_text:
-                    chunks = service._split_html_payload(html)
+        with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_html_splitter_enabled", return_value=True):
+            with patch.object(service, "_split_html_with_semantic_preserving_splitter", return_value=[]):
+                with patch.object(service, "_extract_html_text", return_value="SLA 4 hours") as mock_extract:
+                    with patch.object(service, "_split_text", return_value=["SLA 4 hours"]) as mock_split_text:
+                        chunks = service._split_html_payload(html)
 
         self.assertEqual(chunks, ["SLA 4 hours"])
         mock_extract.assert_called_once()
@@ -309,7 +339,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(service, "_get_html_splitter_class", return_value=FakeSplitter):
             with patch.object(service, "_split_text", return_value=["SLA\nКритический\nПодробные условия"]) as mock_split_text:
-            chunks = service._split_html_with_semantic_preserving_splitter("<h1>SLA</h1><h2>Критический</h2><p>Подробные условия</p>")
+                chunks = service._split_html_with_semantic_preserving_splitter("<h1>SLA</h1><h2>Критический</h2><p>Подробные условия</p>")
 
         self.assertEqual(chunks, ["SLA\nКритический\nПодробные условия"])
         mock_split_text.assert_called_once_with("SLA\nКритический\nПодробные условия")
@@ -537,7 +567,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             {"document_id": 3, "summary_text": "График дежурств и отпусков", "filename": "ops.txt"},
         ]
 
-        rows, vec_scores = service._prefilter_documents_by_summary(
+        rows, vec_scores, vector_source = service._prefilter_documents_by_summary(
             question="Какой SLA выезда",
             question_tokens=service._tokenize("Какой SLA выезда"),
             limit=2,
@@ -547,6 +577,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0][0], 1)
         self.assertEqual(rows[0][1], "sla.txt")
         self.assertIsInstance(vec_scores, dict)
+        self.assertEqual(vector_source, "fallback")
 
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT", 0.0)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT", 1.0)
@@ -572,7 +603,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             {"document_id": 3, "summary_text": "График дежурств и отпусков", "filename": "ops.txt"},
         ]
 
-        rows, _ = service._prefilter_documents_by_summary(
+        rows, _, vector_source = service._prefilter_documents_by_summary(
             question="Какой SLA выезда",
             question_tokens=service._tokenize("Какой SLA выезда"),
             limit=2,
@@ -580,6 +611,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][0], 1)
+        self.assertEqual(vector_source, "fallback")
 
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=True)
@@ -758,7 +790,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
     @patch.object(
         RagKnowledgeService,
         "_prefilter_documents_by_summary",
-        return_value=([(5, "x5.txt", "summary with x5 shop group", 2.1)], {}),
+        return_value=([(5, "x5.txt", "summary with x5 shop group", 2.1)], {}, "fallback"),
     )
     def test_retrieve_context_uses_summary_prefilter_fallback_docs(
         self,
@@ -883,7 +915,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
     ):
         """В логи пишется режим lexical_only для retrieval-цикла."""
         service = RagKnowledgeService()
-        mock_prefilter.return_value = ([], {})
+        mock_prefilter.return_value = ([], {}, "fallback")
         mock_search_lexical.return_value = [(1.0, "kb.txt", "lexical block", 10)]
         mock_search_vector.return_value = []
         mock_merge.return_value = [(1.0, "kb.txt", "lexical block", 10)]
@@ -919,6 +951,15 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
                 and call.args[0].startswith("RAG retrieval:")
                 and "selected_unique_docs=%s" in call.args[0]
                 and "selected_top_docs=%s" in call.args[0]
+                for call in mock_logger_info.call_args_list
+            )
+        )
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("RAG retrieval:")
+                and "timings_ms(total=%.2f prefilter=%.2f lexical=%.2f vector=%.2f merge=%.2f summary_blocks=%.2f)" in call.args[0]
                 for call in mock_logger_info.call_args_list
             )
         )
@@ -1229,7 +1270,74 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats["documents_total"], 1)
         self.assertEqual(stats["documents_processed"], 1)
         self.assertEqual(stats["chunks_indexed"], 2)
+        self.assertEqual(stats["summaries_indexed"], 0)
         self.assertEqual(stats["errors"], 0)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_summary_vector_enabled", return_value=True)
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    def test_backfill_vector_index_dry_run_target_summaries(
+        self,
+        mock_get_cursor,
+        mock_get_db_connection,
+        mock_summary_enabled,
+    ):
+        """Dry-run backfill в режиме summaries считает summary без индексации чанков."""
+        service = RagKnowledgeService()
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            {
+                "id": 11,
+                "filename": "manual.txt",
+                "source_type": "filesystem",
+                "summary_text": "Краткое summary",
+            }
+        ]
+
+        stats = service.backfill_vector_index(batch_size=10, dry_run=True, target="summaries")
+
+        self.assertEqual(stats["documents_total"], 1)
+        self.assertEqual(stats["documents_processed"], 1)
+        self.assertEqual(stats["chunks_indexed"], 0)
+        self.assertEqual(stats["summaries_indexed"], 1)
+        self.assertEqual(stats["errors"], 0)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_summary_vector_enabled", return_value=True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", True)
+    def test_prefilter_documents_by_summary_uses_collection_scores(self, mock_summary_enabled):
+        """Summary-prefilter использует vector-score из коллекции без fallback на in-memory encode."""
+        service = RagKnowledgeService()
+        with patch("src.common.database.get_db_connection"), patch("src.common.database.get_cursor") as mock_get_cursor:
+            cursor = mock_get_cursor.return_value.__enter__.return_value
+            cursor.fetchall.return_value = [
+                {
+                    "document_id": 1,
+                    "summary_text": "Регламент SLA выезда",
+                    "filename": "sla.txt",
+                }
+            ]
+            with patch.object(
+                service,
+                "_search_summary_vector_scores_from_collection",
+                return_value={1: 0.8},
+            ) as mock_collection_scores, patch.object(
+                service,
+                "_compute_summary_vector_scores",
+                return_value={1: 0.1},
+            ) as mock_fallback_scores:
+                rows, vector_scores, vector_source = service._prefilter_documents_by_summary(
+                    question="Какой SLA",
+                    question_tokens=service._tokenize("Какой SLA"),
+                    limit=2,
+                )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][0], 1)
+        self.assertEqual(vector_scores.get(1), 0.8)
+        self.assertEqual(vector_source, "collection")
+        mock_collection_scores.assert_called_once()
+        mock_fallback_scores.assert_not_called()
 
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.time.sleep")
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.warning")

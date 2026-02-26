@@ -138,6 +138,109 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
             2,
         )
 
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=["soos"])
+    @patch.object(IntentRouter, "_log_to_db")
+    async def test_ticket_soos_uses_original_text_when_ticket_text_missing(
+        self,
+        mock_log,
+        mock_modules,
+        mock_enabled,
+    ):
+        """Для intent=ticket_soos берётся original_text, если parameters.ticket_text пустой."""
+        provider = AsyncMock()
+        provider.classify.return_value = ClassificationResult(
+            intent="ticket_soos",
+            confidence=0.95,
+            parameters={},
+            explain_code="SOOS_TICKET_MULTILINE",
+        )
+
+        router = _make_router(provider=provider)
+        ticket_handler = AsyncMock()
+        ticket_handler.intent_name = "ticket_soos"
+        ticket_handler.module_key = "soos"
+        ticket_handler.execute.return_value = "Тикет получен"
+        router._handlers["ticket_soos"] = ticket_handler
+
+        result, status = await router.route("Текст тикета из чата", user_id=2)
+
+        self.assertEqual(status, "routed")
+        self.assertEqual(result, "Тикет получен")
+        ticket_handler.execute.assert_awaited_once_with(
+            {"ticket_text": "Текст тикета из чата"},
+            2,
+        )
+
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=["soos"])
+    @patch.object(IntentRouter, "_log_to_db")
+    async def test_ticket_soos_overrides_truncated_ticket_text_with_full_original(
+        self,
+        mock_log,
+        mock_modules,
+        mock_enabled,
+    ):
+        """Для intent=ticket_soos в handler всегда передаётся полный original_text."""
+        full_text = "A" * 5500
+        provider = AsyncMock()
+        provider.classify.return_value = ClassificationResult(
+            intent="ticket_soos",
+            confidence=0.95,
+            parameters={"ticket_text": "short truncated"},
+            explain_code="SOOS_TICKET_STRUCTURE",
+        )
+
+        router = _make_router(provider=provider)
+        ticket_handler = AsyncMock()
+        ticket_handler.intent_name = "ticket_soos"
+        ticket_handler.module_key = "soos"
+        ticket_handler.execute.return_value = "Тикет получен"
+        router._handlers["ticket_soos"] = ticket_handler
+
+        result, status = await router.route(full_text, user_id=3)
+
+        self.assertEqual(status, "routed")
+        self.assertEqual(result, "Тикет получен")
+        ticket_handler.execute.assert_awaited_once_with(
+            {"ticket_text": full_text},
+            3,
+        )
+
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=["soos"])
+    @patch.object(IntentRouter, "_log_to_db")
+    async def test_legacy_ticket_validation_intent_normalized_to_ticket_soos(
+        self,
+        mock_log,
+        mock_modules,
+        mock_enabled,
+    ):
+        """Legacy intent=ticket_validation маппится в ticket_soos для обратной совместимости."""
+        provider = AsyncMock()
+        provider.classify.return_value = ClassificationResult(
+            intent="ticket_validation",
+            confidence=0.95,
+            parameters={},
+            explain_code="SOOS_TICKET_MULTILINE",
+        )
+
+        router = _make_router(provider=provider)
+        ticket_handler = AsyncMock()
+        ticket_handler.intent_name = "ticket_soos"
+        ticket_handler.module_key = "soos"
+        ticket_handler.execute.return_value = "Тикет получен"
+        router._handlers["ticket_soos"] = ticket_handler
+
+        result, status = await router.route("Текст тикета", user_id=4)
+
+        self.assertEqual(status, "routed")
+        self.assertEqual(result, "Тикет получен")
+        ticket_handler.execute.assert_awaited_once_with(
+            {"ticket_text": "Текст тикета"},
+            4,
+        )
+
     @patch("src.common.bot_settings.is_module_enabled")
     @patch("src.common.bot_settings.get_enabled_modules", return_value=["upos_errors"])
     @patch.object(IntentRouter, "_log_to_db")

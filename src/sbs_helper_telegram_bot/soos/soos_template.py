@@ -30,6 +30,22 @@ def _truncate(text: str, width: int) -> str:
     return text[: width - 1] + "…"
 
 
+def _truncate_hard(text: str, width: int) -> str:
+    """
+    Жёстко обрезать строку до заданной длины без многоточия.
+
+    Args:
+        text: Исходный текст.
+        width: Максимальная длина.
+
+    Returns:
+        Обрезанная строка без добавления дополнительных символов.
+    """
+    if width <= 0:
+        return ""
+    return text[:width]
+
+
 def _center(text: str, width: int) -> str:
     """
     Выровнять строку по центру.
@@ -93,7 +109,7 @@ def _split_address_to_two_lines(address: str, width: int) -> tuple[str, str]:
 
     first_line = first_line.strip(" ,")
     second_line = second_line.strip(" ,")
-    return _truncate(first_line, width), _truncate(second_line, width)
+    return _truncate_hard(first_line, width), _truncate_hard(second_line, width)
 
 
 def build_soos_receipt_text(fields: dict[str, str | None], now: datetime | None = None) -> str:

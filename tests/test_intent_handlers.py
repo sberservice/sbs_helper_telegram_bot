@@ -2,7 +2,6 @@
 test_intent_handlers.py — тесты для обработчиков намерений AI-маршрутизации.
 """
 import unittest
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, AsyncMock
 
 from src.sbs_helper_telegram_bot.ai_router.intent_handlers import (
@@ -34,8 +33,8 @@ class TestHandlerProperties(unittest.TestCase):
     def test_ticket_handler_properties(self):
         """Свойства TicketValidatorHandler."""
         h = TicketValidatorHandler()
-        self.assertEqual(h.intent_name, "ticket_validation")
-        self.assertEqual(h.module_key, "ticket_validator")
+        self.assertEqual(h.intent_name, "ticket_soos")
+        self.assertEqual(h.module_key, "soos")
 
     def test_ktr_handler_properties(self):
         """Свойства KtrHandler."""
@@ -63,7 +62,7 @@ class TestHandlerProperties(unittest.TestCase):
         self.assertEqual(intent_names, {
             "rag_qa",
             "upos_error_lookup",
-            "ticket_validation",
+            "ticket_soos",
             "ktr_lookup",
             "certification_info",
             "news_search",
@@ -532,88 +531,88 @@ class TestNewsHandler(unittest.IsolatedAsyncioTestCase):
 
 
 class TestTicketValidatorHandler(unittest.IsolatedAsyncioTestCase):
-    """Тесты TicketValidatorHandler."""
+    """Тесты TicketValidatorHandler (маршрутизация в СООС)."""
 
     async def test_empty_ticket_text(self):
         """Пустой текст заявки возвращает предупреждение."""
         h = TicketValidatorHandler()
         result = await h.execute({"ticket_text": ""}, user_id=123)
-        self.assertIn("Не указан текст заявки", result)
+        self.assertIn("Не указан текст тикета", result)
+
+    async def test_active_soos_job_returns_warning(self):
+        """Если есть активная задача СООС, handler возвращает предупреждение."""
+        with patch(
+            "src.sbs_helper_telegram_bot.soos.soos_bot_part.check_if_user_has_unprocessed_job",
+            return_value=True,
+        ):
+            h = TicketValidatorHandler()
+            result = await h.execute({"ticket_text": "Текст заявки"}, user_id=1)
+            self.assertIn("активная задача СООС", result)
+
+    async def test_missing_fields_returns_details(self):
+        """При отсутствии обязательных полей возвращается список недостающих полей."""
+        with patch(
+            "src.sbs_helper_telegram_bot.soos.soos_bot_part.check_if_user_has_unprocessed_job",
+            return_value=False,
+        ), patch(
+            "src.sbs_helper_telegram_bot.soos.soos_parser.extract_ticket_fields",
+            return_value={},
+        ), patch(
+            "src.sbs_helper_telegram_bot.soos.soos_parser.get_missing_required_fields",
+            return_value=["TID", "merchant/MID"],
+        ):
+            h = TicketValidatorHandler()
+            result = await h.execute({"ticket_text": "Текст заявки"}, user_id=1)
+            self.assertIn("Не удалось извлечь обязательные поля", result)
+            self.assertIn("TID", result)
+
+    async def test_success_enqueue_to_soos(self):
+        """Валидный тикет ставится в очередь СООС и возвращает позицию."""
+        with patch(
+            "src.sbs_helper_telegram_bot.soos.soos_bot_part.check_if_user_has_unprocessed_job",
+            return_value=False,
+        ), patch(
+            "src.sbs_helper_telegram_bot.soos.soos_parser.extract_ticket_fields",
+            return_value={"tid": "12345678", "phone": "+79991234567"},
+        ), patch(
+            "src.sbs_helper_telegram_bot.soos.soos_parser.get_missing_required_fields",
+            return_value=[],
+        ), patch(
+            "src.sbs_helper_telegram_bot.soos.soos_bot_part.get_number_of_jobs_in_the_queue",
+            return_value=2,
+        ), patch(
+            "src.sbs_helper_telegram_bot.soos.soos_bot_part.add_to_soos_queue"
+        ) as mock_add, patch(
+            "src.sbs_helper_telegram_bot.ai_router.intent_handlers.time.time",
+            return_value=1700000000,
+        ):
+            h = TicketValidatorHandler()
+            result = await h.execute({"ticket_text": "произвольный текст"}, user_id=1)
+            self.assertIn("Позиция в очереди", result)
+            self.assertIn("3", result)
+            mock_add.assert_called_once_with(1, "произвольный текст", "soos_1_1700000000.png")
 
     async def test_exception_handling(self):
         """Ошибка внутри handler возвращает сообщение об ошибке."""
         with patch(
-            "src.sbs_helper_telegram_bot.ticket_validator.validation_rules.load_all_ticket_types",
+            "src.sbs_helper_telegram_bot.soos.soos_bot_part.check_if_user_has_unprocessed_job",
+            return_value=False,
+        ), patch(
+            "src.sbs_helper_telegram_bot.soos.soos_parser.extract_ticket_fields",
+            return_value={"tid": "123"},
+        ), patch(
+            "src.sbs_helper_telegram_bot.soos.soos_parser.get_missing_required_fields",
+            return_value=[],
+        ), patch(
+            "src.sbs_helper_telegram_bot.soos.soos_bot_part.get_number_of_jobs_in_the_queue",
+            return_value=0,
+        ), patch(
+            "src.sbs_helper_telegram_bot.soos.soos_bot_part.add_to_soos_queue",
             side_effect=Exception("DB error"),
         ):
             h = TicketValidatorHandler()
             result = await h.execute({"ticket_text": "Текст заявки"}, user_id=1)
-            self.assertIn("Ошибка", result)
-
-    async def test_undefined_type_uses_type_name_without_attribute_error(self):
-        """Список типов формируется через type_name без обращения к несуществующему name."""
-        from src.sbs_helper_telegram_bot.ticket_validator.validators import TicketType
-
-        ticket_types = [
-            TicketType(
-                id=1,
-                type_name="Установка",
-                description="",
-                detection_keywords=["установка"],
-                active=True,
-            ),
-            TicketType(
-                id=2,
-                type_name="Ремонт",
-                description="",
-                detection_keywords=["ремонт"],
-                active=True,
-            ),
-        ]
-
-        with patch(
-            "src.sbs_helper_telegram_bot.ticket_validator.validation_rules.load_all_ticket_types",
-            return_value=ticket_types,
-        ), patch(
-            "src.sbs_helper_telegram_bot.ticket_validator.validators.detect_ticket_type",
-            return_value=(None, None),
-        ):
-            h = TicketValidatorHandler()
-            result = await h.execute({"ticket_text": "произвольный текст"}, user_id=1)
-            self.assertIn("Тип заявки не определён", result)
-            self.assertIn("Установка", result)
-            self.assertIn("Ремонт", result)
-
-    async def test_format_result_uses_type_name(self):
-        """Результат валидации отображает type_name у найденного типа заявки."""
-        from src.sbs_helper_telegram_bot.ticket_validator.validators import TicketType
-
-        detected_type = TicketType(
-            id=3,
-            type_name="Техническое обслуживание",
-            description="",
-            detection_keywords=["обслуживание"],
-            active=True,
-        )
-        validation_result = SimpleNamespace(is_valid=True, error_messages=[])
-
-        with patch(
-            "src.sbs_helper_telegram_bot.ticket_validator.validation_rules.load_all_ticket_types",
-            return_value=[detected_type],
-        ), patch(
-            "src.sbs_helper_telegram_bot.ticket_validator.validators.detect_ticket_type",
-            return_value=(detected_type, None),
-        ), patch(
-            "src.sbs_helper_telegram_bot.ticket_validator.validation_rules.load_rules_from_db",
-            return_value=[],
-        ), patch(
-            "src.sbs_helper_telegram_bot.ticket_validator.validators.validate_ticket",
-            return_value=validation_result,
-        ):
-            h = TicketValidatorHandler()
-            result = await h.execute({"ticket_text": "текст заявки"}, user_id=1)
-            self.assertIn("Тип заявки", result)
-            self.assertIn("Техническое обслуживание", result)
+            self.assertIn("Ошибка при постановке тикета в СООС", result)
 
 
 if __name__ == "__main__":

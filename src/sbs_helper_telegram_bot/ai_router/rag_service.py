@@ -77,6 +77,8 @@ class RagKnowledgeService:
         self._vector_index: Optional[LocalVectorIndex] = None
         self._summary_embedding_cache: Dict[int, List[float]] = {}
         self._summary_embedding_corpus_version: int = -1
+        self._summary_vector_prefilter_source: str = "disabled"
+        self._summary_vector_prefilter_hits: int = 0
         self._ru_morph_analyzer: Optional[object] = None
         self._ru_stemmer: Optional[object] = None
         self._normalized_token_cache: Dict[str, str] = {}
@@ -479,8 +481,7 @@ class RagKnowledgeService:
         max_chars = max(200, int(ai_settings.AI_RAG_SUMMARY_MAX_CHARS))
         return normalized[:max_chars].strip()
 
-    @staticmethod
-    def _upsert_document_summary(cursor, document_id: int, summary_text: str, model_name: Optional[str]) -> None:
+    def _upsert_document_summary(self, cursor, document_id: int, summary_text: str, model_name: Optional[str]) -> None:
         """Создать или обновить summary документа в rag_document_summaries."""
         safe_summary = (summary_text or "").strip()
         if not safe_summary:
@@ -497,6 +498,24 @@ class RagKnowledgeService:
             """,
             (document_id, safe_summary, model_name),
         )
+        self._mark_summary_embedding_stale(cursor=cursor, document_id=document_id)
+
+    @staticmethod
+    def _mark_summary_embedding_stale(cursor, document_id: int) -> None:
+        """Пометить summary-эмбеддинг документа как устаревший после обновления summary."""
+        if document_id <= 0:
+            return
+        try:
+            cursor.execute(
+                """
+                UPDATE rag_summary_embeddings
+                SET embedding_status = 'stale', updated_at = NOW()
+                WHERE document_id = %s
+                """,
+                (document_id,),
+            )
+        except Exception as exc:
+            logger.warning("Не удалось пометить stale rag_summary_embeddings для document_id=%s: %s", document_id, exc)
 
     def list_documents(self, status: Optional[str] = None, limit: int = 20) -> List[Dict[str, object]]:
         """
@@ -843,15 +862,19 @@ class RagKnowledgeService:
 
     def _retrieve_context_for_question(self, question: str, limit: int) -> Tuple[List[Tuple[float, str, str, int]], List[str]]:
         """Собрать релевантные чанки и summary-блоки для RAG-ответа."""
+        retrieval_started_at = time.perf_counter()
         tokens = self._tokenize(question)
         if not tokens:
             return [], []
 
-        prefilter_docs, summary_vector_scores = self._prefilter_documents_by_summary(
+        prefilter_started_at = time.perf_counter()
+        prefilter_docs, summary_vector_scores, summary_vector_source = self._prefilter_documents_by_summary(
             question=question,
             question_tokens=tokens,
             limit=ai_settings.AI_RAG_PREFILTER_TOP_DOCS,
         )
+        summary_vector_hits = int(self._summary_vector_prefilter_hits)
+        prefilter_ms = (time.perf_counter() - prefilter_started_at) * 1000
         prefilter_doc_ids = [doc_id for doc_id, _, _, _ in prefilter_docs]
         base_prefilter_doc_ids = list(prefilter_doc_ids)
         summary_scores = {doc_id: score for doc_id, _, _, score in prefilter_docs}
@@ -868,6 +891,7 @@ class RagKnowledgeService:
 
         prefilter_scope_doc_ids = list(dict.fromkeys(prefilter_doc_ids))
 
+        lexical_started_at = time.perf_counter()
         lexical_chunks = self._search_relevant_chunks(
             question,
             limit=limit,
@@ -875,12 +899,16 @@ class RagKnowledgeService:
             summary_scores=summary_scores,
             normalized_summary_scores=normalized_summary_scores,
         )
+        lexical_ms = (time.perf_counter() - lexical_started_at) * 1000
 
+        vector_started_at = time.perf_counter()
         vector_chunks = self._search_relevant_chunks_vector(
             question=question,
             prefiltered_doc_ids=prefilter_scope_doc_ids or None,
         )
+        vector_ms = (time.perf_counter() - vector_started_at) * 1000
 
+        merge_started_at = time.perf_counter()
         chunks = self._merge_retrieval_candidates(
             lexical_chunks=lexical_chunks,
             vector_chunks=vector_chunks,
@@ -888,6 +916,7 @@ class RagKnowledgeService:
             summary_scores=summary_scores,
             normalized_summary_scores=normalized_summary_scores,
         )
+        merge_ms = (time.perf_counter() - merge_started_at) * 1000
         mode = self._determine_retrieval_mode(
             lexical_chunks=lexical_chunks,
             vector_chunks=vector_chunks,
@@ -903,8 +932,12 @@ class RagKnowledgeService:
         selected_unique_docs = len({int(self._unpack_chunk_row(chunk)[3]) for chunk in chunks})
         selected_top_docs = self._build_selected_top_docs_snapshot(chunks)
         top_source = self._format_log_source(str(self._unpack_chunk_row(chunks[0])[1]) if chunks else "none")
+        summary_blocks_started_at = time.perf_counter()
+        summary_blocks = self._build_summary_blocks(prefilter_docs)
+        summary_blocks_ms = (time.perf_counter() - summary_blocks_started_at) * 1000
+        retrieval_total_ms = (time.perf_counter() - retrieval_started_at) * 1000
         logger.info(
-            "RAG retrieval: mode=%s lexical_scorer=%s tokens=%s prefilter_docs=%s prefilter_scope_docs=%s fallback_docs=%s lexical_hits=%s vector_hits=%s selected=%s selected_unique_docs=%s selected_top_docs=%s top_source=%s",
+            "RAG retrieval: mode=%s lexical_scorer=%s tokens=%s prefilter_docs=%s prefilter_scope_docs=%s fallback_docs=%s lexical_hits=%s vector_hits=%s summary_vector_hits=%s summary_vector_source=%s selected=%s selected_unique_docs=%s selected_top_docs=%s top_source=%s timings_ms(total=%.2f prefilter=%.2f lexical=%.2f vector=%.2f merge=%.2f summary_blocks=%.2f)",
             mode,
             lexical_scorer,
             len(tokens),
@@ -913,10 +946,18 @@ class RagKnowledgeService:
             len(fallback_doc_ids),
             len(lexical_chunks),
             len(vector_chunks),
+            summary_vector_hits,
+            summary_vector_source,
             len(chunks),
             selected_unique_docs,
             selected_top_docs,
             top_source,
+            retrieval_total_ms,
+            prefilter_ms,
+            lexical_ms,
+            vector_ms,
+            merge_ms,
+            summary_blocks_ms,
         )
         logger.info(
             "RAG priority evidence:\n  prefilter_top:\n%s\n  selected_top:\n%s",
@@ -932,7 +973,6 @@ class RagKnowledgeService:
                 normalized_summary_scores=normalized_summary_scores,
             ),
         )
-        summary_blocks = self._build_summary_blocks(prefilter_docs)
         return chunks, summary_blocks
 
     @staticmethod
@@ -1577,14 +1617,16 @@ class RagKnowledgeService:
         question: str,
         question_tokens: List[str],
         limit: int,
-    ) -> Tuple[List[Tuple[int, str, str, float]], Dict[int, float]]:
+    ) -> Tuple[List[Tuple[int, str, str, float]], Dict[int, float], str]:
         """Отобрать релевантные документы по таблице summary перед поиском чанков.
 
         Returns:
-            (список ранжированных документов, словарь vector-similarity по document_id)
+            (список ранжированных документов, словарь vector-similarity по document_id, источник vector-score)
         """
         if not question_tokens:
-            return [], {}
+            self._summary_vector_prefilter_source = "disabled"
+            self._summary_vector_prefilter_hits = 0
+            return [], {}, self._summary_vector_prefilter_source
 
         safe_limit = max(1, min(limit, 100))
         with database.get_db_connection() as conn:
@@ -1613,10 +1655,21 @@ class RagKnowledgeService:
             valid_rows.append((document_id, filename, summary_text))
             summaries_for_vector.append((document_id, summary_text))
 
-        vector_scores = self._compute_summary_vector_scores(
+        vector_scores = self._search_summary_vector_scores_from_collection(
             question=question,
-            summaries=summaries_for_vector,
+            document_ids=[doc_id for doc_id, _, _ in valid_rows],
+            limit=max(safe_limit, len(valid_rows)),
         )
+        vector_source = "collection"
+        if not vector_scores:
+            vector_scores = self._compute_summary_vector_scores(
+                question=question,
+                summaries=summaries_for_vector,
+            )
+            vector_source = "fallback"
+        self._summary_vector_prefilter_source = vector_source
+        self._summary_vector_prefilter_hits = len(vector_scores)
+
         vector_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_VECTOR_WEIGHT))
         lexical_scorer = ai_settings.get_rag_lexical_scorer()
         summary_bm25_scores: Dict[int, float] = {}
@@ -1650,7 +1703,44 @@ class RagKnowledgeService:
             scored_docs.append((document_id, filename, summary_text, score))
 
         scored_docs.sort(key=lambda item: item[3], reverse=True)
-        return scored_docs[:safe_limit], vector_scores
+        return scored_docs[:safe_limit], vector_scores, vector_source
+
+    def _search_summary_vector_scores_from_collection(
+        self,
+        question: str,
+        document_ids: List[int],
+        limit: int,
+    ) -> Dict[int, float]:
+        """Получить summary vector-score из отдельной Qdrant-коллекции по списку document_id."""
+        if not ai_settings.is_rag_summary_vector_enabled() or not self._is_vector_search_enabled():
+            return {}
+
+        embedding_provider = self._get_embedding_provider()
+        vector_index = self._get_vector_index()
+        if embedding_provider is None or vector_index is None:
+            return {}
+
+        query_vectors = embedding_provider.encode_texts([question])
+        if not query_vectors:
+            return {}
+
+        candidates = vector_index.search_summaries(
+            query_vector=query_vectors[0],
+            limit=max(1, int(limit), int(ai_settings.get_rag_summary_vector_top_k())),
+            allowed_document_ids=document_ids,
+        )
+        if not candidates:
+            return {}
+
+        scores: Dict[int, float] = {}
+        for candidate in candidates:
+            safe_doc_id = int(candidate.document_id or 0)
+            if safe_doc_id <= 0:
+                continue
+            safe_score = max(0.0, float(candidate.score or 0.0))
+            scores[safe_doc_id] = max(safe_score, scores.get(safe_doc_id, 0.0))
+
+        return scores
 
     @staticmethod
     def _build_summary_blocks(prefilter_docs: List[Tuple[int, str, str, float]]) -> List[str]:
@@ -1995,6 +2085,50 @@ class RagKnowledgeService:
             logger.info("RAG vector upsert: chunks=%s duration_ms=%.2f", upserted, upsert_duration_ms)
         return upserted
 
+    def _upsert_vectors_for_summaries(self, summaries: List[Dict[str, object]]) -> int:
+        """Записать эмбеддинги summary-документов в отдельную vector-коллекцию."""
+        if not summaries or not self._is_vector_search_enabled() or not ai_settings.is_rag_summary_vector_enabled():
+            return 0
+
+        embedding_provider = self._get_embedding_provider()
+        vector_index = self._get_vector_index()
+        if embedding_provider is None or vector_index is None:
+            return 0
+
+        texts = [str(summary.get("summary_text") or "") for summary in summaries]
+        embeddings = embedding_provider.encode_texts(texts)
+        if not embeddings:
+            self._record_summary_embedding_metadata(
+                summaries=summaries,
+                embeddings=[],
+                status="failed",
+                error_message="embedding_unavailable",
+            )
+            return 0
+
+        upsert_started_at = time.perf_counter()
+        upserted = vector_index.upsert_summaries(summaries=summaries, embeddings=embeddings)
+        upsert_duration_ms = (time.perf_counter() - upsert_started_at) * 1000
+
+        if upserted > 0:
+            self._record_summary_embedding_metadata(
+                summaries=summaries,
+                embeddings=embeddings,
+                status="ready",
+                error_message=None,
+            )
+        else:
+            self._record_summary_embedding_metadata(
+                summaries=summaries,
+                embeddings=[],
+                status="failed",
+                error_message="vector_upsert_failed",
+            )
+
+        if upserted > 0:
+            logger.info("RAG summary vector upsert: documents=%s duration_ms=%.2f", upserted, upsert_duration_ms)
+        return upserted
+
     def _record_chunk_embedding_metadata(
         self,
         chunks: List[Dict[str, object]],
@@ -2084,6 +2218,93 @@ class RagKnowledgeService:
         except Exception as exc:
             logger.warning("Не удалось сохранить rag_chunk_embeddings: %s", exc)
 
+    def _record_summary_embedding_metadata(
+        self,
+        summaries: List[Dict[str, object]],
+        embeddings: List[List[float]],
+        status: str,
+        error_message: Optional[str],
+    ) -> None:
+        """Сохранить технические метаданные векторной индексации summary документов в БД."""
+        if not summaries:
+            return
+
+        safe_status = status if status in {"ready", "failed", "stale"} else "failed"
+        model_name = str(ai_settings.AI_RAG_VECTOR_EMBEDDING_MODEL or "unknown")[:128]
+        vector_dim = len(embeddings[0]) if embeddings else 0
+        safe_error = (error_message or "")[:255] or None
+
+        query = """
+            INSERT INTO rag_summary_embeddings
+                (document_id, embedding_model, embedding_dim, embedding_hash, embedding_status, error_message, embedded_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON DUPLICATE KEY UPDATE
+                embedding_dim = VALUES(embedding_dim),
+                embedding_hash = VALUES(embedding_hash),
+                embedding_status = VALUES(embedding_status),
+                error_message = VALUES(error_message),
+                embedded_at = NOW(),
+                updated_at = NOW()
+        """
+
+        params: List[Tuple[int, str, int, str, str, Optional[str]]] = []
+        for index, summary in enumerate(summaries):
+            document_id = int(summary.get("document_id") or 0)
+            if document_id <= 0:
+                continue
+
+            if embeddings and index < len(embeddings):
+                vector = embeddings[index]
+                vector_hash = hashlib.sha256(
+                    ",".join(f"{float(value):.6f}" for value in vector).encode("utf-8")
+                ).hexdigest()
+            else:
+                vector_hash = hashlib.sha256(
+                    str(summary.get("summary_text") or "").encode("utf-8")
+                ).hexdigest()
+
+            params.append(
+                (
+                    document_id,
+                    model_name,
+                    vector_dim,
+                    vector_hash,
+                    safe_status,
+                    safe_error,
+                )
+            )
+
+        if not params:
+            return
+
+        try:
+            for batch_start in range(0, len(params), _RAG_EMBEDDING_UPSERT_BATCH_SIZE):
+                batch = params[batch_start : batch_start + _RAG_EMBEDDING_UPSERT_BATCH_SIZE]
+                for attempt in range(1, _RAG_EMBEDDING_UPSERT_MAX_RETRIES + 1):
+                    try:
+                        with database.get_db_connection() as conn:
+                            with database.get_cursor(conn) as cursor:
+                                cursor.executemany(query, batch)
+                        break
+                    except Exception as exc:
+                        mysql_errno = getattr(exc, "errno", None)
+                        is_retryable = mysql_errno in _MYSQL_RETRYABLE_ERRNOS
+                        if not is_retryable or attempt >= _RAG_EMBEDDING_UPSERT_MAX_RETRIES:
+                            raise
+
+                        delay = _RAG_EMBEDDING_RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+                        logger.warning(
+                            "Повтор сохранения rag_summary_embeddings после временной ошибки БД: errno=%s attempt=%s/%s batch_size=%s sleep=%.2fs",
+                            mysql_errno,
+                            attempt,
+                            _RAG_EMBEDDING_UPSERT_MAX_RETRIES,
+                            len(batch),
+                            delay,
+                        )
+                        time.sleep(delay)
+        except Exception as exc:
+            logger.warning("Не удалось сохранить rag_summary_embeddings: %s", exc)
+
     def _set_vector_document_status(self, document_id: int, status: str) -> int:
         """Синхронизировать статус документа в векторном индексе."""
         if not self._is_vector_search_enabled():
@@ -2092,7 +2313,10 @@ class RagKnowledgeService:
         vector_index = self._get_vector_index()
         if vector_index is None:
             return 0
-        return vector_index.mark_document_status(document_id=document_id, status=status)
+        chunks_status_result = vector_index.mark_document_status(document_id=document_id, status=status)
+        if ai_settings.is_rag_summary_vector_enabled():
+            vector_index.mark_summary_status(document_id=document_id, status=status)
+        return chunks_status_result
 
     def _delete_vector_document(self, document_id: int) -> int:
         """Удалить векторные точки документа при hard-delete."""
@@ -2102,7 +2326,10 @@ class RagKnowledgeService:
         vector_index = self._get_vector_index()
         if vector_index is None:
             return 0
-        return vector_index.delete_document_points(document_id=document_id)
+        deleted = vector_index.delete_document_points(document_id=document_id)
+        if ai_settings.is_rag_summary_vector_enabled():
+            vector_index.delete_summary_points(document_id=document_id)
+        return deleted
 
     def backfill_vector_index(
         self,
@@ -2110,19 +2337,67 @@ class RagKnowledgeService:
         source_type: Optional[str] = None,
         dry_run: bool = False,
         max_documents: Optional[int] = None,
+        target: str = "both",
     ) -> Dict[str, int]:
-        """Выполнить пакетное заполнение локального векторного индекса по активным документам."""
+        """Выполнить пакетное заполнение векторных индексов (chunks/summaries/both)."""
         stats = {
             "documents_total": 0,
             "documents_processed": 0,
             "chunks_indexed": 0,
+            "summaries_indexed": 0,
             "errors": 0,
         }
         if not self._is_vector_search_enabled():
             return stats
 
         safe_batch_size = max(1, int(batch_size))
+        normalized_target = str(target or "both").strip().lower()
+        if normalized_target not in {"chunks", "summaries", "both"}:
+            raise ValueError("Некорректный target для backfill: ожидается chunks|summaries|both")
 
+        include_chunks = normalized_target in {"chunks", "both"}
+        include_summaries = normalized_target in {"summaries", "both"}
+        if include_summaries and not ai_settings.is_rag_summary_vector_enabled():
+            include_summaries = False
+
+        grouped_chunks = self._load_backfill_chunks(source_type=source_type) if include_chunks else {}
+        grouped_summaries = self._load_backfill_summaries(source_type=source_type) if include_summaries else {}
+
+        document_ids = sorted(set(grouped_chunks.keys()) | set(grouped_summaries.keys()))
+        if max_documents is not None and int(max_documents) > 0:
+            document_ids = document_ids[: int(max_documents)]
+
+        stats["documents_total"] = len(document_ids)
+
+        for document_id in document_ids:
+            chunks = grouped_chunks.get(document_id, [])
+            summary_rows = grouped_summaries.get(document_id, [])
+            if not chunks and not summary_rows:
+                continue
+
+            try:
+                if dry_run:
+                    stats["chunks_indexed"] += len(chunks)
+                    stats["summaries_indexed"] += len(summary_rows)
+                else:
+                    if include_chunks and chunks:
+                        for start in range(0, len(chunks), safe_batch_size):
+                            batch = chunks[start : start + safe_batch_size]
+                            stats["chunks_indexed"] += self._upsert_vectors_for_chunks(batch)
+                    if include_summaries and summary_rows:
+                        for start in range(0, len(summary_rows), safe_batch_size):
+                            batch = summary_rows[start : start + safe_batch_size]
+                            stats["summaries_indexed"] += self._upsert_vectors_for_summaries(batch)
+                stats["documents_processed"] += 1
+            except Exception as exc:
+                stats["errors"] += 1
+                logger.warning("Ошибка backfill vector index для document_id=%s: %s", document_id, exc)
+
+        return stats
+
+    @staticmethod
+    def _load_backfill_chunks(source_type: Optional[str]) -> Dict[int, List[Dict[str, object]]]:
+        """Загрузить активные чанки документов для chunk backfill."""
         query = """
             SELECT d.id, d.filename, d.source_type, c.chunk_index, c.chunk_text
             FROM rag_documents d
@@ -2154,31 +2429,45 @@ class RagKnowledgeService:
                     "status": "active",
                 }
             )
+        return grouped
 
-        document_ids = sorted(grouped.keys())
-        if max_documents is not None and int(max_documents) > 0:
-            document_ids = document_ids[: int(max_documents)]
+    @staticmethod
+    def _load_backfill_summaries(source_type: Optional[str]) -> Dict[int, List[Dict[str, object]]]:
+        """Загрузить активные summary документов для summary backfill."""
+        query = """
+            SELECT d.id, d.filename, d.source_type, s.summary_text
+            FROM rag_documents d
+            JOIN rag_document_summaries s ON s.document_id = d.id
+            WHERE d.status = 'active'
+        """
+        params: List[object] = []
+        if source_type:
+            query += " AND d.source_type = %s"
+            params.append(source_type)
+        query += " ORDER BY d.id ASC"
 
-        stats["documents_total"] = len(document_ids)
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(query, tuple(params))
+                rows = cursor.fetchall() or []
 
-        for document_id in document_ids:
-            chunks = grouped.get(document_id, [])
-            if not chunks:
+        grouped: Dict[int, List[Dict[str, object]]] = {}
+        for row in rows:
+            document_id = int(row.get("id") or 0)
+            summary_text = str(row.get("summary_text") or "").strip()
+            if document_id <= 0 or not summary_text:
                 continue
 
-            try:
-                if dry_run:
-                    stats["chunks_indexed"] += len(chunks)
-                else:
-                    for start in range(0, len(chunks), safe_batch_size):
-                        batch = chunks[start : start + safe_batch_size]
-                        stats["chunks_indexed"] += self._upsert_vectors_for_chunks(batch)
-                stats["documents_processed"] += 1
-            except Exception as exc:
-                stats["errors"] += 1
-                logger.warning("Ошибка backfill vector index для document_id=%s: %s", document_id, exc)
+            grouped.setdefault(document_id, []).append(
+                {
+                    "document_id": document_id,
+                    "filename": str(row.get("filename") or "document"),
+                    "summary_text": summary_text,
+                    "status": "active",
+                }
+            )
 
-        return stats
+        return grouped
 
     def _tokenize(self, text: str) -> List[str]:
         """Токенизировать текст для lexical retrieval c опциональной нормализацией RU."""
@@ -2399,6 +2688,57 @@ def get_rag_service() -> RagKnowledgeService:
     if _rag_service_instance is None:
         _rag_service_instance = RagKnowledgeService()
     return _rag_service_instance
+
+
+def preload_rag_runtime_dependencies() -> Dict[str, bool]:
+    """Прогреть lazy-зависимости RAG на старте процесса бота."""
+    started_at = time.perf_counter()
+    logger.info("RAG preload: start")
+
+    preload_result: Dict[str, bool] = {
+        "vector_provider_ready": False,
+        "vector_index_ready": False,
+        "ru_morph_ready": False,
+        "ru_stemmer_ready": False,
+    }
+
+    vector_enabled = False
+    ru_normalization_enabled = bool(ai_settings.is_rag_ru_normalization_enabled())
+    ru_normalization_mode = ai_settings.get_rag_ru_normalization_mode()
+    status = "ok"
+
+    try:
+        rag_service = get_rag_service()
+
+        vector_enabled = bool(rag_service._is_vector_search_enabled())
+        if vector_enabled:
+            preload_result["vector_provider_ready"] = rag_service._get_embedding_provider() is not None
+            preload_result["vector_index_ready"] = rag_service._get_vector_index() is not None
+
+        if ru_normalization_enabled and ru_normalization_mode in {"lemma_then_stem", "lemma_only"}:
+            preload_result["ru_morph_ready"] = rag_service._get_ru_morph_analyzer() is not None
+
+        if ru_normalization_enabled and ru_normalization_mode in {"lemma_then_stem", "stem_only"}:
+            preload_result["ru_stemmer_ready"] = rag_service._get_ru_stemmer() is not None
+    except Exception:
+        status = "failed"
+        logger.exception("RAG preload: failed")
+    finally:
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.info(
+            "RAG preload: done status=%s duration_ms=%s vector_enabled=%s vector_provider_ready=%s vector_index_ready=%s ru_normalization_enabled=%s ru_normalization_mode=%s ru_morph_ready=%s ru_stemmer_ready=%s",
+            status,
+            duration_ms,
+            vector_enabled,
+            preload_result["vector_provider_ready"],
+            preload_result["vector_index_ready"],
+            ru_normalization_enabled,
+            ru_normalization_mode,
+            preload_result["ru_morph_ready"],
+            preload_result["ru_stemmer_ready"],
+        )
+
+    return preload_result
 
 
 def reset_rag_service() -> None:

@@ -26,6 +26,7 @@ RAG-поток позволяет:
 - TTL-кэш ответов RAG в памяти процесса.
 - Summary-aware retrieval: prefilter документов по `rag_document_summaries` с гибридным scoring (`BM25/legacy lexical + word-boundary phrase match + semantic vector similarity`), controlled fallback документов для recall, hybrid rerank чанков с учётом релевантности summary и prompt enrichment top-summary блоками.
 - Опциональный векторный retrieval с режимом remote-first (Qdrant server) и автоматическим local fallback (Qdrant local mode + локальная embedding-модель) с hybrid-слиянием lexical/vector кандидатов.
+- Для summary-prefilter добавлена отдельная векторная коллекция документов (`AI_RAG_SUMMARY_VECTOR_COLLECTION`) с fallback на in-memory summary embedding scoring, если коллекция недоступна или пуста.
 - UX-статус для RAG: после классификации запроса как `rag_qa` бот меняет плейсхолдер с «Обрабатываю ваш запрос» на «Ожидаю ответа ИИ» до получения финального ответа.
 - Форматирование ответа `rag_qa` для Telegram MarkdownV2: сохраняются списки, `inline code`, жирный текст (`**...**` → Telegram-совместимый `*...*`), неподдерживаемая markdown-разметка экранируется.
 - Длинные RAG-ответы автоматически делятся на несколько сообщений, чтобы не упираться в лимит длины Telegram-сообщения.
@@ -61,7 +62,19 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --daemon --inte
 Backfill локального векторного индекса по уже загруженным чанкам:
 
 ```bash
-python scripts/rag_vector_backfill.py --batch-size 100
+python scripts/rag_vector_backfill.py --target chunks --batch-size 100
+```
+
+Backfill summary-векторов документов (отдельная коллекция):
+
+```bash
+python scripts/rag_vector_backfill.py --target summaries --batch-size 100
+```
+
+Backfill обоих индексов за один проход:
+
+```bash
+python scripts/rag_vector_backfill.py --target both --batch-size 100
 ```
 
 Best-effort синхронизация Qdrant remote→local (по умолчанию коллекция берётся из `AI_RAG_VECTOR_SYNC_COLLECTION`):
@@ -197,12 +210,13 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 	- модель генерации ответа (`model` в `AI chat request`, если сработал chat/fallback).
 - Это упрощает диагностику маршрутизации и проверку активной модели после переключения в админ-панели.
 - Ошибки в `ai_router` и RAG-обработчике логируются с traceback и явным типом исключения (`error_type`/`error_repr`), поэтому даже при пустом тексте исключения причина не теряется.
-- Для каждого retrieval-цикла RAG пишется диагностическая строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `prefilter_scope_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `selected_unique_docs`, `selected_top_docs`, `top_source`; длинные `source` автоматически сокращаются для читаемости.
+- Для каждого retrieval-цикла RAG пишется диагностическая строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `prefilter_scope_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `selected_unique_docs`, `selected_top_docs`, `top_source`, а также `timings_ms(total/prefilter/lexical/vector/merge/summary_blocks)`; длинные `source` автоматически сокращаются для читаемости.
 - `prefilter_docs` отражает только top-N документов этапа summary-prefilter, а `prefilter_scope_docs` — фактический размер области поиска после добавления fallback-документов.
 - `selected` отражает число выбранных чанков, `selected_unique_docs` — число уникальных документов среди этих чанков, `selected_top_docs` — top уникальных `document_id` по порядку ранжирования.
 - Для каждого retrieval-цикла RAG пишется строка `RAG priority evidence:` в многострочном ранжированном формате (`prefilter_top` и `selected_top`, до top-5), где для `prefilter_top` видны `summary`, `lexical`, `vec`, `vec_w` (взвешенный вклад `vec * AI_RAG_SUMMARY_VECTOR_WEIGHT`) и `source`, а для `selected_top` — `doc`, `chunk`, `fused`, `summary`, `origin` (`prefilter`/`fallback`/`global`), разложение lexical-компоненты (`lex_raw`, `lex_bonus`, `lex_total`), формула `hybrid=(lex_total*lexical_weight)+(vector_score*vector_weight)`, `summary_bonus` и `source`; `lex_bonus`/`summary_bonus` считаются из нормализованного summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле.
 - Для каждого ingest документа пишется диагностическая строка `RAG chunking strategy:` с полями `file`, `format`, `strategy`, `slicer`, `chunk_size`, `chunk_overlap`, `chunks`, `html_splitter_enabled`, `langchain_splitter_supported`.
 - При успешном vector upsert пишется строка `RAG vector upsert:` с полями `chunks` и `duration_ms`, где `duration_ms` — длительность операции upsert в миллисекундах.
+- На старте бота выполняется прогрев lazy-зависимостей RAG; процесс логируется строками `RAG preload: start` и `RAG preload: done ...` (со статусом и `duration_ms`).
 - Для remote Qdrant пишутся логи состояния backend: `Состояние remote Qdrant: UP|DOWN|COOLDOWN|DISABLED`, что упрощает диагностику доступности удалённого индекса и момента failover на local.
 - Для технической записи `rag_chunk_embeddings` при временных DB-блокировках пишется предупреждение о retry c `errno`, номером попытки и размером батча.
 - Если `deepseek-reasoner` вернул пустой `content` для chat/RAG-ответа, провайдер автоматически делает один повтор на `deepseek-chat` и пишет предупреждение в лог (это снижает риск «немого» ответа пользователю).
@@ -250,9 +264,11 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS`
 - `AI_RAG_VECTOR_DB_PATH`
 - `AI_RAG_VECTOR_COLLECTION`
+- `AI_RAG_SUMMARY_VECTOR_COLLECTION`
 - `AI_RAG_VECTOR_SYNC_COLLECTION`
 - `AI_RAG_VECTOR_DISTANCE`
 - `AI_RAG_VECTOR_TOP_K`
+- `AI_RAG_SUMMARY_VECTOR_TOP_K`
 - `AI_RAG_VECTOR_PREFETCH_K`
 - `AI_RAG_VECTOR_EMBEDDING_MODEL`
 - `AI_RAG_VECTOR_DEVICE`
@@ -325,6 +341,7 @@ Runtime-ключ в `bot_settings`:
 mysql -u root -p sprint_db < sql/ai_rag_setup.sql
 mysql -u root -p sprint_db < sql/ai_rag_document_summaries_setup.sql
 mysql -u root -p sprint_db < sql/ai_rag_vector_setup.sql
+mysql -u root -p sprint_db < sql/ai_rag_summary_vector_setup.sql
 # Для существующих БД без FULLTEXT-индекса summary_text:
 mysql -u root -p sprint_db < sql/rag_document_summaries_fulltext_index.sql
 ```

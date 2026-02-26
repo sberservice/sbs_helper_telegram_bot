@@ -17,7 +17,7 @@ AI-маршрутизатор — сердце бота. Каждое текст
 | Intent | Модуль | Описание |
 |--------|--------|----------|
 | `upos_error_lookup` | 🔢 UPOS Ошибки | Поиск кода ошибки |
-| `ticket_validation` | ✅ Валидация заявок | Проверка текста заявки |
+| `ticket_soos` | 🧾 СООС | Постановка тикета в очередь генерации изображений СООС (всегда с полным исходным текстом сообщения) |
 | `ktr_lookup` | ⏱️ КТР | Поиск кода трудозатрат |
 | `certification_info` | 📝 Аттестация | Сводка, статистика, категории |
 | `news_search` | 📰 Новости | Поиск и отображение новостей |
@@ -234,13 +234,14 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 - Результаты классификации → `ai_router_log` (intent, confidence, explain_code, response_time_ms)
 - Профилирование маршрутизации: `classify_ms`, `db_log_ms`, `dispatch_ms`, `context_update_ms`
 - RAG-запросы → `rag_query_log`
-- Диагностика retrieval-канала RAG: строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `prefilter_scope_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `selected_unique_docs`, `selected_top_docs`, `top_source`; длинные `source` автоматически сокращаются
+- Диагностика retrieval-канала RAG: строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `prefilter_scope_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `selected_unique_docs`, `selected_top_docs`, `top_source`, `timings_ms(total/prefilter/lexical/vector/merge/summary_blocks)`; длинные `source` автоматически сокращаются
 - `prefilter_docs` показывает только top-N summary-prefilter, а `prefilter_scope_docs` — итоговый размер области поиска после добавления fallback-документов
 - `selected` показывает число финальных чанков, `selected_unique_docs` — число уникальных документов среди них, `selected_top_docs` — top уникальных `document_id` по порядку ранжирования
 - Состояние удалённого векторного backend логируется отдельными переходами: `Состояние remote Qdrant: UP|DOWN|COOLDOWN|DISABLED`
 - Доказательство summary-приоритизации: строка `RAG priority evidence:` в многострочном ранжированном формате с блоками `prefilter_top` и `selected_top` (до top-5; для `selected_top` добавлены `doc`, `chunk`, `origin`, разложение lexical-компоненты `lex_raw/lex_bonus/lex_total`, формула `hybrid=(lex_total*lexical_weight)+(vector_score*vector_weight)` и `summary_bonus`; `lex_bonus`/`summary_bonus` считаются по нормализованному summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле)
 - Диагностика chunking при ingest: строка `RAG chunking strategy:` с полями `file`, `format`, `strategy`, `slicer`, `chunk_size`, `chunk_overlap`, `chunks`, `html_splitter_enabled`, `langchain_splitter_supported`
 - Успешная векторная индексация чанков: строка `RAG vector upsert:` с полями `chunks` и `duration_ms` (время upsert в миллисекундах)
+- На старте процесса бота выполняется preload RAG-зависимостей; процесс отражается логами `RAG preload: start` и `RAG preload: done ...` (со статусом и длительностью)
 - Полный `prompt/response` всех LLM-вызовов (classification/chat/fallback_chat/rag_answer/rag_summary) → `ai_model_io_log`
 - Для `deepseek-reasoner` добавлен runtime-fallback: при пустом `content` для chat/RAG выполняется один автоповтор на `deepseek-chat` с предупреждением в логах
 - Перед записью в `ai_model_io_log` чувствительные данные маскируются (`email`, `телефон`, `ИНН`, `СНИЛС`)
@@ -295,15 +296,15 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `AI_RAG_SUMMARY_ENABLED` | `1` | Включить AI/fallback summary |
 | `AI_RAG_SUMMARY_INPUT_MAX_CHARS` | `12000` | Макс. объём входа для summary |
 | `AI_RAG_SUMMARY_MAX_CHARS` | `1200` | Макс. длина summary |
-| `AI_RAG_PREFILTER_TOP_DOCS` | `12` | Число документов в summary-prefilter |
-| `AI_RAG_PROMPT_SUMMARY_DOCS` | `3` | Число summary в RAG-промпте |
-| `AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT` | `1.6` | Вес exact phrase-совпадения вопроса с document summary |
+| `AI_RAG_PREFILTER_TOP_DOCS` | `4` | Число документов в summary-prefilter |
+| `AI_RAG_PROMPT_SUMMARY_DOCS` | `1` | Число summary в RAG-промпте |
+| `AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT` | `1.0` | Вес exact phrase-совпадения вопроса с document summary |
 | `AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT` | `1.0` | Вес token-overlap score для document summary |
 | `AI_RAG_SUMMARY_SCORE_CAP` | `2.5` | Верхняя граница fallback-нормализации summary-score в диапазон `0..1` (основной retrieval использует min-max по prefilter-пулу) |
 | `AI_RAG_SUMMARY_BONUS_WEIGHT` | `0.45` | Вес бонуса нормализованного summary-score в lexical scoring чанков |
-| `AI_RAG_SUMMARY_POSTRANK_WEIGHT` | `0.20` | Вес пост-бонуса нормализованного summary-score после hybrid merge |
+| `AI_RAG_SUMMARY_POSTRANK_WEIGHT` | `1.0` | Вес пост-бонуса нормализованного summary-score после hybrid merge |
 | `AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS` | `0` | Число fallback-документов без summary-hit для сохранения recall |
-| `AI_RAG_SUMMARY_VECTOR_WEIGHT` | `10` | Вес semantic vector similarity summary в prefilter scoring (`prefilter_score = lexical + vec * weight`) |
+| `AI_RAG_SUMMARY_VECTOR_WEIGHT` | `20` | Вес semantic vector similarity summary в prefilter scoring (`prefilter_score = lexical + vec * weight`) |
 | `AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL` | — | Отдельная DeepSeek-модель для summary только в `rag_directory_ingest.py` (`deepseek-chat`/`deepseek-reasoner`) |
 | `AI_RAG_CACHE_TTL_SECONDS` | `300` | TTL кэша |
 | `AI_RAG_HTML_SPLITTER_ENABLED` | `1` | HTML semantic-preserving splitter |
@@ -317,9 +318,11 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS` | `120` | Cooldown remote после failover |
 | `AI_RAG_VECTOR_DB_PATH` | `./data/qdrant` | Путь к локальному индексу |
 | `AI_RAG_VECTOR_COLLECTION` | `rag_chunks_v1` | Имя коллекции вектора |
+| `AI_RAG_SUMMARY_VECTOR_COLLECTION` | `rag_document_summaries_v1` | Имя отдельной коллекции summary-документов |
 | `AI_RAG_VECTOR_SYNC_COLLECTION` | `rag_chunks_v1` | Имя коллекции для remote→local sync |
 | `AI_RAG_VECTOR_DISTANCE` | `cosine` | Метрика (`cosine`/`dot`/`euclid`) |
 | `AI_RAG_VECTOR_TOP_K` | `12` | Top-K векторных кандидатов |
+| `AI_RAG_SUMMARY_VECTOR_TOP_K` | `0` | Top-K summary-векторного prefilter (`0` = использовать `AI_RAG_VECTOR_TOP_K`) |
 | `AI_RAG_VECTOR_PREFETCH_K` | `40` | Глубина первичного поиска в индексе |
 | `AI_RAG_VECTOR_EMBEDDING_MODEL` | `BAAI/bge-m3` | Локальная embedding-модель |
 | `AI_RAG_VECTOR_DEVICE` | `auto` | Устройство embedding-модели (`auto`/`cuda`/`cpu`) |

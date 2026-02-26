@@ -234,6 +234,12 @@ AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS: Final[int] = int(
 AI_RAG_VECTOR_DB_PATH: Final[str] = os.getenv("AI_RAG_VECTOR_DB_PATH", "./data/qdrant")
 # Имя коллекции чанков в векторном индексе.
 AI_RAG_VECTOR_COLLECTION: Final[str] = os.getenv("AI_RAG_VECTOR_COLLECTION", "rag_chunks_v1")
+# Имя отдельной коллекции summary-документов в векторном индексе.
+# По умолчанию используется отдельная коллекция, чтобы не смешивать payload чанков и summary.
+AI_RAG_SUMMARY_VECTOR_COLLECTION: Final[str] = os.getenv(
+    "AI_RAG_SUMMARY_VECTOR_COLLECTION",
+    "rag_document_summaries_v1",
+)
 # Имя коллекции для remote→local синхронизации Qdrant.
 # По умолчанию наследует основную коллекцию AI_RAG_VECTOR_COLLECTION.
 AI_RAG_VECTOR_SYNC_COLLECTION: Final[str] = os.getenv(
@@ -244,6 +250,9 @@ AI_RAG_VECTOR_SYNC_COLLECTION: Final[str] = os.getenv(
 AI_RAG_VECTOR_DISTANCE: Final[str] = os.getenv("AI_RAG_VECTOR_DISTANCE", "cosine")
 # Сколько top-кандидатов брать из векторного поиска.
 AI_RAG_VECTOR_TOP_K: Final[int] = int(os.getenv("AI_RAG_VECTOR_TOP_K", "12"))
+# Сколько top-документов брать из summary-векторного поиска на этапе prefilter.
+# Если значение <= 0, используется AI_RAG_VECTOR_TOP_K.
+AI_RAG_SUMMARY_VECTOR_TOP_K: Final[int] = int(os.getenv("AI_RAG_SUMMARY_VECTOR_TOP_K", "0"))
 # Размер prefetch-выборки кандидатов до финального vector top-k.
 AI_RAG_VECTOR_PREFETCH_K: Final[int] = int(os.getenv("AI_RAG_VECTOR_PREFETCH_K", "40"))
 # Имя embedding-модели для расчёта векторов.
@@ -405,3 +414,21 @@ def get_rag_ru_normalization_mode() -> str:
     if normalized in {"lemma_then_stem", "lemma_only", "stem_only"}:
         return normalized
     return "lemma_then_stem"
+
+
+def is_rag_summary_vector_enabled() -> bool:
+    """Проверить, включён ли summary-vector prefilter (по умолчанию следует AI_RAG_VECTOR_ENABLED)."""
+    raw_value = os.getenv("AI_RAG_SUMMARY_VECTOR_ENABLED")
+    if raw_value is None:
+        return bool(AI_RAG_VECTOR_ENABLED)
+
+    normalized = str(raw_value).strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+
+def get_rag_summary_vector_top_k() -> int:
+    """Получить top-k для summary-векторного prefilter с безопасным fallback."""
+    configured = int(AI_RAG_SUMMARY_VECTOR_TOP_K)
+    if configured > 0:
+        return configured
+    return max(1, int(AI_RAG_VECTOR_TOP_K))

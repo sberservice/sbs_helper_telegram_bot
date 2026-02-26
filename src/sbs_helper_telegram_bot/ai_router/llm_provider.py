@@ -32,7 +32,7 @@ class ClassificationResult:
     """Результат классификации пользовательского сообщения."""
 
     intent: str
-    """Определённое намерение (upos_error_lookup, ticket_validation, и т.д.)."""
+    """Определённое намерение (upos_error_lookup, ticket_soos, и т.д.)."""
 
     confidence: float
     """Уровень уверенности от 0.0 до 1.0."""
@@ -183,7 +183,7 @@ class DeepSeekProvider(LLMProvider):
         full_messages = [{"role": "system", "content": system_prompt}] + messages
 
         try:
-            # Для длинных заявок (ticket_validation) увеличиваем бюджет токенов,
+            # Для длинных заявок (ticket_soos) увеличиваем бюджет токенов,
             # чтобы JSON-ответ не обрезался до закрывающих скобок.
             raw = await self._call_api(
                 full_messages,
