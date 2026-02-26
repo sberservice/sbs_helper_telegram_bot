@@ -5,6 +5,19 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.76] - 2026-02-26
+
+### Added
+- Добавлены env-настройки удалённого Qdrant в `src/sbs_helper_telegram_bot/ai_router/settings.py` и `.env.example`: `AI_RAG_VECTOR_REMOTE_URL`, `AI_RAG_VECTOR_REMOTE_API_KEY`, `AI_RAG_VECTOR_REMOTE_TIMEOUT_SECONDS`, `AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD`, `AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS`.
+- Добавлены регрессионные тесты в `tests/test_vector_search.py` для remote-first режима и failover remote→local по порогу ошибок.
+
+### Changed
+- В `src/sbs_helper_telegram_bot/ai_router/vector_search.py` векторный backend переведён на remote-first стратегию: при доступном `AI_RAG_VECTOR_REMOTE_URL` операции выполняются через удалённый Qdrant, при сбоях — автоматически переключаются на local backend.
+- Обновлена документация по конфигурации и поведению failover в `docs/AI_RAG_GUIDE.md` и `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Устранена точка отказа векторного слоя при недоступности удалённого Qdrant: после достижения порога ошибок сервис продолжает retrieval через local fallback (или lexical degradation при отключённом local mode) без остановки пользовательского сценария.
+
 ## [0.1.75] - 2026-02-25
 
 ### Added

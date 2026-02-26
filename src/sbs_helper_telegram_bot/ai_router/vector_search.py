@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import time
 from contextlib import nullcontext
 import logging
 from dataclasses import dataclass
@@ -110,6 +111,7 @@ class LocalEmbeddingProvider:
             return
 
         try:
+            assert callable(half_method)
             half_method()
         except Exception as exc:
             logger.warning(
@@ -170,13 +172,16 @@ class LocalEmbeddingProvider:
 
 
 class LocalVectorIndex:
-    """Локальный векторный индекс на базе Qdrant (local mode)."""
+    """Векторный индекс на базе Qdrant с remote-first и local fallback."""
 
     def __init__(self) -> None:
         self._client = None
+        self._remote_client = None
         self._collection_name = ai_settings.AI_RAG_VECTOR_COLLECTION
         self._embedding_size: Optional[int] = None
         self._client_init_failed = False
+        self._remote_failures = 0
+        self._remote_cooldown_until = 0.0
 
     def is_ready(self) -> bool:
         """Проверить доступность клиента и коллекции."""
@@ -190,13 +195,9 @@ class LocalVectorIndex:
         if embedding_size <= 0:
             return False
 
-        client = self._get_client()
-        if client is None:
-            return False
-
         distance = self._parse_distance()
 
-        try:
+        def _action(client, backend_name: str) -> bool:
             from qdrant_client import models
 
             collection_exists = client.collection_exists(self._collection_name)
@@ -209,16 +210,21 @@ class LocalVectorIndex:
                     ),
                 )
                 logger.info(
-                    "Создана коллекция локального векторного индекса: name=%s size=%s",
+                    "Создана коллекция векторного индекса: backend=%s name=%s size=%s",
+                    backend_name,
                     self._collection_name,
                     embedding_size,
                 )
 
             self._embedding_size = embedding_size
             return True
-        except Exception as exc:
-            logger.warning("Не удалось создать/проверить коллекцию Qdrant: %s", exc)
-            return False
+
+        return self._execute_with_failover(
+            operation_name="ensure_collection",
+            remote_action=_action,
+            local_action=_action,
+            default_value=False,
+        )
 
     def upsert_chunks(
         self,
@@ -232,11 +238,7 @@ class LocalVectorIndex:
         if not self.ensure_collection(len(embeddings[0])):
             return 0
 
-        client = self._get_client()
-        if client is None:
-            return 0
-
-        try:
+        def _action(client, _backend_name: str) -> int:
             from qdrant_client import models
 
             points: List[models.PointStruct] = []
@@ -256,9 +258,13 @@ class LocalVectorIndex:
 
             client.upsert(collection_name=self._collection_name, points=points, wait=True)
             return len(points)
-        except Exception as exc:
-            logger.warning("Не удалось выполнить upsert чанков в Qdrant: %s", exc)
-            return 0
+
+        return self._execute_with_failover(
+            operation_name="upsert_chunks",
+            remote_action=_action,
+            local_action=_action,
+            default_value=0,
+        )
 
     def search(
         self,
@@ -270,15 +276,11 @@ class LocalVectorIndex:
         if not query_vector:
             return []
 
-        client = self._get_client()
-        if client is None:
-            return []
-
         safe_limit = max(1, min(limit, 100))
         prefetch_limit = max(safe_limit, int(ai_settings.AI_RAG_VECTOR_PREFETCH_K))
         query_filter = self._build_search_filter(allowed_document_ids)
 
-        try:
+        def _action(client, _backend_name: str) -> List[VectorChunkCandidate]:
             points = client.search(
                 collection_name=self._collection_name,
                 query_vector=query_vector,
@@ -287,48 +289,49 @@ class LocalVectorIndex:
                 with_payload=True,
                 with_vectors=False,
             )
-        except Exception as exc:
-            logger.warning("Не удалось выполнить поиск в Qdrant: %s", exc)
-            return []
 
-        candidates: List[VectorChunkCandidate] = []
-        for point in points or []:
-            payload = getattr(point, "payload", {}) or {}
-            raw_score = float(getattr(point, "score", 0.0) or 0.0)
-            score = max(0.0, min(raw_score, 1.0))
-            if score <= 0:
-                continue
+            candidates: List[VectorChunkCandidate] = []
+            for point in points or []:
+                payload = getattr(point, "payload", {}) or {}
+                raw_score = float(getattr(point, "score", 0.0) or 0.0)
+                score = max(0.0, min(raw_score, 1.0))
+                if score <= 0:
+                    continue
 
-            document_id = int(payload.get("document_id") or 0)
-            chunk_index = int(payload.get("chunk_index") or 0)
-            filename = str(payload.get("filename") or "document")
-            chunk_text = str(payload.get("chunk_text") or "").strip()
-            if not document_id or not chunk_text:
-                continue
+                document_id = int(payload.get("document_id") or 0)
+                chunk_index = int(payload.get("chunk_index") or 0)
+                filename = str(payload.get("filename") or "document")
+                chunk_text = str(payload.get("chunk_text") or "").strip()
+                if not document_id or not chunk_text:
+                    continue
 
-            candidates.append(
-                VectorChunkCandidate(
-                    score=score,
-                    source=filename,
-                    chunk_text=chunk_text,
-                    document_id=document_id,
-                    chunk_index=chunk_index,
+                candidates.append(
+                    VectorChunkCandidate(
+                        score=score,
+                        source=filename,
+                        chunk_text=chunk_text,
+                        document_id=document_id,
+                        chunk_index=chunk_index,
+                    )
                 )
-            )
 
-        candidates.sort(key=lambda item: item.score, reverse=True)
-        return candidates[:safe_limit]
+            candidates.sort(key=lambda item: item.score, reverse=True)
+            return candidates[:safe_limit]
+
+        return self._execute_with_failover(
+            operation_name="search",
+            remote_action=_action,
+            local_action=_action,
+            default_value=[],
+        )
 
     def mark_document_status(self, document_id: int, status: str) -> int:
         """Обновить статус документа в payload всех его векторных точек."""
         if document_id <= 0:
             return 0
 
-        client = self._get_client()
-        if client is None:
-            return 0
 
-        try:
+        def _action(client, _backend_name: str) -> int:
             from qdrant_client import models
 
             client.set_payload(
@@ -347,20 +350,21 @@ class LocalVectorIndex:
                 wait=True,
             )
             return 1
-        except Exception as exc:
-            logger.warning("Не удалось обновить статус векторных точек документа %s: %s", document_id, exc)
-            return 0
+
+        return self._execute_with_failover(
+            operation_name="mark_document_status",
+            remote_action=_action,
+            local_action=_action,
+            default_value=0,
+        )
 
     def delete_document_points(self, document_id: int) -> int:
         """Удалить все векторные точки документа."""
         if document_id <= 0:
             return 0
 
-        client = self._get_client()
-        if client is None:
-            return 0
 
-        try:
+        def _action(client, _backend_name: str) -> int:
             from qdrant_client import models
 
             client.delete(
@@ -378,9 +382,13 @@ class LocalVectorIndex:
                 wait=True,
             )
             return 1
-        except Exception as exc:
-            logger.warning("Не удалось удалить точки документа %s из Qdrant: %s", document_id, exc)
-            return 0
+
+        return self._execute_with_failover(
+            operation_name="delete_document_points",
+            remote_action=_action,
+            local_action=_action,
+            default_value=0,
+        )
 
     def _build_search_filter(self, allowed_document_ids: Optional[List[int]]):
         """Собрать фильтр по активному статусу и списку document_id."""
@@ -409,7 +417,82 @@ class LocalVectorIndex:
         return models.Filter(must=must_conditions)
 
     def _get_client(self):
-        """Инициализировать и вернуть Qdrant-клиент."""
+        """Инициализировать и вернуть активный Qdrant-клиент."""
+        backend_name, client = self._get_active_backend_client()
+        if backend_name and client is not None:
+            logger.debug("Используется Qdrant backend=%s", backend_name)
+        return client
+
+    def _execute_with_failover(
+        self,
+        operation_name: str,
+        remote_action,
+        local_action,
+        default_value,
+    ):
+        """Выполнить операцию в remote-first режиме с fallback на local backend."""
+        remote_client = self._get_remote_client()
+        if remote_client is not None:
+            try:
+                result = remote_action(remote_client, "remote")
+                self._reset_remote_failures()
+                return result
+            except Exception as exc:
+                self._register_remote_failure(operation_name=operation_name, exc=exc)
+
+        local_client = self._get_local_client()
+        if local_client is not None:
+            try:
+                return local_action(local_client, "local")
+            except Exception as exc:
+                logger.warning("Операция %s в local Qdrant завершилась ошибкой: %s", operation_name, exc)
+
+        return default_value
+
+    def _get_active_backend_client(self) -> tuple[Optional[str], Optional[object]]:
+        """Вернуть активный клиент и имя backend с приоритетом remote."""
+        remote_client = self._get_remote_client()
+        if remote_client is not None:
+            return "remote", remote_client
+
+        local_client = self._get_local_client()
+        if local_client is not None:
+            return "local", local_client
+
+        return None, None
+
+    def _get_remote_client(self):
+        """Инициализировать и вернуть удалённый Qdrant-клиент при доступной конфигурации."""
+        if not self._is_remote_enabled():
+            return None
+
+        if self._is_remote_in_cooldown():
+            return None
+
+        if self._remote_client is not None:
+            return self._remote_client
+
+        try:
+            from qdrant_client import QdrantClient
+
+            timeout = max(1.0, float(ai_settings.AI_RAG_VECTOR_REMOTE_TIMEOUT_SECONDS))
+            remote_url = str(ai_settings.AI_RAG_VECTOR_REMOTE_URL or "").strip()
+            remote_api_key = str(ai_settings.AI_RAG_VECTOR_REMOTE_API_KEY or "").strip() or None
+
+            self._remote_client = QdrantClient(
+                url=remote_url,
+                api_key=remote_api_key,
+                timeout=timeout,
+            )
+            self._remote_client.get_collections()
+            return self._remote_client
+        except Exception as exc:
+            self._remote_client = None
+            self._register_remote_failure(operation_name="connect", exc=exc)
+            return None
+
+    def _get_local_client(self):
+        """Инициализировать и вернуть локальный Qdrant-клиент."""
         if self._client is not None:
             return self._client
 
@@ -417,7 +500,7 @@ class LocalVectorIndex:
             return None
 
         if not ai_settings.AI_RAG_VECTOR_LOCAL_MODE:
-            logger.warning("Только local mode поддерживается в текущем профиле настройки")
+            logger.warning("Локальный fallback отключён: AI_RAG_VECTOR_LOCAL_MODE=0")
             return None
 
         try:
@@ -439,6 +522,45 @@ class LocalVectorIndex:
                 return None
             logger.warning("Не удалось инициализировать Qdrant local mode: %s", exc)
             return None
+
+    def _is_remote_enabled(self) -> bool:
+        """Проверить, что remote backend сконфигурирован."""
+        return bool(str(ai_settings.AI_RAG_VECTOR_REMOTE_URL or "").strip())
+
+    def _is_remote_in_cooldown(self) -> bool:
+        """Проверить, что remote backend находится в режиме cooldown."""
+        if self._remote_cooldown_until <= 0:
+            return False
+        return time.time() < self._remote_cooldown_until
+
+    def _register_remote_failure(self, operation_name: str, exc: Exception) -> None:
+        """Учесть ошибку remote backend и активировать failover при достижении порога."""
+        self._remote_failures += 1
+        threshold = max(1, int(ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD))
+        logger.warning(
+            "Ошибка remote Qdrant при операции %s (%s/%s): %s",
+            operation_name,
+            self._remote_failures,
+            threshold,
+            exc,
+        )
+
+        if self._remote_failures < threshold:
+            return
+
+        cooldown_seconds = max(1, int(ai_settings.AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS))
+        self._remote_cooldown_until = time.time() + float(cooldown_seconds)
+        self._remote_client = None
+        logger.warning(
+            "Remote Qdrant временно отключён на %s сек после %s ошибок подряд. Активирован local fallback.",
+            cooldown_seconds,
+            self._remote_failures,
+        )
+
+    def _reset_remote_failures(self) -> None:
+        """Сбросить счётчик ошибок remote backend после успешной операции."""
+        self._remote_failures = 0
+        self._remote_cooldown_until = 0.0
 
     @staticmethod
     def _is_storage_locked_error(exc: Exception) -> bool:

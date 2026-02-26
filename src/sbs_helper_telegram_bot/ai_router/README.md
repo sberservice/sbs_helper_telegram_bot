@@ -261,9 +261,14 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL` | — | Отдельная DeepSeek-модель для summary только в `rag_directory_ingest.py` (`deepseek-chat`/`deepseek-reasoner`) |
 | `AI_RAG_CACHE_TTL_SECONDS` | `300` | TTL кэша |
 | `AI_RAG_HTML_SPLITTER_ENABLED` | `1` | HTML semantic-preserving splitter |
-| `AI_RAG_VECTOR_ENABLED` | `0` | Включить локальный векторный retrieval |
+| `AI_RAG_VECTOR_ENABLED` | `0` | Включить векторный retrieval |
 | `AI_RAG_HYBRID_ENABLED` | `1` | Использовать hybrid-слияние lexical/vector |
-| `AI_RAG_VECTOR_LOCAL_MODE` | `1` | Использовать Qdrant local mode |
+| `AI_RAG_VECTOR_LOCAL_MODE` | `1` | Разрешить local fallback через Qdrant local mode |
+| `AI_RAG_VECTOR_REMOTE_URL` | — | URL удалённого Qdrant (remote-first, если задан) |
+| `AI_RAG_VECTOR_REMOTE_API_KEY` | — | API ключ удалённого Qdrant (опционально) |
+| `AI_RAG_VECTOR_REMOTE_TIMEOUT_SECONDS` | `5` | Таймаут запросов к remote Qdrant |
+| `AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD` | `3` | Ошибок подряд до failover на local |
+| `AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS` | `120` | Cooldown remote после failover |
 | `AI_RAG_VECTOR_DB_PATH` | `./data/qdrant` | Путь к локальному индексу |
 | `AI_RAG_VECTOR_COLLECTION` | `rag_chunks_v1` | Имя коллекции вектора |
 | `AI_RAG_VECTOR_DISTANCE` | `cosine` | Метрика (`cosine`/`dot`/`euclid`) |
@@ -302,6 +307,12 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 - `AI_RAG_VECTOR_DEVICE=auto` автоматически выбирает `cuda` при доступном GPU и переключается на `cpu`, если CUDA недоступен.
 - `AI_RAG_VECTOR_EMBEDDING_FP16=1` применяется только при `cuda`; при `cpu` инициализация продолжится в FP32 без падения.
 - Для строгого GPU-режима можно использовать `AI_RAG_VECTOR_DEVICE=cuda`.
+
+Поведение remote/local backend:
+- Если задан `AI_RAG_VECTOR_REMOTE_URL`, индекс работает в режиме remote-first.
+- При ошибках remote счётчик отказов увеличивается; после `AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD` backend переключается на local.
+- В течение `AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS` remote не используется, затем сервис снова пытается подключиться к remote.
+- Если local fallback отключён (`AI_RAG_VECTOR_LOCAL_MODE=0`) и remote недоступен, retrieval безопасно деградирует в lexical режим.
 
 ### Runtime-настройки (admin panel)
 

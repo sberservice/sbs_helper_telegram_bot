@@ -25,7 +25,7 @@ RAG-поток позволяет:
 - Таблица полного AI I/O логирования: `ai_model_io_log` (prompt/response всех LLM-вызовов, включая RAG).
 - TTL-кэш ответов RAG в памяти процесса.
 - Summary-aware retrieval: prefilter документов по `rag_document_summaries` с гибридным scoring (`BM25/legacy lexical + word-boundary phrase match + semantic vector similarity`), controlled fallback документов для recall, hybrid rerank чанков с учётом релевантности summary и prompt enrichment top-summary блоками.
-- Опциональный локальный векторный retrieval (Qdrant local mode + локальная embedding-модель) с hybrid-слиянием lexical/vector кандидатов.
+- Опциональный векторный retrieval с режимом remote-first (Qdrant server) и автоматическим local fallback (Qdrant local mode + локальная embedding-модель) с hybrid-слиянием lexical/vector кандидатов.
 - UX-статус для RAG: после классификации запроса как `rag_qa` бот меняет плейсхолдер с «Обрабатываю ваш запрос» на «Ожидаю ответа ИИ» до получения финального ответа.
 - Форматирование ответа `rag_qa` для Telegram MarkdownV2: сохраняются списки, `inline code`, жирный текст (`**...**` → Telegram-совместимый `*...*`), неподдерживаемая markdown-разметка экранируется.
 - Длинные RAG-ответы автоматически делятся на несколько сообщений, чтобы не упираться в лимит длины Telegram-сообщения.
@@ -186,6 +186,11 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_VECTOR_ENABLED`
 - `AI_RAG_HYBRID_ENABLED`
 - `AI_RAG_VECTOR_LOCAL_MODE`
+- `AI_RAG_VECTOR_REMOTE_URL`
+- `AI_RAG_VECTOR_REMOTE_API_KEY`
+- `AI_RAG_VECTOR_REMOTE_TIMEOUT_SECONDS`
+- `AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD`
+- `AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS`
 - `AI_RAG_VECTOR_DB_PATH`
 - `AI_RAG_VECTOR_COLLECTION`
 - `AI_RAG_VECTOR_DISTANCE`
@@ -236,6 +241,8 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_VECTOR_EMBEDDING_FP16=1` применяется только на `cuda`; при `cpu` или при ошибке инициализации автоматически включается безопасный fallback на FP32.
 - Для принудительного запуска эмбеддингов на GPU можно указать `AI_RAG_VECTOR_DEVICE=cuda`.
 - Если локальный Qdrant-путь (`AI_RAG_VECTOR_DB_PATH`) уже удерживается другим процессом, векторная индексация автоматически отключается только для текущего процесса, а ingest продолжает работу в lexical-режиме.
+- Если задан `AI_RAG_VECTOR_REMOTE_URL`, backend работает в режиме remote-first; после `AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD` ошибок подряд включается local fallback на `AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS`.
+- Если remote недоступен и local fallback выключен (`AI_RAG_VECTOR_LOCAL_MODE=0`), retrieval продолжает работу в lexical-режиме без падения пользовательского потока.
 - Если доступен CUDA и есть запас по памяти, можно увеличить `AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE` до `3-4`.
 - Если latency высокая, сначала уменьшайте `AI_RAG_VECTOR_PREFETCH_K`, затем `AI_RAG_VECTOR_TOP_K`.
 
@@ -268,7 +275,7 @@ mysql -u root -p sprint_db < sql/rag_document_summaries_fulltext_index.sql
 
 - Retrieval использует lexical scoring по summary+чанкам: режим `legacy` (coverage+density) или `bm25` (Okapi BM25) задаётся через `AI_RAG_LEXICAL_SCORER`; сначала выполняется prefilter документов по summary, затем rerank чанков с бонусом от summary-релевантности.
 - Для русского языка доступна опциональная нормализация токенов (`AI_RAG_RU_NORMALIZATION_ENABLED=1`) с режимами `lemma_then_stem`, `lemma_only`, `stem_only`.
-- Векторный режим требует локально установленные пакеты `qdrant-client` и `sentence-transformers`, а также доступность embedding-модели на текущем хосте.
+- Векторный режим требует пакет `qdrant-client`; для локальных эмбеддингов также необходим `sentence-transformers` и доступность embedding-модели на текущем хосте.
 - Кэш хранится в памяти процесса и не шарится между инстансами.
 - Нет UI для управления документами (архивация/удаление) — только загрузка.
 - Metadata заголовков HTML сохраняется внутри текста чанка, так как текущая схема БД хранит только `chunk_text`.
