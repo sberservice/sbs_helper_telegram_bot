@@ -64,6 +64,24 @@ Backfill локального векторного индекса по уже з
 python scripts/rag_vector_backfill.py --batch-size 100
 ```
 
+Сравнение двух фраз для быстрой оценки семантической/лексической близости (helper для ручных RAG-тестов):
+
+```bash
+python scripts/rag_sentence_similarity.py \
+	--sentence-a "Ошибка UPOS: не проходит оплата" \
+	--sentence-b "Оплата по карте не проходит на UPOS" \
+	--threshold 0.70
+```
+
+JSON-вывод для автопроверок/скриптов:
+
+```bash
+python scripts/rag_sentence_similarity.py \
+	--sentence-a "Ошибка UPOS: не проходит оплата" \
+	--sentence-b "Оплата по карте не проходит на UPOS" \
+	--json
+```
+
 Важно: `rag_directory_ingest.py` больше не выполняет генерацию эмбеддингов и не пишет в локальный векторный индекс. Векторная индексация выполняется только через `rag_vector_backfill.py`.
 
 При сохранении метаданных в `rag_chunk_embeddings` сервис использует batched upsert и автоматический retry для временных ошибок InnoDB (`1205 lock wait timeout`, `1213 deadlock`) с коротким backoff.

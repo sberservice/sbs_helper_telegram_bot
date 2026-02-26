@@ -10,7 +10,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from src.sbs_helper_telegram_bot.ai_router.messages import (
     escape_markdown_v2,
@@ -471,7 +471,12 @@ class RagQaHandler(IntentHandler):
     def module_key(self) -> str:
         return "ai_router"
 
-    async def execute(self, params: Dict[str, Any], user_id: int) -> str:
+    async def execute(
+        self,
+        params: Dict[str, Any],
+        user_id: int,
+        on_progress: Optional[Callable[[str, Optional[Dict[str, Any]]], Awaitable[None]]] = None,
+    ) -> str:
         """Ответить на вопрос по загруженным документам."""
         from src.sbs_helper_telegram_bot.ai_router.rag_service import get_rag_service
         from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
@@ -485,7 +490,11 @@ class RagQaHandler(IntentHandler):
 
         try:
             rag_service = get_rag_service()
-            answer = await rag_service.answer_question(question, user_id=user_id)
+            answer = await rag_service.answer_question(
+                question,
+                user_id=user_id,
+                on_progress=on_progress,
+            )
             if not answer:
                 return (
                     "📚 В загруженных документах не найден точный ответ\\.\n\n"
