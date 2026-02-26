@@ -9,6 +9,7 @@ import re
 import time
 
 from telegram import Update, constants
+from telegram.helpers import escape_markdown
 from telegram.ext import ContextTypes, ConversationHandler
 
 import src.common.database as database
@@ -190,7 +191,9 @@ async def process_soos_ticket_text(update: Update, _context: ContextTypes.DEFAUL
     extracted_fields = soos_parser.extract_ticket_fields(ticket_text)
     missing_fields = soos_parser.get_missing_required_fields(extracted_fields)
     if missing_fields:
-        missing_fields_text = "\n".join(f"• {field}" for field in missing_fields)
+        missing_fields_text = "\n".join(
+            f"• {escape_markdown(field, version=2)}" for field in missing_fields
+        )
         await update.message.reply_text(
             messages.MESSAGE_MISSING_FIELDS.format(fields_list=missing_fields_text),
             parse_mode=constants.ParseMode.MARKDOWN_V2,

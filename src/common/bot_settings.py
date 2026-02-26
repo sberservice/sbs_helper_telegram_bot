@@ -98,26 +98,26 @@ MODULE_CONFIG = [
         'setting_key': 'module_soos_enabled',
         'button_label': '🧾 СООС',
         'order': 3,
-        'columns': 2
+        'columns': 3
     },
     {
         'key': 'upos_errors',
         'setting_key': 'module_upos_errors_enabled',
         'button_label': '🔢 UPOS Ошибки',
         'order': 4,
-        'columns': 2
-    },
-    {
-        'key': 'ticket_validator',
-        'setting_key': 'module_ticket_validator_enabled',
-        'button_label': '✅ Валидация заявок',
-        'order': 5,
-        'columns': 2
+        'columns': 3
     },
     {
         'key': 'ktr',
         'setting_key': 'module_ktr_enabled',
         'button_label': '⏱️ КТР',
+        'order': 5,
+        'columns': 3
+    },
+    {
+        'key': 'ticket_validator',
+        'setting_key': 'module_ticket_validator_enabled',
+        'button_label': '✅ Валидация заявок',
         'order': 6,
         'columns': 2
     },

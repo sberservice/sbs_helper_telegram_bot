@@ -73,7 +73,10 @@ class TestSoosBotPartAsync(unittest.IsolatedAsyncioTestCase):
 
     @patch("src.sbs_helper_telegram_bot.soos.soos_bot_part.check_if_user_legit", return_value=True)
     @patch("src.sbs_helper_telegram_bot.soos.soos_bot_part.check_if_user_has_unprocessed_job", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.soos.soos_bot_part.soos_parser.get_missing_required_fields", return_value=["TID", "merchant/MID"])
+    @patch(
+        "src.sbs_helper_telegram_bot.soos.soos_bot_part.soos_parser.get_missing_required_fields",
+        return_value=["Адрес установки POS-терминала", "TID", "merchant/MID"],
+    )
     @patch("src.sbs_helper_telegram_bot.soos.soos_bot_part.soos_parser.extract_ticket_fields", return_value={})
     async def test_process_ticket_missing_required_fields(
         self,
@@ -94,6 +97,7 @@ class TestSoosBotPartAsync(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(update.message.reply_text.await_count, 2)
         all_texts = [call.args[0] for call in update.message.reply_text.await_args_list]
         combined = "\n".join(all_texts)
+        self.assertIn("POS\\-терминала", combined)
         self.assertIn("TID", combined)
         self.assertIn("merchant/MID", combined)
 

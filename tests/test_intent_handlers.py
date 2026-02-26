@@ -537,7 +537,7 @@ class TestTicketValidatorHandler(unittest.IsolatedAsyncioTestCase):
         """Пустой текст заявки возвращает предупреждение."""
         h = TicketValidatorHandler()
         result = await h.execute({"ticket_text": ""}, user_id=123)
-        self.assertIn("Не указан текст тикета", result)
+        self.assertIn("Не указан текст заявки", result)
 
     async def test_active_soos_job_returns_warning(self):
         """Если есть активная задача СООС, handler возвращает предупреждение."""
