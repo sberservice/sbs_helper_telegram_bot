@@ -7,6 +7,10 @@ settings.py — настройки модуля AI-маршрутизации.
 
 from typing import Final
 import os
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
 
 
 # =============================================
@@ -230,6 +234,12 @@ AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS: Final[int] = int(
 AI_RAG_VECTOR_DB_PATH: Final[str] = os.getenv("AI_RAG_VECTOR_DB_PATH", "./data/qdrant")
 # Имя коллекции чанков в векторном индексе.
 AI_RAG_VECTOR_COLLECTION: Final[str] = os.getenv("AI_RAG_VECTOR_COLLECTION", "rag_chunks_v1")
+# Имя коллекции для remote→local синхронизации Qdrant.
+# По умолчанию наследует основную коллекцию AI_RAG_VECTOR_COLLECTION.
+AI_RAG_VECTOR_SYNC_COLLECTION: Final[str] = os.getenv(
+    "AI_RAG_VECTOR_SYNC_COLLECTION",
+    AI_RAG_VECTOR_COLLECTION,
+)
 # Метрика расстояния в векторном индексе (например, cosine).
 AI_RAG_VECTOR_DISTANCE: Final[str] = os.getenv("AI_RAG_VECTOR_DISTANCE", "cosine")
 # Сколько top-кандидатов брать из векторного поиска.
