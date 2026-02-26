@@ -144,6 +144,8 @@ class IntentRouter:
             )
             return None, "circuit_open"
 
+        raw_text = text
+
         # 4. Ограничение длины входного текста
         if len(text) > ai_settings.MAX_INPUT_LENGTH:
             text = text[: ai_settings.MAX_INPUT_LENGTH]
@@ -255,12 +257,16 @@ class IntentRouter:
         )
         db_log_ms = int((time.monotonic() - db_log_started_at) * 1000)
 
+        # Поддержка legacy-intent после переименования ticket_validation -> ticket_soos.
+        if classification.intent == "ticket_validation":
+            classification.intent = "ticket_soos"
+
         # 11. Маршрутизация по intent
         dispatch_started_at = time.monotonic()
         response, status, dispatch_meta = await self._dispatch(
             classification,
             user_id,
-            text,
+            raw_text,
             enabled_modules,
             on_progress=on_progress,
         )
@@ -383,9 +389,9 @@ class IntentRouter:
 
             try:
                 handler_started_at = time.monotonic()
-                # Для ticket_validation передаём оригинальный текст
+                # Для ticket_soos всегда передаём оригинальный текст без усечения.
                 params = classification.parameters
-                if intent == "ticket_validation" and not params.get("ticket_text"):
+                if intent == "ticket_soos":
                     params["ticket_text"] = original_text
                 if intent == "rag_qa" and len(str(params.get("question", "")).strip()) < 3:
                     params["question"] = original_text

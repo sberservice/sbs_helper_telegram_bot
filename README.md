@@ -139,7 +139,7 @@ pytest
 - [AI RAG — база знаний](docs/AI_RAG_GUIDE.md)
 - [Рекомендации по валидатору](docs/VALIDATOR_RECOMMENDATIONS.md)
 
-**Утилиты:** `scripts/sync_chat_members.py` (синхронизация Telegram-группы), `scripts/add_daily_scores.py` (массовое начисление очков), `scripts/rag_directory_ingest.py` (пакетная загрузка документов в RAG), `scripts/rag_vector_backfill.py` (пакетная индексация существующих RAG-чанков в локальный Qdrant), `scripts/rag_qdrant_sync_remote_to_local.py` (best-effort синхронизация коллекции Qdrant из remote в local), `scripts/rag_sentence_similarity.py` (оценка похожести двух фраз для ручной проверки RAG).
+**Утилиты:** `scripts/sync_chat_members.py` (синхронизация Telegram-группы), `scripts/add_daily_scores.py` (массовое начисление очков), `scripts/rag_directory_ingest.py` (пакетная загрузка документов в RAG), `scripts/rag_vector_backfill.py` (пакетная индексация существующих RAG-чанков и/или summary-документов в локальный Qdrant), `scripts/rag_qdrant_sync_remote_to_local.py` (best-effort синхронизация коллекции Qdrant из remote в local), `scripts/rag_sentence_similarity.py` (оценка похожести двух фраз для ручной проверки RAG).
 
 ## Лицензия
 

@@ -23,6 +23,7 @@ Telegram-бот для сервиса обработки изображений 
 import logging
 import re
 import time
+import asyncio
 
 from telegram import Update, constants, BotCommand, ReplyKeyboardMarkup
 from telegram.error import TimedOut, NetworkError, BadRequest
@@ -88,6 +89,7 @@ from src.sbs_helper_telegram_bot.soos import settings as soos_settings
 from src.sbs_helper_telegram_bot.upos_error import messages as upos_messages
 from src.sbs_helper_telegram_bot.upos_error import keyboards as upos_keyboards
 from src.sbs_helper_telegram_bot.upos_error import settings as upos_settings
+from src.sbs_helper_telegram_bot.ai_router.rag_service import preload_rag_runtime_dependencies
 
 from src.common.telegram_user import (
     check_if_user_legit,
@@ -1466,6 +1468,8 @@ async def post_init(application: Application) -> None:
         BotCommand("reset", "Сбросить состояние и вернуться в главное меню"),
         BotCommand("help", COMMAND_DESC_HELP),
     ])
+
+    await asyncio.to_thread(preload_rag_runtime_dependencies)
 
 
 def main() -> None:

@@ -136,13 +136,13 @@ class TestParseClassification(unittest.TestCase):
         """Частичный JSON без закрывающей скобки парсится через fallback."""
         raw = (
             '{\n'
-            '  "intent": "ticket_validation",\n'
+            '  "intent": "ticket_soos",\n'
             '  "confidence": 0.95,\n'
             '  "parameters": {\n'
             '    "ticket_text": "очень длинный текст'
         )
         result = DeepSeekProvider._parse_classification(raw, elapsed_ms=200)
-        self.assertEqual(result.intent, "ticket_validation")
+        self.assertEqual(result.intent, "ticket_soos")
         self.assertEqual(result.confidence, 0.95)
         self.assertEqual(result.parameters, {})
         self.assertEqual(result.explain_code, "PARTIAL_JSON_FALLBACK")

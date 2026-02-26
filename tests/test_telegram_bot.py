@@ -9,12 +9,13 @@ Tests cover:
 """
 
 import unittest
-from unittest.mock import Mock, patch, MagicMock, call
+from unittest.mock import Mock, patch, MagicMock, call, AsyncMock
 from datetime import datetime
 
 from src.common.constants.errorcodes import InviteStatus
 from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import (
     check_if_invite_entered,
+    post_init,
 )
 from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import (
     get_number_of_jobs_in_the_queue,
@@ -99,6 +100,23 @@ class TestCheckIfInviteEntered(unittest.TestCase):
         # Verify SELECT FOR UPDATE is used
         first_query = mock_cursor.execute.call_args_list[0][0][0]
         self.assertIn("FOR UPDATE", first_query)
+
+
+class TestPostInit(unittest.IsolatedAsyncioTestCase):
+    """Тесты post_init Telegram-бота."""
+
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.asyncio.to_thread", new_callable=AsyncMock)
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.preload_rag_runtime_dependencies")
+    async def test_post_init_runs_rag_preload_in_background_thread(self, mock_preload, mock_to_thread):
+        """При старте бота post_init запускает preload RAG-зависимостей."""
+        application = Mock()
+        application.bot = Mock()
+        application.bot.set_my_commands = AsyncMock()
+
+        await post_init(application)
+
+        application.bot.set_my_commands.assert_awaited_once()
+        mock_to_thread.assert_awaited_once_with(mock_preload)
 
 
 class TestCheckIfUserLegit(unittest.TestCase):

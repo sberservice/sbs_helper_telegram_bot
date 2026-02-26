@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Пакетное заполнение локального векторного индекса по существующим RAG-чанкам."""
+"""Пакетное заполнение локального векторного индекса по RAG-чанкам и summary документов."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 def main() -> None:
     """Точка входа CLI-скрипта backfill векторного индекса."""
     parser = argparse.ArgumentParser(
-        description="Backfill локального векторного индекса Qdrant из rag_chunks",
+        description="Backfill локального векторного индекса Qdrant из rag_chunks и/или rag_document_summaries",
     )
     parser.add_argument(
         "--batch-size",
@@ -56,6 +56,12 @@ def main() -> None:
         action="store_true",
         help="Оценить объём работ без записи в индекс",
     )
+    parser.add_argument(
+        "--target",
+        choices=("chunks", "summaries", "both"),
+        default="both",
+        help="Что индексировать: только чанки, только summary или оба типа (по умолчанию: both)",
+    )
     args = parser.parse_args()
 
     if args.batch_size <= 0:
@@ -68,6 +74,7 @@ def main() -> None:
         source_type=(args.source_type or None),
         dry_run=args.dry_run,
         max_documents=(args.max_documents if args.max_documents > 0 else None),
+        target=args.target,
     )
 
     logger.info("Backfill vector index завершён: %s", stats)

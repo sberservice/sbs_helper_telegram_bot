@@ -26,6 +26,16 @@ class VectorChunkCandidate:
     chunk_index: int
 
 
+@dataclass
+class VectorSummaryCandidate:
+    """Кандидат документа, найденный в summary-векторном prefilter."""
+
+    score: float
+    source: str
+    summary_text: str
+    document_id: int
+
+
 class LocalEmbeddingProvider:
     """Локальный провайдер эмбеддингов на базе sentence-transformers."""
 
@@ -174,10 +184,18 @@ class LocalEmbeddingProvider:
 class LocalVectorIndex:
     """Векторный индекс на базе Qdrant с remote-first и local fallback."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        chunk_collection_name: Optional[str] = None,
+        summary_collection_name: Optional[str] = None,
+    ) -> None:
         self._client = None
         self._remote_client = None
-        self._collection_name = ai_settings.AI_RAG_VECTOR_COLLECTION
+        self._collection_name = str(chunk_collection_name or ai_settings.AI_RAG_VECTOR_COLLECTION)
+        self._summary_collection_name = str(
+            summary_collection_name or ai_settings.AI_RAG_SUMMARY_VECTOR_COLLECTION
+        )
         self._embedding_size: Optional[int] = None
         self._client_init_failed = False
         self._remote_failures = 0
@@ -199,20 +217,22 @@ class LocalVectorIndex:
             return False
         return True
 
-    def ensure_collection(self, embedding_size: int) -> bool:
+    def ensure_collection(self, embedding_size: int, collection_name: Optional[str] = None) -> bool:
         """Создать коллекцию индекса при первом запуске."""
         if embedding_size <= 0:
             return False
+
+        target_collection = str(collection_name or self._collection_name)
 
         distance = self._parse_distance()
 
         def _action(client, backend_name: str) -> bool:
             from qdrant_client import models
 
-            collection_exists = client.collection_exists(self._collection_name)
+            collection_exists = client.collection_exists(target_collection)
             if not collection_exists:
                 client.create_collection(
-                    collection_name=self._collection_name,
+                    collection_name=target_collection,
                     vectors_config=models.VectorParams(
                         size=embedding_size,
                         distance=distance,
@@ -221,7 +241,7 @@ class LocalVectorIndex:
                 logger.info(
                     "Создана коллекция векторного индекса: backend=%s name=%s size=%s",
                     backend_name,
-                    self._collection_name,
+                    target_collection,
                     embedding_size,
                 )
 
@@ -235,6 +255,13 @@ class LocalVectorIndex:
             default_value=False,
         )
 
+    def ensure_summary_collection(self, embedding_size: int) -> bool:
+        """Создать коллекцию summary-эмбеддингов при первом запуске."""
+        return self.ensure_collection(
+            embedding_size=embedding_size,
+            collection_name=self._summary_collection_name,
+        )
+
     def upsert_chunks(
         self,
         chunks: List[Dict[str, object]],
@@ -244,7 +271,7 @@ class LocalVectorIndex:
         if not chunks or not embeddings or len(chunks) != len(embeddings):
             return 0
 
-        if not self.ensure_collection(len(embeddings[0])):
+        if not self.ensure_collection(len(embeddings[0]), collection_name=self._collection_name):
             return 0
 
         def _action(client, _backend_name: str) -> int:
@@ -270,6 +297,49 @@ class LocalVectorIndex:
 
         return self._execute_with_failover(
             operation_name="upsert_chunks",
+            remote_action=_action,
+            local_action=_action,
+            default_value=0,
+        )
+
+    def upsert_summaries(
+        self,
+        summaries: List[Dict[str, object]],
+        embeddings: List[List[float]],
+    ) -> int:
+        """Записать summary-документы и их эмбеддинги в отдельную коллекцию."""
+        if not summaries or not embeddings or len(summaries) != len(embeddings):
+            return 0
+
+        if not self.ensure_summary_collection(len(embeddings[0])):
+            return 0
+
+        def _action(client, _backend_name: str) -> int:
+            from qdrant_client import models
+
+            points: List[models.PointStruct] = []
+            for summary_row, vector in zip(summaries, embeddings):
+                document_id = int(summary_row.get("document_id") or 0)
+                if document_id <= 0:
+                    continue
+
+                point_id = self._build_summary_point_id(document_id=document_id)
+                payload = {
+                    "document_id": document_id,
+                    "filename": str(summary_row.get("filename") or "document"),
+                    "summary_text": str(summary_row.get("summary_text") or ""),
+                    "status": str(summary_row.get("status") or "active"),
+                }
+                points.append(models.PointStruct(id=point_id, vector=vector, payload=payload))
+
+            if not points:
+                return 0
+
+            client.upsert(collection_name=self._summary_collection_name, points=points, wait=True)
+            return len(points)
+
+        return self._execute_with_failover(
+            operation_name="upsert_summaries",
             remote_action=_action,
             local_action=_action,
             default_value=0,
@@ -334,6 +404,63 @@ class LocalVectorIndex:
             default_value=[],
         )
 
+    def search_summaries(
+        self,
+        query_vector: List[float],
+        limit: int,
+        allowed_document_ids: Optional[List[int]] = None,
+    ) -> List[VectorSummaryCandidate]:
+        """Выполнить векторный поиск релевантных summary-документов."""
+        if not query_vector:
+            return []
+
+        safe_limit = max(1, min(limit, 200))
+        prefetch_limit = max(safe_limit, int(ai_settings.AI_RAG_VECTOR_PREFETCH_K))
+        query_filter = self._build_search_filter(allowed_document_ids)
+
+        def _action(client, _backend_name: str) -> List[VectorSummaryCandidate]:
+            points = client.search(
+                collection_name=self._summary_collection_name,
+                query_vector=query_vector,
+                query_filter=query_filter,
+                limit=prefetch_limit,
+                with_payload=True,
+                with_vectors=False,
+            )
+
+            candidates: List[VectorSummaryCandidate] = []
+            for point in points or []:
+                payload = getattr(point, "payload", {}) or {}
+                raw_score = float(getattr(point, "score", 0.0) or 0.0)
+                score = max(0.0, min(raw_score, 1.0))
+                if score <= 0:
+                    continue
+
+                document_id = int(payload.get("document_id") or 0)
+                filename = str(payload.get("filename") or "document")
+                summary_text = str(payload.get("summary_text") or "").strip()
+                if not document_id or not summary_text:
+                    continue
+
+                candidates.append(
+                    VectorSummaryCandidate(
+                        score=score,
+                        source=filename,
+                        summary_text=summary_text,
+                        document_id=document_id,
+                    )
+                )
+
+            candidates.sort(key=lambda item: item.score, reverse=True)
+            return candidates[:safe_limit]
+
+        return self._execute_with_failover(
+            operation_name="search_summaries",
+            remote_action=_action,
+            local_action=_action,
+            default_value=[],
+        )
+
     def mark_document_status(self, document_id: int, status: str) -> int:
         """Обновить статус документа в payload всех его векторных точек."""
         if document_id <= 0:
@@ -367,6 +494,38 @@ class LocalVectorIndex:
             default_value=0,
         )
 
+    def mark_summary_status(self, document_id: int, status: str) -> int:
+        """Обновить статус summary-документа в payload векторной summary-коллекции."""
+        if document_id <= 0:
+            return 0
+
+        def _action(client, _backend_name: str) -> int:
+            from qdrant_client import models
+
+            client.set_payload(
+                collection_name=self._summary_collection_name,
+                payload={"status": str(status or "active")},
+                points=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="document_id",
+                                match=models.MatchValue(value=document_id),
+                            )
+                        ]
+                    )
+                ),
+                wait=True,
+            )
+            return 1
+
+        return self._execute_with_failover(
+            operation_name="mark_summary_status",
+            remote_action=_action,
+            local_action=_action,
+            default_value=0,
+        )
+
     def delete_document_points(self, document_id: int) -> int:
         """Удалить все векторные точки документа."""
         if document_id <= 0:
@@ -394,6 +553,37 @@ class LocalVectorIndex:
 
         return self._execute_with_failover(
             operation_name="delete_document_points",
+            remote_action=_action,
+            local_action=_action,
+            default_value=0,
+        )
+
+    def delete_summary_points(self, document_id: int) -> int:
+        """Удалить summary-точки документа из summary-коллекции."""
+        if document_id <= 0:
+            return 0
+
+        def _action(client, _backend_name: str) -> int:
+            from qdrant_client import models
+
+            client.delete(
+                collection_name=self._summary_collection_name,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="document_id",
+                                match=models.MatchValue(value=document_id),
+                            )
+                        ]
+                    )
+                ),
+                wait=True,
+            )
+            return 1
+
+        return self._execute_with_failover(
+            operation_name="delete_summary_points",
             remote_action=_action,
             local_action=_action,
             default_value=0,
@@ -655,5 +845,12 @@ class LocalVectorIndex:
     def _build_point_id(document_id: int, chunk_index: int) -> int:
         """Сгенерировать стабильный числовой ID точки по document_id и chunk_index."""
         raw = f"{document_id}:{chunk_index}".encode("utf-8")
+        digest = hashlib.sha256(raw).hexdigest()[:16]
+        return int(digest, 16)
+
+    @staticmethod
+    def _build_summary_point_id(document_id: int) -> int:
+        """Сгенерировать стабильный числовой ID summary-точки по document_id."""
+        raw = f"summary:{document_id}".encode("utf-8")
         digest = hashlib.sha256(raw).hexdigest()[:16]
         return int(digest, 16)

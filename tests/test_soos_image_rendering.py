@@ -65,6 +65,22 @@ def test_address_split_preserves_order():
     assert idx_region < idx_city < idx_block < idx_house
 
 
+def test_long_address_truncates_without_ellipsis():
+    """Слишком длинный адрес обрезается без добавления многоточия."""
+    fields = {
+        "merchant_name": "TEST",
+        "address": "Московская область обл, г Лыткарино, кв-л 3А, дом 8, подъезд 2, этаж 5, помещение 123, дополнительная очень длинная часть адреса",
+        "phone": "79990000000",
+        "tid": "12345678",
+        "merchant_id": "851000345678",
+    }
+
+    now = datetime(2026, 2, 26, 11, 38, tzinfo=ZoneInfo("Europe/Moscow"))
+    receipt_text = build_soos_receipt_text(fields, now=now)
+
+    assert "…" not in receipt_text
+
+
 def test_render_terminal_receipt_image_png():
     """Рендерит PNG-изображение из текста чека."""
     receipt_text = "Тест\n" + ("-" * settings.RECEIPT_WIDTH_CHARS)
