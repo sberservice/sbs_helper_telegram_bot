@@ -19,6 +19,7 @@
 | 🤖 | **AI-маршрутизатор** | Классификация текста через LLM, intent routing, RAG-база знаний, свободный чат | [README](src/sbs_helper_telegram_bot/ai_router/README.md) |
 | 📝 | **Аттестация** | Тестирование, рейтинги, категории, режим обучения, динамические ранги | [README](src/sbs_helper_telegram_bot/certification/README.md) |
 | 📸 | **Скриншоты** | Наложение маркеров локации на скриншоты Спринта (фоновая очередь) | [README](src/sbs_helper_telegram_bot/vyezd_byl/README.md) |
+| 🧾 | **СООС** | Генерация чека «Сверка итогов» из текста тикета (фоновая очередь + рендер PNG) | [README](src/sbs_helper_telegram_bot/soos/README.md) |
 | 🔢 | **UPOS Ошибки** | Поиск кодов ошибок UPOS с рекомендациями по устранению | [README](src/sbs_helper_telegram_bot/upos_error/README.md) |
 | ✅ | **Валидация заявок** | Автоопределение типа + проверка по правилам + пакетная Excel-валидация | [README](src/sbs_helper_telegram_bot/ticket_validator/README.md) |
 | ⏱️ | **КТР** | Коды трудозатрат с нормативным временем выполнения | [README](src/sbs_helper_telegram_bot/ktr/README.md) |
@@ -52,6 +53,7 @@ mysql -u root -p < schema.sql
 # Модули (все скрипты в sql/*_setup.sql):
 for f in bot_settings_setup initial_ticket_types initial_validation_rules \
          map_rules_to_ticket_types certification_setup ktr_setup upos_error_setup \
+         soos_image_queue_setup \
          gamification_setup feedback_setup news_setup ai_router_setup ai_rag_setup \
          ai_rag_document_summaries_setup ai_rag_vector_setup chat_members_setup health_check_setup \
          health_outage_calendar_setup; do
@@ -67,7 +69,7 @@ mysql -u root -p sprint_db < sql/rag_document_summaries_fulltext_index.sql
 python run_bot.py
 ```
 
-Стартуют два процесса: **Telegram Bot** + **Image Queue Processor**. Автоперезапуск при сбоях (до 3 раз). `Ctrl+C` для остановки.
+Стартуют процессы: **Telegram Bot**, **Image Queue Processor**, **SOOS Queue Processor**, **Health Check**. Автоперезапуск при сбоях (до 3 раз). `Ctrl+C` для остановки.
 
 ## Конфигурация
 
