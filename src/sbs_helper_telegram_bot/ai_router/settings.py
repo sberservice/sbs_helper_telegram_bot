@@ -73,7 +73,7 @@ LLM_CLASSIFICATION_MAX_TOKENS: Final[int] = int(
 
 # Параметры генерации LLM для свободного диалога/chat-ответов.
 LLM_CHAT_TEMPERATURE: Final[float] = float(
-    os.getenv("AI_LLM_CHAT_TEMPERATURE", "0.7")
+    os.getenv("AI_LLM_CHAT_TEMPERATURE", "0.5")
 )
 LLM_CHAT_MAX_TOKENS: Final[int] = int(
     os.getenv("AI_LLM_CHAT_MAX_TOKENS", "1024")
