@@ -509,6 +509,107 @@ class TestAIPlaceholderFlow(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(placeholder_profile_call.args[3], int)
         self.assertIsInstance(placeholder_profile_call.args[4], int)
 
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_user_auth_status")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_ai_router")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_main_menu_keyboard")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.clear_all_states")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.enter_certification_module", new_callable=AsyncMock)
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot._edit_markdown_safe", new_callable=AsyncMock)
+    async def test_certification_intent_switches_to_certification_module_with_state_reset(
+        self,
+        mock_edit_safe,
+        mock_enter_certification_module,
+        mock_clear_all_states,
+        mock_keyboard,
+        mock_get_router,
+        mock_auth,
+    ):
+        """Для intent=certification_info бот сбрасывает состояния и открывает меню аттестации."""
+        from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import text_entered
+
+        auth = MagicMock()
+        auth.is_pre_invited = False
+        auth.is_pre_invited_activated = True
+        auth.is_invite_blocked = False
+        auth.is_legit = True
+        auth.is_admin = False
+        mock_auth.return_value = auth
+
+        mock_keyboard.return_value = MagicMock()
+
+        mock_router = MagicMock()
+
+        async def _route_with_certification_intent(_text, _user_id, on_classified=None, on_progress=None):
+            if on_classified is not None:
+                await on_classified(SimpleNamespace(intent="certification_info"))
+            return "Сводка аттестации", "routed"
+
+        mock_router.route = AsyncMock(side_effect=_route_with_certification_intent)
+        mock_get_router.return_value = mock_router
+
+        update, context = _make_update_and_context(text="как у меня с аттестацией")
+        placeholder_msg = MagicMock()
+        placeholder_msg.delete = AsyncMock()
+        update.message.reply_text.return_value = placeholder_msg
+
+        await text_entered(update, context)
+
+        mock_clear_all_states.assert_called_once_with(context)
+        mock_enter_certification_module.assert_awaited_once_with(update, context)
+        placeholder_msg.delete.assert_awaited_once()
+        mock_edit_safe.assert_not_awaited()
+
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_user_auth_status")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_ai_router")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_main_menu_keyboard")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.clear_all_states")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.enter_certification_module", new_callable=AsyncMock)
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot._edit_markdown_safe", new_callable=AsyncMock)
+    async def test_certification_intent_does_not_switch_if_already_in_certification_module(
+        self,
+        mock_edit_safe,
+        mock_enter_certification_module,
+        mock_clear_all_states,
+        mock_keyboard,
+        mock_get_router,
+        mock_auth,
+    ):
+        """Если уже открыто меню аттестации, повторного переключения и сброса не происходит."""
+        from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import text_entered
+        from src.sbs_helper_telegram_bot.certification import keyboards as cert_keyboards
+
+        auth = MagicMock()
+        auth.is_pre_invited = False
+        auth.is_pre_invited_activated = True
+        auth.is_invite_blocked = False
+        auth.is_legit = True
+        auth.is_admin = False
+        mock_auth.return_value = auth
+
+        mock_keyboard.return_value = MagicMock()
+
+        mock_router = MagicMock()
+
+        async def _route_with_certification_intent(_text, _user_id, on_classified=None, on_progress=None):
+            if on_classified is not None:
+                await on_classified(SimpleNamespace(intent="certification_info"))
+            return "Сводка аттестации", "routed"
+
+        mock_router.route = AsyncMock(side_effect=_route_with_certification_intent)
+        mock_get_router.return_value = mock_router
+
+        update, context = _make_update_and_context(text="покажи мой прогресс")
+        context.user_data["last_reply_keyboard"] = cert_keyboards.get_submenu_keyboard()
+
+        placeholder_msg = MagicMock()
+        update.message.reply_text.return_value = placeholder_msg
+
+        await text_entered(update, context)
+
+        mock_clear_all_states.assert_not_called()
+        mock_enter_certification_module.assert_not_awaited()
+        mock_edit_safe.assert_awaited_once_with(placeholder_msg, "Сводка аттестации")
+
 
 class TestStripMarkdownV2Escaping(unittest.TestCase):
     """Тесты для _strip_markdown_v2_escaping — удаление MarkdownV2-экранирования."""

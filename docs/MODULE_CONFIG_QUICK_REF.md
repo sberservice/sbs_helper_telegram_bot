@@ -63,13 +63,15 @@ keyboard = get_modules_menu_keyboard()
 ```
 
 ## Current Modules (in order)
-1. Валидация заявок (ticket_validator)
+1. Аттестация (certification)
 2. Обработать скриншот (screenshot)  
 3. СООС (soos)
 4. UPOS Ошибки (upos_errors)
-5. Аттестация (certification)
-6. КТР (ktr)
+5. КТР (ktr)
+6. Валидация заявок (ticket_validator)
 7. Обратная связь (feedback)
+8. AI Роутер (ai_router) — скрыт из меню «⚡ Начать работу»
+9. Новости (news) — скрыт из меню «⚡ Начать работу»
 
 ## See Also
 - Full guide: `docs/MODULE_CONFIG_GUIDE.md`

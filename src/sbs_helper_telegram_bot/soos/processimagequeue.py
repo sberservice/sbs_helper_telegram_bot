@@ -281,7 +281,7 @@ def main() -> None:
                 mark_job_as_finished(job["job_id"], error_message)
                 continue
 
-            payment_sent = send_photo(job["user_id"], payment_output_path, messages.MESSAGE_PROCESSING_DONE)
+            payment_sent = send_photo(job["user_id"], payment_output_path)
             if not payment_sent:
                 mark_job_as_finished(job["job_id"], "Ошибка отправки первого изображения в Telegram")
                 continue
@@ -291,7 +291,7 @@ def main() -> None:
                 mark_job_as_finished(job["job_id"], "Ошибка отправки второго изображения в Telegram")
                 continue
 
-            sverka_sent = send_photo(job["user_id"], sverka_output_path)
+            sverka_sent = send_photo(job["user_id"], sverka_output_path, messages.MESSAGE_PROCESSING_DONE)
             if not sverka_sent:
                 mark_job_as_finished(job["job_id"], "Ошибка отправки третьего изображения в Telegram")
                 continue

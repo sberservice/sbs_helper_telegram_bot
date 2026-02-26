@@ -1,5 +1,31 @@
 #!/usr/bin/env python3
-"""Синхронизация директории документов с RAG-базой знаний."""
+"""Синхронизация директории документов с RAG-базой знаний.
+
+Примеры использования:
+    # Однократная синхронизация директории
+    python scripts/rag_directory_ingest.py -d ~/docs/knowledge_base
+
+    # Dry-run (показать изменения без записи в БД)
+    python scripts/rag_directory_ingest.py -d ~/docs/knowledge_base --dry-run
+
+    # Принудительное обновление всех файлов
+    python scripts/rag_directory_ingest.py -d ~/docs/knowledge_base --force-update
+
+    # Регенерация summary для всех документов (при изменении промпта)
+    python scripts/rag_directory_ingest.py -d ~/docs/knowledge_base --regenerate-summaries
+
+    # Daemon-режим (непрерывная синхронизация)
+    python scripts/rag_directory_ingest.py -d ~/docs/knowledge_base --daemon
+
+    # Daemon-режим с кастомным интервалом (5 минут)
+    python scripts/rag_directory_ingest.py -d ~/docs/knowledge_base --daemon --interval-seconds 300
+
+    # Только верхний уровень директории (без рекурсии)
+    python scripts/rag_directory_ingest.py -d ~/docs/knowledge_base --no-recursive
+
+    # Подробный лог
+    python scripts/rag_directory_ingest.py -d ~/docs/knowledge_base -v
+"""
 
 from __future__ import annotations
 
@@ -25,6 +51,7 @@ def _bootstrap_project_root() -> None:
 
 _bootstrap_project_root()
 
+from src.common import database
 from src.sbs_helper_telegram_bot.ai_router.rag_service import RagKnowledgeService
 
 logging.basicConfig(
@@ -128,6 +155,143 @@ def _scan_files(root_dir: Path, recursive: bool) -> List[Path]:
 def _sha256(payload: bytes) -> str:
     """Вычислить SHA-256 для содержимого файла."""
     return hashlib.sha256(payload).hexdigest()
+
+
+def _get_document_chunks(document_id: int) -> List[str]:
+    """Получить все чанки документа из базы данных."""
+    with database.get_db_connection() as conn:
+        with database.get_cursor(conn) as cursor:
+            cursor.execute(
+                """
+                SELECT chunk_text
+                FROM rag_chunks
+                WHERE document_id = %s
+                ORDER BY chunk_index
+                """,
+                (document_id,),
+            )
+            rows = cursor.fetchall() or []
+    return [str(row.get("chunk_text") or "") for row in rows]
+
+
+def regenerate_document_summaries(
+    directory: Path,
+    recursive: bool,
+    dry_run: bool,
+    uploaded_by: int,
+    service: Optional[RagKnowledgeService] = None,
+) -> Dict[str, int]:
+    """
+    Перегенерировать summary для всех документов директории.
+
+    Используется при изменении промпта суммаризации или модели.
+
+    Args:
+        directory: Директория с документами.
+        recursive: Сканировать рекурсивно (если False — только верхний уровень).
+        dry_run: Только показать, какие документы будут обновлены.
+        uploaded_by: ID пользователя для аудита.
+        service: Экземпляр RagKnowledgeService (опционально).
+
+    Returns:
+        Статистика по регенерации.
+    """
+    rag_service = service or RagKnowledgeService()
+    root_dir = directory.resolve()
+    root_prefix = root_dir.as_posix().rstrip("/") + "/"
+
+    stats = {
+        "documents_found": 0,
+        "summaries_regenerated": 0,
+        "skipped_no_chunks": 0,
+        "skipped_subdirectory": 0,
+        "errors": 0,
+    }
+
+    existing_documents = rag_service.list_documents_by_source(
+        source_type="filesystem",
+        source_url_prefix=root_prefix,
+    )
+
+    # Фильтрация для non-recursive режима
+    if not recursive:
+        filtered_docs = []
+        for doc in existing_documents:
+            source_url = str(doc.get("source_url") or "")
+            relative_path = source_url[len(root_prefix):] if source_url.startswith(root_prefix) else source_url
+            # Если в относительном пути есть /, значит файл в поддиректории
+            if "/" not in relative_path:
+                filtered_docs.append(doc)
+            else:
+                stats["skipped_subdirectory"] += 1
+        existing_documents = filtered_docs
+
+    stats["documents_found"] = len(existing_documents)
+
+    logger.info(
+        "Найдено %d документов для регенерации summary (prefix=%s recursive=%s)",
+        len(existing_documents),
+        root_prefix,
+        recursive,
+    )
+
+    for doc in existing_documents:
+        document_id = int(doc.get("id") or 0)
+        filename = str(doc.get("filename") or "")
+        status = str(doc.get("status") or "")
+
+        if status != "active":
+            logger.debug("Пропуск документа id=%d (status=%s)", document_id, status)
+            continue
+
+        if dry_run:
+            logger.info("[DRY-RUN] Будет перегенерировано summary: id=%d filename=%s", document_id, filename)
+            stats["summaries_regenerated"] += 1
+            continue
+
+        try:
+            chunks = _get_document_chunks(document_id)
+            if not chunks:
+                logger.warning("Документ id=%d не имеет чанков, пропуск", document_id)
+                stats["skipped_no_chunks"] += 1
+                continue
+
+            # Используем приватный метод для генерации summary
+            summary_text, model_name = rag_service._generate_document_summary(
+                filename=filename,
+                chunks=chunks,
+                user_id=uploaded_by,
+                summary_model_scope="directory_ingest",
+            )
+
+            if not summary_text:
+                logger.warning("Не удалось сгенерировать summary для id=%d", document_id)
+                stats["errors"] += 1
+                continue
+
+            # Обновляем summary в БД
+            with database.get_db_connection() as conn:
+                with database.get_cursor(conn) as cursor:
+                    rag_service._upsert_document_summary(
+                        cursor=cursor,
+                        document_id=document_id,
+                        summary_text=summary_text,
+                        model_name=model_name,
+                    )
+
+            logger.info(
+                "Перегенерировано summary: id=%d filename=%s model=%s",
+                document_id,
+                filename,
+                model_name or "unknown",
+            )
+            stats["summaries_regenerated"] += 1
+
+        except Exception as exc:
+            logger.error("Ошибка регенерации summary для id=%d: %s", document_id, exc)
+            stats["errors"] += 1
+
+    return stats
 
 
 def _log_chunking_diagnostics(rag_service: RagKnowledgeService) -> None:
@@ -339,6 +503,11 @@ def main() -> None:
         help="Сканировать только верхний уровень директории",
     )
     parser.add_argument(
+        "--regenerate-summaries",
+        action="store_true",
+        help="Перегенерировать summary для всех документов (при изменении промпта)",
+    )
+    parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
@@ -374,15 +543,27 @@ def main() -> None:
     atexit.register(_cleanup_lock)
 
     logger.info(
-        "Старт синхронизации RAG: directory=%s recursive=%s dry_run=%s force_update=%s",
+        "Старт синхронизации RAG: directory=%s recursive=%s dry_run=%s force_update=%s regenerate_summaries=%s",
         target_dir,
         recursive,
         args.dry_run,
         args.force_update,
+        args.regenerate_summaries,
     )
 
     try:
-        if args.daemon:
+        if args.regenerate_summaries:
+            if args.daemon:
+                logger.error("--regenerate-summaries несовместим с --daemon")
+                raise SystemExit(1)
+            stats = regenerate_document_summaries(
+                directory=target_dir,
+                recursive=recursive,
+                dry_run=args.dry_run,
+                uploaded_by=args.uploaded_by,
+            )
+            logger.info("Регенерация summary завершена: %s", stats)
+        elif args.daemon:
             daemon_loop(
                 directory=target_dir,
                 recursive=recursive,

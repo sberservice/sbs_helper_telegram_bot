@@ -29,9 +29,9 @@ Each module in `MODULE_CONFIG` is a dictionary with the following fields:
 ```python
 MODULE_CONFIG = [
     {
-        'key': 'ticket_validator',
-        'setting_key': 'module_ticket_validator_enabled',
-        'button_label': '✅ Валидация заявок',
+        'key': 'certification',
+        'setting_key': 'module_certification_enabled',
+        'button_label': '📝 Аттестация',
         'order': 1,
         'columns': 2
     },
@@ -41,6 +41,13 @@ MODULE_CONFIG = [
         'button_label': '📸 Обработать скриншот',
         'order': 2,
         'columns': 2
+    },
+    {
+        'key': 'soos',
+        'setting_key': 'module_soos_enabled',
+        'button_label': '🧾 СООС',
+        'order': 3,
+        'columns': 3
     },
     # ... more modules
 ]

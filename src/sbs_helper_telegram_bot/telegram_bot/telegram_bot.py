@@ -287,6 +287,29 @@ def _get_last_reply_keyboard_or_main(context: ContextTypes.DEFAULT_TYPE, is_admi
     return get_main_menu_keyboard(is_admin=is_admin)
 
 
+def _extract_reply_keyboard_text(reply_markup: ReplyKeyboardMarkup) -> list[list[str]]:
+    """Преобразовать reply-клавиатуру в матрицу текстов кнопок."""
+    rows: list[list[str]] = []
+    for row in (reply_markup.keyboard or []):
+        rows.append([
+            button if isinstance(button, str) else str(getattr(button, "text", ""))
+            for button in row
+        ])
+    return rows
+
+
+def _is_certification_reply_keyboard(reply_markup) -> bool:
+    """Проверить, что переданная reply-клавиатура относится к модулю аттестации."""
+    if not isinstance(reply_markup, ReplyKeyboardMarkup):
+        return False
+
+    keyboard_rows = _extract_reply_keyboard_text(reply_markup)
+    return keyboard_rows in (
+        certification_settings.SUBMENU_BUTTONS,
+        certification_settings.ADMIN_SUBMENU_BUTTONS,
+    )
+
+
 async def _reply_markdown_safe(message, text: str, reply_markup) -> None:
     """
     Отправить MarkdownV2-сообщение с безопасным fallback.
@@ -1149,6 +1172,12 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 mark_step("reply_module_disabled_certification")
                 profile_result = "certification_disabled"
                 return
+            cert_keyboard = (
+                certification_keyboards.get_admin_submenu_keyboard()
+                if is_admin
+                else certification_keyboards.get_submenu_keyboard()
+            )
+            _remember_reply_keyboard(context, cert_keyboard)
             await enter_certification_module(update, context)
             mark_step("enter_certification_module")
             profile_result = "certification_submenu"
@@ -1360,6 +1389,26 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
             if response and status in ("routed", "chat", "rate_limited", "module_disabled"):
                 restore_keyboard = _get_last_reply_keyboard_or_main(context, is_admin)
+                if (
+                    classified_intent == "certification_info"
+                    and status == "routed"
+                    and not _is_certification_reply_keyboard(restore_keyboard)
+                ):
+                    clear_all_states(context)
+                    cert_keyboard = (
+                        certification_keyboards.get_admin_submenu_keyboard()
+                        if is_admin
+                        else certification_keyboards.get_submenu_keyboard()
+                    )
+                    _remember_reply_keyboard(context, cert_keyboard)
+                    try:
+                        await placeholder.delete()
+                    except Exception:
+                        pass
+                    await enter_certification_module(update, context)
+                    mark_step("ai_switch_to_certification_module")
+                    profile_result = "ai_certification_module_switch"
+                    return
                 is_rag_response = classified_intent == "rag_qa"
                 response_chunks = (
                     _split_markdown_v2_message(response)
