@@ -205,10 +205,13 @@ from src.sbs_helper_telegram_bot.news.news_bot_part import (
 from src.sbs_helper_telegram_bot.ai_router.intent_router import get_router as get_ai_router
 from src.sbs_helper_telegram_bot.ai_router.messages import (
     MESSAGE_MODULE_DISABLED_BUTTON,
-    MESSAGE_AI_PROCESSING,
-    MESSAGE_AI_WAITING_FOR_AI,
-    MESSAGE_AI_LOW_CONFIDENCE,
-    MESSAGE_AI_UNAVAILABLE,
+    AI_MESSAGE_KEY_PROCESSING,
+    AI_MESSAGE_KEY_WAITING_FOR_AI,
+    AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
+    AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
+    get_ai_message_by_key,
+    get_ai_progress_message,
+    get_ai_status_message,
     escape_markdown_v2,
 )
 from src.sbs_helper_telegram_bot.ai_router.rag_admin_bot_part import (
@@ -240,10 +243,10 @@ logger = logging.getLogger(__name__)
 
 CTX_LAST_REPLY_KEYBOARD = "last_reply_keyboard"
 
-AI_STATUS_FALLBACK_MESSAGES = {
-    "low_confidence": MESSAGE_AI_LOW_CONFIDENCE,
-    "error": MESSAGE_AI_UNAVAILABLE,
-    "circuit_open": MESSAGE_AI_UNAVAILABLE,
+AI_STATUS_FALLBACK_KEYS = {
+    "low_confidence",
+    "error",
+    "circuit_open",
 }
 
 
@@ -1257,7 +1260,7 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
             placeholder_reply_started_at = time.perf_counter()
             placeholder = await update.message.reply_text(
-                MESSAGE_AI_PROCESSING,
+                get_ai_message_by_key(AI_MESSAGE_KEY_PROCESSING),
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
             )
             placeholder_reply_ms = int((time.perf_counter() - placeholder_reply_started_at) * 1000)
@@ -1282,11 +1285,36 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 if getattr(classification, "intent", "") != "rag_qa":
                     return
                 try:
-                    await _edit_markdown_safe(placeholder, MESSAGE_AI_WAITING_FOR_AI)
+                    await _edit_markdown_safe(
+                        placeholder,
+                        get_ai_message_by_key(AI_MESSAGE_KEY_WAITING_FOR_AI),
+                    )
                 except Exception as rag_placeholder_exc:
                     logger.warning(
                         "Failed to switch AI placeholder to RAG waiting state: %s",
                         rag_placeholder_exc,
+                    )
+
+            async def _on_ai_progress(stage: str, payload=None) -> None:
+                """Обновить плейсхолдер по этапам прогресса RAG."""
+                if stage not in {
+                    AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
+                    AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
+                }:
+                    return
+
+                stage_message = get_ai_progress_message(stage)
+                if not stage_message:
+                    return
+
+                try:
+                    await _edit_markdown_safe(placeholder, stage_message)
+                except Exception as progress_placeholder_exc:
+                    logger.warning(
+                        "Failed to update AI placeholder by progress stage: stage=%s payload=%s error=%s",
+                        stage,
+                        payload,
+                        progress_placeholder_exc,
                     )
 
             try:
@@ -1294,6 +1322,7 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     text,
                     user_id,
                     on_classified=_on_ai_classified,
+                    on_progress=_on_ai_progress,
                 )
             except Exception as ai_exc:
                 logger.error("AI router exception: user=%s, error=%s", user_id, ai_exc)
@@ -1349,10 +1378,9 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             else:
                 # Ответ по статусу AI (или дефолт для нераспознанного текста)
                 restore_keyboard = _get_last_reply_keyboard_or_main(context, is_admin)
-                fallback_message = AI_STATUS_FALLBACK_MESSAGES.get(
-                    status,
-                    MESSAGE_UNRECOGNIZED_INPUT,
-                )
+                fallback_message = get_ai_status_message(status)
+                if fallback_message is None:
+                    fallback_message = MESSAGE_UNRECOGNIZED_INPUT
                 try:
                     await _edit_markdown_safe(placeholder, fallback_message)
                     try:
@@ -1382,7 +1410,7 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                         reply_markup=restore_keyboard,
                     )
                 mark_step("reply_unrecognized_input")
-                profile_result = f"ai_{status}" if status in AI_STATUS_FALLBACK_MESSAGES else "unrecognized_input"
+                profile_result = f"ai_{status}" if status in AI_STATUS_FALLBACK_KEYS else "unrecognized_input"
     finally:
         total_ms = int((time.perf_counter() - profile_started_at) * 1000)
         logger.info(

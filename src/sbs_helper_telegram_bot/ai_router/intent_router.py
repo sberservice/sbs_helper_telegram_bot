@@ -95,6 +95,7 @@ class IntentRouter:
         text: str,
         user_id: int,
         on_classified: Optional[Callable[[ClassificationResult], Awaitable[None]]] = None,
+        on_progress: Optional[Callable[[str, Dict[str, Any]], Awaitable[None]]] = None,
     ) -> Tuple[Optional[str], str]:
         """
         Маршрутизировать текстовое сообщение пользователя.
@@ -104,6 +105,7 @@ class IntentRouter:
             user_id: Telegram ID пользователя.
             on_classified: Необязательный async-callback, вызываемый сразу
                 после успешной классификации intent.
+            on_progress: Необязательный async-callback этапов прогресса маршрутизации.
 
         Returns:
             Кортеж (ответ_MarkdownV2 | None, статус).
@@ -256,7 +258,11 @@ class IntentRouter:
         # 11. Маршрутизация по intent
         dispatch_started_at = time.monotonic()
         response, status, dispatch_meta = await self._dispatch(
-            classification, user_id, text, enabled_modules
+            classification,
+            user_id,
+            text,
+            enabled_modules,
+            on_progress=on_progress,
         )
         dispatch_ms = int((time.monotonic() - dispatch_started_at) * 1000)
         dispatch_path = str(dispatch_meta.get("path", "unknown"))
@@ -298,6 +304,7 @@ class IntentRouter:
         user_id: int,
         original_text: str,
         enabled_modules: List[str],
+        on_progress: Optional[Callable[[str, Dict[str, Any]], Awaitable[None]]] = None,
     ) -> Tuple[Optional[str], str, Dict[str, Any]]:
         """Диспетчер: маршрутизировать к handler или fallback."""
         intent = classification.intent
@@ -323,9 +330,29 @@ class IntentRouter:
             if rag_handler:
                 try:
                     handler_started_at = time.monotonic()
-                    response = await rag_handler.execute(
-                        {"question": original_text}, user_id
-                    )
+                    rag_progress_callback = None
+                    if on_progress is not None:
+                        async def _rag_progress(stage: str, payload: Optional[Dict[str, Any]] = None) -> None:
+                            progress_payload = {
+                                "intent": "rag_qa",
+                                "route_path": "general_chat_to_rag",
+                            }
+                            if payload:
+                                progress_payload.update(payload)
+                            await on_progress(stage, progress_payload)
+
+                        rag_progress_callback = _rag_progress
+
+                    if rag_progress_callback is None:
+                        response = await rag_handler.execute(
+                            {"question": original_text}, user_id
+                        )
+                    else:
+                        response = await rag_handler.execute(
+                            {"question": original_text},
+                            user_id,
+                            on_progress=rag_progress_callback,
+                        )
                     dispatch_meta["path"] = "general_chat_to_rag"
                     dispatch_meta["handler_ms"] = int((time.monotonic() - handler_started_at) * 1000)
                     return response, "routed", dispatch_meta
@@ -363,7 +390,19 @@ class IntentRouter:
                 if intent == "rag_qa" and len(str(params.get("question", "")).strip()) < 3:
                     params["question"] = original_text
 
-                response = await handler.execute(params, user_id)
+                if intent == "rag_qa" and on_progress is not None:
+                    async def _rag_progress(stage: str, payload: Optional[Dict[str, Any]] = None) -> None:
+                        progress_payload = {
+                            "intent": "rag_qa",
+                            "route_path": "rag_qa",
+                        }
+                        if payload:
+                            progress_payload.update(payload)
+                        await on_progress(stage, progress_payload)
+
+                    response = await handler.execute(params, user_id, on_progress=_rag_progress)
+                else:
+                    response = await handler.execute(params, user_id)
                 dispatch_meta["path"] = "handler"
                 dispatch_meta["handler_ms"] = int((time.monotonic() - handler_started_at) * 1000)
                 return response, "routed", dispatch_meta

@@ -14,6 +14,10 @@ from src.sbs_helper_telegram_bot.ai_router.intent_router import (
 from src.sbs_helper_telegram_bot.ai_router.llm_provider import (
     ClassificationResult,
 )
+from src.sbs_helper_telegram_bot.ai_router.messages import (
+    AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
+    AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
+)
 from src.sbs_helper_telegram_bot.ai_router.rate_limiter import AIRateLimiter
 
 
@@ -249,6 +253,54 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
             1,
         )
         provider.chat.assert_not_called()
+
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=["ai_router"])
+    @patch.object(IntentRouter, "_log_to_db")
+    async def test_general_chat_rerouted_to_rag_forwards_progress(
+        self,
+        mock_log_to_db,
+        mock_modules,
+        mock_enabled,
+    ):
+        """При reroute general_chat→rag колбэк прогресса получает RAG-этапы."""
+        provider = AsyncMock()
+        provider.name = "deepseek"
+        provider.get_model_name = MagicMock(return_value="deepseek-chat")
+        provider.classify.return_value = ClassificationResult(
+            intent="general_chat",
+            confidence=0.92,
+            response_time_ms=700,
+        )
+
+        router = _make_router(provider=provider)
+        rag_handler = MagicMock()
+        rag_handler.intent_name = "rag_qa"
+        rag_handler.module_key = "ai_router"
+
+        async def _execute_with_progress(_params, _user_id, on_progress=None):
+            if on_progress is not None:
+                await on_progress(AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED, {"marker": "prefilter"})
+                await on_progress(AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED, {"marker": "llm"})
+            return "📚 *Ответ по базе знаний*\n\nТест"
+
+        rag_handler.execute = AsyncMock(side_effect=_execute_with_progress)
+        router._handlers["rag_qa"] = rag_handler
+
+        on_progress = AsyncMock()
+        result, status = await router.route(
+            "как оформить заявку по регламенту?",
+            user_id=1,
+            on_progress=on_progress,
+        )
+
+        self.assertEqual(status, "routed")
+        self.assertIn("Ответ по базе знаний", result)
+        self.assertEqual(on_progress.await_count, 2)
+        self.assertEqual(on_progress.await_args_list[0].args[0], AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED)
+        self.assertEqual(on_progress.await_args_list[1].args[0], AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED)
+        self.assertEqual(on_progress.await_args_list[0].args[1].get("route_path"), "general_chat_to_rag")
+        self.assertEqual(on_progress.await_args_list[1].args[1].get("route_path"), "general_chat_to_rag")
 
     @patch("src.common.bot_settings.is_module_enabled", return_value=True)
     @patch("src.common.bot_settings.get_enabled_modules", return_value=["ai_router"])

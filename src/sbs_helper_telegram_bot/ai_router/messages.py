@@ -6,6 +6,7 @@ messages.py — сообщения модуля AI-маршрутизации.
 """
 
 import re
+from typing import Callable, Dict, Optional
 
 
 _RAG_INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
@@ -90,6 +91,8 @@ def format_rag_answer_markdown_v2(text: str) -> str:
 
 MESSAGE_AI_PROCESSING = "⏳ _Обрабатываю ваш запрос\\.\\.\\._"
 MESSAGE_AI_WAITING_FOR_AI = "⏳ _Ожидаю ответа ИИ_"
+MESSAGE_AI_PREFILTERING_DOCUMENTS = "⏳ _Подбираю подходящие материалы из базы знаний\._"
+MESSAGE_AI_REQUESTING_AUGMENTED_PAYLOAD = "⏳ _Собираю контекст и отправляю запрос ИИ\._"
 
 MESSAGE_AI_RATE_LIMITED = (
     "⚠️ *Слишком много запросов*\n\n"
@@ -128,6 +131,90 @@ MESSAGE_MODULE_DISABLED_BUTTON = (
 # =============================================
 
 MESSAGE_AI_CHAT_PREFIX = "🤖 "
+
+
+# =============================================
+# Ключи сообщений и этапы прогресса
+# =============================================
+
+AI_MESSAGE_KEY_PROCESSING = "placeholder.processing"
+AI_MESSAGE_KEY_WAITING_FOR_AI = "placeholder.waiting_for_ai"
+AI_MESSAGE_KEY_PREFILTERING_DOCUMENTS = "placeholder.prefiltering_documents"
+AI_MESSAGE_KEY_REQUESTING_AUGMENTED_PAYLOAD = "placeholder.requesting_augmented_payload"
+AI_MESSAGE_KEY_STATUS_LOW_CONFIDENCE = "status.low_confidence"
+AI_MESSAGE_KEY_STATUS_ERROR = "status.error"
+AI_MESSAGE_KEY_STATUS_CIRCUIT_OPEN = "status.circuit_open"
+
+AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED = "rag_prefilter_started"
+AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED = "rag_augmented_request_started"
+
+_AI_MESSAGE_DEFAULTS: Dict[str, str] = {
+    AI_MESSAGE_KEY_PROCESSING: MESSAGE_AI_PROCESSING,
+    AI_MESSAGE_KEY_WAITING_FOR_AI: MESSAGE_AI_WAITING_FOR_AI,
+    AI_MESSAGE_KEY_PREFILTERING_DOCUMENTS: MESSAGE_AI_PREFILTERING_DOCUMENTS,
+    AI_MESSAGE_KEY_REQUESTING_AUGMENTED_PAYLOAD: MESSAGE_AI_REQUESTING_AUGMENTED_PAYLOAD,
+    AI_MESSAGE_KEY_STATUS_LOW_CONFIDENCE: MESSAGE_AI_LOW_CONFIDENCE,
+    AI_MESSAGE_KEY_STATUS_ERROR: MESSAGE_AI_UNAVAILABLE,
+    AI_MESSAGE_KEY_STATUS_CIRCUIT_OPEN: MESSAGE_AI_UNAVAILABLE,
+}
+
+AI_STATUS_TO_MESSAGE_KEY: Dict[str, str] = {
+    "low_confidence": AI_MESSAGE_KEY_STATUS_LOW_CONFIDENCE,
+    "error": AI_MESSAGE_KEY_STATUS_ERROR,
+    "circuit_open": AI_MESSAGE_KEY_STATUS_CIRCUIT_OPEN,
+}
+
+AI_PROGRESS_STAGE_TO_MESSAGE_KEY: Dict[str, str] = {
+    AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED: AI_MESSAGE_KEY_PREFILTERING_DOCUMENTS,
+    AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED: AI_MESSAGE_KEY_REQUESTING_AUGMENTED_PAYLOAD,
+}
+
+_ai_message_resolver: Optional[Callable[[str], Optional[str]]] = None
+
+
+def set_ai_message_resolver(resolver: Optional[Callable[[str], Optional[str]]]) -> None:
+    """
+    Установить внешний резолвер текстов AI-сообщений.
+
+    Используется для будущего подключения источника из БД без изменения
+    бизнес-логики в роутере/telegram-слое.
+    """
+    global _ai_message_resolver
+    _ai_message_resolver = resolver
+
+
+def get_ai_message_by_key(message_key: str) -> str:
+    """
+    Получить текст AI-сообщения по ключу с безопасным fallback.
+
+    При наличии внешнего резолвера сначала пробуем получить текст из него,
+    затем используем встроенный словарь default-значений.
+    """
+    if _ai_message_resolver is not None:
+        try:
+            resolved = _ai_message_resolver(message_key)
+            if isinstance(resolved, str) and resolved.strip():
+                return resolved
+        except Exception:
+            pass
+
+    return _AI_MESSAGE_DEFAULTS.get(message_key, MESSAGE_AI_PROCESSING)
+
+
+def get_ai_status_message(status: str) -> Optional[str]:
+    """Вернуть текст fallback-сообщения для AI-статуса."""
+    message_key = AI_STATUS_TO_MESSAGE_KEY.get(status)
+    if not message_key:
+        return None
+    return get_ai_message_by_key(message_key)
+
+
+def get_ai_progress_message(stage: str) -> Optional[str]:
+    """Вернуть текст для отображения этапа прогресса AI/RAG."""
+    message_key = AI_PROGRESS_STAGE_TO_MESSAGE_KEY.get(stage)
+    if not message_key:
+        return None
+    return get_ai_message_by_key(message_key)
 
 # =============================================
 # Форматирование
