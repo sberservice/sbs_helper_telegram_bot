@@ -179,6 +179,13 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 - Длинные ответы `rag_qa` автоматически разбиваются на несколько MarkdownV2-сообщений, чтобы избежать ошибки Telegram `Message is too long`
 - Восстановление `ReplyKeyboardMarkup` после AI-ответа
 
+## Прогресс плейсхолдера AI
+
+- В AI-потоке используется поэтапный индикатор: базовая обработка → ожидание классификации/маршрутизации → RAG prefilter документов → отправка augmented payload в LLM.
+- Для сценария `general_chat → reroute → rag_qa` этапы RAG также показываются пользователю.
+- Для cache-hit RAG промежуточные этапы пропускаются и возвращается финальный ответ.
+- Тексты этапов запрашиваются через единый резолвер сообщений по ключам (`get_ai_message_by_key`), что позволяет позже подключить источник из БД без изменений в бизнес-логике Telegram/Router.
+
 ## Логирование
 
 - Результаты классификации → `ai_router_log` (intent, confidence, explain_code, response_time_ms)

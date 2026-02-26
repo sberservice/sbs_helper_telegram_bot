@@ -21,11 +21,15 @@ import sys
 import time
 from collections import Counter
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple, TypeVar
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, TypeVar
 
 import src.common.database as database
 
 from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
+from src.sbs_helper_telegram_bot.ai_router.messages import (
+    AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
+    AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
+)
 from src.sbs_helper_telegram_bot.ai_router.prompts import build_rag_prompt, build_rag_summary_prompt
 from src.sbs_helper_telegram_bot.ai_router.vector_search import (
     LocalEmbeddingProvider,
@@ -406,7 +410,7 @@ class RagKnowledgeService:
 
             async def _request_summary() -> str:
                 return await provider.chat(
-                    messages=[{"role": "user", "content": "Сформируй summary документа. Подумай, какие в нем могут быть ключевые отличия в сути от других подобных похожих документов, чтобы далее было проще найти именно этот документ."}],
+                    messages=[{"role": "user", "content": "Сформируй summary документа. Подчеркни объект на который фокусируется документ. Подумай, какие в нем могут быть отличия в сути от других подобных похожих документов, чтобы далее было проще найти именно этот документ."}],
                     system_prompt=system_prompt,
                     user_id=user_id,
                     purpose="rag_summary",
@@ -746,6 +750,7 @@ class RagKnowledgeService:
         self,
         question: str,
         user_id: int,
+        on_progress: Optional[Callable[[str, Optional[Dict[str, Any]]], Awaitable[None]]] = None,
     ) -> Optional[str]:
         """
         Ответить на вопрос пользователя на основе документов.
@@ -757,6 +762,21 @@ class RagKnowledgeService:
         Returns:
             Ответ LLM или None, если релевантных данных нет.
         """
+        async def _emit_progress(stage: str, payload: Optional[Dict[str, Any]] = None) -> None:
+            """Безопасно отправить событие прогресса во внешний callback."""
+            if on_progress is None:
+                return
+            try:
+                await on_progress(stage, payload)
+            except Exception as progress_exc:
+                logger.warning(
+                    "RAG progress callback failed: stage=%s user_id=%s error_type=%s error_repr=%r",
+                    stage,
+                    user_id,
+                    type(progress_exc).__name__,
+                    progress_exc,
+                )
+
         normalized_question = (question or "").strip()
         if len(normalized_question) < 3:
             return None
@@ -767,6 +787,8 @@ class RagKnowledgeService:
         now = time.time()
         if cached and cached.expires_at > now:
             return cached.answer
+
+        await _emit_progress(AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED)
 
         chunks, summary_blocks = self._retrieve_context_for_question(
             normalized_question,
@@ -790,6 +812,13 @@ class RagKnowledgeService:
             total_chars += len(block)
 
         provider = get_provider()
+        await _emit_progress(
+            AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
+            {
+                "chunks_count": len(context_blocks),
+                "summary_blocks_count": len(summary_blocks),
+            },
+        )
         answer = await provider.chat(
             messages=[{"role": "user", "content": normalized_question}],
             system_prompt=build_rag_prompt(context_blocks, summary_blocks=summary_blocks),

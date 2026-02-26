@@ -6,6 +6,10 @@ import builtins
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from src.sbs_helper_telegram_bot.ai_router.messages import (
+    AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
+    AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
+)
 from src.sbs_helper_telegram_bot.ai_router.rag_service import RagKnowledgeService
 
 
@@ -413,6 +417,43 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(first, "SLA 4 часа")
         self.assertEqual(second, "SLA 4 часа")
+        provider.chat.assert_awaited_once()
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    async def test_answer_question_progress_callback_emits_stages_and_skips_on_cache_hit(
+        self,
+        mock_get_provider,
+        mock_log_query,
+        mock_retrieve,
+        mock_version,
+    ):
+        """Прогресс RAG эмитится на cache-miss и не эмитится при cache-hit."""
+        service = RagKnowledgeService(cache_ttl_seconds=300)
+        mock_retrieve.return_value = (
+            [(1.2, "reglament.txt", "SLA по критическим заявкам составляет 4 часа.", 1)],
+            ["[Summary | reglament.txt]\nSLA и порядок эскалации"],
+        )
+
+        provider = AsyncMock()
+        provider.chat.return_value = "SLA 4 часа"
+        mock_get_provider.return_value = provider
+
+        progress = AsyncMock()
+        q = "Какой SLA по критическим заявкам?"
+
+        first = await service.answer_question(q, user_id=77, on_progress=progress)
+        self.assertEqual(first, "SLA 4 часа")
+        self.assertEqual(progress.await_count, 2)
+        self.assertEqual(progress.await_args_list[0].args[0], AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED)
+        self.assertEqual(progress.await_args_list[1].args[0], AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED)
+
+        progress.reset_mock()
+        second = await service.answer_question(q, user_id=77, on_progress=progress)
+        self.assertEqual(second, "SLA 4 часа")
+        progress.assert_not_awaited()
         provider.chat.assert_awaited_once()
 
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_directory_ingest_summary_model_override", return_value="deepseek-reasoner")

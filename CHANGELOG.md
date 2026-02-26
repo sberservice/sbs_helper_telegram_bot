@@ -5,6 +5,27 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.1.75] - 2026-02-25
+
+### Added
+- Добавлен поэтапный прогресс-плейсхолдер для RAG-запросов: после общего статуса ожидания теперь отображаются промежуточные этапы prefilter документов и отправки augmented payload в LLM.
+- Добавлен единый резолвер AI-сообщений по ключам (`get_ai_message_by_key`) с безопасным fallback, чтобы подготовить переход на динамические тексты из БД без изменения бизнес-логики.
+- Добавлены тесты `tests/test_ai_messages.py` и расширены проверки в `tests/test_ai_placeholder.py`, `tests/test_ai_router.py`, `tests/test_rag_service.py` для новых этапов прогресса и поведения cache-hit.
+
+### Changed
+- В `src/sbs_helper_telegram_bot/telegram_bot/telegram_bot.py` логика плейсхолдера переведена на ключи сообщений и callback прогресса, включая сценарий `general_chat -> reroute -> rag_qa`.
+- В `src/sbs_helper_telegram_bot/ai_router/intent_router.py`, `intent_handlers.py` и `rag_service.py` добавлен опциональный канал `on_progress` для сквозной передачи этапов RAG до Telegram-слоя.
+- Обновлена документация модуля AI в `src/sbs_helper_telegram_bot/ai_router/README.md` с описанием поэтапного UX плейсхолдера и модели резолва текстов.
+
+## [0.1.74] - 2026-02-25
+
+### Added
+- Добавлена helper CLI-утилита `scripts/rag_sentence_similarity.py` (ядро в `src/sbs_helper_telegram_bot/ai_router/rag_similarity.py`) для сравнения двух предложений при ручном тестировании RAG: считает semantic (embeddings/cosine), lexical (Jaccard), sequence similarity и итоговый `combined_similarity`, поддерживает `--threshold` и `--json`.
+- Добавлены тесты `tests/test_rag_sentence_similarity.py` на расчёт метрик, fallback без эмбеддингов и JSON/валидацию CLI-ввода.
+
+### Changed
+- Обновлена документация по утилитам в `README.md` и RAG-гайд в `docs/AI_RAG_GUIDE.md` с примерами запуска `rag_sentence_similarity.py`.
+
 ## [0.1.73] - 2026-02-25
 
 ### Added

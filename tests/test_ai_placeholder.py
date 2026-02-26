@@ -4,7 +4,7 @@ test_ai_placeholder.py — тесты для индикатора загрузк
 Проверяет, что при маршрутизации текста через AI-модуль:
 - Отправляется ChatAction.TYPING
 - Отправляется плейсхолдер-сообщение «⏳ Обрабатываю ваш запрос...»
-- Для RAG-запросов плейсхолдер обновляется на «⏳ Ожидаю ответа ИИ"
+- Для RAG-запросов плейсхолдер проходит этапы ожидания/префильтрации/запроса к ИИ
 - Плейсхолдер редактируется результатом или сообщением об ошибке
 - При невозможности редактирования — отправляется новое сообщение
 """
@@ -19,6 +19,10 @@ from telegram.error import BadRequest
 from src.sbs_helper_telegram_bot.ai_router.messages import (
     MESSAGE_AI_PROCESSING,
     MESSAGE_AI_WAITING_FOR_AI,
+    MESSAGE_AI_PREFILTERING_DOCUMENTS,
+    MESSAGE_AI_REQUESTING_AUGMENTED_PAYLOAD,
+    AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
+    AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
     MESSAGE_AI_LOW_CONFIDENCE,
     MESSAGE_AI_UNAVAILABLE,
 )
@@ -238,7 +242,7 @@ class TestAIPlaceholderFlow(unittest.IsolatedAsyncioTestCase):
     async def test_placeholder_switched_to_waiting_message_for_rag(
         self, mock_edit_safe, mock_keyboard, mock_get_router, mock_auth
     ):
-        """Для intent=rag_qa плейсхолдер сначала меняется на 'Ожидаю ответа ИИ'."""
+        """Для intent=rag_qa плейсхолдер проходит этапы ожидания и RAG-прогресса."""
         from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import text_entered
 
         auth = MagicMock()
@@ -253,9 +257,12 @@ class TestAIPlaceholderFlow(unittest.IsolatedAsyncioTestCase):
 
         mock_router = MagicMock()
 
-        async def _route_with_rag_callback(_text, _user_id, on_classified=None):
+        async def _route_with_rag_callback(_text, _user_id, on_classified=None, on_progress=None):
             if on_classified is not None:
                 await on_classified(SimpleNamespace(intent="rag_qa"))
+            if on_progress is not None:
+                await on_progress(AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED, {"intent": "rag_qa"})
+                await on_progress(AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED, {"intent": "rag_qa"})
             return "RAG ответ", "routed"
 
         mock_router.route = AsyncMock(side_effect=_route_with_rag_callback)
@@ -267,11 +274,58 @@ class TestAIPlaceholderFlow(unittest.IsolatedAsyncioTestCase):
 
         await text_entered(update, context)
 
-        self.assertGreaterEqual(mock_edit_safe.await_count, 2)
+        self.assertGreaterEqual(mock_edit_safe.await_count, 4)
         self.assertEqual(mock_edit_safe.await_args_list[0].args[0], placeholder_msg)
         self.assertEqual(mock_edit_safe.await_args_list[0].args[1], MESSAGE_AI_WAITING_FOR_AI)
         self.assertEqual(mock_edit_safe.await_args_list[1].args[0], placeholder_msg)
-        self.assertEqual(mock_edit_safe.await_args_list[1].args[1], "RAG ответ")
+        self.assertEqual(mock_edit_safe.await_args_list[1].args[1], MESSAGE_AI_PREFILTERING_DOCUMENTS)
+        self.assertEqual(mock_edit_safe.await_args_list[2].args[0], placeholder_msg)
+        self.assertEqual(mock_edit_safe.await_args_list[2].args[1], MESSAGE_AI_REQUESTING_AUGMENTED_PAYLOAD)
+        self.assertEqual(mock_edit_safe.await_args_list[3].args[0], placeholder_msg)
+        self.assertEqual(mock_edit_safe.await_args_list[3].args[1], "RAG ответ")
+
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_user_auth_status")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_ai_router")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_main_menu_keyboard")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot._edit_markdown_safe", new_callable=AsyncMock)
+    async def test_reroute_to_rag_uses_progress_placeholder_stages(
+        self, mock_edit_safe, mock_keyboard, mock_get_router, mock_auth
+    ):
+        """При reroute general_chat→rag показываются промежуточные RAG-этапы."""
+        from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import text_entered
+
+        auth = MagicMock()
+        auth.is_pre_invited = False
+        auth.is_pre_invited_activated = True
+        auth.is_invite_blocked = False
+        auth.is_legit = True
+        auth.is_admin = False
+        mock_auth.return_value = auth
+
+        mock_keyboard.return_value = MagicMock()
+
+        mock_router = MagicMock()
+
+        async def _route_with_rag_progress(_text, _user_id, on_classified=None, on_progress=None):
+            if on_classified is not None:
+                await on_classified(SimpleNamespace(intent="general_chat"))
+            if on_progress is not None:
+                await on_progress(AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED, {"route_path": "general_chat_to_rag"})
+                await on_progress(AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED, {"route_path": "general_chat_to_rag"})
+            return "RAG ответ после reroute", "routed"
+
+        mock_router.route = AsyncMock(side_effect=_route_with_rag_progress)
+        mock_get_router.return_value = mock_router
+
+        update, context = _make_update_and_context(text="как по регламенту")
+        placeholder_msg = MagicMock()
+        update.message.reply_text.return_value = placeholder_msg
+
+        await text_entered(update, context)
+
+        self.assertEqual(mock_edit_safe.await_args_list[0].args[1], MESSAGE_AI_PREFILTERING_DOCUMENTS)
+        self.assertEqual(mock_edit_safe.await_args_list[1].args[1], MESSAGE_AI_REQUESTING_AUGMENTED_PAYLOAD)
+        self.assertEqual(mock_edit_safe.await_args_list[2].args[1], "RAG ответ после reroute")
 
     @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_user_auth_status")
     @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_ai_router")
