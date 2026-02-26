@@ -35,6 +35,27 @@ CREATE TABLE `imagequeue` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `soos_image_queue`
+--
+
+DROP TABLE IF EXISTS `soos_image_queue`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `soos_image_queue` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `timestamp` bigint(20) NOT NULL,
+  `userid` bigint(20) NOT NULL,
+  `file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `ticket_text` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` int(11) NOT NULL,
+  `error_message` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `status` (`status`),
+  KEY `userid` (`userid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `invites`
 --
 

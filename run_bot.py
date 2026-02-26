@@ -2,7 +2,7 @@
 """
 run_bot.py
 
-Простой скрипт для запуска Telegram-бота и воркера очереди обработки изображений.
+Простой скрипт для запуска Telegram-бота и фоновых воркеров.
 Чтобы запустить всё приложение, выполните:
 
     python run_bot.py
@@ -50,6 +50,17 @@ def start_queue_processor():
     )
 
 
+def start_soos_queue_processor():
+    """Запустить подпроцесс обработчика очереди СООС."""
+    return subprocess.Popen(
+        [sys.executable, "-m", "src.sbs_helper_telegram_bot.soos.processimagequeue"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1
+    )
+
+
 def start_health_check_daemon():
     """Запустить подпроцесс проверки доступности сервиса налоговой."""
     return subprocess.Popen(
@@ -69,18 +80,20 @@ def start_output_thread(process, prefix, stop_event):
 
 
 def run_bot():
-    """Запустить Telegram-бота и обработчик очереди изображений."""
+    """Запустить Telegram-бота и фоновые обработчики очередей."""
     
     print("🚀 Starting SPRINT Fake Location Overlay Bot...\n")
     
     # Отслеживаем попытки перезапуска для каждого процесса
     telegram_restart_count = 0
     queue_restart_count = 0
+    soos_restart_count = 0
     health_restart_count = 0
     
     # События остановки для потоков чтения вывода
     telegram_stop_event = threading.Event()
     queue_stop_event = threading.Event()
+    soos_stop_event = threading.Event()
     health_stop_event = threading.Event()
     
     # Запускаем Telegram-бота в подпроцессе
@@ -91,6 +104,9 @@ def run_bot():
     print("🖼️  Starting Image Queue Processor...")
     queue_process = start_queue_processor()
 
+    print("🧾 Starting SOOS Queue Processor...")
+    soos_process = start_soos_queue_processor()
+
     # Запускаем проверку доступности сервиса налоговой
     print("🩺 Starting Tax Service Health Check...")
     health_process = start_health_check_daemon()
@@ -98,6 +114,7 @@ def run_bot():
     # Запускаем потоки чтения вывода для обоих процессов
     telegram_thread = start_output_thread(telegram_process, "BOT", telegram_stop_event)
     queue_thread = start_output_thread(queue_process, "QUEUE", queue_stop_event)
+    soos_thread = start_output_thread(soos_process, "SOOS", soos_stop_event)
     health_thread = start_output_thread(health_process, "HEALTH", health_stop_event)
     
     print("✅ Both services started!\n")
@@ -108,14 +125,17 @@ def run_bot():
         print("\n\n🛑 Stopping services...")
         telegram_process.terminate()
         queue_process.terminate()
+        soos_process.terminate()
         health_process.terminate()
         try:
             telegram_process.wait(timeout=5)
             queue_process.wait(timeout=5)
+            soos_process.wait(timeout=5)
             health_process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             telegram_process.kill()
             queue_process.kill()
+            soos_process.kill()
             health_process.kill()
         print("✅ All services stopped.")
         sys.exit(0)
@@ -126,13 +146,15 @@ def run_bot():
     while True:
         telegram_poll = telegram_process.poll()
         queue_poll = queue_process.poll()
+        soos_poll = soos_process.poll()
         health_poll = health_process.poll()
         
-        if telegram_poll is not None and queue_poll is not None and health_poll is not None:
+        if telegram_poll is not None and queue_poll is not None and soos_poll is not None and health_poll is not None:
             # Все процессы остановились — пробуем перезапустить
             if (
                 telegram_restart_count < MAX_RESTART_ATTEMPTS
                 and queue_restart_count < MAX_RESTART_ATTEMPTS
+                and soos_restart_count < MAX_RESTART_ATTEMPTS
                 and health_restart_count < MAX_RESTART_ATTEMPTS
             ):
                 print(f"⚠️  All services stopped. Restarting in {RESTART_DELAY_SECONDS} seconds...")
@@ -140,9 +162,11 @@ def run_bot():
                 
                 telegram_stop_event.set()
                 queue_stop_event.set()
+                soos_stop_event.set()
                 health_stop_event.set()
                 telegram_stop_event = threading.Event()
                 queue_stop_event = threading.Event()
+                soos_stop_event = threading.Event()
                 health_stop_event = threading.Event()
                 
                 print(f"🔄 Restarting Telegram Bot (attempt {telegram_restart_count + 1}/{MAX_RESTART_ATTEMPTS})...")
@@ -154,6 +178,11 @@ def run_bot():
                 queue_process = start_queue_processor()
                 queue_thread = start_output_thread(queue_process, "QUEUE", queue_stop_event)
                 queue_restart_count += 1
+
+                print(f"🔄 Restarting SOOS Queue Processor (attempt {soos_restart_count + 1}/{MAX_RESTART_ATTEMPTS})...")
+                soos_process = start_soos_queue_processor()
+                soos_thread = start_output_thread(soos_process, "SOOS", soos_stop_event)
+                soos_restart_count += 1
 
                 print(f"🔄 Restarting Health Check (attempt {health_restart_count + 1}/{MAX_RESTART_ATTEMPTS})...")
                 health_process = start_health_check_daemon()
@@ -178,6 +207,8 @@ def run_bot():
             else:
                 print(f"❌ Telegram bot stopped unexpectedly. Max restart attempts ({MAX_RESTART_ATTEMPTS}) reached.")
                 queue_process.terminate()
+                soos_process.terminate()
+                health_process.terminate()
                 sys.exit(1)
                 
         elif queue_poll is not None:
@@ -195,6 +226,26 @@ def run_bot():
             else:
                 print(f"❌ Image queue processor stopped unexpectedly. Max restart attempts ({MAX_RESTART_ATTEMPTS}) reached.")
                 telegram_process.terminate()
+                soos_process.terminate()
+                health_process.terminate()
+                sys.exit(1)
+
+        elif soos_poll is not None:
+            if soos_restart_count < MAX_RESTART_ATTEMPTS:
+                soos_restart_count += 1
+                print(f"⚠️  SOOS queue processor stopped unexpectedly. Restarting in {RESTART_DELAY_SECONDS} seconds... (attempt {soos_restart_count}/{MAX_RESTART_ATTEMPTS})")
+                time.sleep(RESTART_DELAY_SECONDS)
+
+                soos_stop_event.set()
+                soos_stop_event = threading.Event()
+
+                print("🔄 Restarting SOOS Queue Processor...")
+                soos_process = start_soos_queue_processor()
+                soos_thread = start_output_thread(soos_process, "SOOS", soos_stop_event)
+            else:
+                print(f"❌ SOOS queue processor stopped unexpectedly. Max restart attempts ({MAX_RESTART_ATTEMPTS}) reached.")
+                telegram_process.terminate()
+                queue_process.terminate()
                 health_process.terminate()
                 sys.exit(1)
 
@@ -214,6 +265,7 @@ def run_bot():
                 print(f"❌ Health check stopped unexpectedly. Max restart attempts ({MAX_RESTART_ATTEMPTS}) reached.")
                 telegram_process.terminate()
                 queue_process.terminate()
+                soos_process.terminate()
                 sys.exit(1)
         
         time.sleep(0.5)  # Небольшая пауза, чтобы избежать активного ожидания

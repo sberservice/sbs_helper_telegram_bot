@@ -15,3 +15,7 @@ CREATE TABLE IF NOT EXISTS `bot_settings` (
 INSERT INTO `bot_settings` (`setting_key`, `setting_value`, `updated_timestamp`, `updated_by_userid`)
 VALUES ('invite_system_enabled', '1', UNIX_TIMESTAMP(), NULL)
 ON DUPLICATE KEY UPDATE `setting_key` = `setting_key`;
+
+INSERT INTO `bot_settings` (`setting_key`, `setting_value`, `updated_timestamp`, `updated_by_userid`)
+VALUES ('module_soos_enabled', '1', UNIX_TIMESTAMP(), NULL)
+ON DUPLICATE KEY UPDATE `setting_key` = `setting_key`;

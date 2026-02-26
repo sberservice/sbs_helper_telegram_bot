@@ -63,6 +63,7 @@ from src.common.messages import (
     BUTTON_HELP,
     BUTTON_VALIDATE_TICKET,
     BUTTON_SCREENSHOT,
+    BUTTON_SOOS,
     BUTTON_UPOS_ERRORS,
     BUTTON_CERTIFICATION,
     BUTTON_KTR,
@@ -83,6 +84,7 @@ from src.sbs_helper_telegram_bot.ticket_validator import settings as validator_s
 from src.sbs_helper_telegram_bot.vyezd_byl import messages as image_messages
 from src.sbs_helper_telegram_bot.vyezd_byl import keyboards as image_keyboards
 from src.sbs_helper_telegram_bot.vyezd_byl import settings as vyezd_settings
+from src.sbs_helper_telegram_bot.soos import settings as soos_settings
 from src.sbs_helper_telegram_bot.upos_error import messages as upos_messages
 from src.sbs_helper_telegram_bot.upos_error import keyboards as upos_keyboards
 from src.sbs_helper_telegram_bot.upos_error import settings as upos_settings
@@ -103,6 +105,14 @@ from src.sbs_helper_telegram_bot.vyezd_byl.vyezd_byl_bot_part import (
     cancel_screenshot_module,
     get_menu_button_exit_pattern,
     WAITING_FOR_SCREENSHOT
+)
+from src.sbs_helper_telegram_bot.soos.soos_bot_part import (
+    enter_soos_module,
+    show_soos_help,
+    process_soos_ticket_text,
+    cancel_soos_module,
+    get_menu_button_exit_pattern as get_soos_menu_button_exit_pattern,
+    WAITING_FOR_SOOS_TICKET,
 )
 
 # Импорт обработчиков валидатора заявок
@@ -929,7 +939,7 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # Очищаем AI-контекст при навигации по меню (не для произвольного текста)
         if text in (BUTTON_MAIN_MENU, BUTTON_MODULES, BUTTON_SETTINGS, BUTTON_VALIDATE_TICKET,
                     BUTTON_UPOS_ERRORS, BUTTON_CERTIFICATION, BUTTON_KTR, BUTTON_FEEDBACK,
-                    BUTTON_PROFILE, BUTTON_NEWS, BUTTON_SCREENSHOT, BUTTON_BOT_ADMIN,
+                BUTTON_PROFILE, BUTTON_NEWS, BUTTON_SCREENSHOT, BUTTON_SOOS, BUTTON_BOT_ADMIN,
                     BUTTON_MY_INVITES, BUTTON_HELP):
             ai_router = get_ai_router()
             ai_router.clear_context(user_id)
@@ -1049,6 +1059,23 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             mark_step("reply_screenshot_help")
             profile_result = "screenshot_help"
+        elif text == BUTTON_SOOS or text == soos_settings.BUTTON_GENERATE_SOOS:
+            if not bot_settings.is_module_enabled('soos'):
+                main_keyboard = get_main_menu_keyboard(is_admin=is_admin)
+                _remember_reply_keyboard(context, main_keyboard)
+                await update.message.reply_text(MESSAGE_MODULE_DISABLED_BUTTON, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=main_keyboard)
+                mark_step("reply_module_disabled_soos")
+                profile_result = "soos_disabled"
+                return
+            result = await enter_soos_module(update, context)
+            mark_step("enter_soos_module")
+            profile_result = "soos_module"
+            return result
+        elif text == soos_settings.BUTTON_SOOS_HELP:
+            result = await show_soos_help(update, context)
+            mark_step("reply_soos_help")
+            profile_result = "soos_help"
+            return result
         elif text == validator_settings.BUTTON_ADMIN_PANEL:
             # Показываем админ-панель, если пользователь — админ
             if is_admin:
@@ -1530,6 +1557,26 @@ def main() -> None:
         ]
     )
 
+    soos_exit_pattern = get_soos_menu_button_exit_pattern()
+    soos_handler = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex(f"^{re.escape(soos_settings.MENU_BUTTON_TEXT)}$"), enter_soos_module),
+            MessageHandler(filters.Regex(f"^{re.escape(soos_settings.BUTTON_GENERATE_SOOS)}$"), enter_soos_module),
+        ],
+        states={
+            WAITING_FOR_SOOS_TICKET: [
+                MessageHandler(filters.Regex(f"^{re.escape(soos_settings.BUTTON_SOOS_HELP)}$"), show_soos_help),
+                MessageHandler(filters.Regex(soos_exit_pattern), cancel_soos_module),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, process_soos_ticket_text),
+            ]
+        },
+        fallbacks=[
+            CommandHandler("reset", reset_command),
+            CommandHandler("menu", menu_command),
+            MessageHandler(filters.COMMAND, cancel_soos_module),
+        ],
+    )
+
     # Создаём ConversationHandlers для модуля аттестации
     certification_user_handler = get_certification_user_handler()
     certification_admin_handler = get_certification_admin_handler()
@@ -1578,6 +1625,7 @@ def main() -> None:
     application.add_handler(news_user_handler)
     application.add_handler(news_mandatory_ack_handler)  # Глобальный обработчик обязательных новостей
     application.add_handler(screenshot_handler)
+    application.add_handler(soos_handler)
     
     # Админ-загрузка документов в RAG по подписи #rag
     application.add_handler(
