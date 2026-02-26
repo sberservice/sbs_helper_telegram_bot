@@ -15,6 +15,8 @@ REQUIRED_FIELD_LABELS: Final[dict[str, str]] = {
     "merchant_id": "merchant/MID",
 }
 
+DEFAULT_PHONE: Final[str] = "70000000000"
+
 
 def _generate_mid_from_tid(tid: str) -> str:
     """
@@ -96,12 +98,16 @@ def extract_ticket_fields(ticket_text: str) -> dict[str, str | None]:
             r"^\s*Телефон ТСТ\s*:\s*([+]?\d[\d\s\-()]{7,})\s*$",
             r"^\s*Телефон МПС\s*:\s*([+]?\d[\d\s\-()]{7,})\s*$",
             r"^\s*т\.?\s*([+]?\d[\d\s\-()]{7,})\s*$",
+            r"\bТел(?:ефон)?\.?\s*:\s*([+]?\d[\d\s\-()]{7,})\b",
+            r"\bКонтакт(?:\s+Банка|\s+в\s+ТСТ)?\s*:\s*[^\n\r;]*?([+]?\d[\d\s\-()]{7,})\b",
         ],
         ticket_text,
     )
 
     if phone is not None:
         phone = re.sub(r"[^0-9]", "", phone)
+    else:
+        phone = DEFAULT_PHONE
 
     tid = _extract_last_match(
         [r"^\s*TID\s*:\s*(\d{6,12})\s*$", r"\bT\s*:\s*(\d{6,12})\b"],

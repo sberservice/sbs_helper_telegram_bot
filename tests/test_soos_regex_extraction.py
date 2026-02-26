@@ -59,6 +59,32 @@ TID: 10371049
         self.assertEqual(fields["tid"], "10371049")
         self.assertEqual(fields["merchant_id"], "851000371049")
 
+    def test_extract_phone_from_inline_description_contact(self):
+        """Извлекает телефон из inline-фрагмента описания с маркером `Тел.:`."""
+        ticket_text = """
+TID: 42297873
+Наименование ТСТ: SP_Кофейня Мама Малина
+Адрес установки POS-терминала: Москва г, г Москва, ул Лавриненко, дом 5
+Телефон МПС: -
+Описание: SMARTPOS; Контакт в ТСТ: АМЗАРАКОВА ЕКАТЕРИНА, Тел.: 79645552160; Контакт Банка: Захаренко Виктория Игорьевна 79800998227
+        """.strip()
+
+        fields = extract_ticket_fields(ticket_text)
+
+        self.assertEqual(fields["phone"], "79645552160")
+
+    def test_use_default_phone_when_missing(self):
+        """Подставляет номер по умолчанию, если телефон не найден в тикете."""
+        ticket_text = """
+TID: 10371049
+Наименование ТСТ: MOCHI & BUBBLE TEA
+Адрес установки POS-терминала: Островцы, Раменское, ул. Баулинская, дом 3
+        """.strip()
+
+        fields = extract_ticket_fields(ticket_text)
+
+        self.assertEqual(fields["phone"], "70000000000")
+
 
 if __name__ == "__main__":
     unittest.main()
