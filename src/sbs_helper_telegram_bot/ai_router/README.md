@@ -119,6 +119,49 @@ python scripts/rag_vector_backfill.py --batch-size 100
 python scripts/rag_vector_backfill.py --dry-run --max-documents 200
 ```
 
+### Qdrant remote→local sync
+
+```bash
+python scripts/rag_qdrant_sync_remote_to_local.py --batch-size 200
+python scripts/rag_qdrant_sync_remote_to_local.py --dry-run --max-points 500
+```
+
+По умолчанию используется коллекция из `AI_RAG_VECTOR_SYNC_COLLECTION` (fallback на `AI_RAG_VECTOR_COLLECTION`).
+
+Периодический запуск через cron (каждые 30 минут):
+
+```bash
+*/30 * * * * cd /path/to/sbs_helper_telegram_bot && /path/to/venv/bin/python scripts/rag_qdrant_sync_remote_to_local.py --batch-size 200 >> /var/log/rag_qdrant_sync.log 2>&1
+```
+
+Пример systemd (Linux): unit + timer
+
+```ini
+# rag-qdrant-sync.service
+[Unit]
+Description=RAG Qdrant remote-to-local sync
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/sbs_helper_telegram_bot
+EnvironmentFile=/path/to/sbs_helper_telegram_bot/.env
+ExecStart=/path/to/venv/bin/python scripts/rag_qdrant_sync_remote_to_local.py --batch-size 200
+```
+
+```ini
+# rag-qdrant-sync.timer
+[Unit]
+Description=Run RAG Qdrant sync every 30 minutes
+
+[Timer]
+OnCalendar=*:0/30
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
 `rag_directory_ingest.py` не выполняет генерацию эмбеддингов: обновление локального векторного индекса выполняется только через `rag_vector_backfill.py`.
 
 При сохранении метаданных в `rag_chunk_embeddings` используется batched upsert и автоматический retry для временных ошибок MySQL (`1205`/`1213`) с коротким backoff.
@@ -194,6 +237,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 - Диагностика retrieval-канала RAG: строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `prefilter_scope_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `selected_unique_docs`, `selected_top_docs`, `top_source`; длинные `source` автоматически сокращаются
 - `prefilter_docs` показывает только top-N summary-prefilter, а `prefilter_scope_docs` — итоговый размер области поиска после добавления fallback-документов
 - `selected` показывает число финальных чанков, `selected_unique_docs` — число уникальных документов среди них, `selected_top_docs` — top уникальных `document_id` по порядку ранжирования
+- Состояние удалённого векторного backend логируется отдельными переходами: `Состояние remote Qdrant: UP|DOWN|COOLDOWN|DISABLED`
 - Доказательство summary-приоритизации: строка `RAG priority evidence:` в многострочном ранжированном формате с блоками `prefilter_top` и `selected_top` (до top-5; для `selected_top` добавлены `doc`, `chunk`, `origin`, разложение lexical-компоненты `lex_raw/lex_bonus/lex_total`, формула `hybrid=(lex_total*lexical_weight)+(vector_score*vector_weight)` и `summary_bonus`; `lex_bonus`/`summary_bonus` считаются по нормализованному summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле)
 - Диагностика chunking при ingest: строка `RAG chunking strategy:` с полями `file`, `format`, `strategy`, `slicer`, `chunk_size`, `chunk_overlap`, `chunks`, `html_splitter_enabled`, `langchain_splitter_supported`
 - Успешная векторная индексация чанков: строка `RAG vector upsert:` с полями `chunks` и `duration_ms` (время upsert в миллисекундах)
@@ -205,6 +249,8 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 ## Конфигурация
 
 ### Переменные окружения
+
+Важно: модуль `ai_router.settings` загружает `.env` с `load_dotenv(override=True)`, поэтому для AI-настроек значения из `.env` приоритетнее переменных, ранее выставленных в процессе.
 
 | Переменная | По умолчанию | Описание |
 | `AI_RAG_LEXICAL_SCORER` | `legacy` | Режим lexical scoring: `legacy` или `bm25` |
@@ -271,6 +317,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS` | `120` | Cooldown remote после failover |
 | `AI_RAG_VECTOR_DB_PATH` | `./data/qdrant` | Путь к локальному индексу |
 | `AI_RAG_VECTOR_COLLECTION` | `rag_chunks_v1` | Имя коллекции вектора |
+| `AI_RAG_VECTOR_SYNC_COLLECTION` | `rag_chunks_v1` | Имя коллекции для remote→local sync |
 | `AI_RAG_VECTOR_DISTANCE` | `cosine` | Метрика (`cosine`/`dot`/`euclid`) |
 | `AI_RAG_VECTOR_TOP_K` | `12` | Top-K векторных кандидатов |
 | `AI_RAG_VECTOR_PREFETCH_K` | `40` | Глубина первичного поиска в индексе |

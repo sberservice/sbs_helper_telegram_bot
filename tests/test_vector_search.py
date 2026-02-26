@@ -31,6 +31,22 @@ class TestLocalVectorIndex(unittest.TestCase):
         match_payload = document_filter.get("match") or {}
         self.assertEqual(match_payload.get("any"), [11, 12])
 
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_API_KEY", "secret")
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
+    def test_logs_effective_remote_configuration_on_init(self):
+        """При инициализации индекса пишется диагностический лог эффективной remote-конфигурации."""
+        with mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.logger.info") as mock_info:
+            _ = LocalVectorIndex()
+
+        self.assertTrue(
+            any(
+                "Эффективная конфигурация remote Qdrant" in str(call.args[0])
+                for call in mock_info.call_args_list
+            )
+        )
+
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "")
     def test_get_client_stops_retries_after_qdrant_storage_lock(self):
         """После lock-ошибки локального хранилища повторные инициализации клиента не выполняются."""
         qdrant_error = RuntimeError(
@@ -161,6 +177,56 @@ class TestLocalVectorIndex(unittest.TestCase):
         self.assertEqual(counters["local"], 1)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].source, "local_doc.md")
+
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
+    def test_logs_remote_state_up_on_successful_connect(self):
+        """При успешном подключении к remote backend пишется лог перехода в состояние UP."""
+
+        class _RemoteClient:
+            def get_collections(self):
+                return {"collections": []}
+
+        fake_qdrant_module = types.SimpleNamespace(QdrantClient=lambda **_kwargs: _RemoteClient())
+
+        with mock.patch.dict("sys.modules", {"qdrant_client": fake_qdrant_module}):
+            index = LocalVectorIndex()
+            with mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.logger.info") as mock_info:
+                _ = index._get_client()
+
+        self.assertTrue(
+            any("Состояние remote Qdrant: UP" in str(call.args[0]) for call in mock_info.call_args_list)
+        )
+
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD", 1)
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS", 60)
+    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
+    def test_logs_remote_state_cooldown_after_threshold(self):
+        """После достижения порога ошибок remote backend пишет лог перехода в COOLDOWN."""
+
+        class _RemoteClient:
+            def get_collections(self):
+                raise RuntimeError("remote unavailable")
+
+        class _LocalClient:
+            pass
+
+        def _constructor(**kwargs):
+            if kwargs.get("url"):
+                return _RemoteClient()
+            return _LocalClient()
+
+        fake_qdrant_module = types.SimpleNamespace(QdrantClient=_constructor)
+
+        with mock.patch.dict("sys.modules", {"qdrant_client": fake_qdrant_module}):
+            index = LocalVectorIndex()
+            with mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.logger.warning") as mock_warning:
+                _ = index._get_client()
+
+        self.assertTrue(
+            any("Состояние remote Qdrant: COOLDOWN" in str(call.args[0]) for call in mock_warning.call_args_list)
+        )
 
 
 class TestLocalEmbeddingProvider(unittest.TestCase):

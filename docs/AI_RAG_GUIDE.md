@@ -64,6 +64,60 @@ Backfill локального векторного индекса по уже з
 python scripts/rag_vector_backfill.py --batch-size 100
 ```
 
+Best-effort синхронизация Qdrant remote→local (по умолчанию коллекция берётся из `AI_RAG_VECTOR_SYNC_COLLECTION`):
+
+```bash
+python scripts/rag_qdrant_sync_remote_to_local.py --batch-size 200
+```
+
+Dry-run без записи/удаления:
+
+```bash
+python scripts/rag_qdrant_sync_remote_to_local.py --dry-run --max-points 500
+```
+
+Периодический запуск через cron (каждые 30 минут):
+
+```bash
+*/30 * * * * cd /path/to/sbs_helper_telegram_bot && /path/to/venv/bin/python scripts/rag_qdrant_sync_remote_to_local.py --batch-size 200 >> /var/log/rag_qdrant_sync.log 2>&1
+```
+
+Пример systemd unit (Linux):
+
+```ini
+[Unit]
+Description=RAG Qdrant remote-to-local sync
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/sbs_helper_telegram_bot
+EnvironmentFile=/path/to/sbs_helper_telegram_bot/.env
+ExecStart=/path/to/venv/bin/python scripts/rag_qdrant_sync_remote_to_local.py --batch-size 200
+```
+
+Пример systemd timer (каждые 30 минут):
+
+```ini
+[Unit]
+Description=Run RAG Qdrant sync every 30 minutes
+
+[Timer]
+OnCalendar=*:0/30
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Для применения systemd-конфигурации:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now rag-qdrant-sync.timer
+sudo systemctl status rag-qdrant-sync.timer
+```
+
 Сравнение двух фраз для быстрой оценки семантической/лексической близости (helper для ручных RAG-тестов):
 
 ```bash
@@ -149,12 +203,15 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - Для каждого retrieval-цикла RAG пишется строка `RAG priority evidence:` в многострочном ранжированном формате (`prefilter_top` и `selected_top`, до top-5), где для `prefilter_top` видны `summary`, `lexical`, `vec`, `vec_w` (взвешенный вклад `vec * AI_RAG_SUMMARY_VECTOR_WEIGHT`) и `source`, а для `selected_top` — `doc`, `chunk`, `fused`, `summary`, `origin` (`prefilter`/`fallback`/`global`), разложение lexical-компоненты (`lex_raw`, `lex_bonus`, `lex_total`), формула `hybrid=(lex_total*lexical_weight)+(vector_score*vector_weight)`, `summary_bonus` и `source`; `lex_bonus`/`summary_bonus` считаются из нормализованного summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле.
 - Для каждого ingest документа пишется диагностическая строка `RAG chunking strategy:` с полями `file`, `format`, `strategy`, `slicer`, `chunk_size`, `chunk_overlap`, `chunks`, `html_splitter_enabled`, `langchain_splitter_supported`.
 - При успешном vector upsert пишется строка `RAG vector upsert:` с полями `chunks` и `duration_ms`, где `duration_ms` — длительность операции upsert в миллисекундах.
+- Для remote Qdrant пишутся логи состояния backend: `Состояние remote Qdrant: UP|DOWN|COOLDOWN|DISABLED`, что упрощает диагностику доступности удалённого индекса и момента failover на local.
 - Для технической записи `rag_chunk_embeddings` при временных DB-блокировках пишется предупреждение о retry c `errno`, номером попытки и размером батча.
 - Если `deepseek-reasoner` вернул пустой `content` для chat/RAG-ответа, провайдер автоматически делает один повтор на `deepseek-chat` и пишет предупреждение в лог (это снижает риск «немого» ответа пользователю).
 - Полный текст `prompt/response` также сохраняется в `ai_model_io_log` с маскировкой чувствительных данных (`email`, `телефон`, `ИНН`, `СНИЛС`).
 - Для очистки логов старше 30 дней используйте `sql/ai_model_io_log_retention.sql` (подходит для запуска по cron).
 
 ## Переменные окружения
+
+Важно: настройки `ai_router.settings` загружают `.env` с `load_dotenv(override=True)`, поэтому значения из `.env` имеют приоритет над ранее выставленными переменными процесса для AI\-параметров.
 
 - `AI_RAG_ENABLED`
 - `AI_RAG_MAX_FILE_SIZE_MB`
@@ -193,6 +250,7 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS`
 - `AI_RAG_VECTOR_DB_PATH`
 - `AI_RAG_VECTOR_COLLECTION`
+- `AI_RAG_VECTOR_SYNC_COLLECTION`
 - `AI_RAG_VECTOR_DISTANCE`
 - `AI_RAG_VECTOR_TOP_K`
 - `AI_RAG_VECTOR_PREFETCH_K`

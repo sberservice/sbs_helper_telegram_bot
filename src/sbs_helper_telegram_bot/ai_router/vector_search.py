@@ -111,8 +111,8 @@ class LocalEmbeddingProvider:
             return
 
         try:
-            assert callable(half_method)
-            half_method()
+            half_callable = half_method
+            half_callable()
         except Exception as exc:
             logger.warning(
                 "Не удалось включить FP16 для embedding-модели %s: %s. Используется FP32",
@@ -182,6 +182,15 @@ class LocalVectorIndex:
         self._client_init_failed = False
         self._remote_failures = 0
         self._remote_cooldown_until = 0.0
+        self._remote_state = "unknown"
+        logger.info(
+            "Эффективная конфигурация remote Qdrant: remote_configured=%s remote_url=%s "
+            "remote_api_key_set=%s local_fallback_enabled=%s",
+            bool(str(ai_settings.AI_RAG_VECTOR_REMOTE_URL or "").strip()),
+            self._safe_remote_url_for_logs(),
+            bool(str(ai_settings.AI_RAG_VECTOR_REMOTE_API_KEY or "").strip()),
+            bool(ai_settings.AI_RAG_VECTOR_LOCAL_MODE),
+        )
 
     def is_ready(self) -> bool:
         """Проверить доступность клиента и коллекции."""
@@ -464,9 +473,11 @@ class LocalVectorIndex:
     def _get_remote_client(self):
         """Инициализировать и вернуть удалённый Qdrant-клиент при доступной конфигурации."""
         if not self._is_remote_enabled():
+            self._set_remote_state("disabled")
             return None
 
         if self._is_remote_in_cooldown():
+            self._set_remote_state("cooldown")
             return None
 
         if self._remote_client is not None:
@@ -485,6 +496,7 @@ class LocalVectorIndex:
                 timeout=timeout,
             )
             self._remote_client.get_collections()
+            self._set_remote_state("up")
             return self._remote_client
         except Exception as exc:
             self._remote_client = None
@@ -536,6 +548,7 @@ class LocalVectorIndex:
     def _register_remote_failure(self, operation_name: str, exc: Exception) -> None:
         """Учесть ошибку remote backend и активировать failover при достижении порога."""
         self._remote_failures += 1
+        self._set_remote_state("down")
         threshold = max(1, int(ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD))
         logger.warning(
             "Ошибка remote Qdrant при операции %s (%s/%s): %s",
@@ -551,6 +564,7 @@ class LocalVectorIndex:
         cooldown_seconds = max(1, int(ai_settings.AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS))
         self._remote_cooldown_until = time.time() + float(cooldown_seconds)
         self._remote_client = None
+        self._set_remote_state("cooldown")
         logger.warning(
             "Remote Qdrant временно отключён на %s сек после %s ошибок подряд. Активирован local fallback.",
             cooldown_seconds,
@@ -561,6 +575,52 @@ class LocalVectorIndex:
         """Сбросить счётчик ошибок remote backend после успешной операции."""
         self._remote_failures = 0
         self._remote_cooldown_until = 0.0
+        self._set_remote_state("up")
+
+    def _set_remote_state(self, new_state: str) -> None:
+        """Зафиксировать и залогировать смену состояния удалённого Qdrant backend."""
+        normalized = str(new_state or "unknown").strip().lower() or "unknown"
+        if normalized == self._remote_state:
+            return
+
+        previous_state = self._remote_state
+        self._remote_state = normalized
+
+        if normalized == "up":
+            logger.info(
+                "Состояние remote Qdrant: UP (prev=%s, url=%s)",
+                previous_state,
+                self._safe_remote_url_for_logs(),
+            )
+            return
+
+        if normalized == "cooldown":
+            logger.warning(
+                "Состояние remote Qdrant: COOLDOWN (prev=%s, cooldown_until_ts=%.3f)",
+                previous_state,
+                self._remote_cooldown_until,
+            )
+            return
+
+        if normalized == "down":
+            logger.warning(
+                "Состояние remote Qdrant: DOWN (prev=%s)",
+                previous_state,
+            )
+            return
+
+        if normalized == "disabled":
+            logger.info(
+                "Состояние remote Qdrant: DISABLED (AI_RAG_VECTOR_REMOTE_URL не задан)",
+            )
+            return
+
+        logger.info("Состояние remote Qdrant: %s (prev=%s)", normalized.upper(), previous_state)
+
+    @staticmethod
+    def _safe_remote_url_for_logs() -> str:
+        """Вернуть безопасное значение URL удалённого Qdrant для логов."""
+        return str(ai_settings.AI_RAG_VECTOR_REMOTE_URL or "").strip() or "<empty>"
 
     @staticmethod
     def _is_storage_locked_error(exc: Exception) -> bool:

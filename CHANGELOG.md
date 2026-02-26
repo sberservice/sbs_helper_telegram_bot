@@ -7,6 +7,38 @@
 
 ## [0.1.76] - 2026-02-26
 
+## [0.1.79] - 2026-02-26
+
+### Added
+- В документацию добавлены готовые примеры периодического запуска sync-утилиты `scripts/rag_qdrant_sync_remote_to_local.py` через `cron` и `systemd timer` (unit+timer), включая команды применения конфигурации.
+
+### Changed
+- Актуализированы разделы по эксплуатации remote→local Qdrant sync в `docs/AI_RAG_GUIDE.md` и `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+## [0.1.78] - 2026-02-26
+
+### Added
+- Добавлена утилита `scripts/rag_qdrant_sync_remote_to_local.py` для best-effort синхронизации коллекции Qdrant из remote в local с поддержкой `--dry-run`, `--batch-size`, `--max-points` и опционального reconcile удалений `--delete-missing`.
+- Добавлен сервис синхронизации `QdrantRemoteToLocalSync` в `src/sbs_helper_telegram_bot/ai_router/qdrant_sync.py` и тесты `tests/test_qdrant_sync.py`.
+
+### Changed
+- В `src/sbs_helper_telegram_bot/ai_router/settings.py` добавлена env-переменная `AI_RAG_VECTOR_SYNC_COLLECTION` (с fallback на `AI_RAG_VECTOR_COLLECTION`) для явной конфигурации имени коллекции sync-скрипта.
+- Обновлена документация по RAG-утилитам и конфигурации в `README.md`, `docs/AI_RAG_GUIDE.md`, `src/sbs_helper_telegram_bot/ai_router/README.md`, `.env.example`.
+
+## [0.1.77] - 2026-02-26
+
+### Added
+- Добавлен диагностический стартовый лог эффективной конфигурации remote Qdrant в `src/sbs_helper_telegram_bot/ai_router/vector_search.py` с полями `remote_configured`, `remote_url`, `remote_api_key_set`, `local_fallback_enabled`.
+
+### Changed
+- В `src/sbs_helper_telegram_bot/ai_router/settings.py` загрузка `.env` для AI-настроек переведена на `load_dotenv(override=True)`, чтобы значения из `.env` имели приоритет над ранее выставленными переменными процесса.
+- Обновлена документация по приоритету env-конфигурации в `docs/AI_RAG_GUIDE.md` и `src/sbs_helper_telegram_bot/ai_router/README.md`.
+
+### Fixed
+- Исправлен сценарий, при котором бот мог продолжать использовать local fallback даже после задания `AI_RAG_VECTOR_REMOTE_URL` и `AI_RAG_VECTOR_REMOTE_API_KEY` в `.env`.
+
+## [0.1.76] - 2026-02-26
+
 ### Added
 - Добавлены env-настройки удалённого Qdrant в `src/sbs_helper_telegram_bot/ai_router/settings.py` и `.env.example`: `AI_RAG_VECTOR_REMOTE_URL`, `AI_RAG_VECTOR_REMOTE_API_KEY`, `AI_RAG_VECTOR_REMOTE_TIMEOUT_SECONDS`, `AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD`, `AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS`.
 - Добавлены регрессионные тесты в `tests/test_vector_search.py` для remote-first режима и failover remote→local по порогу ошибок.
