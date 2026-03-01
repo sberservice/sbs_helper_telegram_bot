@@ -454,12 +454,19 @@ class RagQaHandler(IntentHandler):
         if not question:
             return "⚠️ Уточните вопрос по документам, чтобы я смог найти ответ\\."
 
+        category_hint = str(
+            params.get("category_hint")
+            or params.get("certification_category")
+            or ""
+        ).strip()
+
         try:
             rag_service = get_rag_service()
             answer = await rag_service.answer_question(
                 question,
                 user_id=user_id,
                 on_progress=on_progress,
+                category_hint=category_hint or None,
             )
             if not answer:
                 return (

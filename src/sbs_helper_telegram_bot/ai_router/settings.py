@@ -73,7 +73,7 @@ LLM_CLASSIFICATION_MAX_TOKENS: Final[int] = int(
 
 # Параметры генерации LLM для свободного диалога/chat-ответов.
 LLM_CHAT_TEMPERATURE: Final[float] = float(
-    os.getenv("AI_LLM_CHAT_TEMPERATURE", "0.5")
+    os.getenv("AI_LLM_CHAT_TEMPERATURE", "0.7")
 )
 LLM_CHAT_MAX_TOKENS: Final[int] = int(
     os.getenv("AI_LLM_CHAT_MAX_TOKENS", "1024")
@@ -97,7 +97,7 @@ AI_MODEL_IO_DB_RETENTION_DAYS: Final[int] = int(os.getenv("AI_MODEL_IO_DB_RETENT
 CONFIDENCE_THRESHOLD: Final[float] = float(os.getenv("AI_CONFIDENCE_THRESHOLD", "0.6"))
 
 # Порог уверенности для свободного chat-ответа (ниже — показываем MESSAGE_UNRECOGNIZED_INPUT)
-CHAT_CONFIDENCE_THRESHOLD: Final[float] = float(os.getenv("AI_CHAT_CONFIDENCE_THRESHOLD", "0.3"))
+CHAT_CONFIDENCE_THRESHOLD: Final[float] = float(os.getenv("AI_CHAT_CONFIDENCE_THRESHOLD", "0.1"))
 
 # =============================================
 # Rate-limit: защита от спама и стоимости
@@ -173,8 +173,19 @@ AI_RAG_SUMMARY_INPUT_MAX_CHARS: Final[int] = int(os.getenv("AI_RAG_SUMMARY_INPUT
 AI_RAG_SUMMARY_MAX_CHARS: Final[int] = int(os.getenv("AI_RAG_SUMMARY_MAX_CHARS", "1200"))
 # Количество top-документов после summary-prefilter для chunk retrieval.
 AI_RAG_PREFILTER_TOP_DOCS: Final[int] = int(os.getenv("AI_RAG_PREFILTER_TOP_DOCS", "4"))
+# Не учитывать source_type=certification в квоте AI_RAG_PREFILTER_TOP_DOCS.
+# Если включено, сертификационные документы остаются в prefilter-выдаче,
+# но не занимают квоту обычных документов.
+AI_RAG_PREFILTER_EXCLUDE_CERTIFICATION_FROM_COUNT: Final[bool] = (
+    os.getenv("AI_RAG_PREFILTER_EXCLUDE_CERTIFICATION_FROM_COUNT", "1") == "1"
+)
 # Сколько summary-блоков включать в системный prompt ответа.
 AI_RAG_PROMPT_SUMMARY_DOCS: Final[int] = int(os.getenv("AI_RAG_PROMPT_SUMMARY_DOCS", "1"))
+# Исключать ли summary сертификационных вопросов из prompt-блока joined_summaries.
+# Не влияет на retrieval/ranking: влияет только на блок summary в системном prompt.
+AI_RAG_PROMPT_SUMMARIES_EXCLUDE_CERTIFICATION: Final[bool] = (
+    os.getenv("AI_RAG_PROMPT_SUMMARIES_EXCLUDE_CERTIFICATION", "1") == "1"
+)
 # Вес точного/фразового совпадения вопроса с summary.
 AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT: Final[float] = float(
     os.getenv("AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT", "1")
@@ -270,6 +281,16 @@ AI_RAG_VECTOR_LEXICAL_WEIGHT: Final[float] = float(os.getenv("AI_RAG_VECTOR_LEXI
 # Вес semantic-score в гибридной формуле ранжирования.
 AI_RAG_VECTOR_SEMANTIC_WEIGHT: Final[float] = float(os.getenv("AI_RAG_VECTOR_SEMANTIC_WEIGHT", "0.55"))
 
+# Настройки ранжирования сертификационных Q/A в RAG
+# Буст к score документа, если категория вопроса совпала с category-hint пользователя.
+AI_RAG_CERTIFICATION_CATEGORY_BOOST: Final[float] = float(
+    os.getenv("AI_RAG_CERTIFICATION_CATEGORY_BOOST", "0.35")
+)
+# Штраф к score для неактуальных/неактивных сертификационных вопросов.
+AI_RAG_CERTIFICATION_STALE_PENALTY: Final[float] = float(
+    os.getenv("AI_RAG_CERTIFICATION_STALE_PENALTY", "0.20")
+)
+
 # Лексический retrieval: режим ранжирования и нормализация русского текста
 # Режим lexical scoring: legacy (coverage+density) или bm25.
 AI_RAG_LEXICAL_SCORER: Final[str] = os.getenv("AI_RAG_LEXICAL_SCORER", "legacy")
@@ -285,6 +306,48 @@ AI_RAG_RU_NORMALIZATION_ENABLED: Final[bool] = os.getenv("AI_RAG_RU_NORMALIZATIO
 AI_RAG_RU_NORMALIZATION_ENABLED_SETTING_KEY: Final[str] = "ai_rag_ru_normalization_enabled"
 # Режим нормализации русского текста: lemma_then_stem, lemma_only, stem_only.
 AI_RAG_RU_NORMALIZATION_MODE: Final[str] = os.getenv("AI_RAG_RU_NORMALIZATION_MODE", "lemma_then_stem")
+
+# Стоп-слова для query preprocessing
+# Удалять русские стоп-слова из запроса перед lexical scoring.
+AI_RAG_STOPWORDS_ENABLED: Final[bool] = os.getenv("AI_RAG_STOPWORDS_ENABLED", "1") == "1"
+# Ключ runtime-настройки стоп-слов в bot_settings.
+AI_RAG_STOPWORDS_SETTING_KEY: Final[str] = "ai_rag_stopwords_enabled"
+
+# Снятие шаблонных вопросительных паттернов ("что такое", "как работает" и т.д.)
+# При включении из запроса удаляются типовые вопросительные конструкции,
+# оставляя только предметную часть для lexical scoring.
+AI_RAG_QUERY_PATTERN_STRIP_ENABLED: Final[bool] = os.getenv("AI_RAG_QUERY_PATTERN_STRIP_ENABLED", "1") == "1"
+# Ключ runtime-настройки pattern-stripping в bot_settings.
+AI_RAG_QUERY_PATTERN_STRIP_SETTING_KEY: Final[str] = "ai_rag_query_pattern_strip_enabled"
+
+# Порог IDF-dampening для query-токенов в summary prefilter.
+# Токены, встречающиеся более чем в данной доле summary (0..1), получают
+# сниженный вес при BM25-scoring prefilter.
+AI_RAG_PREFILTER_IDF_DAMPEN_RATIO: Final[float] = float(
+    os.getenv("AI_RAG_PREFILTER_IDF_DAMPEN_RATIO", "0.8")
+)
+# Множитель для dampened-токенов (0..1). Чем ниже, тем сильнее подавление.
+AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR: Final[float] = float(
+    os.getenv("AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR", "0.1")
+)
+
+# HyDE (Hypothetical Document Embeddings)
+# Включить генерацию гипотетического документа LLM для улучшения векторного поиска.
+# LLM генерирует короткий ответ-гипотезу на запрос, и его эмбеддинг
+# используется для vector search вместо эмбеддинга исходного вопроса.
+AI_RAG_HYDE_ENABLED: Final[bool] = os.getenv("AI_RAG_HYDE_ENABLED", "0") == "1"
+# Ключ runtime-настройки HyDE в bot_settings.
+AI_RAG_HYDE_SETTING_KEY: Final[str] = "ai_rag_hyde_enabled"
+# Максимальная длина гипотетического документа (символов).
+AI_RAG_HYDE_MAX_CHARS: Final[int] = int(os.getenv("AI_RAG_HYDE_MAX_CHARS", "500"))
+# TTL кэша HyDE-текстов (секунды).
+AI_RAG_HYDE_CACHE_TTL_SECONDS: Final[int] = int(os.getenv("AI_RAG_HYDE_CACHE_TTL_SECONDS", "300"))
+# Дополнять BM25 lexical scoring уникальными токенами из HyDE-текста.
+# Если включено, токены из гипотетического документа (после фильтрации стоп-слов)
+# добавляются к query-токенам для summary prefilter и chunk BM25 scoring.
+AI_RAG_HYDE_LEXICAL_ENABLED: Final[bool] = os.getenv("AI_RAG_HYDE_LEXICAL_ENABLED", "1") == "1"
+# Ключ runtime-настройки HyDE lexical в bot_settings.
+AI_RAG_HYDE_LEXICAL_SETTING_KEY: Final[str] = "ai_rag_hyde_lexical_enabled"
 
 # Включение header-aware HTML splitter для RAG chunking
 # Флаг включения HTML splitter с учётом заголовков h1-h6.
@@ -414,6 +477,46 @@ def get_rag_ru_normalization_mode() -> str:
     if normalized in {"lemma_then_stem", "lemma_only", "stem_only"}:
         return normalized
     return "lemma_then_stem"
+
+
+def is_rag_stopwords_enabled() -> bool:
+    """Проверить, включена ли фильтрация стоп-слов из запроса перед lexical scoring."""
+    db_value = _safe_get_setting(AI_RAG_STOPWORDS_SETTING_KEY)
+    if db_value is None:
+        return AI_RAG_STOPWORDS_ENABLED
+
+    normalized = str(db_value).strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+
+def is_rag_query_pattern_strip_enabled() -> bool:
+    """Проверить, включено ли снятие шаблонных вопросительных паттернов из запроса."""
+    db_value = _safe_get_setting(AI_RAG_QUERY_PATTERN_STRIP_SETTING_KEY)
+    if db_value is None:
+        return AI_RAG_QUERY_PATTERN_STRIP_ENABLED
+
+    normalized = str(db_value).strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+
+def is_rag_hyde_enabled() -> bool:
+    """Проверить, включена ли генерация гипотетического документа (HyDE) для vector search."""
+    db_value = _safe_get_setting(AI_RAG_HYDE_SETTING_KEY)
+    if db_value is None:
+        return AI_RAG_HYDE_ENABLED
+
+    normalized = str(db_value).strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+
+def is_rag_hyde_lexical_enabled() -> bool:
+    """Проверить, включено ли дополнение BM25 lexical scoring токенами из HyDE-текста."""
+    db_value = _safe_get_setting(AI_RAG_HYDE_LEXICAL_SETTING_KEY)
+    if db_value is None:
+        return AI_RAG_HYDE_LEXICAL_ENABLED
+
+    normalized = str(db_value).strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
 
 
 def is_rag_summary_vector_enabled() -> bool:

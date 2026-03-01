@@ -19,6 +19,7 @@ from src.sbs_helper_telegram_bot.ai_router.context_manager import ConversationCo
 from src.sbs_helper_telegram_bot.ai_router.intent_handlers import IntentHandler, get_all_handlers
 from src.sbs_helper_telegram_bot.ai_router.llm_provider import (
     ClassificationResult,
+    LLMProviderTemporaryError,
     LLMProvider,
     get_provider,
 )
@@ -41,7 +42,7 @@ logger = logging.getLogger(__name__)
 CLASSIFICATION_NO_JSON_EXPLAIN_CODES = {
     "NO_JSON_IN_RESPONSE",
     "JSON_PARSE_FAIL",
-    "DIRECT_TEXT_FALLBACK",
+    "EMPTY_RESPONSE",
 }
 
 
@@ -206,6 +207,15 @@ class IntentRouter:
 
             classify_ms = int((time.monotonic() - classify_started_at) * 1000)
             self._circuit_breaker.record_success()
+        except LLMProviderTemporaryError as exc:
+            self._circuit_breaker.record_failure()
+            logger.warning(
+                "AI classification temporary error: user=%s, error_type=%s, error_repr=%r",
+                user_id,
+                type(exc).__name__,
+                exc,
+            )
+            return None, "error"
         except Exception as exc:
             self._circuit_breaker.record_failure()
             logger.exception(
@@ -315,17 +325,11 @@ class IntentRouter:
         """Диспетчер: маршрутизировать к handler или fallback."""
         intent = classification.intent
         confidence = classification.confidence
-        direct_answer = str(classification.parameters.get("direct_answer", "")).strip()
         dispatch_meta: Dict[str, Any] = {
             "path": "unknown",
             "chat_ms": 0,
             "handler_ms": 0,
         }
-
-        # Fallback: классификатор вернул готовый текст вместо JSON.
-        if direct_answer and confidence >= ai_settings.CHAT_CONFIDENCE_THRESHOLD:
-            dispatch_meta["path"] = "direct_answer_fallback"
-            return format_ai_chat_response(direct_answer), "chat", dispatch_meta
 
         # Приоритет RAG: если классификатор выбрал general_chat, но сообщение
         # не похоже на small-talk, пробуем маршрутизировать в rag_qa.
@@ -445,6 +449,16 @@ class IntentRouter:
                 dispatch_meta["path"] = "general_chat"
                 dispatch_meta["chat_ms"] = int((time.monotonic() - chat_started_at) * 1000)
                 return format_ai_chat_response(chat_response), "chat", dispatch_meta
+            except LLMProviderTemporaryError as exc:
+                self._circuit_breaker.record_failure()
+                logger.warning(
+                    "AI chat temporary error: user=%s, error_type=%s, error_repr=%r",
+                    user_id,
+                    type(exc).__name__,
+                    exc,
+                )
+                dispatch_meta["path"] = "general_chat_error"
+                return None, "error", dispatch_meta
             except Exception as exc:
                 self._circuit_breaker.record_failure()
                 logger.exception(
@@ -483,6 +497,16 @@ class IntentRouter:
                 dispatch_meta["path"] = "fallback_chat"
                 dispatch_meta["chat_ms"] = int((time.monotonic() - chat_started_at) * 1000)
                 return format_ai_chat_response(chat_response), "chat", dispatch_meta
+            except LLMProviderTemporaryError as exc:
+                self._circuit_breaker.record_failure()
+                logger.warning(
+                    "AI chat fallback temporary error: user=%s, error_type=%s, error_repr=%r",
+                    user_id,
+                    type(exc).__name__,
+                    exc,
+                )
+                dispatch_meta["path"] = "fallback_chat_error"
+                return None, "error", dispatch_meta
             except Exception as exc:
                 self._circuit_breaker.record_failure()
                 logger.exception(

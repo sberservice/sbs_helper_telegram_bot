@@ -39,8 +39,6 @@
 ### Установка
 
 ```bash
-git clone https://github.com/sberservice/sbs_helper_telegram_bot.git
-cd sbs_helper_telegram_bot
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # Заполнить TELEGRAM_TOKEN, MYSQL_*, DEEPSEEK_API_KEY
@@ -55,7 +53,7 @@ for f in bot_settings_setup initial_ticket_types initial_validation_rules \
          map_rules_to_ticket_types certification_setup ktr_setup upos_error_setup \
          soos_image_queue_setup \
          gamification_setup feedback_setup news_setup ai_router_setup ai_rag_setup \
-         ai_rag_document_summaries_setup ai_rag_vector_setup chat_members_setup health_check_setup \
+         ai_rag_document_summaries_setup ai_rag_vector_setup ai_rag_certification_signals_setup chat_members_setup health_check_setup \
          health_outage_calendar_setup; do
   mysql -u root -p sprint_db < "sql/${f}.sql"
 done
@@ -80,7 +78,7 @@ python run_bot.py
 | **Telegram** | `TELEGRAM_TOKEN` | Токен бота |
 | **MySQL** | `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` | Подключение к БД |
 | **AI** | `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `AI_CONFIDENCE_THRESHOLD`, `AI_LOG_MODEL_IO`, `AI_MODEL_IO_DB_LOG_ENABLED` | LLM-провайдер, пороги и логирование prompt/response |
-| **RAG** | `AI_RAG_ENABLED`, `AI_RAG_CHUNK_SIZE`, `AI_RAG_TOP_K`, `AI_RAG_PREFILTER_TOP_DOCS`, `AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT`, `AI_RAG_SUMMARY_VECTOR_WEIGHT`, `AI_RAG_VECTOR_ENABLED` | База знаний документов |
+| **RAG** | `AI_RAG_ENABLED`, `AI_RAG_CHUNK_SIZE`, `AI_RAG_TOP_K`, `AI_RAG_PREFILTER_TOP_DOCS`, `AI_RAG_PREFILTER_EXCLUDE_CERTIFICATION_FROM_COUNT`, `AI_RAG_PROMPT_SUMMARIES_EXCLUDE_CERTIFICATION`, `AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT`, `AI_RAG_SUMMARY_VECTOR_WEIGHT`, `AI_RAG_VECTOR_ENABLED`, `AI_RAG_CERTIFICATION_CATEGORY_BOOST`, `AI_RAG_CERTIFICATION_STALE_PENALTY` | База знаний документов |
 | **Сеть** | `TELEGRAM_HTTP_MAX_RETRIES`, `TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS` | Сетевые профили |
 
 Для хранения полных AI/RAG логов (`prompt/response`) используется таблица `ai_model_io_log` (создаётся в `sql/ai_router_setup.sql`).
@@ -139,7 +137,7 @@ pytest
 - [AI RAG — база знаний](docs/AI_RAG_GUIDE.md)
 - [Рекомендации по валидатору](docs/VALIDATOR_RECOMMENDATIONS.md)
 
-**Утилиты:** `scripts/sync_chat_members.py` (синхронизация Telegram-группы), `scripts/add_daily_scores.py` (массовое начисление очков), `scripts/rag_directory_ingest.py` (пакетная загрузка документов в RAG), `scripts/rag_vector_backfill.py` (пакетная индексация существующих RAG-чанков и/или summary-документов в локальный Qdrant), `scripts/rag_qdrant_sync_remote_to_local.py` (best-effort синхронизация коллекции Qdrant из remote в local), `scripts/rag_sentence_similarity.py` (оценка похожести двух фраз для ручной проверки RAG).
+**Утилиты:** `scripts/sync_chat_members.py` (синхронизация Telegram-группы), `scripts/add_daily_scores.py` (массовое начисление очков), `scripts/rag_ops.py` (**единый CLI для всех RAG-операций**: health-check, status, первичная настройка, обновление документов/аттестации/векторов, sync-remote, интерактивный wizard — подробнее см. [docs/RAG_OPERATIONS_GUIDE.md](docs/RAG_OPERATIONS_GUIDE.md)), `scripts/rag_directory_ingest.py` (пакетная загрузка документов в RAG), `scripts/rag_certification_sync.py` (синхронизация вопросов/ответов аттестации в RAG), `scripts/rag_vector_backfill.py` (пакетная индексация существующих RAG-чанков и/или summary-документов в локальный Qdrant), `scripts/rag_qdrant_sync_remote_to_local.py` (best-effort синхронизация коллекции Qdrant из remote в local), `scripts/rag_sentence_similarity.py` (оценка похожести двух фраз для ручной проверки RAG).
 
 ## Лицензия
 

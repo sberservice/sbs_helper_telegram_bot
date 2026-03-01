@@ -13,6 +13,7 @@ from src.sbs_helper_telegram_bot.ai_router.intent_router import (
 )
 from src.sbs_helper_telegram_bot.ai_router.llm_provider import (
     ClassificationResult,
+    LLMProviderTemporaryError,
 )
 from src.sbs_helper_telegram_bot.ai_router.messages import (
     AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
@@ -436,12 +437,12 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
     @patch("src.common.bot_settings.is_module_enabled", return_value=True)
     @patch("src.common.bot_settings.get_enabled_modules", return_value=[])
     @patch.object(IntentRouter, "_log_to_db")
-    async def test_direct_answer_fallback_response(self, mock_log_to_db, mock_modules, mock_enabled):
-        """Direct-answer fallback из классификации возвращается как chat-ответ."""
+    async def test_no_direct_answer_fallback_response(self, mock_log_to_db, mock_modules, mock_enabled):
+        """Даже при direct_answer в parameters роутер не отдаёт его напрямую пользователю."""
         provider = AsyncMock()
         provider.classify.return_value = ClassificationResult(
             intent="general_chat",
-            confidence=0.85,
+            confidence=0.0,
             parameters={"direct_answer": "Готовый ответ из fallback"},
             explain_code="DIRECT_TEXT_FALLBACK",
         )
@@ -449,8 +450,8 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
         router = _make_router(provider=provider)
         result, status = await router.route("как прошить D200", user_id=1)
 
-        self.assertEqual(status, "chat")
-        self.assertIn("Готовый ответ", result)
+        self.assertEqual(status, "low_confidence")
+        self.assertIsNone(result)
         provider.chat.assert_not_called()
 
     @patch("src.common.bot_settings.is_module_enabled", return_value=True)
@@ -461,10 +462,10 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
         provider = AsyncMock()
         provider.classify.side_effect = [
             ClassificationResult(
-                intent="general_chat",
-                confidence=0.85,
-                parameters={"direct_answer": "Текст вместо JSON"},
-                explain_code="DIRECT_TEXT_FALLBACK",
+                intent="unknown",
+                confidence=0.0,
+                parameters={},
+                explain_code="NO_JSON_IN_RESPONSE",
             ),
             ClassificationResult(
                 intent="upos_error_lookup",
@@ -497,14 +498,14 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
         mock_modules,
         mock_enabled,
     ):
-        """Если retry снова no-JSON, сохраняется первый direct-answer fallback."""
+        """Если retry снова no-JSON, итогом остаётся безопасный low_confidence."""
         provider = AsyncMock()
         provider.classify.side_effect = [
             ClassificationResult(
-                intent="general_chat",
-                confidence=0.85,
-                parameters={"direct_answer": "Готовый ответ из первого fallback"},
-                explain_code="DIRECT_TEXT_FALLBACK",
+                intent="unknown",
+                confidence=0.0,
+                parameters={},
+                explain_code="JSON_PARSE_FAIL",
             ),
             ClassificationResult(
                 intent="unknown",
@@ -517,8 +518,8 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
         router = _make_router(provider=provider)
         result, status = await router.route("любой текст", user_id=1)
 
-        self.assertEqual(status, "chat")
-        self.assertIn("Готовый ответ", result)
+        self.assertEqual(status, "low_confidence")
+        self.assertIsNone(result)
         self.assertEqual(provider.classify.await_count, 2)
         provider.chat.assert_not_called()
 
@@ -542,6 +543,36 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
         self.assertIn("AI classification error", log_args[0])
         self.assertEqual(log_args[2], "Exception")
         self.assertIs(log_args[3], empty_exc)
+
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=[])
+    @patch("src.sbs_helper_telegram_bot.ai_router.intent_router.logger.warning")
+    async def test_classification_temporary_error_is_handled_gracefully(
+        self,
+        mock_logger_warning,
+        mock_modules,
+        mock_enabled,
+    ):
+        """Временная ошибка провайдера даёт статус error без traceback-ветки exception."""
+        provider = AsyncMock()
+        provider.classify.side_effect = LLMProviderTemporaryError("timeout")
+
+        cb = CircuitBreaker(failure_threshold=10)
+        router = _make_router(provider=provider, circuit_breaker=cb)
+
+        result, status = await router.route("test", user_id=1)
+
+        self.assertIsNone(result)
+        self.assertEqual(status, "error")
+        self.assertEqual(cb._failure_count, 1)
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and "AI classification temporary error" in call.args[0]
+                for call in mock_logger_warning.call_args_list
+            )
+        )
 
     @patch("src.common.bot_settings.is_module_enabled", return_value=True)
     @patch("src.common.bot_settings.get_enabled_modules", return_value=[])

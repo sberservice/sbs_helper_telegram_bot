@@ -4,10 +4,12 @@ test_llm_provider.py — тесты для LLM-провайдера и парс�
 import json
 import unittest
 from unittest.mock import patch, MagicMock, AsyncMock
+import httpx
 
 from src.sbs_helper_telegram_bot.ai_router.llm_provider import (
     ClassificationResult,
     DeepSeekProvider,
+    LLMProviderTemporaryError,
     get_provider,
     register_provider,
 )
@@ -81,15 +83,27 @@ class TestParseClassification(unittest.TestCase):
         self.assertEqual(result.explain_code, "NO_JSON_IN_RESPONSE")
 
     def test_direct_text_fallback_for_long_non_json_response(self):
-        """Длинный не-JSON ответ обрабатывается как direct-text fallback."""
+        """Длинный не-JSON ответ больше не трактуется как direct-text fallback."""
         raw = (
             "📚 Ответ по базе знаний. Для прошивки D200 подготовьте флешку FAT32, "
             "скопируйте файл обновления, зайдите в сервисное меню и запустите обновление."
         )
         result = DeepSeekProvider._parse_classification(raw, elapsed_ms=180)
-        self.assertEqual(result.intent, "general_chat")
-        self.assertEqual(result.explain_code, "DIRECT_TEXT_FALLBACK")
-        self.assertIn("direct_answer", result.parameters)
+        self.assertEqual(result.intent, "unknown")
+        self.assertEqual(result.explain_code, "NO_JSON_IN_RESPONSE")
+
+    def test_invalid_intent_becomes_unknown(self):
+        """Неподдерживаемый intent приводится к unknown."""
+        raw = json.dumps({
+            "intent": "some_random_intent",
+            "confidence": 0.99,
+            "parameters": {"x": 1},
+            "explain_code": "PARSED_OK",
+        })
+        result = DeepSeekProvider._parse_classification(raw, elapsed_ms=25)
+        self.assertEqual(result.intent, "unknown")
+        self.assertEqual(result.confidence, 0.0)
+        self.assertEqual(result.explain_code, "INVALID_INTENT")
 
     def test_invalid_json(self):
         """Невалидный JSON с intent обрабатывается partial fallback."""
@@ -109,26 +123,26 @@ class TestParseClassification(unittest.TestCase):
 
     def test_confidence_clamped_to_range(self):
         """Confidence ограничивается диапазоном [0, 1]."""
-        raw_high = json.dumps({"intent": "test", "confidence": 1.5})
+        raw_high = json.dumps({"intent": "general_chat", "confidence": 1.5})
         result_high = DeepSeekProvider._parse_classification(raw_high, elapsed_ms=0)
         self.assertEqual(result_high.confidence, 1.0)
 
-        raw_low = json.dumps({"intent": "test", "confidence": -0.5})
+        raw_low = json.dumps({"intent": "general_chat", "confidence": -0.5})
         result_low = DeepSeekProvider._parse_classification(raw_low, elapsed_ms=0)
         self.assertEqual(result_low.confidence, 0.0)
 
     def test_missing_fields_use_defaults(self):
         """Отсутствующие поля заполняются defaults."""
-        raw = json.dumps({"intent": "test"})
+        raw = json.dumps({"intent": "general_chat"})
         result = DeepSeekProvider._parse_classification(raw, elapsed_ms=0)
-        self.assertEqual(result.intent, "test")
+        self.assertEqual(result.intent, "general_chat")
         self.assertEqual(result.confidence, 0.0)
         self.assertEqual(result.parameters, {})
         self.assertEqual(result.explain_code, "PARSED_OK")
 
     def test_non_dict_parameters_converted(self):
         """Нестандартный тип parameters заменяется на пустой dict."""
-        raw = json.dumps({"intent": "test", "confidence": 0.8, "parameters": "not a dict"})
+        raw = json.dumps({"intent": "general_chat", "confidence": 0.8, "parameters": "not a dict"})
         result = DeepSeekProvider._parse_classification(raw, elapsed_ms=0)
         self.assertEqual(result.parameters, {})
 
@@ -316,6 +330,7 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         call_kwargs = provider._call_api.await_args.kwargs
         self.assertEqual(call_kwargs["temperature"], 0.25)
         self.assertEqual(call_kwargs["max_tokens"], 2048)
+        self.assertEqual(call_kwargs["response_format"], {"type": "json_object"})
 
     async def test_chat_uses_generation_params_from_settings(self):
         """chat использует temperature/max_tokens из ai_router.settings."""
@@ -378,6 +393,44 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         second_call_kwargs = mock_client.post.await_args_list[1].kwargs
         self.assertEqual(first_call_kwargs["json"]["model"], "deepseek-reasoner")
         self.assertEqual(second_call_kwargs["json"]["model"], "deepseek-chat")
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    async def test_call_api_retries_once_on_timeout_and_succeeds(self, mock_async_client):
+        """При таймауте выполняется один повтор, и успешный второй ответ возвращается."""
+        provider = DeepSeekProvider(api_key="test_key", model="deepseek-chat")
+
+        mock_client = mock_async_client.return_value.__aenter__.return_value
+
+        success_response = MagicMock()
+        success_response.json.return_value = {
+            "choices": [{"message": {"content": "ok after retry"}}]
+        }
+        success_response.raise_for_status.return_value = None
+
+        mock_client.post = AsyncMock(
+            side_effect=[
+                httpx.ReadTimeout(""),
+                success_response,
+            ]
+        )
+
+        result = await provider._call_api(messages=[{"role": "user", "content": "hi"}], purpose="chat")
+
+        self.assertEqual(result, "ok after retry")
+        self.assertEqual(mock_client.post.await_count, 2)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    async def test_call_api_timeout_raises_temporary_error_after_retry(self, mock_async_client):
+        """После двух таймаутов _call_api выбрасывает LLMProviderTemporaryError."""
+        provider = DeepSeekProvider(api_key="test_key", model="deepseek-chat")
+
+        mock_client = mock_async_client.return_value.__aenter__.return_value
+        mock_client.post = AsyncMock(side_effect=httpx.ReadTimeout(""))
+
+        with self.assertRaises(LLMProviderTemporaryError):
+            await provider._call_api(messages=[{"role": "user", "content": "hi"}], purpose="chat")
+
+        self.assertEqual(mock_client.post.await_count, 2)
 
     @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
     async def test_call_api_supports_structured_list_content(self, mock_async_client):

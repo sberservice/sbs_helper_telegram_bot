@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import logging
 import re
 import asyncio
@@ -27,10 +28,11 @@ import src.common.database as database
 
 from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
 from src.sbs_helper_telegram_bot.ai_router.messages import (
+    AI_PROGRESS_STAGE_RAG_CACHE_HIT,
     AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
     AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
 )
-from src.sbs_helper_telegram_bot.ai_router.prompts import build_rag_prompt, build_rag_summary_prompt
+from src.sbs_helper_telegram_bot.ai_router.prompts import build_hyde_prompt, build_rag_prompt, build_rag_summary_prompt
 from src.sbs_helper_telegram_bot.ai_router.vector_search import (
     LocalEmbeddingProvider,
     LocalVectorIndex,
@@ -43,9 +45,131 @@ try:
 except Exception:
     BM25Okapi = None
 
-_TOKEN_RE = re.compile(r"[a-zа-яё0-9]{3,}", re.IGNORECASE)
+_TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
+_SHORT_ALNUM_TOKEN_RE = re.compile(r"(?:[a-zа-яё]\d|\d[a-zа-яё])", re.IGNORECASE)
 _CYRILLIC_TOKEN_RE = re.compile(r"[а-яё]", re.IGNORECASE)
+_HASHTAG_WORD_RE = re.compile(r"(?<!\S)#[a-zа-яё0-9_]+", re.IGNORECASE)
 _SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".docx", ".md", ".html", ".htm"}
+
+# =============================================
+# Стоп-слова для русскоязычного lexical retrieval
+# =============================================
+# Высокочастотные функциональные слова, не несущие предметной нагрузки.
+# Удаляются из query-токенов перед lexical scoring, чтобы BM25 IDF
+# не завышал score документов с одинаковым шаблонным началом
+# (например, «что такое X» vs «что такое Y»).
+_RU_STOPWORDS: frozenset[str] = frozenset({
+    # Местоимения и частицы
+    "что", "это", "как", "так", "его", "все", "она", "они",
+    "был", "уже", "тот", "или", "ещё", "еще", "нет", "более",
+    "какой", "какая", "какое", "каком", "какие", "каких",
+    "такое", "такой", "такая", "такие", "таких",
+    "который", "которая", "которое", "которые",
+    "этот", "этого", "этом", "этой",
+    "свой", "своя", "свои", "своего",
+    "можно", "нужно", "надо",
+    "кто", "где", "когда", "зачем", "почему", "чего", "чем",
+    "для", "при", "без", "под", "над", "между",
+    "наша", "наш", "наше", "наши", "ваш", "ваша", "ваше", "ваши",
+    # Союзы (≥3 символов, т.к. _TOKEN_RE ≥3)
+    "чтобы", "если", "также", "тоже", 
+})
+
+# Термины, которые нельзя искажать лемматизацией/стеммингом
+# и которые нужно сохранять даже при короткой длине токена.
+_RAG_FIXED_QUERY_TERMS: frozenset[str] = frozenset({
+    "осно", "усн", "псн", "енвд", "нпд", "сно",
+    "фн", "ккт", "офд", "инн", "кпп","аусн",      # Автоматизированная УСН
+    "егрип",     # ЕГРИП
+    "егрюл",     # ЕГРЮЛ
+    "енс",       # Единый налоговый счёт
+    "есхн",      # ЕСХН
+    "ип",        # Индивидуальный предприниматель
+    "мрот",      # МРОТ
+    "ндс",       # НДС
+    "ндфл",      # НДФЛ
+    "огрн",      # ОГРН
+    "огрнип",    # ОГРНИП
+    "оквэд",     # ОКВЭД
+    "ооо",       # ООО
+    "пфр",       # ПФР (до сих пор активно ищут)
+    "снилс",     # СНИЛС
+    "фнс",       # ФНС
+    "фсс",       # ФСС
+    "кбк",       # КБК
+    "октмо",     # ОКТМО
+    # === Новые — специально под ККТ, банковские терминалы, АРМ и банкоматы (22 шт.) ===
+    "ффд",      # формат фискальных данных
+    "54фз",     # 54-ФЗ (самый частый запрос)
+    "фд",       # фискальный документ
+    "фп",       # фискальный признак
+    "фпд",      # фискальный признак документа
+    "рн",       # регистрационный номер ККТ
+    "зн",       # заводской номер
+    "ккм",      # контрольно-кассовая машина (старое название, до сих пор ищут)
+    "эклз",     # электронная контрольная лента защищённая (legacy, но запросы есть)
+    "фнм",      # ФН-М (для маркировки)
+
+    "pos",      # POS-терминал
+    "пинпад",   # PIN-Pad (очень частый)
+    "пин",      # PIN (в контексте пинпада)
+
+    "арм",      # автоматизированное рабочее место
+    "цто",      # центр технического обслуживания
+    "то",       # техническое обслуживание
+
+    "усо",      # устройство самообслуживания
+    "атм",      # ATM / банкомат
+    "банкомат", # банкомат (защищаем полностью)
+
+    "эдо",      # электронный документооборот
+    "укэп",     # усиленная квалифицированная ЭП (регистрация ККТ, договоры)
+    "кэп",      # квалифицированная ЭП
+    "эп",       # электронная подпись
+})
+
+# =============================================
+# Паттерны типовых вопросительных конструкций
+# =============================================
+# Regex-паттерны «что такое X», «как работает X» и т.д., из которых
+# извлекается предметная часть (X) для фокусировки lexical scoring.
+_QUERY_STRIP_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(
+        r"^\s*(?:что\s+(?:такое|значит|означает|представляет\s+собой))"
+        r"\s+(.+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(?:как\s+(?:работает|устроен|устроена|функционирует|действует|использовать|пользоваться))"
+        r"\s+(.+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(?:зачем\s+(?:нужен|нужна|нужно|нужны|используется|используют))"
+        r"\s+(.+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(?:для\s+чего\s+(?:нужен|нужна|нужно|нужны|используется|служит))"
+        r"\s+(.+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(?:в\s+чём\s+(?:разница|отличие|отличия|суть|смысл))"
+        r"\s+(.+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(?:чем\s+(?:отличается|является))"
+        r"\s+(.+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(?:расскажи|объясни|опиши)\s+(?:что\s+такое\s+|про\s+|о\s+)?"
+        r"(.+)",
+        re.IGNORECASE,
+    ),
+]
 _RAG_CHUNK_SCAN_LIMIT = 3000
 _RAG_SUMMARY_SCAN_LIMIT = 3000
 _RAG_EMBEDDING_UPSERT_BATCH_SIZE = 25
@@ -55,6 +179,10 @@ _MYSQL_RETRYABLE_ERRNOS = {1205, 1213}
 _RAG_DB_OPERATION_MAX_RETRIES = 3
 _RAG_DB_OPERATION_RETRY_BASE_DELAY_SECONDS = 0.25
 _SPACES_RE = re.compile(r"\s+")
+_RAG_SOURCE_TYPE_CERTIFICATION = "certification"
+_RAG_CERTIFICATION_SOURCE_URL_PREFIX = "certification://question/"
+_RAG_CERTIFICATION_FILENAME_PREFIX = "certification_q_"
+_RAG_CATEGORY_CACHE_TTL_SECONDS = 300
 
 TResult = TypeVar("TResult")
 
@@ -79,10 +207,42 @@ class RagKnowledgeService:
         self._summary_embedding_corpus_version: int = -1
         self._summary_vector_prefilter_source: str = "disabled"
         self._summary_vector_prefilter_hits: int = 0
+        self._hyde_cache: Dict[str, Tuple[str, float]] = {}
         self._ru_morph_analyzer: Optional[object] = None
         self._ru_stemmer: Optional[object] = None
         self._normalized_token_cache: Dict[str, str] = {}
         self._normalization_dependency_warning_logged: bool = False
+        self._document_signals_table_warning_logged: bool = False
+        self._certification_categories_cache: List[Tuple[str, str]] = []
+        self._certification_categories_cache_expires_at: float = 0.0
+
+    def _get_cached_hyde_text(self, question: str) -> Optional[str]:
+        """Получить HyDE-текст из кэша, если он не истёк.
+
+        Возвращает ``None``, если запись отсутствует или TTL истёк.
+        Очищает до 20 просроченных записей за вызов.
+        """
+        now = time.time()
+        cached = self._hyde_cache.get(question)
+        if cached is not None:
+            hyde_text, expires_at = cached
+            if expires_at > now:
+                return hyde_text
+            del self._hyde_cache[question]
+
+        # Ленивая очистка просроченных записей
+        expired_keys = [
+            k for k, (_, exp) in self._hyde_cache.items() if exp <= now
+        ]
+        for key in expired_keys[:20]:
+            self._hyde_cache.pop(key, None)
+
+        return None
+
+    def _cache_hyde_text(self, question: str, hyde_text: str) -> None:
+        """Сохранить HyDE-текст в кэш с TTL."""
+        ttl = max(1, int(ai_settings.AI_RAG_HYDE_CACHE_TTL_SECONDS))
+        self._hyde_cache[question] = (hyde_text, time.time() + ttl)
 
     @staticmethod
     def is_supported_file(filename: str) -> bool:
@@ -178,6 +338,8 @@ class RagKnowledgeService:
         source_url: Optional[str] = None,
         upsert_vectors: bool = True,
         summary_model_scope: str = "default",
+        preset_summary_text: Optional[str] = None,
+        preset_summary_model_name: Optional[str] = None,
     ) -> Dict[str, int]:
         """
         Загрузить документ в базу знаний.
@@ -190,6 +352,8 @@ class RagKnowledgeService:
             source_url: URL источника (если применимо).
             upsert_vectors: Выполнять ли немедленный upsert векторных эмбеддингов.
             summary_model_scope: Контекст выбора модели summary (например, directory_ingest).
+            preset_summary_text: Предустановленный summary (если требуется обойти LLM-суммаризацию).
+            preset_summary_model_name: Имя модели/режима для предустановленного summary.
 
         Returns:
             Статистика загрузки документа.
@@ -295,12 +459,17 @@ class RagKnowledgeService:
             raise ValueError("В документе не найден полезный текст")
 
         limited_chunks = chunks[: ai_settings.AI_RAG_MAX_CHUNKS_PER_DOC]
-        summary_text, summary_model_name = self._generate_document_summary(
-            filename,
-            limited_chunks,
-            user_id=uploaded_by,
-            summary_model_scope=summary_model_scope,
-        )
+        if (preset_summary_text or "").strip():
+            summary_text = self._normalize_summary_text(str(preset_summary_text))
+            summary_model_name = str(preset_summary_model_name or "certification_deterministic").strip() or None
+        else:
+            summary_text, summary_model_name = self._generate_document_summary(
+                filename,
+                limited_chunks,
+                user_id=uploaded_by,
+                summary_model_scope=summary_model_scope,
+                source_type=source_type,
+            )
 
         def _insert_document_and_chunks() -> Tuple[int, List[Dict[str, object]]]:
             with database.get_db_connection() as conn:
@@ -374,8 +543,15 @@ class RagKnowledgeService:
         chunks: List[str],
         user_id: Optional[int] = None,
         summary_model_scope: str = "default",
+        source_type: str = "telegram",
     ) -> Tuple[str, Optional[str]]:
         """Сгенерировать summary документа с fallback на extractive-режим."""
+        safe_source_type = str(source_type or "").strip().lower()
+        if safe_source_type == _RAG_SOURCE_TYPE_CERTIFICATION:
+            deterministic_summary = self._build_certification_deterministic_summary(chunks)
+            if deterministic_summary:
+                return deterministic_summary, "certification_deterministic"
+
         fallback_summary = self._build_fallback_summary(chunks)
         if not ai_settings.AI_RAG_SUMMARY_ENABLED:
             return fallback_summary, None
@@ -430,6 +606,33 @@ class RagKnowledgeService:
             logger.warning("Не удалось сгенерировать AI-summary для %s: %s", filename, exc)
 
         return fallback_summary, None
+
+    @staticmethod
+    def _build_certification_deterministic_summary(chunks: List[str]) -> str:
+        """Собрать детерминированный summary для короткой пары вопрос-ответ аттестации."""
+        joined = "\n".join(str(chunk or "") for chunk in chunks)
+        question_match = re.search(r"Вопрос:\s*\n(.+?)(?:\n\s*\n|\Z)", joined, re.DOTALL)
+        answer_match = re.search(r"Правильный ответ:\s*(.+?)(?:\n\s*\n|\Z)", joined, re.DOTALL)
+        explanation_match = re.search(r"Пояснение:\s*\n(.+?)(?:\n\s*\n|\Z)", joined, re.DOTALL)
+        category_match = re.search(r"Категории:\s*(.+)", joined)
+
+        question_text = re.sub(r"\s+", " ", (question_match.group(1) if question_match else "").strip())
+        answer_text = re.sub(r"\s+", " ", (answer_match.group(1) if answer_match else "").strip())
+        explanation_text = re.sub(r"\s+", " ", (explanation_match.group(1) if explanation_match else "").strip())
+        category_text = re.sub(r"\s+", " ", (category_match.group(1) if category_match else "").strip())
+
+        parts: List[str] = []
+        if category_text:
+            parts.append(f"Категория: {category_text}.")
+        if question_text:
+            parts.append(f"Вопрос: {question_text}")
+        if answer_text:
+            parts.append(f"Правильный ответ: {answer_text}")
+        if explanation_text:
+            parts.append(f"Пояснение: {explanation_text}")
+
+        summary = " ".join(parts).strip()
+        return RagKnowledgeService._normalize_summary_text(summary)
 
     @staticmethod
     def _build_summary_excerpt(chunks: List[str]) -> str:
@@ -609,6 +812,230 @@ class RagKnowledgeService:
                 cursor.execute(query, tuple(params))
                 return cursor.fetchall() or []
 
+    def sync_certification_questions_to_rag(
+        self,
+        uploaded_by: int,
+        upsert_vectors: bool = False,
+        force_update: bool = False,
+    ) -> Dict[str, int]:
+        """Синхронизировать пары вопрос-ответ аттестации в RAG-корпус."""
+        stats = {
+            "questions_total": 0,
+            "ingested": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "purged": 0,
+            "errors": 0,
+        }
+
+        questions = self._load_certification_questions_for_rag()
+        stats["questions_total"] = len(questions)
+
+        existing_docs = self.list_documents_by_source(
+            source_type=_RAG_SOURCE_TYPE_CERTIFICATION,
+            source_url_prefix=_RAG_CERTIFICATION_SOURCE_URL_PREFIX,
+        )
+        existing_by_source_url = {
+            str(item.get("source_url") or ""): item
+            for item in existing_docs
+            if str(item.get("source_url") or "")
+        }
+
+        seen_source_urls: set[str] = set()
+
+        for row in questions:
+            source_url = self._build_certification_source_url(int(row.get("question_id") or 0))
+            if not source_url:
+                stats["errors"] += 1
+                continue
+
+            seen_source_urls.add(source_url)
+            filename, payload, signal_data, deterministic_summary = self._build_certification_question_document_payload(row)
+            payload_hash = hashlib.sha256(payload).hexdigest()
+
+            existing = existing_by_source_url.get(source_url)
+            existing_doc_id = int(existing.get("id") or 0) if existing else 0
+            existing_hash = str(existing.get("content_hash") or "") if existing else ""
+
+            try:
+                if existing and existing_hash == payload_hash and not force_update:
+                    self._upsert_document_signal(document_id=existing_doc_id, signal_data=signal_data)
+                    stats["unchanged"] += 1
+                    continue
+
+                if existing_doc_id > 0:
+                    self.delete_document(existing_doc_id, updated_by=uploaded_by, hard_delete=True)
+                    stats["updated"] += 1
+
+                ingest_result = self.ingest_document_from_bytes(
+                    filename=filename,
+                    payload=payload,
+                    uploaded_by=uploaded_by,
+                    source_type=_RAG_SOURCE_TYPE_CERTIFICATION,
+                    source_url=source_url,
+                    upsert_vectors=upsert_vectors,
+                    summary_model_scope="default",
+                    preset_summary_text=deterministic_summary,
+                    preset_summary_model_name="certification_deterministic",
+                )
+                new_doc_id = int(ingest_result.get("document_id") or 0)
+                if new_doc_id > 0:
+                    self._upsert_document_signal(document_id=new_doc_id, signal_data=signal_data)
+                    if existing_doc_id <= 0:
+                        stats["ingested"] += 1
+            except Exception as exc:
+                stats["errors"] += 1
+                logger.error(
+                    "Ошибка синхронизации certification->RAG: question_id=%s source_url=%s error=%s",
+                    row.get("question_id"),
+                    source_url,
+                    exc,
+                )
+
+        for source_url, existing in existing_by_source_url.items():
+            if source_url in seen_source_urls:
+                continue
+
+            stale_doc_id = int(existing.get("id") or 0)
+            if stale_doc_id <= 0:
+                continue
+
+            try:
+                if self.delete_document(stale_doc_id, updated_by=uploaded_by, hard_delete=True):
+                    stats["purged"] += 1
+            except Exception as exc:
+                stats["errors"] += 1
+                logger.error(
+                    "Ошибка purge устаревшего certification RAG-документа: document_id=%s source_url=%s error=%s",
+                    stale_doc_id,
+                    source_url,
+                    exc,
+                )
+
+        logger.info("Certification->RAG sync завершён: %s", stats)
+        return stats
+
+    @staticmethod
+    def _build_certification_source_url(question_id: int) -> str:
+        """Собрать стабильный source_url для сертификационного вопроса."""
+        safe_question_id = int(question_id or 0)
+        if safe_question_id <= 0:
+            return ""
+        return f"{_RAG_CERTIFICATION_SOURCE_URL_PREFIX}{safe_question_id}"
+
+    def _load_certification_questions_for_rag(self) -> List[Dict[str, object]]:
+        """Загрузить вопросы аттестации с категориями и текстом правильного ответа."""
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        q.id AS question_id,
+                        q.question_text,
+                        q.option_a,
+                        q.option_b,
+                        q.option_c,
+                        q.option_d,
+                        q.correct_option,
+                        q.explanation,
+                        q.difficulty,
+                        q.relevance_date,
+                        q.active,
+                        q.updated_timestamp,
+                        GROUP_CONCAT(DISTINCT c.name ORDER BY c.display_order SEPARATOR '||') AS category_names
+                    FROM certification_questions q
+                    LEFT JOIN certification_question_categories qc ON qc.question_id = q.id
+                    LEFT JOIN certification_categories c ON c.id = qc.category_id
+                    GROUP BY q.id
+                    ORDER BY q.id ASC
+                    """
+                )
+                return cursor.fetchall() or []
+
+    @staticmethod
+    def _resolve_correct_option_text(row: Dict[str, object]) -> str:
+        """Получить текст правильного варианта на основе значения `correct_option`."""
+        option_key = str(row.get("correct_option") or "").strip().upper()
+        option_map = {
+            "A": str(row.get("option_a") or "").strip(),
+            "B": str(row.get("option_b") or "").strip(),
+            "C": str(row.get("option_c") or "").strip(),
+            "D": str(row.get("option_d") or "").strip(),
+        }
+        option_text = option_map.get(option_key, "")
+        if not option_text:
+            return ""
+        return option_text
+
+    def _build_certification_question_document_payload(
+        self,
+        row: Dict[str, object],
+    ) -> Tuple[str, bytes, Dict[str, object], str]:
+        """Сформировать markdown-документ для RAG из вопроса аттестации."""
+        question_id = int(row.get("question_id") or 0)
+        question_text = str(row.get("question_text") or "").strip()
+        explanation = str(row.get("explanation") or "").strip()
+        difficulty = str(row.get("difficulty") or "").strip()
+        correct_option = str(row.get("correct_option") or "").strip().upper()
+        category_names_raw = str(row.get("category_names") or "").strip()
+        category_names = [name.strip() for name in category_names_raw.split("||") if name.strip()]
+        category_names = list(dict.fromkeys(category_names))
+        category_keys = [self._normalize_category_key(name) for name in category_names if name.strip()]
+        category_keys = [key for key in category_keys if key]
+
+        relevance_date_raw = row.get("relevance_date")
+        relevance_date_text = str(relevance_date_raw) if relevance_date_raw is not None else ""
+
+        active_flag = int(row.get("active") or 0) == 1
+        is_outdated = False
+        if relevance_date_text:
+            try:
+                parsed_relevance = time.strptime(relevance_date_text, "%Y-%m-%d")
+                today = time.localtime()
+                is_outdated = (parsed_relevance.tm_year, parsed_relevance.tm_yday) < (today.tm_year, today.tm_yday)
+            except Exception:
+                is_outdated = False
+
+        correct_option_text = self._resolve_correct_option_text(row)
+        categories_line = ", ".join(category_names) if category_names else "Без категории"
+
+        content_lines = [
+            f"Категория: {categories_line}",
+            "",
+            "Вопрос:",
+            question_text,
+            "",
+            f"Правильный ответ: {correct_option_text or correct_option}",
+        ]
+
+        if explanation:
+            content_lines.extend(["", "Пояснение:", explanation])
+
+        payload = "\n".join(content_lines).strip().encode("utf-8")
+        filename = f"certification_q_{question_id}.md"
+        signal_data: Dict[str, object] = {
+            "domain_key": _RAG_SOURCE_TYPE_CERTIFICATION,
+            "question_id": question_id,
+            "is_active": 1 if active_flag else 0,
+            "is_outdated": 1 if is_outdated else 0,
+            "relevance_date": relevance_date_text or None,
+            "category_keys_json": json.dumps(category_keys, ensure_ascii=False),
+            "category_labels_json": json.dumps(category_names, ensure_ascii=False),
+        }
+        deterministic_summary = self._normalize_summary_text(
+            " ".join(
+                part
+                for part in [
+                    f"Категория: {categories_line}." if categories_line else "",
+                    f"Вопрос: {question_text}" if question_text else "",
+                    f"Правильный ответ: {correct_option_text or correct_option}" if (correct_option_text or correct_option) else "",
+                    f"Пояснение: {explanation}" if explanation else "",
+                ]
+                if part
+            )
+        )
+        return filename, payload, signal_data, deterministic_summary
+
     def get_document(self, document_id: int) -> Optional[Dict[str, object]]:
         """
         Получить детальную информацию по документу.
@@ -771,6 +1198,7 @@ class RagKnowledgeService:
         question: str,
         user_id: int,
         on_progress: Optional[Callable[[str, Optional[Dict[str, Any]]], Awaitable[None]]] = None,
+        category_hint: Optional[str] = None,
     ) -> Optional[str]:
         """
         Ответить на вопрос пользователя на основе документов.
@@ -806,13 +1234,81 @@ class RagKnowledgeService:
         cached = self._answer_cache.get(cache_key)
         now = time.time()
         if cached and cached.expires_at > now:
+            ttl_remaining = max(0.0, cached.expires_at - now)
+            logger.info(
+                "RAG answer cache hit: user_id=%s corpus_version=%s question='%.120s' ttl_remaining_s=%.2f",
+                user_id,
+                corpus_version,
+                normalized_question,
+                ttl_remaining,
+            )
+            await _emit_progress(
+                AI_PROGRESS_STAGE_RAG_CACHE_HIT,
+                {
+                    "cache_key": cache_key,
+                    "cache_ttl_remaining_seconds": ttl_remaining,
+                },
+            )
             return cached.answer
 
+        cache_miss_reason = "expired" if cached else "not_found"
+        logger.info(
+            "RAG answer cache miss: user_id=%s corpus_version=%s question='%.120s' reason=%s",
+            user_id,
+            corpus_version,
+            normalized_question,
+            cache_miss_reason,
+        )
+
         await _emit_progress(AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED)
+
+        # --- HyDE: генерация гипотетического документа для vector search ---
+        hyde_text: Optional[str] = None
+        if ai_settings.is_rag_hyde_enabled():
+            hyde_text = self._get_cached_hyde_text(normalized_question)
+            if hyde_text is not None:
+                logger.info(
+                    "HyDE cache hit: question='%.60s' hyde_len=%d",
+                    normalized_question,
+                    len(hyde_text),
+                )
+            else:
+                try:
+                    from src.sbs_helper_telegram_bot.ai_router.llm_provider import get_provider as _get_hyde_provider
+
+                    hyde_provider = _get_hyde_provider()
+                    hyde_max_chars = max(50, int(ai_settings.AI_RAG_HYDE_MAX_CHARS))
+                    hyde_text = await hyde_provider.chat(
+                        messages=[{"role": "user", "content": normalized_question}],
+                        system_prompt=build_hyde_prompt(normalized_question, hyde_max_chars),
+                        user_id=user_id,
+                        purpose="response",
+                    )
+                    if hyde_text:
+                        hyde_text = hyde_text.strip()[:hyde_max_chars]
+                        self._cache_hyde_text(normalized_question, hyde_text)
+                        logger.info(
+                            "HyDE generated: question='%.60s' hyde_len=%d",
+                            normalized_question,
+                            len(hyde_text),
+                        )
+                    else:
+                        hyde_text = None
+                except Exception as hyde_exc:
+                    logger.warning(
+                        "HyDE generation failed, proceeding without HyDE: "
+                        "question='%.60s' error_type=%s error=%r",
+                        normalized_question,
+                        type(hyde_exc).__name__,
+                        hyde_exc,
+                    )
+                    hyde_text = None
 
         chunks, summary_blocks = self._retrieve_context_for_question(
             normalized_question,
             limit=ai_settings.AI_RAG_TOP_K,
+            category_hint=category_hint,
+            hyde_text=hyde_text,
         )
         if not chunks:
             return None
@@ -861,18 +1357,69 @@ class RagKnowledgeService:
 
         return answer
 
-    def _retrieve_context_for_question(self, question: str, limit: int) -> Tuple[List[Tuple[float, str, str, int]], List[str]]:
+    def _retrieve_context_for_question(
+        self,
+        question: str,
+        limit: int,
+        category_hint: Optional[str] = None,
+        hyde_text: Optional[str] = None,
+    ) -> Tuple[List[Tuple[float, str, str, int]], List[str]]:
         """Собрать релевантные чанки и summary-блоки для RAG-ответа."""
         retrieval_started_at = time.perf_counter()
         tokens = self._tokenize(question)
         if not tokens:
             return [], []
 
+        # --- Query preprocessing: pattern stripping + stopword filtering ---
+        stripped_question, pattern_stripped = self._strip_query_patterns(question)
+        stripped_result_for_log = _SPACES_RE.sub(" ", str(stripped_question or "").strip())
+        if len(stripped_result_for_log) > 160:
+            stripped_result_for_log = f"{stripped_result_for_log[:159]}…"
+        if pattern_stripped:
+            retrieval_tokens = self._tokenize(stripped_question)
+        else:
+            retrieval_tokens = list(tokens)
+        original_token_count = len(retrieval_tokens)
+        retrieval_tokens = self._filter_stopwords(retrieval_tokens)
+        stopwords_removed = original_token_count - len(retrieval_tokens)
+        post_stopwords_result_for_log = " ".join(retrieval_tokens).strip()
+        if len(post_stopwords_result_for_log) > 160:
+            post_stopwords_result_for_log = f"{post_stopwords_result_for_log[:159]}…"
+        # Если после preprocessing нет токенов — используем исходные
+        if not retrieval_tokens:
+            retrieval_tokens = tokens
+            post_stopwords_result_for_log = " ".join(retrieval_tokens).strip()
+            if len(post_stopwords_result_for_log) > 160:
+                post_stopwords_result_for_log = f"{post_stopwords_result_for_log[:159]}…"
+
+        # --- HyDE lexical augmentation: добавить уникальные HyDE-токены для BM25 ---
+        hyde_augmented_count = 0
+        if hyde_text and ai_settings.is_rag_hyde_lexical_enabled():
+            pre_hyde_count = len(retrieval_tokens)
+            retrieval_tokens = self._augment_tokens_with_hyde(retrieval_tokens, hyde_text)
+            hyde_augmented_count = len(retrieval_tokens) - pre_hyde_count
+
+        logger.info(
+            "%s",
+            self._build_query_preprocessing_log_table(
+                original_tokens_count=len(tokens),
+                retrieval_tokens_count=len(retrieval_tokens),
+                stopwords_removed=stopwords_removed,
+                pattern_stripped=pattern_stripped,
+                hyde_status=f"{len(hyde_text)} chars" if hyde_text else "disabled",
+                hyde_lexical_augmented=hyde_augmented_count,
+                strip_result=stripped_result_for_log or "none",
+                preprocess_result=post_stopwords_result_for_log or "none",
+            ),
+        )
+
         prefilter_started_at = time.perf_counter()
         prefilter_docs, summary_vector_scores, summary_vector_source = self._prefilter_documents_by_summary(
             question=question,
-            question_tokens=tokens,
+            question_tokens=retrieval_tokens,
             limit=ai_settings.AI_RAG_PREFILTER_TOP_DOCS,
+            category_hint=category_hint,
+            hyde_text=hyde_text,
         )
         summary_vector_hits = int(self._summary_vector_prefilter_hits)
         prefilter_ms = (time.perf_counter() - prefilter_started_at) * 1000
@@ -893,12 +1440,13 @@ class RagKnowledgeService:
         prefilter_scope_doc_ids = list(dict.fromkeys(prefilter_doc_ids))
 
         lexical_started_at = time.perf_counter()
-        lexical_chunks = self._search_relevant_chunks(
+        lexical_chunks, all_lexical_scores = self._search_relevant_chunks(
             question,
             limit=limit,
             prefiltered_doc_ids=prefilter_scope_doc_ids or None,
             summary_scores=summary_scores,
             normalized_summary_scores=normalized_summary_scores,
+            override_tokens=retrieval_tokens,
         )
         lexical_ms = (time.perf_counter() - lexical_started_at) * 1000
 
@@ -906,6 +1454,7 @@ class RagKnowledgeService:
         vector_chunks = self._search_relevant_chunks_vector(
             question=question,
             prefiltered_doc_ids=prefilter_scope_doc_ids or None,
+            hyde_text=hyde_text,
         )
         vector_ms = (time.perf_counter() - vector_started_at) * 1000
 
@@ -916,6 +1465,12 @@ class RagKnowledgeService:
             limit=limit,
             summary_scores=summary_scores,
             normalized_summary_scores=normalized_summary_scores,
+            all_lexical_scores=all_lexical_scores,
+        )
+        effective_category_hint = self._resolve_effective_category_hint(question=question, category_hint=category_hint)
+        chunks = self._apply_signal_adjustments_to_chunks(
+            chunks=chunks,
+            category_hint=effective_category_hint,
         )
         merge_ms = (time.perf_counter() - merge_started_at) * 1000
         mode = self._determine_retrieval_mode(
@@ -926,6 +1481,11 @@ class RagKnowledgeService:
         selected_component_scores = self._build_selected_component_scores(
             lexical_chunks=lexical_chunks,
             vector_chunks=vector_chunks,
+            all_lexical_scores=all_lexical_scores,
+        )
+        max_lexical_score = max(
+            (float(self._unpack_chunk_row(c)[0]) for c in lexical_chunks),
+            default=0.0,
         )
         lexical_weight = max(0.0, float(ai_settings.AI_RAG_VECTOR_LEXICAL_WEIGHT))
         vector_weight = max(0.0, float(ai_settings.AI_RAG_VECTOR_SEMANTIC_WEIGHT))
@@ -938,40 +1498,47 @@ class RagKnowledgeService:
         summary_blocks_ms = (time.perf_counter() - summary_blocks_started_at) * 1000
         retrieval_total_ms = (time.perf_counter() - retrieval_started_at) * 1000
         logger.info(
-            "RAG retrieval: mode=%s lexical_scorer=%s tokens=%s prefilter_docs=%s prefilter_scope_docs=%s fallback_docs=%s lexical_hits=%s vector_hits=%s summary_vector_hits=%s summary_vector_source=%s selected=%s selected_unique_docs=%s selected_top_docs=%s top_source=%s timings_ms(total=%.2f prefilter=%.2f lexical=%.2f vector=%.2f merge=%.2f summary_blocks=%.2f)",
-            mode,
-            lexical_scorer,
-            len(tokens),
-            len(prefilter_docs),
-            len(prefilter_scope_doc_ids),
-            len(fallback_doc_ids),
-            len(lexical_chunks),
-            len(vector_chunks),
-            summary_vector_hits,
-            summary_vector_source,
-            len(chunks),
-            selected_unique_docs,
-            selected_top_docs,
-            top_source,
-            retrieval_total_ms,
-            prefilter_ms,
-            lexical_ms,
-            vector_ms,
-            merge_ms,
-            summary_blocks_ms,
+            "%s",
+            self._build_retrieval_log_table(
+                mode=mode,
+                lexical_scorer=lexical_scorer,
+                tokens_count=len(tokens),
+                retrieval_tokens_count=len(retrieval_tokens),
+                category_hint=effective_category_hint or "none",
+                prefilter_docs_count=len(prefilter_docs),
+                prefilter_scope_docs_count=len(prefilter_scope_doc_ids),
+                fallback_docs_count=len(fallback_doc_ids),
+                lexical_hits_count=len(lexical_chunks),
+                vector_hits_count=len(vector_chunks),
+                summary_vector_hits=summary_vector_hits,
+                summary_vector_source=summary_vector_source,
+                selected_count=len(chunks),
+                selected_unique_docs=selected_unique_docs,
+                selected_top_docs=selected_top_docs,
+                top_source=top_source,
+                retrieval_total_ms=retrieval_total_ms,
+                prefilter_ms=prefilter_ms,
+                lexical_ms=lexical_ms,
+                vector_ms=vector_ms,
+                merge_ms=merge_ms,
+                summary_blocks_ms=summary_blocks_ms,
+            ),
         )
         logger.info(
-            "RAG priority evidence:\n  prefilter_top:\n%s\n  selected_top:\n%s",
-            self._build_prefilter_priority_snapshot(prefilter_docs, summary_vector_scores),
-            self._build_selected_priority_snapshot(
-                chunks,
-                summary_scores,
-                prefilter_scope_doc_ids=prefilter_scope_doc_ids,
-                base_prefilter_doc_ids=base_prefilter_doc_ids,
-                component_scores=selected_component_scores,
-                lexical_weight=lexical_weight,
-                vector_weight=vector_weight,
-                normalized_summary_scores=normalized_summary_scores,
+            "%s",
+            self._build_priority_evidence_log_table(
+                prefilter_snapshot=self._build_prefilter_priority_snapshot(prefilter_docs, summary_vector_scores),
+                selected_snapshot=self._build_selected_priority_snapshot(
+                    chunks,
+                    summary_scores,
+                    prefilter_scope_doc_ids=prefilter_scope_doc_ids,
+                    base_prefilter_doc_ids=base_prefilter_doc_ids,
+                    component_scores=selected_component_scores,
+                    lexical_weight=lexical_weight,
+                    vector_weight=vector_weight,
+                    normalized_summary_scores=normalized_summary_scores,
+                    max_lexical_score=max_lexical_score,
+                ),
             ),
         )
         return chunks, summary_blocks
@@ -990,6 +1557,139 @@ class RagKnowledgeService:
         tail_len = max(8, max_length - head_len - 1)
         return f"{compact[:head_len]}…{compact[-tail_len:]}"
 
+    @staticmethod
+    def _format_summary_excerpt(summary_text: str, max_length: int = 80) -> str:
+        """Подготовить краткий excerpt из summary для диагностических логов."""
+        compact = _SPACES_RE.sub(" ", str(summary_text or "").strip())
+        if not compact:
+            return "none"
+
+        safe_length = max(16, int(max_length))
+        if len(compact) <= safe_length:
+            return compact
+        return f"{compact[:safe_length - 1]}…"
+
+    @classmethod
+    def _build_retrieval_log_table(
+        cls,
+        *,
+        mode: str,
+        lexical_scorer: str,
+        tokens_count: int,
+        retrieval_tokens_count: int,
+        category_hint: str,
+        prefilter_docs_count: int,
+        prefilter_scope_docs_count: int,
+        fallback_docs_count: int,
+        lexical_hits_count: int,
+        vector_hits_count: int,
+        summary_vector_hits: int,
+        summary_vector_source: str,
+        selected_count: int,
+        selected_unique_docs: int,
+        selected_top_docs: str,
+        top_source: str,
+        retrieval_total_ms: float,
+        prefilter_ms: float,
+        lexical_ms: float,
+        vector_ms: float,
+        merge_ms: float,
+        summary_blocks_ms: float,
+    ) -> str:
+        """Собрать табличный диагностический лог retrieval для удобного чтения."""
+        rows: List[Tuple[str, str]] = [
+            ("mode", str(mode)),
+            ("lexical_scorer", str(lexical_scorer)),
+            ("tokens", str(tokens_count)),
+            ("retrieval_tokens", str(retrieval_tokens_count)),
+            ("category_hint", str(category_hint or "none")),
+            ("prefilter_docs", str(prefilter_docs_count)),
+            ("prefilter_scope_docs", str(prefilter_scope_docs_count)),
+            ("fallback_docs", str(fallback_docs_count)),
+            ("lexical_hits", str(lexical_hits_count)),
+            ("vector_hits", str(vector_hits_count)),
+            ("summary_vector_hits", str(summary_vector_hits)),
+            ("summary_vector_source", str(summary_vector_source)),
+            ("selected", str(selected_count)),
+            ("selected_unique_docs", str(selected_unique_docs)),
+            ("selected_top_docs", str(selected_top_docs)),
+            ("top_source", cls._format_log_source(str(top_source), max_length=96)),
+            ("timings_ms.total", f"{retrieval_total_ms:.2f}"),
+            ("timings_ms.prefilter", f"{prefilter_ms:.2f}"),
+            ("timings_ms.lexical", f"{lexical_ms:.2f}"),
+            ("timings_ms.vector", f"{vector_ms:.2f}"),
+            ("timings_ms.merge", f"{merge_ms:.2f}"),
+            ("timings_ms.summary_blocks", f"{summary_blocks_ms:.2f}"),
+        ]
+
+        metric_width = max(len("metric"), *(len(metric) for metric, _ in rows))
+        value_width = max(len("value"), *(len(value) for _, value in rows))
+        separator = f"+-{'-' * metric_width}-+-{'-' * value_width}-+"
+        table_lines = [
+            "RAG retrieval:",
+            separator,
+            f"| {'metric'.ljust(metric_width)} | {'value'.ljust(value_width)} |",
+            separator,
+        ]
+        table_lines.extend(
+            f"| {metric.ljust(metric_width)} | {value.ljust(value_width)} |"
+            for metric, value in rows
+        )
+        table_lines.append(separator)
+        return "\n".join(table_lines)
+
+    @classmethod
+    def _build_query_preprocessing_log_table(
+        cls,
+        *,
+        original_tokens_count: int,
+        retrieval_tokens_count: int,
+        stopwords_removed: int,
+        pattern_stripped: bool,
+        hyde_status: str,
+        hyde_lexical_augmented: int,
+        strip_result: str,
+        preprocess_result: str,
+    ) -> str:
+        """Собрать табличный диагностический лог этапа query preprocessing."""
+        rows: List[Tuple[str, str]] = [
+            ("original_tokens", str(original_tokens_count)),
+            ("retrieval_tokens", str(retrieval_tokens_count)),
+            ("stopwords_removed", str(stopwords_removed)),
+            ("pattern_stripped", str(pattern_stripped)),
+            ("hyde", str(hyde_status)),
+            ("hyde_lexical_augmented", str(hyde_lexical_augmented)),
+            ("strip_result", str(strip_result or "none")),
+            ("preprocess_result", str(preprocess_result or "none")),
+        ]
+
+        metric_width = max(len("metric"), *(len(metric) for metric, _ in rows))
+        value_width = max(len("value"), *(len(value) for _, value in rows))
+        separator = f"+-{'-' * metric_width}-+-{'-' * value_width}-+"
+        table_lines = [
+            "RAG query preprocessing:",
+            separator,
+            f"| {'metric'.ljust(metric_width)} | {'value'.ljust(value_width)} |",
+            separator,
+        ]
+        table_lines.extend(
+            f"| {metric.ljust(metric_width)} | {value.ljust(value_width)} |"
+            for metric, value in rows
+        )
+        table_lines.append(separator)
+        return "\n".join(table_lines)
+
+    @staticmethod
+    def _build_priority_evidence_log_table(*, prefilter_snapshot: str, selected_snapshot: str) -> str:
+        """Собрать единый многострочный лог `RAG priority evidence` из двух табличных секций."""
+        return (
+            "RAG priority evidence:\n"
+            "prefilter_top:\n"
+            f"{prefilter_snapshot}\n"
+            "selected_top:\n"
+            f"{selected_snapshot}"
+        )
+
     @classmethod
     def _build_prefilter_priority_snapshot(
         cls,
@@ -997,9 +1697,9 @@ class RagKnowledgeService:
         vector_scores: Optional[Dict[int, float]] = None,
         vector_weight: Optional[float] = None,
     ) -> str:
-        """Сформировать человекочитаемый лог prefilter-документов с разложением итогового score."""
+        """Сформировать табличный лог prefilter-документов с разложением итогового score."""
         if not prefilter_docs:
-            return "    (none)"
+            return "(none)"
 
         vector_scores = vector_scores or {}
         effective_weight = max(
@@ -1008,18 +1708,43 @@ class RagKnowledgeService:
                 ai_settings.AI_RAG_SUMMARY_VECTOR_WEIGHT if vector_weight is None else vector_weight
             ),
         )
-        top_docs = prefilter_docs[:5]
-        parts = []
-        for rank, (doc_id, filename, _, score) in enumerate(top_docs, start=1):
+        top_docs = prefilter_docs[:15]  # показать максимум 15 документов, чтобы не перегружать лог
+        rows: List[Tuple[str, str, str, str, str, str, str, str]] = []
+        for rank, (doc_id, filename, summary_text, score) in enumerate(top_docs, start=1):
             vec = float(vector_scores.get(doc_id, 0.0))
             weighted_vec = vec * effective_weight
             lexical_part = score - weighted_vec
-            parts.append(
-                "    "
-                f"{rank}. doc={doc_id} summary={score:.3f} lexical={lexical_part:.3f} "
-                f"vec={vec:.3f} vec_w={weighted_vec:.3f} source={cls._format_log_source(filename)}"
+            rows.append(
+                (
+                    str(rank),
+                    str(doc_id),
+                    f"{score:.3f}",
+                    f"{lexical_part:.3f}",
+                    f"{vec:.3f}",
+                    f"{weighted_vec:.3f}",
+                    cls._format_summary_excerpt(summary_text),
+                    cls._format_log_source(filename),
+                )
             )
-        return "\n".join(parts)
+
+        headers = ("rank", "doc", "summary", "lexical", "vec", "vec_w", "excerpt", "source")
+        widths = [len(header) for header in headers]
+        for row in rows:
+            for index, value in enumerate(row):
+                widths[index] = max(widths[index], len(value))
+
+        separator = "+-" + "-+-".join("-" * width for width in widths) + "-+"
+        table_lines = [separator]
+        table_lines.append(
+            "| " + " | ".join(header.ljust(widths[index]) for index, header in enumerate(headers)) + " |"
+        )
+        table_lines.append(separator)
+        table_lines.extend(
+            "| " + " | ".join(value.ljust(widths[index]) for index, value in enumerate(row)) + " |"
+            for row in rows
+        )
+        table_lines.append(separator)
+        return "\n".join(table_lines)
 
     @classmethod
     def _build_selected_priority_snapshot(
@@ -1032,10 +1757,11 @@ class RagKnowledgeService:
         lexical_weight: Optional[float] = None,
         vector_weight: Optional[float] = None,
         normalized_summary_scores: Optional[Dict[int, float]] = None,
+        max_lexical_score: Optional[float] = None,
     ) -> str:
-        """Сформировать человекочитаемый лог финально выбранных чанков и вкладов summary-score."""
+        """Сформировать табличный лог финально выбранных чанков и вкладов summary-score."""
         if not chunks:
-            return "    (none)"
+            return "(none)"
 
         prefilter_scope_set = {int(doc_id) for doc_id in (prefilter_scope_doc_ids or [])}
         base_prefilter_set = {int(doc_id) for doc_id in (base_prefilter_doc_ids or [])}
@@ -1053,8 +1779,16 @@ class RagKnowledgeService:
             if normalized_summary_scores is not None
             else cls._build_relative_summary_scores(summary_scores)
         )
-        top_chunks = chunks[:5]
-        parts = []
+        # -- вычисление max lexical для нормализации в диапазон 0..1 --
+        if max_lexical_score is not None:
+            effective_max_lexical = float(max_lexical_score)
+        else:
+            effective_max_lexical = 0.0
+            for _lex, _vec in component_scores.values():
+                if float(_lex) > effective_max_lexical:
+                    effective_max_lexical = float(_lex)
+        top_chunks = chunks[:10]  # показать максимум 10 чанков, чтобы не перегружать лог
+        rows: List[Tuple[str, str, str, str, str, str, str, str, str, str, str, str, str]] = []
         for rank, chunk in enumerate(top_chunks, start=1):
             fused_score, source, chunk_text, document_id, chunk_index = cls._unpack_chunk_row(chunk)
             summary_score = float(summary_scores.get(document_id, 0.0))
@@ -1062,10 +1796,11 @@ class RagKnowledgeService:
             chunk_key = (int(document_id), str(chunk_text or "").strip())
             lexical_score, vector_score = component_scores.get(chunk_key, (0.0, 0.0))
             lexical_total = float(lexical_score)
+            lexical_norm = (lexical_total / effective_max_lexical) if effective_max_lexical > 0 else 0.0
             lexical_bonus_full = cls._summary_score_bonus_from_normalized(normalized_summary_score)
             lexical_bonus = max(0.0, min(lexical_bonus_full, lexical_total))
             lexical_raw = max(0.0, lexical_total - lexical_bonus)
-            hybrid_base = (float(lexical_score) * effective_lexical_weight) + (float(vector_score) * effective_vector_weight)
+            hybrid_base = (lexical_norm * effective_lexical_weight) + (float(vector_score) * effective_vector_weight)
             summary_bonus = cls._summary_postrank_bonus_from_normalized(normalized_summary_score)
             if document_id in base_prefilter_set:
                 origin = "prefilter"
@@ -1073,23 +1808,70 @@ class RagKnowledgeService:
                 origin = "fallback"
             else:
                 origin = "global"
-            parts.append(
-                "    "
-                f"{rank}. doc={document_id} chunk={chunk_index} fused={float(fused_score):.3f} "
-                f"summary={summary_score:.3f} origin={origin} "
-                f"lex_raw={lexical_raw:.3f} lex_bonus={lexical_bonus:.3f} lex_total={lexical_total:.3f} "
-                f"hybrid=({lexical_total:.3f}*{effective_lexical_weight:.3f})+({float(vector_score):.3f}*{effective_vector_weight:.3f})={hybrid_base:.3f} "
-                f"summary_bonus={summary_bonus:.3f} source={cls._format_log_source(source)}"
+            rows.append(
+                (
+                    str(rank),
+                    str(document_id),
+                    str(chunk_index),
+                    f"{float(fused_score):.3f}",
+                    f"{summary_score:.3f}",
+                    origin,
+                    f"{lexical_raw:.3f}",
+                    f"{lexical_bonus:.3f}",
+                    f"{lexical_total:.3f}",
+                    f"{lexical_norm:.3f}",
+                    f"({lexical_norm:.3f}*{effective_lexical_weight:.3f})+({float(vector_score):.3f}*{effective_vector_weight:.3f})={hybrid_base:.3f}",
+                    f"{summary_bonus:.3f}",
+                    cls._format_log_source(source),
+                )
             )
-        return "\n".join(parts)
+
+        headers = (
+            "rank",
+            "doc",
+            "chunk",
+            "fused",
+            "summary",
+            "origin",
+            "lex_raw",
+            "lex_bonus",
+            "lex_total",
+            "lex_norm",
+            "hybrid",
+            "summary_bonus",
+            "source",
+        )
+        widths = [len(header) for header in headers]
+        for row in rows:
+            for index, value in enumerate(row):
+                widths[index] = max(widths[index], len(value))
+
+        separator = "+-" + "-+-".join("-" * width for width in widths) + "-+"
+        table_lines = [separator]
+        table_lines.append(
+            "| " + " | ".join(header.ljust(widths[index]) for index, header in enumerate(headers)) + " |"
+        )
+        table_lines.append(separator)
+        table_lines.extend(
+            "| " + " | ".join(value.ljust(widths[index]) for index, value in enumerate(row)) + " |"
+            for row in rows
+        )
+        table_lines.append(separator)
+        return "\n".join(table_lines)
 
     @staticmethod
     def _build_selected_component_scores(
         lexical_chunks: List[Tuple[float, str, str, int]],
         vector_chunks: List[Tuple[float, str, str, int]],
+        all_lexical_scores: Optional[Dict[Tuple[int, str], float]] = None,
     ) -> Dict[Tuple[int, str], Tuple[float, float]]:
-        """Собрать lexical/vector score-компоненты для выбранных чанков по dedup-ключу merge."""
+        """Собрать lexical/vector score-компоненты для выбранных чанков по dedup-ключу merge.
+
+        all_lexical_scores — словарь всех lexical-score, позволяющий подставить фактический
+        lexical-score для vector-only чанков, а не дефолтный 0.
+        """
         components: Dict[Tuple[int, str], Tuple[float, float]] = {}
+        all_lexical_scores = all_lexical_scores or {}
 
         for chunk in lexical_chunks:
             lexical_score, _source, chunk_text, document_id, _chunk_index = RagKnowledgeService._unpack_chunk_row(chunk)
@@ -1101,6 +1883,10 @@ class RagKnowledgeService:
             vector_score, _source, chunk_text, document_id, _chunk_index = RagKnowledgeService._unpack_chunk_row(chunk)
             key = (int(document_id), str(chunk_text or "").strip())
             current_lexical, current_vector = components.get(key, (0.0, 0.0))
+            # для vector-only чанков подставляем фактический lexical-score из all_lexical_scores
+            if current_lexical <= 0:
+                actual_lexical = float(all_lexical_scores.get(key, 0.0))
+                current_lexical = max(current_lexical, actual_lexical)
             components[key] = (current_lexical, max(current_vector, float(vector_score)))
 
         return components
@@ -1135,6 +1921,7 @@ class RagKnowledgeService:
         self,
         question: str,
         prefiltered_doc_ids: Optional[List[int]],
+        hyde_text: Optional[str] = None,
     ) -> List[Tuple[float, str, str, int, int]]:
         """Найти релевантные чанки через локальный векторный индекс."""
         if not self._is_vector_search_enabled():
@@ -1145,7 +1932,8 @@ class RagKnowledgeService:
         if embedding_provider is None or vector_index is None:
             return []
 
-        query_vectors = embedding_provider.encode_texts([question])
+        embed_text = hyde_text if hyde_text else question
+        query_vectors = embedding_provider.encode_texts([embed_text])
         if not query_vectors:
             return []
 
@@ -1163,11 +1951,18 @@ class RagKnowledgeService:
         limit: int,
         summary_scores: Optional[Dict[int, float]] = None,
         normalized_summary_scores: Optional[Dict[int, float]] = None,
+        all_lexical_scores: Optional[Dict[Tuple[int, str], float]] = None,
     ) -> List[Tuple[float, str, str, int, int]]:
-        """Объединить lexical и vector кандидаты в единый ранжированный список."""
+        """Объединить lexical и vector кандидаты в единый ранжированный список.
+
+        all_lexical_scores — словарь (doc_id, chunk_text.strip()) → lexical score для ВСЕХ
+        оценённых чанков (не только top-K), чтобы vector-only чанки получали фактический
+        lexical-score вместо дефолтного 0.
+        """
         safe_limit = max(1, limit)
         summary_scores = summary_scores or {}
         normalized_summary_scores = normalized_summary_scores or {}
+        all_lexical_scores = all_lexical_scores or {}
 
         if not vector_chunks:
             return lexical_chunks[:safe_limit]
@@ -1197,8 +1992,11 @@ class RagKnowledgeService:
             key = self._chunk_merge_key(document_id=document_id, chunk_text=chunk_text, chunk_index=chunk_index)
             row = merged.get(key)
             if row is None:
+                # vector-only чанк: подставляем фактический lexical-score из all_lexical_scores
+                lookup_key = (int(document_id), str(chunk_text or "").strip())
+                actual_lexical = float(all_lexical_scores.get(lookup_key, 0.0))
                 row = {
-                    "lexical_score": 0.0,
+                    "lexical_score": actual_lexical,
                     "vector_score": 0.0,
                     "source": source,
                     "chunk_text": chunk_text,
@@ -1208,15 +2006,23 @@ class RagKnowledgeService:
                 merged[key] = row
             row["vector_score"] = max(float(row.get("vector_score") or 0.0), float(score))
 
+        # -- нормализация lexical-score в диапазон 0..1 (min-max) --
+        max_lexical = 0.0
+        for row in merged.values():
+            lex = float(row.get("lexical_score") or 0.0)
+            if lex > max_lexical:
+                max_lexical = lex
+
         ranked: List[Tuple[float, str, str, int, int]] = []
         for row in merged.values():
             lexical_score = float(row.get("lexical_score") or 0.0)
+            normalized_lexical = (lexical_score / max_lexical) if max_lexical > 0 else 0.0
             vector_score = float(row.get("vector_score") or 0.0)
             document_id = int(row.get("document_id") or 0)
             chunk_index = int(row.get("chunk_index") or 0)
             summary_score = float(summary_scores.get(document_id, 0.0))
             normalized_summary_score = normalized_summary_scores.get(document_id)
-            fused_score = (lexical_score * lexical_weight) + (vector_score * vector_weight)
+            fused_score = (normalized_lexical * lexical_weight) + (vector_score * vector_weight)
             if normalized_summary_score is None:
                 fused_score += self._summary_postrank_bonus(summary_score)
             else:
@@ -1508,11 +2314,17 @@ class RagKnowledgeService:
         prefiltered_doc_ids: Optional[List[int]] = None,
         summary_scores: Optional[Dict[int, float]] = None,
         normalized_summary_scores: Optional[Dict[int, float]] = None,
-    ) -> List[Tuple[float, str, str, int, int]]:
-        """Найти релевантные чанки в БД по гибридному lexical scoring."""
-        tokens = self._tokenize(question)
+        override_tokens: Optional[List[str]] = None,
+    ) -> Tuple[List[Tuple[float, str, str, int, int]], Dict[Tuple[int, str], float]]:
+        """Найти релевантные чанки в БД по гибридному lexical scoring.
+
+        Возвращает кортеж (top_k_chunks, all_lexical_scores), где all_lexical_scores — словарь
+        (document_id, chunk_text.strip()) → score для всех оценённых чанков (не только top-K).
+        Это позволяет merge-этапу использовать фактический lexical-score для vector-only чанков.
+        """
+        tokens = override_tokens if override_tokens is not None else self._tokenize(question)
         if not tokens:
-            return []
+            return [], {}
 
         lexical_scorer = ai_settings.get_rag_lexical_scorer()
 
@@ -1550,6 +2362,7 @@ class RagKnowledgeService:
                 rows = cursor.fetchall() or []
 
         scored: List[Tuple[float, str, str, int, int]] = []
+        all_lexical_scores: Dict[Tuple[int, str], float] = {}
 
         bm25_scores: List[float] = []
         if lexical_scorer == "bm25":
@@ -1572,17 +2385,22 @@ class RagKnowledgeService:
             else:
                 summary_bonus = self._summary_score_bonus_from_normalized(float(normalized_summary_score))
             score = chunk_score + summary_bonus
+            # сохраняем score для всех чанков для использования при merge
+            chunk_key = (int(document_id), str(chunk_text or "").strip())
+            existing = all_lexical_scores.get(chunk_key, 0.0)
+            if score > existing:
+                all_lexical_scores[chunk_key] = score
             if score > 0:
                 scored.append((score, source, chunk_text, document_id, chunk_index))
 
         scored.sort(key=lambda item: item[0], reverse=True)
-        return scored[:safe_limit]
+        return scored[:safe_limit], all_lexical_scores
 
     @staticmethod
     def _unpack_chunk_row(chunk: Tuple[object, ...]) -> Tuple[float, str, str, int, int]:
         """Нормализовать запись чанка к формату (score, source, text, document_id, chunk_index)."""
         if len(chunk) >= 5:
-            score, source, chunk_text, document_id, chunk_index = chunk[:5]
+            score, source, chunk_text, document_id, chunk_index = chunk[:5] 
             return (
                 float(score or 0.0),
                 str(source or "document"),
@@ -1618,6 +2436,8 @@ class RagKnowledgeService:
         question: str,
         question_tokens: List[str],
         limit: int,
+        category_hint: Optional[str] = None,
+        hyde_text: Optional[str] = None,
     ) -> Tuple[List[Tuple[int, str, str, float]], Dict[int, float], str]:
         """Отобрать релевантные документы по таблице summary перед поиском чанков.
 
@@ -1634,7 +2454,7 @@ class RagKnowledgeService:
             with database.get_cursor(conn) as cursor:
                 cursor.execute(
                     """
-                    SELECT s.document_id, s.summary_text, d.filename
+                    SELECT s.document_id, s.summary_text, d.filename, d.source_type
                     FROM rag_document_summaries s
                     JOIN rag_documents d ON d.id = s.document_id
                     WHERE d.status = 'active'
@@ -1646,26 +2466,29 @@ class RagKnowledgeService:
                 rows = cursor.fetchall() or []
 
         summaries_for_vector: List[Tuple[int, str]] = []
-        valid_rows: List[Tuple[int, str, str]] = []
+        valid_rows: List[Tuple[int, str, str, str]] = []
         for row in rows:
             document_id = int(row.get("document_id") or 0)
             filename = str(row.get("filename") or "document")
             summary_text = str(row.get("summary_text") or "").strip()
+            source_type = str(row.get("source_type") or "").strip().lower()
             if not document_id or not summary_text:
                 continue
-            valid_rows.append((document_id, filename, summary_text))
+            valid_rows.append((document_id, filename, summary_text, source_type))
             summaries_for_vector.append((document_id, summary_text))
 
         vector_scores = self._search_summary_vector_scores_from_collection(
             question=question,
-            document_ids=[doc_id for doc_id, _, _ in valid_rows],
+            document_ids=[doc_id for doc_id, _, _, _ in valid_rows],
             limit=max(safe_limit, len(valid_rows)),
+            hyde_text=hyde_text,
         )
         vector_source = "collection"
         if not vector_scores:
             vector_scores = self._compute_summary_vector_scores(
                 question=question,
                 summaries=summaries_for_vector,
+                hyde_text=hyde_text,
             )
             vector_source = "fallback"
         self._summary_vector_prefilter_source = vector_source
@@ -1675,15 +2498,22 @@ class RagKnowledgeService:
         lexical_scorer = ai_settings.get_rag_lexical_scorer()
         summary_bm25_scores: Dict[int, float] = {}
         if lexical_scorer == "bm25":
-            summary_corpus_tokens = [self._tokenize(summary_text) for _, _, summary_text in valid_rows]
-            corpus_scores = self._score_corpus_bm25(summary_corpus_tokens, question_tokens)
-            for index, (document_id, _, _) in enumerate(valid_rows):
+            summary_corpus_tokens = [self._tokenize(summary_text) for _, _, summary_text, _ in valid_rows]
+            # IDF dampening: подавить query-токены, встречающиеся почти во всех summary
+            dampened_tokens = self._dampen_common_query_tokens(question_tokens, summary_corpus_tokens)
+            corpus_scores = self._score_corpus_bm25(summary_corpus_tokens, dampened_tokens)
+            for index, (document_id, _, _, _) in enumerate(valid_rows):
                 summary_bm25_scores[document_id] = float(corpus_scores[index]) if index < len(corpus_scores) else 0.0
+
+        source_types_by_doc_id: Dict[int, str] = {
+            document_id: source_type
+            for document_id, _, _, source_type in valid_rows
+        }
 
         token_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT))
 
         scored_docs: List[Tuple[int, str, str, float]] = []
-        for document_id, filename, summary_text in valid_rows:
+        for document_id, filename, summary_text, _ in valid_rows:
             if lexical_scorer == "bm25":
                 lexical_score = summary_bm25_scores.get(document_id, 0.0) * token_weight
                 lexical_score += self._score_summary_phrase_match(
@@ -1703,14 +2533,346 @@ class RagKnowledgeService:
                 continue
             scored_docs.append((document_id, filename, summary_text, score))
 
+        effective_category_hint = self._resolve_effective_category_hint(question=question, category_hint=category_hint)
+        scored_docs = self._apply_signal_adjustments_to_prefilter_docs(
+            docs=scored_docs,
+            category_hint=effective_category_hint,
+        )
         scored_docs.sort(key=lambda item: item[3], reverse=True)
-        return scored_docs[:safe_limit], vector_scores, vector_source
+
+        if not ai_settings.AI_RAG_PREFILTER_EXCLUDE_CERTIFICATION_FROM_COUNT:
+            return scored_docs[:safe_limit], vector_scores, vector_source
+
+        counted_docs: List[Tuple[int, str, str, float]] = []
+        non_counted_docs: List[Tuple[int, str, str, float]] = []
+        non_counted_limit = safe_limit
+
+        for doc in scored_docs:
+            document_id = int(doc[0])
+            source_type = source_types_by_doc_id.get(document_id, "")
+            if source_type == _RAG_SOURCE_TYPE_CERTIFICATION:
+                if len(non_counted_docs) < non_counted_limit:
+                    non_counted_docs.append(doc)
+                continue
+
+            if len(counted_docs) < safe_limit:
+                counted_docs.append(doc)
+
+            if len(counted_docs) >= safe_limit and len(non_counted_docs) >= non_counted_limit:
+                break
+
+        merged_docs = counted_docs + non_counted_docs
+        merged_docs.sort(key=lambda item: item[3], reverse=True)
+        return merged_docs, vector_scores, vector_source
+
+    def _upsert_document_signal(self, document_id: int, signal_data: Dict[str, object]) -> None:
+        """Сохранить сигналы документа для дополнительного ранжирования retrieval."""
+        safe_document_id = int(document_id or 0)
+        if safe_document_id <= 0:
+            return
+
+        try:
+            with database.get_db_connection() as conn:
+                with database.get_cursor(conn) as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO rag_document_signals
+                            (
+                                document_id,
+                                domain_key,
+                                question_id,
+                                category_keys_json,
+                                category_labels_json,
+                                is_active,
+                                is_outdated,
+                                relevance_date,
+                                updated_at
+                            )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                        ON DUPLICATE KEY UPDATE
+                            domain_key = VALUES(domain_key),
+                            question_id = VALUES(question_id),
+                            category_keys_json = VALUES(category_keys_json),
+                            category_labels_json = VALUES(category_labels_json),
+                            is_active = VALUES(is_active),
+                            is_outdated = VALUES(is_outdated),
+                            relevance_date = VALUES(relevance_date),
+                            updated_at = NOW()
+                        """,
+                        (
+                            safe_document_id,
+                            str(signal_data.get("domain_key") or "")[:64],
+                            int(signal_data.get("question_id") or 0) or None,
+                            str(signal_data.get("category_keys_json") or "[]"),
+                            str(signal_data.get("category_labels_json") or "[]"),
+                            int(signal_data.get("is_active") or 0),
+                            int(signal_data.get("is_outdated") or 0),
+                            signal_data.get("relevance_date"),
+                        ),
+                    )
+        except Exception as exc:
+            if not self._document_signals_table_warning_logged:
+                logger.warning("Таблица rag_document_signals недоступна: %s", exc)
+                self._document_signals_table_warning_logged = True
+
+    def _load_document_signals(self, document_ids: List[int]) -> Dict[int, Dict[str, object]]:
+        """Загрузить сигналы ранжирования по списку document_id."""
+        normalized_ids = [int(doc_id) for doc_id in document_ids if int(doc_id) > 0]
+        if not normalized_ids:
+            return {}
+
+        placeholders = ",".join(["%s"] * len(normalized_ids))
+        query = f"""
+            SELECT
+                document_id,
+                domain_key,
+                question_id,
+                category_keys_json,
+                category_labels_json,
+                is_active,
+                is_outdated,
+                relevance_date
+            FROM rag_document_signals
+            WHERE document_id IN ({placeholders})
+        """
+
+        try:
+            with database.get_db_connection() as conn:
+                with database.get_cursor(conn) as cursor:
+                    cursor.execute(query, tuple(normalized_ids))
+                    rows = cursor.fetchall() or []
+        except Exception as exc:
+            if not self._document_signals_table_warning_logged:
+                logger.warning("Не удалось загрузить сигналы rag_document_signals: %s", exc)
+                self._document_signals_table_warning_logged = True
+            return {}
+
+        signals: Dict[int, Dict[str, object]] = {}
+        for row in rows:
+            document_id = int(row.get("document_id") or 0)
+            if document_id <= 0:
+                continue
+
+            category_keys: List[str] = []
+            category_labels: List[str] = []
+            try:
+                raw_keys = row.get("category_keys_json")
+                if raw_keys:
+                    parsed_keys = json.loads(str(raw_keys))
+                    if isinstance(parsed_keys, list):
+                        category_keys = [self._normalize_category_key(str(key)) for key in parsed_keys if str(key).strip()]
+            except Exception:
+                category_keys = []
+
+            try:
+                raw_labels = row.get("category_labels_json")
+                if raw_labels:
+                    parsed_labels = json.loads(str(raw_labels))
+                    if isinstance(parsed_labels, list):
+                        category_labels = [str(label).strip() for label in parsed_labels if str(label).strip()]
+            except Exception:
+                category_labels = []
+
+            signals[document_id] = {
+                "domain_key": str(row.get("domain_key") or "").strip(),
+                "question_id": int(row.get("question_id") or 0),
+                "is_active": int(row.get("is_active") or 0) == 1,
+                "is_outdated": int(row.get("is_outdated") or 0) == 1,
+                "relevance_date": row.get("relevance_date"),
+                "category_keys": [key for key in category_keys if key],
+                "category_labels": category_labels,
+            }
+
+        return signals
+
+    def _resolve_effective_category_hint(self, question: str, category_hint: Optional[str]) -> str:
+        """Определить эффективную категорию: явный hint или авто-детект из текста вопроса."""
+        explicit_hint = self._normalize_category_key(category_hint or "")
+        if explicit_hint:
+            logger.info(
+                "RAG category hint resolved: source=explicit value=%s",
+                explicit_hint,
+            )
+            return explicit_hint
+
+        normalized_question = self._normalize_category_key(question)
+        if not normalized_question:
+            return ""
+
+        now = time.time()
+        if now >= self._certification_categories_cache_expires_at:
+            self._certification_categories_cache = self._load_certification_category_aliases()
+            self._certification_categories_cache_expires_at = now + _RAG_CATEGORY_CACHE_TTL_SECONDS
+
+        best_match = ""
+        best_score = 0
+        question_tokens = set(self._tokenize(question))
+        for category_key, label in self._certification_categories_cache:
+            if not category_key:
+                continue
+
+            score = 0
+            if category_key in normalized_question:
+                score += 5
+
+            label_tokens = set(self._tokenize(label))
+            if label_tokens and question_tokens:
+                score += len(label_tokens & question_tokens)
+
+            if score > best_score:
+                best_score = score
+                best_match = category_key
+
+        resolved = best_match if best_score > 0 else ""
+        logger.info(
+            "RAG category hint resolved: source=auto value=%s score=%s",
+            resolved or "none",
+            best_score,
+        )
+        return resolved
+
+    def _load_certification_category_aliases(self) -> List[Tuple[str, str]]:
+        """Загрузить список категорий аттестации для авто-детекта category-hint."""
+        try:
+            with database.get_db_connection() as conn:
+                with database.get_cursor(conn) as cursor:
+                    cursor.execute(
+                        """
+                        SELECT name
+                        FROM certification_categories
+                        ORDER BY display_order ASC, id ASC
+                        """
+                    )
+                    rows = cursor.fetchall() or []
+        except Exception:
+            return []
+
+        aliases: List[Tuple[str, str]] = []
+        for row in rows:
+            label = str(row.get("name") or "").strip()
+            key = self._normalize_category_key(label)
+            if key:
+                aliases.append((key, label))
+        return aliases
+
+    @staticmethod
+    def _normalize_category_key(value: str) -> str:
+        """Нормализовать имя категории для устойчивого сравнения."""
+        normalized = _SPACES_RE.sub(" ", str(value or "").strip().lower())
+        return normalized
+
+    def _calculate_signal_score_delta(self, signal: Dict[str, object], category_hint: str) -> float:
+        """Вычислить корректировку score на основе category/freshness сигналов документа."""
+        delta = 0.0
+        safe_hint = self._normalize_category_key(category_hint)
+        category_boost = max(0.0, float(ai_settings.AI_RAG_CERTIFICATION_CATEGORY_BOOST))
+        stale_penalty = max(0.0, float(ai_settings.AI_RAG_CERTIFICATION_STALE_PENALTY))
+
+        if safe_hint:
+            category_keys = [
+                self._normalize_category_key(key)
+                for key in (signal.get("category_keys") or [])
+                if str(key).strip()
+            ]
+            if safe_hint in category_keys:
+                delta += category_boost
+
+        is_outdated = bool(signal.get("is_outdated"))
+        is_active = bool(signal.get("is_active"))
+        if is_outdated or (not is_active):
+            delta -= stale_penalty
+
+        return delta
+
+    def _apply_signal_adjustments_to_prefilter_docs(
+        self,
+        docs: List[Tuple[int, str, str, float]],
+        category_hint: str,
+    ) -> List[Tuple[int, str, str, float]]:
+        """Применить category/freshness корректировки к prefilter-документам."""
+        if not docs:
+            return docs
+
+        doc_ids = [int(doc_id) for doc_id, _, _, _ in docs]
+        signals = self._load_document_signals(doc_ids)
+        if not signals:
+            return docs
+
+        adjusted: List[Tuple[int, str, str, float]] = []
+        boosted_doc_ids: List[int] = []
+        penalized_doc_ids: List[int] = []
+        for document_id, filename, summary_text, score in docs:
+            signal = signals.get(int(document_id))
+            delta = self._calculate_signal_score_delta(signal or {}, category_hint) if signal else 0.0
+            adjusted_score = max(0.0, float(score) + delta)
+            if adjusted_score <= 0:
+                continue
+            adjusted.append((document_id, filename, summary_text, adjusted_score))
+            if delta > 0:
+                boosted_doc_ids.append(int(document_id))
+            elif delta < 0:
+                penalized_doc_ids.append(int(document_id))
+
+        logger.info(
+            "RAG category hint usage: stage=prefilter hint=%s docs_total=%s boosted_docs=%s penalized_docs=%s boosted_doc_ids=%s penalized_doc_ids=%s",
+            (self._normalize_category_key(category_hint) or "none"),
+            len(docs),
+            len(boosted_doc_ids),
+            len(penalized_doc_ids),
+            boosted_doc_ids[:20],
+            penalized_doc_ids[:20],
+        )
+
+        return adjusted
+
+    def _apply_signal_adjustments_to_chunks(
+        self,
+        chunks: List[Tuple[float, str, str, int, int]],
+        category_hint: str,
+    ) -> List[Tuple[float, str, str, int, int]]:
+        """Применить category/freshness корректировки к финальному списку чанков."""
+        if not chunks:
+            return chunks
+
+        doc_ids = [int(self._unpack_chunk_row(chunk)[3]) for chunk in chunks]
+        signals = self._load_document_signals(doc_ids)
+        if not signals:
+            return chunks
+
+        adjusted: List[Tuple[float, str, str, int, int]] = []
+        boosted_doc_ids: List[int] = []
+        penalized_doc_ids: List[int] = []
+        for chunk in chunks:
+            score, source, chunk_text, document_id, chunk_index = self._unpack_chunk_row(chunk)
+            signal = signals.get(document_id)
+            delta = self._calculate_signal_score_delta(signal or {}, category_hint) if signal else 0.0
+            adjusted_score = max(0.0, float(score) + delta)
+            if adjusted_score <= 0:
+                continue
+            adjusted.append((adjusted_score, source, chunk_text, document_id, chunk_index))
+            if delta > 0:
+                boosted_doc_ids.append(int(document_id))
+            elif delta < 0:
+                penalized_doc_ids.append(int(document_id))
+
+        adjusted.sort(key=lambda item: item[0], reverse=True)
+        logger.info(
+            "RAG category hint usage: stage=final_chunks hint=%s chunks_total=%s boosted_docs=%s penalized_docs=%s boosted_doc_ids=%s penalized_doc_ids=%s",
+            (self._normalize_category_key(category_hint) or "none"),
+            len(chunks),
+            len(set(boosted_doc_ids)),
+            len(set(penalized_doc_ids)),
+            list(dict.fromkeys(boosted_doc_ids))[:20],
+            list(dict.fromkeys(penalized_doc_ids))[:20],
+        )
+        return adjusted
 
     def _search_summary_vector_scores_from_collection(
         self,
         question: str,
         document_ids: List[int],
         limit: int,
+        hyde_text: Optional[str] = None,
     ) -> Dict[int, float]:
         """Получить summary vector-score из отдельной Qdrant-коллекции по списку document_id."""
         if not ai_settings.is_rag_summary_vector_enabled() or not self._is_vector_search_enabled():
@@ -1721,7 +2883,8 @@ class RagKnowledgeService:
         if embedding_provider is None or vector_index is None:
             return {}
 
-        query_vectors = embedding_provider.encode_texts([question])
+        embed_text = hyde_text if hyde_text else question
+        query_vectors = embedding_provider.encode_texts([embed_text])
         if not query_vectors:
             return {}
 
@@ -1751,11 +2914,16 @@ class RagKnowledgeService:
             return []
 
         summary_blocks: List[str] = []
-        for _, filename, summary_text, _ in prefilter_docs[:max_docs]:
+        exclude_certification = bool(ai_settings.AI_RAG_PROMPT_SUMMARIES_EXCLUDE_CERTIFICATION)
+        for _, filename, summary_text, _ in prefilter_docs:
+            if exclude_certification and str(filename or "").strip().lower().startswith(_RAG_CERTIFICATION_FILENAME_PREFIX):
+                continue
             safe_summary = summary_text.strip()
             if not safe_summary:
                 continue
             summary_blocks.append(f"[Summary | {filename}]\n{safe_summary}")
+            if len(summary_blocks) >= max_docs:
+                break
         return summary_blocks
 
     @staticmethod
@@ -1895,6 +3063,7 @@ class RagKnowledgeService:
         self,
         question: str,
         summaries: List[Tuple[int, str]],
+        hyde_text: Optional[str] = None,
     ) -> Dict[int, float]:
         """Вычислить семантическое сходство вопроса и каждого summary через эмбеддинги.
 
@@ -1914,7 +3083,8 @@ class RagKnowledgeService:
             self._summary_embedding_cache.clear()
             self._summary_embedding_corpus_version = corpus_version
 
-        question_vectors = embedding_provider.encode_texts([question])
+        embed_text = hyde_text if hyde_text else question
+        question_vectors = embedding_provider.encode_texts([embed_text])
         if not question_vectors:
             return {}
         q_vec = question_vectors[0]
@@ -2472,7 +3642,15 @@ class RagKnowledgeService:
 
     def _tokenize(self, text: str) -> List[str]:
         """Токенизировать текст для lexical retrieval c опциональной нормализацией RU."""
-        tokens = _TOKEN_RE.findall((text or "").lower())
+        raw_tokens = _TOKEN_RE.findall((text or "").lower())
+        tokens = [
+            token
+            for token in raw_tokens
+            if len(token) >= 3
+            or token in _RAG_FIXED_QUERY_TERMS
+            or bool(_SHORT_ALNUM_TOKEN_RE.fullmatch(token))
+            or (token.isdigit() and len(token) >= 2)
+        ]
         if not tokens:
             return []
 
@@ -2481,11 +3659,162 @@ class RagKnowledgeService:
 
         return [self._normalize_token(token) for token in tokens if token]
 
+    @staticmethod
+    def _strip_query_patterns(question: str) -> Tuple[str, bool]:
+        """Извлечь предметную часть из типового вопросительного шаблона.
+
+        Если вопрос начинается с конструкции вроде «что такое X»,
+        «как работает Y», возвращается предметная часть (X / Y) и флаг
+        ``True``.  Если шаблон не распознан или предметная часть пуста,
+        возвращается исходный текст и ``False``.
+        """
+        if not ai_settings.is_rag_query_pattern_strip_enabled():
+            return question, False
+
+        normalized_question = (question or "").strip()
+        if not normalized_question:
+            return question, False
+
+        for pattern in _QUERY_STRIP_PATTERNS:
+            match = pattern.match(normalized_question)
+            if match:
+                subject = (match.group(1) or "").strip().rstrip("?!.")
+                if _HASHTAG_WORD_RE.search(subject):
+                    return subject, True
+                # Проверяем, что предметная часть содержит хотя бы 1 токен ≥3 символов
+                if subject and _TOKEN_RE.search(subject):
+                    return subject, True
+
+        return question, False
+
+    @staticmethod
+    def _filter_stopwords(tokens: List[str]) -> List[str]:
+        """Отфильтровать стоп-слова из списка токенов.
+
+        Если после фильтрации список пуст, возвращается исходный
+        список без изменений (safety guard).
+        """
+        if not ai_settings.is_rag_stopwords_enabled():
+            return tokens
+
+        if not tokens:
+            return tokens
+
+        filtered = [token for token in tokens if token not in _RU_STOPWORDS]
+        # Safety guard: если все токены — стоп-слова, возвращаем оригинал
+        if not filtered:
+            return tokens
+
+        return filtered
+
+    def _augment_tokens_with_hyde(self, tokens: List[str], hyde_text: str) -> List[str]:
+        """Дополнить список query-токенов уникальными токенами из HyDE-текста.
+
+        Токенизирует HyDE-текст, удаляет стоп-слова и добавляет только те
+        токены, которых ещё нет в исходном списке.  Порядок: оригинальные
+        токены идут первыми, затем HyDE-токены (для стабильного BM25 TF).
+
+        Args:
+            tokens: Исходные query-токены (после preprocessing).
+            hyde_text: Гипотетический документ, сгенерированный LLM.
+
+        Returns:
+            Дополненный список токенов.
+        """
+        if not hyde_text or not hyde_text.strip():
+            return tokens
+
+        hyde_tokens = self._tokenize(hyde_text)
+        if not hyde_tokens:
+            return tokens
+
+        # Убрать стоп-слова из HyDE-токенов
+        hyde_tokens = [t for t in hyde_tokens if t not in _RU_STOPWORDS]
+        if not hyde_tokens:
+            return tokens
+
+        existing_set = set(tokens)
+        new_tokens = [t for t in dict.fromkeys(hyde_tokens) if t not in existing_set]
+        if not new_tokens:
+            return tokens
+
+        return tokens + new_tokens
+
+    @staticmethod
+    def _dampen_common_query_tokens(
+        query_tokens: List[str],
+        corpus_tokens: List[List[str]],
+    ) -> List[str]:
+        """Подавить query-токены с высокой document frequency в corpus.
+
+        Токены, встречающиеся более чем в ``AI_RAG_PREFILTER_IDF_DAMPEN_RATIO``
+        доле документов, дублируются с пониженным весом (через сокращение числа
+        повторений), чтобы BM25 IDF не завышал их вклад в однородном корпусе.
+
+        Вместо изменения весов (BM25Okapi не поддерживает пользовательские
+        веса терминов), метод возвращает модифицированный список query-токенов,
+        в котором часто встречающиеся токены заменены на одну «dampened» копию,
+        а редкие — повторяются для усиления влияния.
+        """
+        if not query_tokens or not corpus_tokens:
+            return query_tokens
+
+        dampen_ratio = max(0.0, min(1.0, float(ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_RATIO)))
+        dampen_factor = max(0.0, min(1.0, float(ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR)))
+        if dampen_ratio >= 1.0:
+            return query_tokens
+
+        doc_count = len(corpus_tokens)
+        if doc_count == 0:
+            return query_tokens
+
+        # Подсчёт document frequency каждого уникального query-токена
+        unique_query_tokens = set(query_tokens)
+        doc_freq: Dict[str, int] = {}
+        for token in unique_query_tokens:
+            count = sum(1 for doc_tokens in corpus_tokens if token in doc_tokens)
+            doc_freq[token] = count
+
+        # Классификация токенов: common (DF > ratio) vs rare
+        threshold = dampen_ratio * doc_count
+        common_tokens = {token for token, df in doc_freq.items() if df > threshold}
+
+        if not common_tokens:
+            return query_tokens
+
+        # Все токены являются common — не подавляем (возвращаем как есть)
+        rare_tokens = [t for t in query_tokens if t not in common_tokens]
+        if not rare_tokens:
+            return query_tokens
+
+        # Строим модифицированный список: rare-токены усиливаются повторением,
+        # common-токены включаются один раз с пониженным коэффициентом.
+        # BM25 считает TF по количеству вхождений токена в query, поэтому
+        # повторение — способ увеличения веса.
+        boost_factor = max(1, int(round(1.0 / max(dampen_factor, 0.01))))
+        dampened_query: List[str] = []
+        seen_common: set[str] = set()
+        for token in query_tokens:
+            if token in common_tokens:
+                if token not in seen_common:
+                    dampened_query.append(token)
+                    seen_common.add(token)
+            else:
+                # Редкий (информативный) токен: усиливаем повторением
+                for _ in range(boost_factor):
+                    dampened_query.append(token)
+
+        return dampened_query
+
     def _normalize_token(self, token: str) -> str:
         """Нормализовать токен с кэшем (лемматизация/стемминг для русского)."""
         safe_token = (token or "").strip().lower()
         if not safe_token:
             return ""
+
+        if safe_token in _RAG_FIXED_QUERY_TERMS:
+            self._normalized_token_cache[safe_token] = safe_token
+            return safe_token
 
         cached = self._normalized_token_cache.get(safe_token)
         if cached is not None:
