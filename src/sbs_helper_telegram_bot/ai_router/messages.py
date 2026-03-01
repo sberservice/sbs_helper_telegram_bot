@@ -89,10 +89,10 @@ def format_rag_answer_markdown_v2(text: str) -> str:
 # Сообщения для пользователей
 # =============================================
 
-MESSAGE_AI_PROCESSING = "⏳ _Пытаюсь понять запрос\\.\\.\\._"
+MESSAGE_AI_PROCESSING = "⏳ _Пытаюсь понять, что спросили\\.\\.\\._"
 MESSAGE_AI_WAITING_FOR_AI = "⏳ _Ожидаю ответа ИИ_"
 MESSAGE_AI_PREFILTERING_DOCUMENTS = "⏳ _Подбираю подходящие материалы из базы знаний\._"
-MESSAGE_AI_REQUESTING_AUGMENTED_PAYLOAD = "⏳ _Собираю контекст и отправляю запрос ИИ\._"
+MESSAGE_AI_REQUESTING_AUGMENTED_PAYLOAD = "⏳ _Жду ответа от ИИ \(до 10 секунд\)\._"
 
 MESSAGE_AI_RATE_LIMITED = (
     "⚠️ *Слишком много запросов*\n\n"
@@ -147,6 +147,7 @@ AI_MESSAGE_KEY_STATUS_CIRCUIT_OPEN = "status.circuit_open"
 
 AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED = "rag_prefilter_started"
 AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED = "rag_augmented_request_started"
+AI_PROGRESS_STAGE_RAG_CACHE_HIT = "rag_cache_hit"
 
 _AI_MESSAGE_DEFAULTS: Dict[str, str] = {
     AI_MESSAGE_KEY_PROCESSING: MESSAGE_AI_PROCESSING,
@@ -165,6 +166,7 @@ AI_STATUS_TO_MESSAGE_KEY: Dict[str, str] = {
 }
 
 AI_PROGRESS_STAGE_TO_MESSAGE_KEY: Dict[str, str] = {
+    AI_PROGRESS_STAGE_RAG_CACHE_HIT: AI_MESSAGE_KEY_WAITING_FOR_AI,
     AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED: AI_MESSAGE_KEY_PREFILTERING_DOCUMENTS,
     AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED: AI_MESSAGE_KEY_REQUESTING_AUGMENTED_PAYLOAD,
 }

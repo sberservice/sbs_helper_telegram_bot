@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import time
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -21,6 +22,19 @@ from src.common.pii_masking import mask_sensitive_data
 from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
 
 logger = logging.getLogger(__name__)
+
+
+ALLOWED_CLASSIFICATION_INTENTS = {
+    "certification_info",
+    "ticket_soos",
+    "ticket_validation",
+    "upos_error_lookup",
+    "ktr_lookup",
+    "rag_qa",
+    "news_search",
+    "general_chat",
+    "unknown",
+}
 
 
 # =============================================
@@ -48,6 +62,10 @@ class ClassificationResult:
 
     response_time_ms: int = 0
     """Время ответа LLM в миллисекундах."""
+
+
+class LLMProviderTemporaryError(RuntimeError):
+    """Временная ошибка LLM-провайдера (таймаут/сетевая деградация)."""
 
 
 # =============================================
@@ -191,7 +209,17 @@ class DeepSeekProvider(LLMProvider):
                 max_tokens=ai_settings.LLM_CLASSIFICATION_MAX_TOKENS,
                 purpose="classification",
                 user_id=user_id,
+                response_format={"type": "json_object"},
             )
+        except LLMProviderTemporaryError as exc:
+            elapsed = int((time.monotonic() - start_time) * 1000)
+            logger.warning(
+                "DeepSeek classify temporary error: type=%s repr=%r (elapsed=%dms)",
+                type(exc).__name__,
+                exc,
+                elapsed,
+            )
+            raise
         except Exception as exc:
             elapsed = int((time.monotonic() - start_time) * 1000)
             logger.exception(
@@ -226,6 +254,13 @@ class DeepSeekProvider(LLMProvider):
                 user_id=user_id,
                 force_model=model_override,
             )
+        except LLMProviderTemporaryError as exc:
+            logger.warning(
+                "DeepSeek chat temporary error: type=%s repr=%r",
+                type(exc).__name__,
+                exc,
+            )
+            raise
         except Exception as exc:
             logger.exception(
                 "DeepSeek chat error: type=%s repr=%r",
@@ -262,6 +297,7 @@ class DeepSeekProvider(LLMProvider):
         user_id: Optional[int] = None,
         force_model: Optional[str] = None,
         allow_empty_content_retry: bool = True,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Выполнить вызов к DeepSeek /v1/chat/completions.
@@ -287,6 +323,8 @@ class DeepSeekProvider(LLMProvider):
             "max_tokens": max_tokens,
             "stream": False,
         }
+        if response_format is not None:
+            payload["response_format"] = response_format
 
         request_payload_text = json.dumps(messages, ensure_ascii=False)
 
@@ -296,6 +334,7 @@ class DeepSeekProvider(LLMProvider):
             temperature=temperature,
             max_tokens=max_tokens,
             messages=messages,
+            response_format=response_format,
         )
 
         headers = {
@@ -303,22 +342,48 @@ class DeepSeekProvider(LLMProvider):
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post(
-                f"{self._base_url}/v1/chat/completions",
-                json=payload,
-                headers=headers,
-            )
+        max_attempts = 2
+        response: Optional[httpx.Response] = None
+        for attempt in range(1, max_attempts + 1):
             try:
-                response.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                response_body = str(response.text or "")
-                logger.error(
-                    "DeepSeek HTTP error: status=%s purpose=%s model=%s body=%s",
-                    response.status_code,
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    response = await client.post(
+                        f"{self._base_url}/v1/chat/completions",
+                        json=payload,
+                        headers=headers,
+                    )
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError:
+                        response_body = str(response.text or "")
+                        logger.error(
+                            "DeepSeek HTTP error: status=%s purpose=%s model=%s body=%s",
+                            response.status_code,
+                            purpose,
+                            payload.get("model"),
+                            self._truncate_for_log(response_body),
+                        )
+                        self._log_model_io_to_db(
+                            user_id=user_id,
+                            purpose=purpose,
+                            model_name=str(payload.get("model") or ""),
+                            request_text=request_payload_text,
+                            response_text="",
+                            status="http_error",
+                            response_time_ms=None,
+                            error_text=response_body,
+                        )
+                        raise
+                break
+            except httpx.TimeoutException as exc:
+                error_text = str(exc) or type(exc).__name__
+                logger.warning(
+                    "DeepSeek timeout: purpose=%s model=%s attempt=%d/%d error=%s",
                     purpose,
                     payload.get("model"),
-                    self._truncate_for_log(response_body),
+                    attempt,
+                    max_attempts,
+                    error_text,
                 )
                 self._log_model_io_to_db(
                     user_id=user_id,
@@ -326,11 +391,46 @@ class DeepSeekProvider(LLMProvider):
                     model_name=str(payload.get("model") or ""),
                     request_text=request_payload_text,
                     response_text="",
-                    status="http_error",
+                    status="timeout",
                     response_time_ms=None,
-                    error_text=response_body,
+                    error_text=error_text,
                 )
-                raise
+                if attempt < max_attempts:
+                    await asyncio.sleep(0.2 * attempt)
+                    continue
+                raise LLMProviderTemporaryError(
+                    "Временная ошибка AI-сервиса: истекло время ожидания ответа."
+                ) from None
+            except httpx.RequestError as exc:
+                error_text = str(exc) or type(exc).__name__
+                logger.warning(
+                    "DeepSeek network error: purpose=%s model=%s type=%s attempt=%d/%d error=%s",
+                    purpose,
+                    payload.get("model"),
+                    type(exc).__name__,
+                    attempt,
+                    max_attempts,
+                    error_text,
+                )
+                self._log_model_io_to_db(
+                    user_id=user_id,
+                    purpose=purpose,
+                    model_name=str(payload.get("model") or ""),
+                    request_text=request_payload_text,
+                    response_text="",
+                    status="request_error",
+                    response_time_ms=None,
+                    error_text=error_text,
+                )
+                if attempt < max_attempts:
+                    await asyncio.sleep(0.2 * attempt)
+                    continue
+                raise LLMProviderTemporaryError(
+                    "Временная ошибка AI-сервиса: проблемы с сетевым подключением."
+                ) from None
+
+        if response is None:
+            raise LLMProviderTemporaryError("Временная ошибка AI-сервиса.")
 
         data = response.json()
 
@@ -518,6 +618,7 @@ class DeepSeekProvider(LLMProvider):
         temperature: float,
         max_tokens: int,
         messages: List[Dict[str, str]],
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Записать в лог payload, отправляемый в модель."""
         if not self._is_model_io_logging_enabled():
@@ -527,12 +628,13 @@ class DeepSeekProvider(LLMProvider):
             json.dumps(messages, ensure_ascii=False)
         )
         logger.info(
-            "LLM request payload: provider=%s purpose=%s model=%s temperature=%.2f max_tokens=%s messages=%s",
+            "LLM request payload: provider=%s purpose=%s model=%s temperature=%.2f max_tokens=%s response_format=%s messages=%s",
             self.name,
             purpose,
             model_name,
             temperature,
             max_tokens,
+            response_format,
             serialized_messages,
         )
 
@@ -562,6 +664,16 @@ class DeepSeekProvider(LLMProvider):
         Пытается найти JSON-объект в ответе. При неудаче возвращает
         результат с intent=unknown и низкой уверенностью.
         """
+        if not str(raw or "").strip():
+            logger.warning("Пустой ответ классификатора LLM")
+            return ClassificationResult(
+                intent="unknown",
+                confidence=0.0,
+                explain_code="EMPTY_RESPONSE",
+                raw_response=raw,
+                response_time_ms=elapsed_ms,
+            )
+
         # Пробуем извлечь JSON из ответа (LLM может обернуть его в ```json ... ```)
         json_str = raw.strip()
 
@@ -587,9 +699,6 @@ class DeepSeekProvider(LLMProvider):
                     partial = DeepSeekProvider._extract_partial_classification(raw, elapsed_ms)
                     if partial is not None:
                         return partial
-                    direct = DeepSeekProvider._extract_direct_answer_fallback(raw, elapsed_ms)
-                    if direct is not None:
-                        return direct
                     logger.warning(
                         "Не удалось распарсить JSON из ответа LLM: %s",
                         raw[:200],
@@ -605,9 +714,6 @@ class DeepSeekProvider(LLMProvider):
                 partial = DeepSeekProvider._extract_partial_classification(raw, elapsed_ms)
                 if partial is not None:
                     return partial
-                direct = DeepSeekProvider._extract_direct_answer_fallback(raw, elapsed_ms)
-                if direct is not None:
-                    return direct
                 logger.warning(
                     "JSON не найден в ответе LLM: %s", raw[:200]
                 )
@@ -619,16 +725,66 @@ class DeepSeekProvider(LLMProvider):
                     response_time_ms=elapsed_ms,
                 )
 
-        intent = str(parsed.get("intent", "unknown"))
-        confidence = float(parsed.get("confidence", 0.0))
-        parameters = parsed.get("parameters", {})
-        explain_code = str(parsed.get("explain_code", "PARSED_OK"))
+        return DeepSeekProvider._validate_and_normalize_classification(
+            parsed=parsed,
+            raw=raw,
+            elapsed_ms=elapsed_ms,
+        )
 
-        # Ограничиваем confidence диапазоном [0, 1]
+    @staticmethod
+    def _validate_and_normalize_classification(
+        parsed: Any,
+        raw: str,
+        elapsed_ms: int,
+    ) -> ClassificationResult:
+        """
+        Валидировать и нормализовать JSON классификации.
+
+        Приводит результат к безопасной структуре и отбрасывает
+        некорректные intent/поля.
+        """
+        if not isinstance(parsed, dict):
+            return ClassificationResult(
+                intent="unknown",
+                confidence=0.0,
+                explain_code="INVALID_JSON_TYPE",
+                raw_response=raw,
+                response_time_ms=elapsed_ms,
+            )
+
+        intent = str(parsed.get("intent", "unknown")).strip().lower()
+        if not intent:
+            intent = "unknown"
+
+        if intent not in ALLOWED_CLASSIFICATION_INTENTS:
+            logger.warning("LLM classification returned unsupported intent: %s", intent)
+            return ClassificationResult(
+                intent="unknown",
+                confidence=0.0,
+                parameters={},
+                explain_code="INVALID_INTENT",
+                raw_response=raw,
+                response_time_ms=elapsed_ms,
+            )
+
+        raw_confidence = parsed.get("confidence", 0.0)
+        try:
+            confidence = float(raw_confidence)
+        except (TypeError, ValueError):
+            confidence = 0.0
+            logger.warning(
+                "LLM classification returned invalid confidence type: %r",
+                raw_confidence,
+            )
         confidence = max(0.0, min(1.0, confidence))
 
+        parameters = parsed.get("parameters", {})
         if not isinstance(parameters, dict):
             parameters = {}
+
+        explain_code = str(parsed.get("explain_code", "PARSED_OK")).strip()
+        if not explain_code:
+            explain_code = "PARSED_OK"
 
         return ClassificationResult(
             intent=intent,
@@ -680,45 +836,6 @@ class DeepSeekProvider(LLMProvider):
             confidence=confidence,
             parameters={},
             explain_code=explain_code,
-            raw_response=raw,
-            response_time_ms=elapsed_ms,
-        )
-
-    @staticmethod
-    def _extract_direct_answer_fallback(
-        raw: str,
-        elapsed_ms: int,
-    ) -> Optional[ClassificationResult]:
-        """
-        Обработать fallback, когда вместо JSON пришёл готовый текстовый ответ.
-
-        Применяется только для достаточно длинных ответов, чтобы не подменять
-        короткие системные фразы/ошибки.
-        """
-        candidate = (raw or "").strip()
-        if not candidate:
-            return None
-
-        # Не перехватываем короткие служебные ответы и потенциальные JSON-куски.
-        if len(candidate) < 80:
-            return None
-        if candidate.startswith("{") or candidate.startswith("```"):
-            return None
-
-        # Должны присутствовать пробелы и буквы (похоже на нормальный текст).
-        if " " not in candidate or not re.search(r"[A-Za-zА-Яа-яЁё]", candidate):
-            return None
-
-        logger.warning(
-            "Использован direct-text fallback для классификации (len=%d)",
-            len(candidate),
-        )
-
-        return ClassificationResult(
-            intent="general_chat",
-            confidence=0.85,
-            parameters={"direct_answer": candidate[:4000]},
-            explain_code="DIRECT_TEXT_FALLBACK",
             raw_response=raw,
             response_time_ms=elapsed_ms,
         )

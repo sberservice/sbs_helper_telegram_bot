@@ -59,7 +59,8 @@ IntentRouter
 - **Реализация**: `DeepSeekProvider` (OpenAI-совместимый `/v1/chat/completions`)
 - **Раздельные модели**: отдельная модель для классификации и для генерации ответов
 - **Переключение runtime**: через админ-панель (`🧠 AI модель`) без перезапуска бота
-- **Парсинг ответов**: JSON → partial-JSON fallback → direct-text fallback
+- **Классификация intent**: DeepSeek JSON Mode (`response_format: {"type": "json_object"}`) + строгая валидация структуры и intent whitelist
+- **Парсинг ответов классификатора**: JSON → partial-JSON fallback → безопасный `unknown` при невалидном/non-JSON ответе
 
 ## Защита от нагрузки
 
@@ -111,8 +112,19 @@ CLOSED ──(5 ошибок)──► OPEN ──(300с)──► HALF_OPEN
     - ранжирование чанков с учётом lexical score чанка + бонуса от summary-релевантности документа + post-merge summary-бонуса в hybrid fusion.
 - Опционально: локальный векторный retrieval (Qdrant local mode + локальная embedding-модель) с fusion lexical/vector score.
 - Top-summary документы добавляются в системный RAG-промпт как дополнительный контекст.
+- Для `source_type=certification` применяется мягкий category-aware буст и freshness-штраф (неактивные/устаревшие вопросы понижаются, но не исключаются).
+- Для `source_type=certification` в контент и summary не включаются неверные варианты ответов: индексируются только вопрос, правильный ответ, пояснение и категории.
+- Summary для коротких certification Q/A формируется детерминированно (без LLM), чтобы уменьшить шум retrieval.
 - In-memory TTL-кэш с инвалидацией по `rag_corpus_version`
 - Логирование запросов в `rag_query_log`
+
+### Certification Q/A sync
+
+```bash
+python scripts/rag_certification_sync.py --uploaded-by 0
+python scripts/rag_certification_sync.py --uploaded-by 0 --upsert-vectors
+python scripts/rag_certification_sync.py --uploaded-by 0 --force-update --upsert-vectors
+```
 
 ### Vector backfill
 
@@ -228,7 +240,7 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 
 - В AI-потоке используется поэтапный индикатор: базовая обработка → ожидание классификации/маршрутизации → RAG prefilter документов → отправка augmented payload в LLM.
 - Для сценария `general_chat → reroute → rag_qa` этапы RAG также показываются пользователю.
-- Для cache-hit RAG промежуточные этапы пропускаются и возвращается финальный ответ.
+- Для cache-hit RAG пользователю промежуточные этапы не показываются: возвращается финальный ответ из кэша. При этом во внутренний callback прогресса эмитится служебное событие `rag_cache_hit`.
 - Тексты этапов запрашиваются через единый резолвер сообщений по ключам (`get_ai_message_by_key`), что позволяет позже подключить источник из БД без изменений в бизнес-логике Telegram/Router.
 
 ## Логирование
@@ -237,10 +249,11 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 - Профилирование маршрутизации: `classify_ms`, `db_log_ms`, `dispatch_ms`, `context_update_ms`
 - RAG-запросы → `rag_query_log`
 - Диагностика retrieval-канала RAG: строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `prefilter_scope_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `selected_unique_docs`, `selected_top_docs`, `top_source`, `timings_ms(total/prefilter/lexical/vector/merge/summary_blocks)`; длинные `source` автоматически сокращаются
+- Кэш ответов RAG логируется явно строками `RAG answer cache miss: ...` и `RAG answer cache hit: ...` (с причиной miss и `ttl_remaining_s` для hit)
 - `prefilter_docs` показывает только top-N summary-prefilter, а `prefilter_scope_docs` — итоговый размер области поиска после добавления fallback-документов
 - `selected` показывает число финальных чанков, `selected_unique_docs` — число уникальных документов среди них, `selected_top_docs` — top уникальных `document_id` по порядку ранжирования
 - Состояние удалённого векторного backend логируется отдельными переходами: `Состояние remote Qdrant: UP|DOWN|COOLDOWN|DISABLED`
-- Доказательство summary-приоритизации: строка `RAG priority evidence:` в многострочном ранжированном формате с блоками `prefilter_top` и `selected_top` (до top-5; для `selected_top` добавлены `doc`, `chunk`, `origin`, разложение lexical-компоненты `lex_raw/lex_bonus/lex_total`, формула `hybrid=(lex_total*lexical_weight)+(vector_score*vector_weight)` и `summary_bonus`; `lex_bonus`/`summary_bonus` считаются по нормализованному summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле)
+- Доказательство summary-приоритизации: строка `RAG priority evidence:` в многострочном ранжированном формате с блоками `prefilter_top` и `selected_top` (до top-5; для `prefilter_top` добавлены `summary`, `lexical`, `vec`, `vec_w`, `excerpt` ~80 символов и `source`; для `selected_top` добавлены `doc`, `chunk`, `origin`, разложение lexical-компоненты `lex_raw/lex_bonus/lex_total/lex_norm`, формула `hybrid=(lex_norm*lexical_weight)+(vector_score*vector_weight)` и `summary_bonus`; `lex_total` — raw lexical score, `lex_norm` — нормализованный в `0..1` (min-max по пулу lexical-кандидатов) для сопоставимости с vector-компонентой; `lex_bonus`/`summary_bonus` считаются по нормализованному summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле)
 - Диагностика chunking при ingest: строка `RAG chunking strategy:` с полями `file`, `format`, `strategy`, `slicer`, `chunk_size`, `chunk_overlap`, `chunks`, `html_splitter_enabled`, `langchain_splitter_supported`
 - Успешная векторная индексация чанков: строка `RAG vector upsert:` с полями `chunks` и `duration_ms` (время upsert в миллисекундах)
 - На старте процесса бота выполняется preload RAG-зависимостей; процесс отражается логами `RAG preload: start` и `RAG preload: done ...` (со статусом и длительностью)
@@ -299,7 +312,9 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `AI_RAG_SUMMARY_INPUT_MAX_CHARS` | `12000` | Макс. объём входа для summary |
 | `AI_RAG_SUMMARY_MAX_CHARS` | `1200` | Макс. длина summary |
 | `AI_RAG_PREFILTER_TOP_DOCS` | `4` | Число документов в summary-prefilter |
+| `AI_RAG_PREFILTER_EXCLUDE_CERTIFICATION_FROM_COUNT` | `1` | Не учитывать `source_type=certification` в квоте `AI_RAG_PREFILTER_TOP_DOCS`; сертификационные документы остаются в prefilter-выдаче |
 | `AI_RAG_PROMPT_SUMMARY_DOCS` | `1` | Число summary в RAG-промпте |
+| `AI_RAG_PROMPT_SUMMARIES_EXCLUDE_CERTIFICATION` | `1` | Исключать summary сертификационных вопросов (`certification_q_*.md`) из prompt-блока joined_summaries |
 | `AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT` | `1.0` | Вес exact phrase-совпадения вопроса с document summary |
 | `AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT` | `1.0` | Вес token-overlap score для document summary |
 | `AI_RAG_SUMMARY_SCORE_CAP` | `2.5` | Верхняя граница fallback-нормализации summary-score в диапазон `0..1` (основной retrieval использует min-max по prefilter-пулу) |
@@ -333,6 +348,8 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `AI_RAG_VECTOR_EMBEDDING_MAX_CHARS` | `6000` | Ограничение длины текста на embedding |
 | `AI_RAG_VECTOR_LEXICAL_WEIGHT` | `0.45` | Вес lexical score в hybrid |
 | `AI_RAG_VECTOR_SEMANTIC_WEIGHT` | `0.55` | Вес vector score в hybrid |
+| `AI_RAG_CERTIFICATION_CATEGORY_BOOST` | `0.35` | Мягкий буст score для сертификационного документа при совпадении категории запроса |
+| `AI_RAG_CERTIFICATION_STALE_PENALTY` | `0.20` | Штраф score для неактивных/устаревших сертификационных документов |
 
 ### Практические пресеты
 

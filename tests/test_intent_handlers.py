@@ -200,6 +200,29 @@ class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Ответ из базы знаний", result)
 
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service")
+    async def test_answer_from_rag_passes_category_hint(self, mock_get_rag_service):
+        """Опциональный category_hint из параметров передаётся в RAG-сервис."""
+        mock_service = AsyncMock()
+        mock_service.answer_question.return_value = "Ответ из базы знаний"
+        mock_get_rag_service.return_value = mock_service
+
+        handler = RagQaHandler()
+        await handler.execute(
+            {
+                "question": "Вопрос по аттестации",
+                "category_hint": "upos ошибки",
+            },
+            user_id=22,
+        )
+
+        mock_service.answer_question.assert_awaited_once_with(
+            "Вопрос по аттестации",
+            user_id=22,
+            on_progress=None,
+            category_hint="upos ошибки",
+        )
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service")
     async def test_answer_from_rag_preserves_supported_markdown(self, mock_get_rag_service):
         """RAG-ответ сохраняет поддерживаемый markdown и экранирует остальное."""
         mock_service = AsyncMock()

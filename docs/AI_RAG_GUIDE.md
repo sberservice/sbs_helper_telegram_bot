@@ -16,20 +16,27 @@ RAG-поток позволяет:
 - Сервис базы знаний: `RagKnowledgeService` в `src/sbs_helper_telegram_bot/ai_router/rag_service.py`.
 - Админ-загрузка документов через Telegram: отправка файла с подписью `#rag`.
 - Синхронизация директории документов через helper-скрипт `scripts/rag_directory_ingest.py` (on-demand и daemon-режим).
+- Синхронизация вопросов/ответов аттестации через helper-скрипт `scripts/rag_certification_sync.py`.
 - Поддерживаемые форматы: `PDF`, `DOCX`, `TXT`, `MD`, `HTML`.
 - Для `HTML` используется `HTMLSemanticPreservingSplitter` (если доступен в окружении), чтобы учитывать структуру заголовков `h1-h6` и лучше сохранять семантику документа.
 - Для `HTML` предусмотрен безопасный fallback на очищенный plain-text chunking, если semantic splitter (или его fallback `HTMLHeaderTextSplitter`) недоступен или не вернул чанков.
 - Для `HTML` доступен runtime-переключатель `ai_rag_html_splitter_enabled` в админ-настройках AI (можно принудительно выключить HTML splitter).
 - На Python `3.14+` LangChain splitters работают корректно (предупреждения `pydantic.v1` подавляются); fallback chunking включается только если импорт/инициализация splitter-а завершились ошибкой.
-- Таблицы БД: `rag_documents`, `rag_chunks`, `rag_corpus_version`, `rag_query_log`.
+- Таблицы БД: `rag_documents`, `rag_chunks`, `rag_corpus_version`, `rag_query_log`, `rag_document_signals`.
 - Таблица полного AI I/O логирования: `ai_model_io_log` (prompt/response всех LLM-вызовов, включая RAG).
 - TTL-кэш ответов RAG в памяти процесса.
 - Summary-aware retrieval: prefilter документов по `rag_document_summaries` с гибридным scoring (`BM25/legacy lexical + word-boundary phrase match + semantic vector similarity`), controlled fallback документов для recall, hybrid rerank чанков с учётом релевантности summary и prompt enrichment top-summary блоками.
+- Query preprocessing для lexical retrieval: фильтрация русских стоп-слов (`AI_RAG_STOPWORDS_ENABLED`), снятие шаблонных вопросительных паттернов типа «что такое X» (`AI_RAG_QUERY_PATTERN_STRIP_ENABLED`) и IDF dampening часто встречающихся query-токенов в summary prefilter (`AI_RAG_PREFILTER_IDF_DAMPEN_RATIO`). Это улучшает ранжирование в корпусах с однородной структурой документов (например, сертификационные Q/A, все начинающиеся с «что такое»).
+- В query tokenization сохраняются короткие доменные токены и числовые идентификаторы (`фн`, `36` и т.п.), а фиксированные налоговые термины (`осно`, `усн`, `псн`, `енвд`, `нпд`) защищены от агрессивного стемминга, чтобы не терять смысл в lexical retrieval.
+- HyDE (Hypothetical Document Embeddings): LLM генерирует короткий гипотетический ответ на вопрос пользователя, и его эмбеддинг используется для vector search вместо эмбеддинга исходного вопроса (`AI_RAG_HYDE_ENABLED`). Это устраняет разрыв между пространством вопросов и ответов в embedding-модели и улучшает recall при векторном поиске.
 - Опциональный векторный retrieval с режимом remote-first (Qdrant server) и автоматическим local fallback (Qdrant local mode + локальная embedding-модель) с hybrid-слиянием lexical/vector кандидатов.
 - Для summary-prefilter добавлена отдельная векторная коллекция документов (`AI_RAG_SUMMARY_VECTOR_COLLECTION`) с fallback на in-memory summary embedding scoring, если коллекция недоступна или пуста.
 - UX-статус для RAG: после классификации запроса как `rag_qa` бот меняет плейсхолдер с «Обрабатываю ваш запрос» на «Ожидаю ответа ИИ» до получения финального ответа.
 - Форматирование ответа `rag_qa` для Telegram MarkdownV2: сохраняются списки, `inline code`, жирный текст (`**...**` → Telegram-совместимый `*...*`), неподдерживаемая markdown-разметка экранируется.
 - Длинные RAG-ответы автоматически делятся на несколько сообщений, чтобы не упираться в лимит длины Telegram-сообщения.
+- В retrieval добавлены category/freshness сигналы для `source_type=certification`: совпадение категории запроса даёт мягкий буст, неактуальные/неактивные вопросы получают штраф, но остаются в выдаче.
+- Для `source_type=certification` в RAG-контент и summary попадают только: вопрос, правильный ответ, пояснение и категории; неверные варианты ответов не включаются.
+- Summary для коротких сертификационных Q/A формируется детерминированно (без LLM), чтобы исключить попадание дистракторов и снизить шум в prefilter.
 
 ## Как загрузить документ
 
@@ -63,6 +70,24 @@ Backfill локального векторного индекса по уже з
 
 ```bash
 python scripts/rag_vector_backfill.py --target chunks --batch-size 100
+```
+
+Синхронизация сертификационных Q/A пар в RAG:
+
+```bash
+python scripts/rag_certification_sync.py --uploaded-by 0
+```
+
+С немедленным upsert эмбеддингов в Qdrant:
+
+```bash
+python scripts/rag_certification_sync.py --uploaded-by 0 --upsert-vectors
+```
+
+Принудительное переобновление всех certification-документов (включая неизменённые по `content_hash`) с немедленным upsert эмбеддингов:
+
+```bash
+python scripts/rag_certification_sync.py --uploaded-by 0 --force-update --upsert-vectors
 ```
 
 Backfill summary-векторов документов (отдельная коллекция):
@@ -208,12 +233,15 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 	- провайдер (`provider`),
 	- модель классификации (`model` в `AI classification`),
 	- модель генерации ответа (`model` в `AI chat request`, если сработал chat/fallback).
+- Для intent-классификации включён DeepSeek JSON Mode (`response_format={"type":"json_object"}`): модель обязана вернуть JSON-объект, а не текстовый ответ.
+- Если классификатор вернул невалидный/неполный/non-JSON ответ, роутер выполняет retry и затем безопасно деградирует в `unknown/low_confidence` (без прямой отправки текста классификатора пользователю).
 - Это упрощает диагностику маршрутизации и проверку активной модели после переключения в админ-панели.
-- Ошибки в `ai_router` и RAG-обработчике логируются с traceback и явным типом исключения (`error_type`/`error_repr`), поэтому даже при пустом тексте исключения причина не теряется.
-- Для каждого retrieval-цикла RAG пишется диагностическая строка `RAG retrieval:` с полями `mode`, `tokens`, `prefilter_docs`, `prefilter_scope_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `selected_unique_docs`, `selected_top_docs`, `top_source`, а также `timings_ms(total/prefilter/lexical/vector/merge/summary_blocks)`; длинные `source` автоматически сокращаются для читаемости.
+- Ошибки в `ai_router` и RAG-обработчике логируются с явным типом исключения (`error_type`/`error_repr`); для временных сетевых сбоев LLM (timeout/request error) используется warning-ветка без длинного traceback, чтобы уменьшить шум логов.
+- Для каждого retrieval-цикла RAG пишется диагностический многострочный блок `RAG retrieval:` в табличном формате (`metric` / `value`) с полями `mode`, `tokens`, `retrieval_tokens`, `prefilter_docs`, `prefilter_scope_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `selected_unique_docs`, `selected_top_docs`, `top_source`, а также `timings_ms.total/prefilter/lexical/vector/merge/summary_blocks`; длинные `source` автоматически сокращаются для читаемости.
+- Перед `RAG retrieval:` пишется диагностический многострочный блок `RAG query preprocessing:` в табличном формате (`metric` / `value`) с полями `original_tokens`, `retrieval_tokens`, `stopwords_removed`, `pattern_stripped`, `hyde`, `hyde_lexical_augmented`, `strip_result` (строка после pattern-strip; слова с префиксом `#` сохраняются) и `preprocess_result` (итоговая строка после stopwords-фильтрации).
 - `prefilter_docs` отражает только top-N документов этапа summary-prefilter, а `prefilter_scope_docs` — фактический размер области поиска после добавления fallback-документов.
 - `selected` отражает число выбранных чанков, `selected_unique_docs` — число уникальных документов среди этих чанков, `selected_top_docs` — top уникальных `document_id` по порядку ранжирования.
-- Для каждого retrieval-цикла RAG пишется строка `RAG priority evidence:` в многострочном ранжированном формате (`prefilter_top` и `selected_top`, до top-5), где для `prefilter_top` видны `summary`, `lexical`, `vec`, `vec_w` (взвешенный вклад `vec * AI_RAG_SUMMARY_VECTOR_WEIGHT`) и `source`, а для `selected_top` — `doc`, `chunk`, `fused`, `summary`, `origin` (`prefilter`/`fallback`/`global`), разложение lexical-компоненты (`lex_raw`, `lex_bonus`, `lex_total`), формула `hybrid=(lex_total*lexical_weight)+(vector_score*vector_weight)`, `summary_bonus` и `source`; `lex_bonus`/`summary_bonus` считаются из нормализованного summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле.
+- Для каждого retrieval-цикла RAG пишется блок `RAG priority evidence:` с двумя табличными секциями (`prefilter_top` и `selected_top`). В `prefilter_top` отображаются `rank`, `doc`, `summary`, `lexical`, `vec`, `vec_w` (взвешенный вклад `vec * AI_RAG_SUMMARY_VECTOR_WEIGHT`), `excerpt` (краткий фрагмент summary ~80 символов) и `source`; в `selected_top` — `rank`, `doc`, `chunk`, `fused`, `summary`, `origin` (`prefilter`/`fallback`/`global`), разложение lexical-компоненты (`lex_raw`, `lex_bonus`, `lex_total`, `lex_norm`), формула `hybrid=(lex_norm*lexical_weight)+(vector_score*vector_weight)`, `summary_bonus` и `source`; `lex_total` — исходный raw lexical score (с учётом summary-bonus на lexical-этапе), `lex_norm` — нормализованный lexical score в диапазоне `0..1` (min-max по пулу lexical-кандидатов); hybrid-формула использует `lex_norm`, чтобы lexical- и vector-компоненты были на одной шкале; `lex_bonus`/`summary_bonus` считаются из нормализованного summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле.
 - Для каждого ingest документа пишется диагностическая строка `RAG chunking strategy:` с полями `file`, `format`, `strategy`, `slicer`, `chunk_size`, `chunk_overlap`, `chunks`, `html_splitter_enabled`, `langchain_splitter_supported`.
 - При успешном vector upsert пишется строка `RAG vector upsert:` с полями `chunks` и `duration_ms`, где `duration_ms` — длительность операции upsert в миллисекундах.
 - На старте бота выполняется прогрев lazy-зависимостей RAG; процесс логируется строками `RAG preload: start` и `RAG preload: done ...` (со статусом и `duration_ms`).
@@ -238,7 +266,9 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_SUMMARY_INPUT_MAX_CHARS`
 - `AI_RAG_SUMMARY_MAX_CHARS`
 - `AI_RAG_PREFILTER_TOP_DOCS`
+- `AI_RAG_PREFILTER_EXCLUDE_CERTIFICATION_FROM_COUNT`
 - `AI_RAG_PROMPT_SUMMARY_DOCS`
+- `AI_RAG_PROMPT_SUMMARIES_EXCLUDE_CERTIFICATION`
 - `AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT`
 - `AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT`
 - `AI_RAG_SUMMARY_SCORE_CAP`
@@ -251,6 +281,14 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_BM25_B`
 - `AI_RAG_RU_NORMALIZATION_ENABLED`
 - `AI_RAG_RU_NORMALIZATION_MODE`
+- `AI_RAG_STOPWORDS_ENABLED`
+- `AI_RAG_QUERY_PATTERN_STRIP_ENABLED`
+- `AI_RAG_PREFILTER_IDF_DAMPEN_RATIO`
+- `AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR`
+- `AI_RAG_HYDE_ENABLED`
+- `AI_RAG_HYDE_MAX_CHARS`
+- `AI_RAG_HYDE_CACHE_TTL_SECONDS`
+- `AI_RAG_HYDE_LEXICAL_ENABLED`
 - `AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL`
 - `AI_RAG_CACHE_TTL_SECONDS`
 - `AI_RAG_HTML_SPLITTER_ENABLED`
@@ -332,8 +370,12 @@ nvidia-smi
 python -c "import torch; print('cuda=', torch.cuda.is_available()); print('cuda_version=', torch.version.cuda); print('device=', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
 ```
 
-Runtime-ключ в `bot_settings`:
+Runtime-ключи в `bot_settings`:
 - `ai_rag_html_splitter_enabled` (`1` — включён, `0` — выключен)
+- `ai_rag_stopwords_enabled` (`1` — фильтрация стоп-слов, `0` — выключена)
+- `ai_rag_query_pattern_strip_enabled` (`1` — снятие паттернов, `0` — выключено)
+- `ai_rag_hyde_enabled` (`1` — HyDE генерация включена, `0` — выключена)
+- `ai_rag_hyde_lexical_enabled` (`1` — HyDE дополняет BM25 lexical scoring, `0` — только vector)
 
 ## SQL-инициализация
 
@@ -342,6 +384,7 @@ mysql -u root -p sprint_db < sql/ai_rag_setup.sql
 mysql -u root -p sprint_db < sql/ai_rag_document_summaries_setup.sql
 mysql -u root -p sprint_db < sql/ai_rag_vector_setup.sql
 mysql -u root -p sprint_db < sql/ai_rag_summary_vector_setup.sql
+mysql -u root -p sprint_db < sql/ai_rag_certification_signals_setup.sql
 # Для существующих БД без FULLTEXT-индекса summary_text:
 mysql -u root -p sprint_db < sql/rag_document_summaries_fulltext_index.sql
 ```
@@ -349,6 +392,9 @@ mysql -u root -p sprint_db < sql/rag_document_summaries_fulltext_index.sql
 ## Ограничения текущего этапа
 
 - Retrieval использует lexical scoring по summary+чанкам: режим `legacy` (coverage+density) или `bm25` (Okapi BM25) задаётся через `AI_RAG_LEXICAL_SCORER`; сначала выполняется prefilter документов по summary, затем rerank чанков с бонусом от summary-релевантности.
+- Перед lexical scoring запрос проходит query preprocessing: стоп-слова (`что`, `такое`, `это`, `как` и ~40 других) удаляются, шаблонные вопросительные конструкции (например, «что такое X», «как работает Y») разбираются для извлечения предметной части. В summary prefilter дополнительно подавляются query-токены с высокой document frequency через IDF dampening.
+- Токенизация query использует порог длины `>=3`, но дополнительно сохраняет короткие alnum-токены формата `буква+цифра`/`цифра+буква` (например, `X5`, `K2`) для корректного поиска по брендам и моделям без существенного роста шумовых коротких слов.
+- HyDE (Hypothetical Document Embeddings): при включении (`AI_RAG_HYDE_ENABLED=1`) перед vector search LLM генерирует короткий гипотетический ответ на вопрос пользователя. Эмбеддинг этого текста используется вместо эмбеддинга исходного вопроса для chunk vector search и summary vector prefilter. Это устраняет разрыв «вопрос vs ответ» в embedding-пространстве. Дополнительно, если включён `AI_RAG_HYDE_LEXICAL_ENABLED=1` (по умолчанию), уникальные токены из HyDE-текста (после фильтрации стоп-слов) добавляются к query-токенам для BM25 lexical scoring — это расширяет лексическое покрытие и помогает BM25 находить чанки, содержащие ответную лексику. HyDE-текст кэшируется на `AI_RAG_HYDE_CACHE_TTL_SECONDS` (по умолчанию 300с). При ошибке LLM retrieval продолжается без HyDE (graceful degradation). HyDE добавляет ~1-2с latency на первый запрос из-за дополнительного LLM-вызова.
 - Для русского языка доступна опциональная нормализация токенов (`AI_RAG_RU_NORMALIZATION_ENABLED=1`) с режимами `lemma_then_stem`, `lemma_only`, `stem_only`.
 - Векторный режим требует пакет `qdrant-client`; для локальных эмбеддингов также необходим `sentence-transformers` и доступность embedding-модели на текущем хосте.
 - Кэш хранится в памяти процесса и не шарится между инстансами.

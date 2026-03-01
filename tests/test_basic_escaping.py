@@ -1,45 +1,47 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Simple test to validate the specific messages we fixed.
+Простой тест для проверки MarkdownV2-экранирования в ключевых сообщениях.
 """
 
 import sys
 import os
 
-# Add parent directory to path
+# Добавляем родительскую директорию в path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.common.messages import MESSAGE_WELCOME, MESSAGE_MAIN_HELP, MESSAGE_PLEASE_ENTER_INVITE
 
 
 def test_basic_escaping():
-    """Test the basic escaping issues we should have fixed."""
+    """Проверка корректного экранирования MarkdownV2 в основных сообщениях."""
     
     print("Testing MESSAGE_WELCOME...")
     print(f"Content: {MESSAGE_WELCOME[:100]}...")
     
-    # Test for properly escaped GitHub URL
-    if "github\\.com" in MESSAGE_WELCOME and "sbs\\_helper\\_telegram\\_bot" in MESSAGE_WELCOME:
-        print("✅ GitHub URL is properly escaped")
-    else:
-        print("❌ GitHub URL is NOT properly escaped")
-        return False
+    # Проверяем, что приветственное сообщение не содержит ссылку на GitHub
+    assert "github" not in MESSAGE_WELCOME.lower(), "MESSAGE_WELCOME не должен содержать ссылку на GitHub"
+    
+    # Проверяем наличие ключевых элементов приветственного сообщения
+    assert "СберСервис" in MESSAGE_WELCOME, "MESSAGE_WELCOME должен содержать упоминание СберСервис"
+    print("✅ MESSAGE_WELCOME is properly formatted")
     
     print("\nTesting MESSAGE_MAIN_HELP...")
     print(f"Content: {MESSAGE_MAIN_HELP[:100]}...")
     
-    # Test for properly escaped GitHub URL
-    if "github\\.com" in MESSAGE_MAIN_HELP and "sbs\\_helper\\_telegram\\_bot" in MESSAGE_MAIN_HELP:
-        print("✅ GitHub URL is properly escaped")
-    else:
-        print("❌ GitHub URL is NOT properly escaped")
-        return False
+    # Проверяем, что справочное сообщение не содержит ссылку на GitHub
+    assert "github" not in MESSAGE_MAIN_HELP.lower(), "MESSAGE_MAIN_HELP не должен содержать ссылку на GitHub"
+    
+    # Проверяем наличие ключевых команд в справке
+    assert "/start" in MESSAGE_MAIN_HELP, "MESSAGE_MAIN_HELP должен содержать команду /start"
+    assert "/menu" in MESSAGE_MAIN_HELP, "MESSAGE_MAIN_HELP должен содержать команду /menu"
+    assert "/reset" in MESSAGE_MAIN_HELP, "MESSAGE_MAIN_HELP должен содержать команду /reset"
+    print("✅ MESSAGE_MAIN_HELP is properly formatted")
         
     print("\nTesting MESSAGE_PLEASE_ENTER_INVITE...")
     print(f"Content: {MESSAGE_PLEASE_ENTER_INVITE}")
     
-    # Test for properly escaped periods
+    # Проверяем корректное экранирование точек
     if MESSAGE_PLEASE_ENTER_INVITE.endswith("меню\\."):
         print("✅ Periods are properly escaped")
     else:
