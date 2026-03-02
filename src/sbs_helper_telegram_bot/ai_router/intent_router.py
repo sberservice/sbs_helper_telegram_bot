@@ -5,6 +5,7 @@ intent_router.py — маршрутизатор намерений AI.
 классификацию через LLM-провайдер, проверку модулей и вызов обработчиков.
 """
 
+import asyncio
 import logging
 import re
 import time
@@ -262,9 +263,10 @@ class IntentRouter:
             classify_model,
         )
 
-        # 10. Логируем в БД
+        # 10. Логируем в БД (в отдельном потоке, чтобы не блокировать event loop)
         db_log_started_at = time.monotonic()
-        self._log_to_db(
+        await asyncio.to_thread(
+            self._log_to_db,
             user_id=user_id,
             input_text=text[:500],
             classification=classification,

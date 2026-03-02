@@ -566,10 +566,54 @@ class DeepSeekProvider(LLMProvider):
         response_time_ms: Optional[int],
         error_text: str,
     ) -> None:
-        """Сохранить полный prompt/response модели в БД с маскированием PII."""
+        """Запланировать сохранение model I/O в БД в отдельном потоке (fire-and-forget)."""
         if not self._is_db_model_io_logging_enabled():
             return
 
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Нет event loop — вызываем синхронно (скрипты, тесты)
+            self._log_model_io_to_db_sync(
+                user_id=user_id,
+                purpose=purpose,
+                model_name=model_name,
+                request_text=request_text,
+                response_text=response_text,
+                status=status,
+                response_time_ms=response_time_ms,
+                error_text=error_text,
+            )
+            return
+
+        loop.call_soon(
+            lambda: asyncio.ensure_future(
+                asyncio.to_thread(
+                    self._log_model_io_to_db_sync,
+                    user_id=user_id,
+                    purpose=purpose,
+                    model_name=model_name,
+                    request_text=request_text,
+                    response_text=response_text,
+                    status=status,
+                    response_time_ms=response_time_ms,
+                    error_text=error_text,
+                )
+            )
+        )
+
+    def _log_model_io_to_db_sync(
+        self,
+        user_id: Optional[int],
+        purpose: str,
+        model_name: str,
+        request_text: str,
+        response_text: str,
+        status: str,
+        response_time_ms: Optional[int],
+        error_text: str,
+    ) -> None:
+        """Сохранить полный prompt/response модели в БД с маскированием PII."""
         safe_request = self._truncate_db_text(mask_sensitive_data(request_text))
         safe_response = self._truncate_db_text(mask_sensitive_data(response_text))
         safe_error = self._truncate_db_text(mask_sensitive_data(error_text), max_chars=50_000)

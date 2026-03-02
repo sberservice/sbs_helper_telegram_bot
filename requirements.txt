@@ -64,6 +64,7 @@ requests==2.32.5
 requests-toolbelt==1.0.0
 qdrant-client==1.15.1
 snowballstemmer==3.0.1
+symspellpy>=6.7.7
 sentence-transformers==3.2.1
 six==1.17.0
 SQLAlchemy==2.0.46

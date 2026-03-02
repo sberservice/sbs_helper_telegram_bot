@@ -38,6 +38,7 @@ from src.sbs_helper_telegram_bot.ai_router.prompts import (
     build_rag_fallback_prompt,
     build_rag_prompt,
     build_rag_summary_prompt,
+    build_spellcheck_prompt,
 )
 from src.sbs_helper_telegram_bot.ai_router.vector_search import (
     LocalEmbeddingProvider,
@@ -50,6 +51,12 @@ try:
     from rank_bm25 import BM25Okapi
 except Exception:
     BM25Okapi = None
+
+try:
+    from symspellpy import SymSpell, Verbosity as _SymSpellVerbosity  # type: ignore[import-untyped]
+except Exception:
+    SymSpell = None  # type: ignore[misc,assignment]
+    _SymSpellVerbosity = None  # type: ignore[misc,assignment]
 
 _TOKEN_RE = re.compile(r"\d+(?:[\.,]\d+)+|[a-zа-яё0-9]+", re.IGNORECASE)
 _SHORT_ALNUM_TOKEN_RE = re.compile(r"(?:[a-zа-яё]\d|\d[a-zа-яё])", re.IGNORECASE)
@@ -237,6 +244,11 @@ class RagKnowledgeService:
         self._document_signals_table_warning_logged: bool = False
         self._certification_categories_cache: List[Tuple[str, str]] = []
         self._certification_categories_cache_expires_at: float = 0.0
+        # Spell-correction state
+        self._spellcheck_sym: Optional[object] = None  # SymSpell instance
+        self._spellcheck_vocab_size: int = 0
+        self._spellcheck_vocab_ready: bool = False
+        self._spellcheck_llm_cache: Dict[str, Tuple[str, List[Tuple[str, str]], float]] = {}
 
     def _get_cached_hyde_text(self, question: str) -> Optional[str]:
         """Получить HyDE-текст из кэша, если он не истёк.
@@ -1258,6 +1270,45 @@ class RagKnowledgeService:
         if len(normalized_question) < 3:
             return RagAnswer(text=None)
 
+        # --- Spell-correction: исправление опечаток перед retrieval ---
+        spellcheck_source = "disabled"
+        spellcheck_changes: List[Tuple[str, str]] = []
+        spellcheck_llm_triggered = False
+
+        if ai_settings.is_rag_spellcheck_enabled() and self._spellcheck_vocab_ready:
+            # Corpus-based коррекция (синхронная, <1ms)
+            corrected_q, corpus_changes, corpus_source = self._apply_spellcheck_to_question(
+                normalized_question,
+            )
+            spellcheck_source = corpus_source
+            spellcheck_changes = list(corpus_changes)
+
+            if corpus_changes:
+                normalized_question = corrected_q
+
+            # LLM fallback: если corpus-based не справился с достаточной долей suspicious-токенов
+            if ai_settings.is_rag_spellcheck_llm_fallback_enabled():
+                original_tokens = _TOKEN_RE.findall((question or "").lower())
+                uncorrected, suspicious_total = self._get_suspicious_uncorrected_count(
+                    original_tokens, corpus_changes,
+                )
+                threshold = max(0.0, min(1.0, float(ai_settings.AI_RAG_SPELLCHECK_LLM_FALLBACK_THRESHOLD)))
+                if suspicious_total > 0 and (uncorrected / suspicious_total) >= threshold:
+                    spellcheck_llm_triggered = True
+                    llm_corrected, llm_changes = await self._spellcheck_llm_fallback(
+                        normalized_question,
+                        user_id=user_id,
+                    )
+                    if llm_changes:
+                        normalized_question = llm_corrected
+                        spellcheck_changes.extend(llm_changes)
+                        spellcheck_source = "corpus+llm" if corpus_changes else "llm"
+
+        # Сохраняем метаданные spellcheck для передачи в retrieval
+        self._last_spellcheck_source = spellcheck_source
+        self._last_spellcheck_changes = spellcheck_changes
+        self._last_spellcheck_llm_triggered = spellcheck_llm_triggered
+
         corpus_version = self._get_corpus_version()
         cache_key = f"{corpus_version}:{normalized_question.lower()}"
         cached = self._answer_cache.get(cache_key)
@@ -1334,7 +1385,8 @@ class RagKnowledgeService:
                     )
                     hyde_text = None
 
-        chunks, summary_blocks = self._retrieve_context_for_question(
+        chunks, summary_blocks = await asyncio.to_thread(
+            self._retrieve_context_for_question,
             normalized_question,
             limit=ai_settings.AI_RAG_TOP_K,
             category_hint=category_hint,
@@ -1407,11 +1459,14 @@ class RagKnowledgeService:
         )
         self._clear_expired_cache()
 
-        self._log_query(
-            user_id=user_id,
-            query=normalized_question,
-            cache_hit=False,
-            chunks_count=len(context_blocks),
+        asyncio.create_task(
+            asyncio.to_thread(
+                self._log_query,
+                user_id=user_id,
+                query=normalized_question,
+                cache_hit=False,
+                chunks_count=len(context_blocks),
+            )
         )
 
         return RagAnswer(text=answer_text, is_fallback=False)
@@ -1454,7 +1509,8 @@ class RagKnowledgeService:
             {"reason": "question_not_answered"},
         )
 
-        fallback_blocks = self._retrieve_summaries_for_fallback(
+        fallback_blocks = await asyncio.to_thread(
+            self._retrieve_summaries_for_fallback,
             question=question,
             hyde_text=hyde_text,
         )
@@ -1507,11 +1563,14 @@ class RagKnowledgeService:
         )
         self._clear_expired_cache()
 
-        self._log_query(
-            user_id=user_id,
-            query=question,
-            cache_hit=False,
-            chunks_count=0,
+        asyncio.create_task(
+            asyncio.to_thread(
+                self._log_query,
+                user_id=user_id,
+                query=question,
+                cache_hit=False,
+                chunks_count=0,
+            )
         )
 
         return RagAnswer(text=fallback_answer, is_fallback=True)
@@ -1569,6 +1628,12 @@ class RagKnowledgeService:
                 hyde_lexical_augmented=hyde_augmented_count,
                 strip_result=stripped_result_for_log or "none",
                 preprocess_result=post_stopwords_result_for_log or "none",
+                spellcheck_source=getattr(self, "_last_spellcheck_source", "disabled"),
+                spellcheck_corrections=len(getattr(self, "_last_spellcheck_changes", [])),
+                spellcheck_changes=", ".join(
+                    f"{orig}→{corr}"
+                    for orig, corr in getattr(self, "_last_spellcheck_changes", [])
+                )[:160] or "none",
             ),
         )
 
@@ -1797,6 +1862,371 @@ class RagKnowledgeService:
         table_lines.append(separator)
         return "\n".join(table_lines)
 
+        table_lines.append(separator)
+        return "\n".join(table_lines)
+
+    # =============================================
+    # Spell-correction (автоисправление опечаток)
+    # =============================================
+
+    def _build_spellcheck_vocabulary(self) -> bool:
+        """Построить словарь SymSpell из RAG-корпуса (summary + chunks).
+
+        Словарь строится из токенов всех summary-текстов и чанков,
+        плюс все защищённые термины из ``_RAG_FIXED_QUERY_TERMS``
+        с высокой искусственной частотой.
+
+        Returns:
+            True, если словарь успешно построен.
+        """
+        if SymSpell is None:
+            logger.warning("Spellcheck: symspellpy не установлен, словарь не будет построен")
+            return False
+
+        started_at = time.perf_counter()
+
+        try:
+            max_edit = max(1, int(ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE))
+            sym = SymSpell(max_dictionary_edit_distance=max_edit, prefix_length=7)
+
+            token_freq: Counter = Counter()
+
+            # --- Собираем токены из summary ---
+            try:
+                with database.get_db_connection() as conn:
+                    with database.get_cursor(conn) as cursor:
+                        cursor.execute(
+                            "SELECT s.summary_text FROM rag_document_summaries s "
+                            "JOIN rag_documents d ON d.id = s.document_id "
+                            "WHERE d.status = 'active' LIMIT 5000"
+                        )
+                        rows = cursor.fetchall() or []
+                for row in rows:
+                    text = str(row.get("summary_text") or "").strip()
+                    if text:
+                        raw_tokens = _TOKEN_RE.findall(text.lower())
+                        for t in raw_tokens:
+                            if len(t) >= 2:
+                                token_freq[t] += 1
+            except Exception:
+                logger.warning("Spellcheck: ошибка загрузки summary для словаря", exc_info=True)
+
+            # --- Собираем токены из чанков ---
+            try:
+                with database.get_db_connection() as conn:
+                    with database.get_cursor(conn) as cursor:
+                        cursor.execute(
+                            "SELECT c.chunk_text FROM rag_chunks c "
+                            "JOIN rag_documents d ON d.id = c.document_id "
+                            "WHERE d.status = 'active' LIMIT 20000"
+                        )
+                        rows = cursor.fetchall() or []
+                for row in rows:
+                    text = str(row.get("chunk_text") or "").strip()
+                    if text:
+                        raw_tokens = _TOKEN_RE.findall(text.lower())
+                        for t in raw_tokens:
+                            if len(t) >= 2:
+                                token_freq[t] += 1
+            except Exception:
+                logger.warning("Spellcheck: ошибка загрузки чанков для словаря", exc_info=True)
+
+            # --- Добавляем защищённые термины с высокой частотой ---
+            protected_freq = max(1000, max(token_freq.values()) * 10) if token_freq else 1000
+            for term in _RAG_FIXED_QUERY_TERMS:
+                token_freq[term] = max(token_freq.get(term, 0), protected_freq)
+
+            if not token_freq:
+                logger.warning("Spellcheck: словарь пуст, vocabulary не построен")
+                return False
+
+            # --- Загружаем частоты в SymSpell ---
+            for token, freq in token_freq.items():
+                sym.create_dictionary_entry(token, freq)
+
+            self._spellcheck_sym = sym
+            self._spellcheck_vocab_size = len(token_freq)
+            self._spellcheck_vocab_ready = True
+
+            duration_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.info(
+                "Spellcheck vocabulary built: vocab_size=%d protected_terms=%d duration_ms=%d",
+                self._spellcheck_vocab_size,
+                len(_RAG_FIXED_QUERY_TERMS),
+                duration_ms,
+            )
+            return True
+
+        except Exception:
+            logger.exception("Spellcheck: не удалось построить словарь")
+            return False
+
+    def _spellcheck_tokens(
+        self,
+        tokens: List[str],
+    ) -> Tuple[List[str], List[Tuple[str, str]]]:
+        """Исправить опечатки в списке токенов через corpus-based словарь.
+
+        Защищённые термины (``_RAG_FIXED_QUERY_TERMS``), короткие токены,
+        латинские и числовые токены пропускаются без изменений.
+
+        Args:
+            tokens: Список токенов для проверки.
+
+        Returns:
+            Кортеж (исправленные токены, список изменений [(original, corrected)]).
+        """
+        if not self._spellcheck_vocab_ready or self._spellcheck_sym is None:
+            return tokens, []
+
+        if _SymSpellVerbosity is None:
+            return tokens, []
+
+        min_length = max(2, int(ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH))
+        max_edit = max(1, int(ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE))
+
+        corrected_tokens: List[str] = []
+        changes: List[Tuple[str, str]] = []
+
+        for token in tokens:
+            # Пропускаем защищённые термины
+            if token in _RAG_FIXED_QUERY_TERMS:
+                corrected_tokens.append(token)
+                continue
+
+            # Пропускаем короткие токены
+            if len(token) < min_length:
+                corrected_tokens.append(token)
+                continue
+
+            # Пропускаем нe-кириллические токены (латиница, числа)
+            if not _CYRILLIC_TOKEN_RE.search(token):
+                corrected_tokens.append(token)
+                continue
+
+            # Ищем коррекцию через SymSpell
+            try:
+                suggestions = self._spellcheck_sym.lookup(
+                    token,
+                    _SymSpellVerbosity.CLOSEST,
+                    max_edit_distance=max_edit,
+                )
+            except Exception:
+                corrected_tokens.append(token)
+                continue
+
+            if suggestions and suggestions[0].distance > 0:
+                candidate = suggestions[0].term
+                # Проверяем, что кандидат не искажает защищённый термин
+                if candidate not in _RAG_FIXED_QUERY_TERMS or token in _RAG_FIXED_QUERY_TERMS:
+                    corrected_tokens.append(candidate)
+                    changes.append((token, candidate))
+                else:
+                    corrected_tokens.append(token)
+            else:
+                corrected_tokens.append(token)
+
+        return corrected_tokens, changes
+
+    def _get_suspicious_uncorrected_count(
+        self,
+        tokens: List[str],
+        changes: List[Tuple[str, str]],
+    ) -> Tuple[int, int]:
+        """Подсчитать «подозрительные» токены которые не были исправлены.
+
+        Подозрительный токен — кириллический, длина ≥ min_length,
+        не в словаре и не в защищённых терминах.
+
+        Returns:
+            (suspicious_uncorrected_count, total_suspicious_count)
+        """
+        if not self._spellcheck_vocab_ready or self._spellcheck_sym is None:
+            return 0, 0
+
+        min_length = max(2, int(ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH))
+        corrected_originals = {orig for orig, _ in changes}
+
+        suspicious_total = 0
+        suspicious_uncorrected = 0
+
+        for token in tokens:
+            if token in _RAG_FIXED_QUERY_TERMS:
+                continue
+            if len(token) < min_length:
+                continue
+            if not _CYRILLIC_TOKEN_RE.search(token):
+                continue
+
+            # Проверяем, есть ли токен в словаре
+            try:
+                suggestions = self._spellcheck_sym.lookup(
+                    token,
+                    _SymSpellVerbosity.CLOSEST,
+                    max_edit_distance=0,
+                )
+                in_vocab = bool(suggestions)
+            except Exception:
+                in_vocab = False
+
+            if not in_vocab:
+                suspicious_total += 1
+                if token not in corrected_originals:
+                    suspicious_uncorrected += 1
+
+        return suspicious_uncorrected, suspicious_total
+
+    async def _spellcheck_llm_fallback(
+        self,
+        question: str,
+        user_id: int,
+    ) -> Tuple[str, List[Tuple[str, str]]]:
+        """Исправить опечатки через LLM (dedicated call).
+
+        Вызывается, когда corpus-based коррекция не справилась.
+        Результаты кэшируются с TTL.
+
+        Args:
+            question: Исходный вопрос пользователя.
+            user_id: Telegram ID пользователя.
+
+        Returns:
+            (исправленный текст, список изменений [(from, to)]).
+        """
+        cache_key = question.strip().lower()
+
+        # --- Проверка кэша ---
+        now = time.time()
+        cached = self._spellcheck_llm_cache.get(cache_key)
+        if cached is not None:
+            cached_text, cached_changes, expires_at = cached
+            if expires_at > now:
+                logger.info(
+                    "Spellcheck LLM cache hit: question='%.60s' changes=%d",
+                    question,
+                    len(cached_changes),
+                )
+                return cached_text, cached_changes
+
+        # --- LLM вызов ---
+        try:
+            from src.sbs_helper_telegram_bot.ai_router.llm_provider import get_provider as _get_spell_provider
+
+            provider = _get_spell_provider()
+            max_chars = max(50, int(ai_settings.AI_RAG_SPELLCHECK_LLM_MAX_CHARS))
+            truncated_question = question.strip()[:max_chars]
+            protected_terms_list = sorted(_RAG_FIXED_QUERY_TERMS)
+
+            prompt = build_spellcheck_prompt(truncated_question, protected_terms_list)
+            raw_response = await provider.chat(
+                messages=[{"role": "user", "content": truncated_question}],
+                system_prompt=prompt,
+                user_id=user_id,
+                purpose="spell_correction",
+                response_format={"type": "json_object"},
+            )
+
+            if not raw_response or not raw_response.strip():
+                return question, []
+
+            # --- Парсинг JSON-ответа ---
+            response_text = raw_response.strip()
+            # Удаляем code fence если есть
+            fence_match = _JSON_CODE_FENCE_RE.match(response_text)
+            if fence_match:
+                response_text = fence_match.group(1).strip()
+
+            parsed = json.loads(response_text)
+            corrected = str(parsed.get("corrected") or question).strip()
+            raw_changes = parsed.get("changes") or []
+
+            changes: List[Tuple[str, str]] = []
+            for change in raw_changes:
+                if isinstance(change, dict):
+                    from_val = str(change.get("from") or "").strip()
+                    to_val = str(change.get("to") or "").strip()
+                    if from_val and to_val and from_val != to_val:
+                        changes.append((from_val, to_val))
+
+            # --- Safety guard: проверяем, что LLM не изменил защищённые термины ---
+            corrected_lower = corrected.lower()
+            for term in _RAG_FIXED_QUERY_TERMS:
+                if term in question.lower() and term not in corrected_lower:
+                    logger.warning(
+                        "Spellcheck LLM removed protected term '%s', reverting to original",
+                        term,
+                    )
+                    return question, []
+
+            # --- Кэширование ---
+            ttl = max(30, int(ai_settings.AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS))
+            self._spellcheck_llm_cache[cache_key] = (corrected, changes, now + ttl)
+
+            # Очистка просроченных записей (до 10 за вызов)
+            expired_keys = [
+                k for k, (_, _, exp) in list(self._spellcheck_llm_cache.items())[:50]
+                if exp <= now
+            ]
+            for k in expired_keys[:10]:
+                self._spellcheck_llm_cache.pop(k, None)
+
+            logger.info(
+                "Spellcheck LLM corrected: question='%.60s' corrected='%.60s' changes=%d",
+                question,
+                corrected,
+                len(changes),
+            )
+            return corrected, changes
+
+        except Exception as exc:
+            logger.warning(
+                "Spellcheck LLM fallback failed, returning original: "
+                "question='%.60s' error_type=%s error=%r",
+                question,
+                type(exc).__name__,
+                exc,
+            )
+            return question, []
+
+    def _apply_spellcheck_to_question(
+        self,
+        question: str,
+    ) -> Tuple[str, List[Tuple[str, str]], str]:
+        """Применить corpus-based коррекцию к полной строке вопроса.
+
+        Токенизирует вопрос, применяет ``_spellcheck_tokens``,
+        реконструирует строку путём замены оригинальных подстрок.
+
+        Args:
+            question: Исходный вопрос.
+
+        Returns:
+            (corrected_question, changes, source) где source — ``corpus``
+            или ``none``.
+        """
+        if not ai_settings.is_rag_spellcheck_enabled():
+            return question, [], "disabled"
+
+        if not self._spellcheck_vocab_ready:
+            return question, [], "vocab_not_ready"
+
+        original_tokens = _TOKEN_RE.findall((question or "").lower())
+        if not original_tokens:
+            return question, [], "none"
+
+        _, changes = self._spellcheck_tokens(original_tokens)
+        if not changes:
+            return question, [], "none"
+
+        # Реконструкция: заменяем подстроки в исходном вопросе
+        corrected = question
+        for orig, repl in changes:
+            # Case-insensitive замена первого вхождения
+            pattern = re.compile(re.escape(orig), re.IGNORECASE)
+            corrected = pattern.sub(repl, corrected, count=1)
+
+        return corrected, changes, "corpus"
+
     @classmethod
     def _build_query_preprocessing_log_table(
         cls,
@@ -1809,6 +2239,9 @@ class RagKnowledgeService:
         hyde_lexical_augmented: int,
         strip_result: str,
         preprocess_result: str,
+        spellcheck_source: str = "disabled",
+        spellcheck_corrections: int = 0,
+        spellcheck_changes: str = "",
     ) -> str:
         """Собрать табличный диагностический лог этапа query preprocessing."""
         rows: List[Tuple[str, str]] = [
@@ -1816,6 +2249,9 @@ class RagKnowledgeService:
             ("retrieval_tokens", str(retrieval_tokens_count)),
             ("stopwords_removed", str(stopwords_removed)),
             ("pattern_stripped", str(pattern_stripped)),
+            ("spellcheck_source", str(spellcheck_source)),
+            ("spellcheck_corrections", str(spellcheck_corrections)),
+            ("spellcheck_changes", str(spellcheck_changes or "none")),
             ("hyde", str(hyde_status)),
             ("hyde_lexical_augmented", str(hyde_lexical_augmented)),
             ("strip_result", str(strip_result or "none")),
@@ -4392,11 +4828,13 @@ def preload_rag_runtime_dependencies() -> Dict[str, bool]:
         "vector_index_ready": False,
         "ru_morph_ready": False,
         "ru_stemmer_ready": False,
+        "spellcheck_vocab_ready": False,
     }
 
     vector_enabled = False
     ru_normalization_enabled = bool(ai_settings.is_rag_ru_normalization_enabled())
     ru_normalization_mode = ai_settings.get_rag_ru_normalization_mode()
+    spellcheck_enabled = bool(ai_settings.is_rag_spellcheck_enabled())
     status = "ok"
 
     try:
@@ -4412,13 +4850,18 @@ def preload_rag_runtime_dependencies() -> Dict[str, bool]:
 
         if ru_normalization_enabled and ru_normalization_mode in {"lemma_then_stem", "stem_only"}:
             preload_result["ru_stemmer_ready"] = rag_service._get_ru_stemmer() is not None
+
+        if spellcheck_enabled:
+            preload_result["spellcheck_vocab_ready"] = rag_service._build_spellcheck_vocabulary()
     except Exception:
         status = "failed"
         logger.exception("RAG preload: failed")
     finally:
         duration_ms = int((time.perf_counter() - started_at) * 1000)
         logger.info(
-            "RAG preload: done status=%s duration_ms=%s vector_enabled=%s vector_provider_ready=%s vector_index_ready=%s ru_normalization_enabled=%s ru_normalization_mode=%s ru_morph_ready=%s ru_stemmer_ready=%s",
+            "RAG preload: done status=%s duration_ms=%s vector_enabled=%s vector_provider_ready=%s vector_index_ready=%s "
+            "ru_normalization_enabled=%s ru_normalization_mode=%s ru_morph_ready=%s ru_stemmer_ready=%s "
+            "spellcheck_enabled=%s spellcheck_vocab_ready=%s",
             status,
             duration_ms,
             vector_enabled,
@@ -4428,6 +4871,8 @@ def preload_rag_runtime_dependencies() -> Dict[str, bool]:
             ru_normalization_mode,
             preload_result["ru_morph_ready"],
             preload_result["ru_stemmer_ready"],
+            spellcheck_enabled,
+            preload_result["spellcheck_vocab_ready"],
         )
 
     return preload_result

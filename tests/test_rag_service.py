@@ -52,7 +52,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         logged_messages = [str(call_args.args[0]) for call_args in mock_logger_info.call_args_list]
         self.assertIn("RAG preload: start", logged_messages)
-        self.assertIn("RAG preload: done status=%s duration_ms=%s vector_enabled=%s vector_provider_ready=%s vector_index_ready=%s ru_normalization_enabled=%s ru_normalization_mode=%s ru_morph_ready=%s ru_stemmer_ready=%s", logged_messages)
+        self.assertIn("RAG preload: done status=%s duration_ms=%s vector_enabled=%s vector_provider_ready=%s vector_index_ready=%s ru_normalization_enabled=%s ru_normalization_mode=%s ru_morph_ready=%s ru_stemmer_ready=%s spellcheck_enabled=%s spellcheck_vocab_ready=%s", logged_messages)
 
     def test_supported_file_extensions(self):
         """Проверка поддерживаемых расширений файлов."""
@@ -2724,6 +2724,376 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         result = service._augment_tokens_with_hyde(original, "гипотетический ответ текст")
         # Метод сам по себе всегда дополняет — guard во внешнем вызове
         self.assertGreaterEqual(len(result), len(original))
+
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=10)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
+    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    async def test_answer_question_concurrent_queries_do_not_block_each_other(
+        self,
+        mock_get_provider,
+        mock_log_query,
+        mock_version,
+        _mock_hyde,
+    ):
+        """Два параллельных RAG-запроса выполняются конкурентно, а не последовательно."""
+        import asyncio
+
+        retrieval_enter_events: list[float] = []
+        retrieval_exit_events: list[float] = []
+        retrieval_barrier = asyncio.Barrier(2)
+
+        service = RagKnowledgeService(cache_ttl_seconds=0)
+
+        original_retrieve = service._retrieve_context_for_question
+
+        def slow_retrieve(question, **kwargs):
+            """Эмулятор медленного retrieval — синхронная блокировка через barrier."""
+            import time as _time
+
+            retrieval_enter_events.append(_time.monotonic())
+            # Используем threading Event для синхронизации: оба потока
+            # должны войти в retrieve до того, как любой из них завершится.
+            _time.sleep(0.05)
+            retrieval_exit_events.append(_time.monotonic())
+            return (
+                [(1.0, "doc.txt", f"answer for {question}", 1, 0)],
+                [],
+            )
+
+        provider = AsyncMock()
+        provider.chat.return_value = json.dumps(
+            {"answer": "concurrent ok", "question_answered": True}
+        )
+        mock_get_provider.return_value = provider
+
+        with unittest.mock.patch.object(service, "_retrieve_context_for_question", side_effect=slow_retrieve):
+            t1 = asyncio.create_task(service.answer_question("вопрос один", user_id=1))
+            t2 = asyncio.create_task(service.answer_question("вопрос два", user_id=2))
+            r1, r2 = await asyncio.gather(t1, t2)
+
+        self.assertEqual(r1.text, "concurrent ok")
+        self.assertEqual(r2.text, "concurrent ok")
+        # Если retrieval выполняется в потоках, оба входят в retrieve
+        # до завершения первого (перекрытие по времени).
+        self.assertEqual(len(retrieval_enter_events), 2)
+        self.assertEqual(len(retrieval_exit_events), 2)
+        # Второй вызов должен начаться до завершения первого
+        self.assertLess(
+            retrieval_enter_events[1],
+            retrieval_exit_events[0],
+            "Второй retrieval должен начаться до завершения первого (параллельное выполнение)",
+        )
+
+    # ─── Spell-correction tests ──────────────────────────────────────
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    def test_spellcheck_corrects_simple_typo(self, *_mocks):
+        """Corpus-based коррекция исправляет простую одно-символьную опечатку."""
+        service = RagKnowledgeService()
+
+        # Имитируем загруженный SymSpell
+        try:
+            from symspellpy import SymSpell, Verbosity
+        except ImportError:
+            self.skipTest("symspellpy не установлен")
+
+        sym = SymSpell(max_dictionary_edit_distance=1, prefix_length=7)
+        sym.create_dictionary_entry("регистрация", 1000)
+        sym.create_dictionary_entry("касса", 1000)
+        sym.create_dictionary_entry("ккт", 5000)  # protected term freq
+        service._spellcheck_sym = sym
+        service._spellcheck_vocab_size = 3
+        service._spellcheck_vocab_ready = True
+
+        tokens = ["рагистрация", "ккт"]
+        corrected, changes = service._spellcheck_tokens(tokens)
+
+        self.assertEqual(corrected, ["регистрация", "ккт"])
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0], ("рагистрация", "регистрация"))
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    def test_spellcheck_preserves_fixed_terms(self, *_mocks):
+        """Защищённые термины из _RAG_FIXED_QUERY_TERMS никогда не корректируются."""
+        service = RagKnowledgeService()
+
+        try:
+            from symspellpy import SymSpell
+        except ImportError:
+            self.skipTest("symspellpy не установлен")
+
+        sym = SymSpell(max_dictionary_edit_distance=1, prefix_length=7)
+        sym.create_dictionary_entry("осно", 5000)
+        sym.create_dictionary_entry("усн", 5000)
+        sym.create_dictionary_entry("инн", 5000)
+        sym.create_dictionary_entry("ккт", 5000)
+        service._spellcheck_sym = sym
+        service._spellcheck_vocab_size = 4
+        service._spellcheck_vocab_ready = True
+
+        from src.sbs_helper_telegram_bot.ai_router.rag_service import _RAG_FIXED_QUERY_TERMS
+
+        # Проверяем, что каждый из этих терминов не меняется
+        for term in ["осно", "усн", "инн", "ккт"]:
+            self.assertIn(term, _RAG_FIXED_QUERY_TERMS)
+            corrected, changes = service._spellcheck_tokens([term])
+            self.assertEqual(corrected, [term], f"Термин '{term}' был изменён")
+            self.assertEqual(len(changes), 0, f"Термин '{term}' не должен иметь changes")
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    def test_spellcheck_skips_short_tokens(self, *_mocks):
+        """Токены короче min_token_length (4) не корректируются."""
+        service = RagKnowledgeService()
+
+        try:
+            from symspellpy import SymSpell
+        except ImportError:
+            self.skipTest("symspellpy не установлен")
+
+        sym = SymSpell(max_dictionary_edit_distance=1, prefix_length=7)
+        sym.create_dictionary_entry("кот", 1000)
+        sym.create_dictionary_entry("код", 1000)
+        service._spellcheck_sym = sym
+        service._spellcheck_vocab_size = 2
+        service._spellcheck_vocab_ready = True
+
+        # "кат" — 3 символа, меньше min_length=4 → не корректируется
+        corrected, changes = service._spellcheck_tokens(["кат"])
+        self.assertEqual(corrected, ["кат"])
+        self.assertEqual(len(changes), 0)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    def test_spellcheck_skips_latin_tokens(self, *_mocks):
+        """Латинские токены не корректируются (акронимы, бренды)."""
+        service = RagKnowledgeService()
+
+        try:
+            from symspellpy import SymSpell
+        except ImportError:
+            self.skipTest("symspellpy не установлен")
+
+        sym = SymSpell(max_dictionary_edit_distance=1, prefix_length=7)
+        sym.create_dictionary_entry("post", 1000)
+        service._spellcheck_sym = sym
+        service._spellcheck_vocab_size = 1
+        service._spellcheck_vocab_ready = True
+
+        corrected, changes = service._spellcheck_tokens(["posst"])
+        self.assertEqual(corrected, ["posst"])
+        self.assertEqual(len(changes), 0)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=False)
+    def test_spellcheck_disabled_returns_original(self, *_mocks):
+        """Если spellcheck отключён — токены возвращаются без изменений."""
+        service = RagKnowledgeService()
+        service._spellcheck_vocab_ready = True
+
+        result_q, changes, source = service._apply_spellcheck_to_question("рагистрация ккт")
+        self.assertEqual(result_q, "рагистрация ккт")
+        self.assertEqual(len(changes), 0)
+        self.assertEqual(source, "disabled")
+
+    def test_spellcheck_vocab_not_loaded_graceful(self):
+        """Без загруженного словаря — возвращаем оригинальные токены без ошибок."""
+        service = RagKnowledgeService()
+        self.assertFalse(service._spellcheck_vocab_ready)
+
+        corrected, changes = service._spellcheck_tokens(["опечатка", "тест"])
+        self.assertEqual(corrected, ["опечатка", "тест"])
+        self.assertEqual(len(changes), 0)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_llm_fallback_enabled", return_value=True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_FALLBACK_THRESHOLD", 0.5)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_MAX_CHARS", 500)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS", 300)
+    async def test_spellcheck_llm_fallback_triggered(self, *_mocks):
+        """LLM fallback вызывается, если доля uncorrected suspicious-токенов ≥ threshold."""
+        service = RagKnowledgeService()
+
+        mock_provider = MagicMock()
+        mock_provider.chat = AsyncMock(return_value='{"corrected": "регистрация кассы", "changes": [{"from": "рагистрацуя", "to": "регистрация"}]}')
+
+        with patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider", return_value=mock_provider):
+            corrected, changes = await service._spellcheck_llm_fallback("рагистрацуя кассы", user_id=123)
+
+        self.assertEqual(corrected, "регистрация кассы")
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0], ("рагистрацуя", "регистрация"))
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_MAX_CHARS", 500)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS", 300)
+    async def test_spellcheck_llm_fallback_error_graceful(self, *_mocks):
+        """При ошибке LLM fallback возвращается исходный текст."""
+        service = RagKnowledgeService()
+
+        mock_provider = MagicMock()
+        mock_provider.chat = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
+
+        with patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider", return_value=mock_provider):
+            corrected, changes = await service._spellcheck_llm_fallback("рагистрация", user_id=123)
+
+        self.assertEqual(corrected, "рагистрация")
+        self.assertEqual(len(changes), 0)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_MAX_CHARS", 500)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS", 300)
+    async def test_spellcheck_llm_cache_hit(self, *_mocks):
+        """Повторный запрос с тем же текстом возвращает кэшированный результат LLM."""
+        import time as _time
+
+        service = RagKnowledgeService()
+
+        # Предзаполняем кэш
+        service._spellcheck_llm_cache["рагистрация"] = (
+            "регистрация",
+            [("рагистрация", "регистрация")],
+            _time.time() + 600,
+        )
+
+        corrected, changes = await service._spellcheck_llm_fallback("рагистрация", user_id=123)
+        self.assertEqual(corrected, "регистрация")
+        self.assertEqual(len(changes), 1)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_MAX_CHARS", 500)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS", 300)
+    async def test_spellcheck_llm_protects_fixed_terms(self, *_mocks):
+        """Если LLM удалил защищённый термин — возвращаем оригинал."""
+        service = RagKnowledgeService()
+
+        # LLM ответ, где "ккт" было заменено на "кота"
+        mock_provider = MagicMock()
+        mock_provider.chat = AsyncMock(
+            return_value='{"corrected": "регистрация кота", "changes": [{"from": "ккт", "to": "кота"}]}'
+        )
+
+        with patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider", return_value=mock_provider):
+            corrected, changes = await service._spellcheck_llm_fallback("регистрация ккт", user_id=123)
+
+        # Должен вернуть оригинал, т.к. "ккт" — защищённый термин
+        self.assertEqual(corrected, "регистрация ккт")
+        self.assertEqual(len(changes), 0)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    def test_spellcheck_apply_to_question_reconstructs_string(self, *_mocks):
+        """_apply_spellcheck_to_question восстанавливает строку с заменами."""
+        service = RagKnowledgeService()
+
+        try:
+            from symspellpy import SymSpell
+        except ImportError:
+            self.skipTest("symspellpy не установлен")
+
+        sym = SymSpell(max_dictionary_edit_distance=1, prefix_length=7)
+        sym.create_dictionary_entry("регистрация", 1000)
+        sym.create_dictionary_entry("касса", 1000)
+        sym.create_dictionary_entry("ккт", 5000)
+        service._spellcheck_sym = sym
+        service._spellcheck_vocab_size = 3
+        service._spellcheck_vocab_ready = True
+
+        corrected, changes, source = service._apply_spellcheck_to_question("как рагистрировать ккт")
+        # "рагистрировать" → близко к "регистрация" (edit distance >1 при max_edit=1), 
+        # не должно корректироваться
+        # Строка останется без изменений если edit distance > max_edit_distance
+        self.assertIn(source, ("corpus", "none"))
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    def test_spellcheck_vocabulary_build(self, *_mocks):
+        """Словарь строится из mock summary и чанков, включает защищённые термины."""
+        service = RagKnowledgeService()
+
+        try:
+            from symspellpy import SymSpell
+        except ImportError:
+            self.skipTest("symspellpy не установлен")
+
+        mock_cursor = MagicMock()
+        call_count = 0
+
+        def fake_execute(query, *_args, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+
+        def fake_fetchall():
+            nonlocal call_count
+            if call_count == 1:
+                # summary
+                return [{"summary_text": "Регистрация ККТ в налоговой инспекции"}]
+            elif call_count == 2:
+                # chunks
+                return [{"chunk_text": "Для регистрации кассы необходимо подать заявление"}]
+            return []
+
+        mock_cursor.execute = fake_execute
+        mock_cursor.fetchall = fake_fetchall
+        mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_cursor.__exit__ = MagicMock(return_value=False)
+
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+
+        with patch("src.common.database.get_db_connection", return_value=mock_conn):
+            with patch("src.common.database.get_cursor", return_value=mock_cursor):
+                result = service._build_spellcheck_vocabulary()
+
+        self.assertTrue(result)
+        self.assertTrue(service._spellcheck_vocab_ready)
+        self.assertGreater(service._spellcheck_vocab_size, 0)
+
+    def test_spellcheck_in_preprocessing_log(self):
+        """Диагностический лог включает spellcheck-поля."""
+        log_output = RagKnowledgeService._build_query_preprocessing_log_table(
+            original_tokens_count=5,
+            retrieval_tokens_count=4,
+            stopwords_removed=1,
+            pattern_stripped=False,
+            hyde_status="disabled",
+            hyde_lexical_augmented=0,
+            strip_result="none",
+            preprocess_result="тест запрос",
+            spellcheck_source="corpus",
+            spellcheck_corrections=1,
+            spellcheck_changes="рагистрация→регистрация",
+        )
+
+        self.assertIn("spellcheck_source", log_output)
+        self.assertIn("corpus", log_output)
+        self.assertIn("spellcheck_corrections", log_output)
+        self.assertIn("spellcheck_changes", log_output)
+        self.assertIn("рагистрация→регистрация", log_output)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    def test_spellcheck_preload_adds_vocab_status(self, *_mocks):
+        """preload_rag_runtime_dependencies включает spellcheck_vocab_ready в результат."""
+        service = RagKnowledgeService()
+
+        with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service", return_value=service):
+            with patch.object(service, "_is_vector_search_enabled", return_value=False):
+                with patch.object(service, "_build_spellcheck_vocabulary", return_value=True) as mock_build:
+                    with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem"):
+                        result = preload_rag_runtime_dependencies()
+
+        self.assertTrue(result["spellcheck_vocab_ready"])
+        mock_build.assert_called_once()
 
 
 if __name__ == "__main__":

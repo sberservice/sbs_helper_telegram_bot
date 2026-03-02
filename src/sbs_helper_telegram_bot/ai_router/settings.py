@@ -374,6 +374,46 @@ AI_RAG_HTML_SPLITTER_ENABLED: Final[bool] = os.getenv("AI_RAG_HTML_SPLITTER_ENAB
 # Ключ настройки HTML splitter в bot_settings для runtime-переключения.
 AI_RAG_HTML_SPLITTER_ENABLED_SETTING_KEY: Final[str] = "ai_rag_html_splitter_enabled"
 
+# =============================================
+# Spell-correction (автоисправление опечаток в RAG-запросах)
+# =============================================
+
+# Мастер-переключатель corpus-based автоисправления (SymSpellPy).
+# При включении словарь строится при старте бота из RAG-корпуса.
+AI_RAG_SPELLCHECK_ENABLED: Final[bool] = os.getenv("AI_RAG_SPELLCHECK_ENABLED", "0") == "1"
+# Ключ runtime-настройки в bot_settings.
+AI_RAG_SPELLCHECK_SETTING_KEY: Final[str] = "ai_rag_spellcheck_enabled"
+# Максимальная edit-distance для corpus-based коррекции.
+# 1 — консервативно: только одно-символьные опечатки.
+AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE: Final[int] = int(
+    os.getenv("AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", "1")
+)
+# Минимальная длина токена, ниже которой коррекция не применяется.
+# Защищает короткие аббревиатуры от ложных исправлений.
+AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH: Final[int] = int(
+    os.getenv("AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", "4")
+)
+
+# LLM-fallback для сложных опечаток (отдельный вызов модели).
+# Включить LLM-fallback коррекцию, когда corpus-based не справляется.
+AI_RAG_SPELLCHECK_LLM_FALLBACK_ENABLED: Final[bool] = (
+    os.getenv("AI_RAG_SPELLCHECK_LLM_FALLBACK_ENABLED", "0") == "1"
+)
+# Ключ runtime-настройки LLM fallback в bot_settings.
+AI_RAG_SPELLCHECK_LLM_FALLBACK_SETTING_KEY: Final[str] = "ai_rag_spellcheck_llm_fallback_enabled"
+# Порог: если доля uncorrected suspicious-токенов ≥ threshold — вызываем LLM.
+AI_RAG_SPELLCHECK_LLM_FALLBACK_THRESHOLD: Final[float] = float(
+    os.getenv("AI_RAG_SPELLCHECK_LLM_FALLBACK_THRESHOLD", "0.5")
+)
+# Максимальная длина запроса для LLM spell-check промпта (символов).
+AI_RAG_SPELLCHECK_LLM_MAX_CHARS: Final[int] = int(
+    os.getenv("AI_RAG_SPELLCHECK_LLM_MAX_CHARS", "500")
+)
+# TTL кэша LLM-коррекций (секунды).
+AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS: Final[int] = int(
+    os.getenv("AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS", "300")
+)
+
 
 def normalize_deepseek_model(model_name: str | None) -> str:
     """Нормализовать имя модели DeepSeek и вернуть безопасное значение."""
@@ -554,3 +594,23 @@ def get_rag_summary_vector_top_k() -> int:
     if configured > 0:
         return configured
     return max(1, int(AI_RAG_VECTOR_TOP_K))
+
+
+def is_rag_spellcheck_enabled() -> bool:
+    """Проверить, включено ли corpus-based автоисправление опечаток в RAG."""
+    db_value = _safe_get_setting(AI_RAG_SPELLCHECK_SETTING_KEY)
+    if db_value is None:
+        return AI_RAG_SPELLCHECK_ENABLED
+
+    normalized = str(db_value).strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+
+def is_rag_spellcheck_llm_fallback_enabled() -> bool:
+    """Проверить, включён ли LLM-fallback для автоисправления опечаток."""
+    db_value = _safe_get_setting(AI_RAG_SPELLCHECK_LLM_FALLBACK_SETTING_KEY)
+    if db_value is None:
+        return AI_RAG_SPELLCHECK_LLM_FALLBACK_ENABLED
+
+    normalized = str(db_value).strip().lower()
+    return normalized in {"1", "true", "yes", "on"}

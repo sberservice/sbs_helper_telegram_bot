@@ -89,7 +89,7 @@ def format_rag_answer_markdown_v2(text: str) -> str:
 # Сообщения для пользователей
 # =============================================
 
-MESSAGE_AI_PROCESSING = "⏳ _Пытаюсь понять, что спросили\\.\\.\\._"
+MESSAGE_AI_PROCESSING = "⏳ _Читаю ваш вопрос\\.\\.\\._"
 MESSAGE_AI_WAITING_FOR_AI = "⏳ _Ожидаю ответа ИИ_"
 MESSAGE_AI_PREFILTERING_DOCUMENTS = "⏳ _Подбираю подходящие материалы из базы знаний\\._"
 MESSAGE_AI_REQUESTING_AUGMENTED_PAYLOAD = "⏳ _Собираю слова в предложения \\(до 20 секунд\\)\\._"

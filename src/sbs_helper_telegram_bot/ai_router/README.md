@@ -393,6 +393,8 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `ai_deepseek_model_classification` | Модель для классификации |
 | `ai_deepseek_model_response` | Модель для ответов |
 | `ai_rag_html_splitter_enabled` | HTML splitter вкл/выкл |
+| `ai_rag_spellcheck_enabled` | Корпусная коррекция опечаток вкл/выкл |
+| `ai_rag_spellcheck_llm_fallback_enabled` | LLM-коррекция как fallback вкл/выкл |
 
 ## Установка
 

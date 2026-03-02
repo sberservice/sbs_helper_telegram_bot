@@ -890,7 +890,7 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         mark_step("parse_message")
 
         # Единая проверка авторизации (одно подключение к БД вместо 6-9)
-        auth = get_user_auth_status(user_id)
+        auth = await asyncio.to_thread(get_user_auth_status, user_id)
         mark_step("check_pre_invited")
         if auth.is_pre_invited and not auth.is_pre_invited_activated:
             # Активируем предварительно приглашённого пользователя
@@ -1591,6 +1591,7 @@ def main() -> None:
         .read_timeout(TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS)
         .write_timeout(TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS)
         .connect_timeout(TELEGRAM_SEND_MSG_CONNECT_TIMEOUT_SECONDS)
+        .concurrent_updates(True)
         .build()
     )
 

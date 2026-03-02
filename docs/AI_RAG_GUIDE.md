@@ -29,6 +29,7 @@ RAG-поток позволяет:
 - Query preprocessing для lexical retrieval: фильтрация русских стоп-слов (`AI_RAG_STOPWORDS_ENABLED`), снятие шаблонных вопросительных паттернов типа «что такое X» (`AI_RAG_QUERY_PATTERN_STRIP_ENABLED`) и IDF dampening часто встречающихся query-токенов в summary prefilter (`AI_RAG_PREFILTER_IDF_DAMPEN_RATIO`). Это улучшает ранжирование в корпусах с однородной структурой документов (например, сертификационные Q/A, все начинающиеся с «что такое»).
 - В query tokenization сохраняются короткие доменные токены и числовые идентификаторы (`фн`, `36` и т.п.), а фиксированные налоговые термины (`осно`, `усн`, `псн`, `енвд`, `нпд`) защищены от агрессивного стемминга, чтобы не терять смысл в lexical retrieval.
 - HyDE (Hypothetical Document Embeddings): LLM генерирует короткий гипотетический ответ на вопрос пользователя, и его эмбеддинг используется для vector search вместо эмбеддинга исходного вопроса (`AI_RAG_HYDE_ENABLED`). Это устраняет разрыв между пространством вопросов и ответов в embedding-модели и улучшает recall при векторном поиске.
+- Автоматическая коррекция опечаток в запросах: каскадная схема — сначала корпусная коррекция через SymSpellPy (edit distance 1, словарь строится из RAG-документов при старте), затем (опционально) LLM-коррекция через DeepSeek для слов, не найденных в словаре. Защищённые термины (аббревиатуры, налоговые/технические сокращения) не корректируются. Управляется настройками `AI_RAG_SPELLCHECK_ENABLED`, `AI_RAG_SPELLCHECK_LLM_FALLBACK_ENABLED`. При ошибках retrieval продолжается без коррекции (graceful degradation).
 - Опциональный векторный retrieval с режимом remote-first (Qdrant server) и автоматическим local fallback (Qdrant local mode + локальная embedding-модель) с hybrid-слиянием lexical/vector кандидатов.
 - Для summary-prefilter добавлена отдельная векторная коллекция документов (`AI_RAG_SUMMARY_VECTOR_COLLECTION`) с fallback на in-memory summary embedding scoring, если коллекция недоступна или пуста.
 - UX-статус для RAG: после классификации запроса как `rag_qa` бот меняет плейсхолдер с «Обрабатываю ваш запрос» на «Ожидаю ответа ИИ» до получения финального ответа.
@@ -239,7 +240,7 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - Это упрощает диагностику маршрутизации и проверку активной модели после переключения в админ-панели.
 - Ошибки в `ai_router` и RAG-обработчике логируются с явным типом исключения (`error_type`/`error_repr`); для временных сетевых сбоев LLM (timeout/request error) используется warning-ветка без длинного traceback, чтобы уменьшить шум логов.
 - Для каждого retrieval-цикла RAG пишется диагностический многострочный блок `RAG retrieval:` в табличном формате (`metric` / `value`) с полями `mode`, `tokens`, `retrieval_tokens`, `prefilter_docs`, `prefilter_scope_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `selected_unique_docs`, `selected_top_docs`, `top_source`, а также `timings_ms.total/prefilter/lexical/vector/merge/summary_blocks`; длинные `source` автоматически сокращаются для читаемости.
-- Перед `RAG retrieval:` пишется диагностический многострочный блок `RAG query preprocessing:` в табличном формате (`metric` / `value`) с полями `original_tokens`, `retrieval_tokens`, `stopwords_removed`, `pattern_stripped`, `hyde`, `hyde_lexical_augmented`, `strip_result` (строка после pattern-strip; слова с префиксом `#` сохраняются) и `preprocess_result` (итоговая строка после stopwords-фильтрации).
+- Перед `RAG retrieval:` пишется диагностический многострочный блок `RAG query preprocessing:` в табличном формате (`metric` / `value`) с полями `original_tokens`, `retrieval_tokens`, `stopwords_removed`, `pattern_stripped`, `hyde`, `hyde_lexical_augmented`, `strip_result` (строка после pattern-strip; слова с префиксом `#` сохраняются), `preprocess_result` (итоговая строка после stopwords-фильтрации), `spellcheck_source` (источник коррекции: `corpus`/`llm`/`none`), `spellcheck_corrections` (число исправленных слов) и `spellcheck_changes` (список замен `original→corrected`).
 - `prefilter_docs` отражает только top-N документов этапа summary-prefilter, а `prefilter_scope_docs` — фактический размер области поиска после добавления fallback-документов.
 - `selected` отражает число выбранных чанков, `selected_unique_docs` — число уникальных документов среди этих чанков, `selected_top_docs` — top уникальных `document_id` по порядку ранжирования.
 - Для каждого retrieval-цикла RAG пишется блок `RAG priority evidence:` с двумя табличными секциями (`prefilter_top` и `selected_top`). В `prefilter_top` отображаются `rank`, `doc`, `summary`, `lexical`, `vec`, `vec_w` (взвешенный вклад `vec * AI_RAG_SUMMARY_VECTOR_WEIGHT`), `excerpt` (краткий фрагмент summary ~80 символов) и `source`; в `selected_top` — `rank`, `doc`, `chunk`, `fused`, `summary`, `origin` (`prefilter`/`fallback`/`global`), разложение lexical-компоненты (`lex_raw`, `lex_bonus`, `lex_total`, `lex_norm`), формула `hybrid=(lex_norm*lexical_weight)+(vector_score*vector_weight)`, `summary_bonus` и `source`; `lex_total` — исходный raw lexical score (с учётом summary-bonus на lexical-этапе), `lex_norm` — нормализованный lexical score в диапазоне `0..1` (min-max по пулу lexical-кандидатов); hybrid-формула использует `lex_norm`, чтобы lexical- и vector-компоненты были на одной шкале; `lex_bonus`/`summary_bonus` считаются из нормализованного summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле.
@@ -290,6 +291,13 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - `AI_RAG_HYDE_MAX_CHARS`
 - `AI_RAG_HYDE_CACHE_TTL_SECONDS`
 - `AI_RAG_HYDE_LEXICAL_ENABLED`
+- `AI_RAG_SPELLCHECK_ENABLED`
+- `AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE`
+- `AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH`
+- `AI_RAG_SPELLCHECK_LLM_FALLBACK_ENABLED`
+- `AI_RAG_SPELLCHECK_LLM_FALLBACK_THRESHOLD`
+- `AI_RAG_SPELLCHECK_LLM_MAX_CHARS`
+- `AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS`
 - `AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL`
 - `AI_RAG_CACHE_TTL_SECONDS`
 - `AI_RAG_HTML_SPLITTER_ENABLED`
@@ -377,6 +385,8 @@ Runtime-ключи в `bot_settings`:
 - `ai_rag_query_pattern_strip_enabled` (`1` — снятие паттернов, `0` — выключено)
 - `ai_rag_hyde_enabled` (`1` — HyDE генерация включена, `0` — выключена)
 - `ai_rag_hyde_lexical_enabled` (`1` — HyDE дополняет BM25 lexical scoring, `0` — только vector)
+- `ai_rag_spellcheck_enabled` (`1` — корпусная коррекция опечаток включена, `0` — выключена)
+- `ai_rag_spellcheck_llm_fallback_enabled` (`1` — LLM-коррекция как fallback включена, `0` — выключена)
 
 ## SQL-инициализация
 
@@ -397,6 +407,7 @@ mysql -u root -p sprint_db < sql/rag_document_summaries_fulltext_index.sql
 - Токенизация query использует порог длины `>=3`, но дополнительно сохраняет короткие alnum-токены формата `буква+цифра`/`цифра+буква` (например, `X5`, `K2`) для корректного поиска по брендам и моделям без существенного роста шумовых коротких слов.
 - HyDE (Hypothetical Document Embeddings): при включении (`AI_RAG_HYDE_ENABLED=1`) перед vector search LLM генерирует короткий гипотетический ответ на вопрос пользователя. Эмбеддинг этого текста используется вместо эмбеддинга исходного вопроса для chunk vector search и summary vector prefilter. Это устраняет разрыв «вопрос vs ответ» в embedding-пространстве. Дополнительно, если включён `AI_RAG_HYDE_LEXICAL_ENABLED=1` (по умолчанию), уникальные токены из HyDE-текста (после фильтрации стоп-слов) добавляются к query-токенам для BM25 lexical scoring — это расширяет лексическое покрытие и помогает BM25 находить чанки, содержащие ответную лексику. HyDE-текст кэшируется на `AI_RAG_HYDE_CACHE_TTL_SECONDS` (по умолчанию 300с). При ошибке LLM retrieval продолжается без HyDE (graceful degradation). HyDE добавляет ~1-2с latency на первый запрос из-за дополнительного LLM-вызова.
 - Для русского языка доступна опциональная нормализация токенов (`AI_RAG_RU_NORMALIZATION_ENABLED=1`) с режимами `lemma_then_stem`, `lemma_only`, `stem_only`.
+- Автоматическая коррекция опечаток: при включении (`AI_RAG_SPELLCHECK_ENABLED=1`) перед lexical/vector retrieval запрос пользователя проходит через каскадный spellcheck. Сначала выполняется корпусная коррекция (SymSpellPy, edit distance ≤ `AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE`, по умолчанию 1) — словарь строится при старте бота из текстов RAG-документов и чанков. Токены короче `AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH` (по умолчанию 4) и защищённые термины (аббревиатуры, фискальные/технические сокращения) не корректируются. Если доля нескорректированных «подозрительных» слов ≥ `AI_RAG_SPELLCHECK_LLM_FALLBACK_THRESHOLD` (по умолчанию 0.5) и включён `AI_RAG_SPELLCHECK_LLM_FALLBACK_ENABLED=1`, выполняется дополнительный LLM-вызов для коррекции всего запроса (кэшируется на `AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS`, по умолчанию 300с). При любых ошибках retrieval продолжается с исходным запросом (graceful degradation).
 - Векторный режим требует пакет `qdrant-client`; для локальных эмбеддингов также необходим `sentence-transformers` и доступность embedding-модели на текущем хосте.
 - Кэш хранится в памяти процесса и не шарится между инстансами.
 - Нет UI для управления документами (архивация/удаление) — только загрузка.

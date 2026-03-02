@@ -469,6 +469,7 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         mock_get_cursor,
     ):
         """Полные request/response сохраняются в БД с маскировкой PII."""
+        import asyncio
         provider = DeepSeekProvider(api_key="test_key")
 
         mock_client = mock_async_client.return_value.__aenter__.return_value
@@ -490,6 +491,9 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
             user_id=77,
         )
 
+        # Дождаться завершения background-задач (fire-and-forget логирование)
+        await asyncio.sleep(0.1)
+
         self.assertTrue(mock_cursor.execute.called)
         sql_params = mock_cursor.execute.call_args.args[1]
         self.assertEqual(sql_params[0], 77)
@@ -508,6 +512,7 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         mock_get_db_connection,
     ):
         """Ошибка записи full-text лога в БД не должна ломать основной ответ."""
+        import asyncio
         provider = DeepSeekProvider(api_key="test_key", model="deepseek-chat")
 
         mock_client = mock_async_client.return_value.__aenter__.return_value
@@ -521,6 +526,8 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         result = await provider._call_api(messages=[{"role": "user", "content": "hi"}], purpose="chat")
 
         self.assertEqual(result, "ok")
+        # Дождаться завершения background-задач (fire-and-forget логирование)
+        await asyncio.sleep(0.1)
         self.assertTrue(mock_get_db_connection.called)
 
     @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.logger.exception")
