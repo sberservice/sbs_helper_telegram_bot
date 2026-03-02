@@ -1,5 +1,5 @@
 """
-Тесты для THE_HELPER — Telethon-скрипт мониторинга /help в группах.
+Тесты для THE_HELPER — Telethon-скрипт мониторинга /helpme в группах.
 
 Покрывает: rate-limiter, парсинг команды, обработку ошибок,
 разбиение сообщений, fallback-сообщения.
@@ -133,33 +133,33 @@ class TestHelperRateLimiter(unittest.TestCase):
 
 
 # ===========================================================================
-# Парсинг команды /help
+# Парсинг команды /helpme
 # ===========================================================================
 
 class TestHelpCommandRegex(unittest.TestCase):
-    """Тесты регулярного выражения команды /help."""
+    """Тесты регулярного выражения команды /helpme."""
 
     def test_bare_help(self):
-        """Голый /help."""
-        m = HELP_COMMAND_RE.match("/help")
+        """Голый /helpme."""
+        m = HELP_COMMAND_RE.match("/helpme")
         self.assertIsNotNone(m)
         self.assertEqual(m.group(1), "")
 
     def test_help_with_text(self):
-        """/help с вопросом."""
-        m = HELP_COMMAND_RE.match("/help как проверить код ошибки")
+        """/helpme с вопросом."""
+        m = HELP_COMMAND_RE.match("/helpme как проверить код ошибки")
         self.assertIsNotNone(m)
         self.assertEqual(m.group(1), "как проверить код ошибки")
 
     def test_help_with_bot_username(self):
-        """/help@botname."""
-        m = HELP_COMMAND_RE.match("/help@my_test_bot")
+        """/helpme@botname."""
+        m = HELP_COMMAND_RE.match("/helpme@my_test_bot")
         self.assertIsNotNone(m)
         self.assertEqual(m.group(1), "")
 
     def test_help_with_bot_username_and_text(self):
-        """/help@botname с текстом."""
-        m = HELP_COMMAND_RE.match("/help@bot вопрос тут")
+        """/helpme@botname с текстом."""
+        m = HELP_COMMAND_RE.match("/helpme@bot вопрос тут")
         self.assertIsNotNone(m)
         self.assertEqual(m.group(1), "вопрос тут")
 
@@ -168,20 +168,25 @@ class TestHelpCommandRegex(unittest.TestCase):
         m = HELP_COMMAND_RE.match("/start")
         self.assertIsNone(m)
 
+    def test_no_match_legacy_help_command(self):
+        """Старая команда /help больше не должна распознаваться."""
+        m = HELP_COMMAND_RE.match("/help вопрос")
+        self.assertIsNone(m)
+
     def test_no_match_help_inside_text(self):
         """Команда должна быть в начале строки."""
-        m = HELP_COMMAND_RE.match("some text /help")
+        m = HELP_COMMAND_RE.match("some text /helpme")
         self.assertIsNone(m)
 
     def test_case_insensitive(self):
-        """/Help, /HELP тоже распознаются."""
-        m = HELP_COMMAND_RE.match("/HELP вопрос")
+        """/HelpMe, /HELPME тоже распознаются."""
+        m = HELP_COMMAND_RE.match("/HELPME вопрос")
         self.assertIsNotNone(m)
         self.assertEqual(m.group(1), "вопрос")
 
     def test_multiline_text(self):
-        """/help с многострочным вопросом."""
-        m = HELP_COMMAND_RE.match("/help строка 1\nстрока 2")
+        """/helpme с многострочным вопросом."""
+        m = HELP_COMMAND_RE.match("/helpme строка 1\nстрока 2")
         self.assertIsNotNone(m)
         self.assertEqual(m.group(1), "строка 1\nстрока 2")
 
@@ -260,7 +265,7 @@ class TestHandleHelp(unittest.TestCase):
 
     def _make_event(
         self,
-        raw_text="/help",
+        raw_text="/helpme",
         sender_id=123,
         chat_id=-100999,
         is_bot=False,
@@ -295,8 +300,8 @@ class TestHandleHelp(unittest.TestCase):
         return event
 
     def test_usage_hint_bare_help_no_reply(self):
-        """Голый /help без ответа → подсказка."""
-        event = self._make_event(raw_text="/help")
+        """Голый /helpme без ответа → подсказка."""
+        event = self._make_event(raw_text="/helpme")
         client = AsyncMock()
         rl = HelperRateLimiter(user_max=10, user_window=60, group_max=100, group_window=60)
 
@@ -310,7 +315,7 @@ class TestHandleHelp(unittest.TestCase):
     def test_skip_old_message(self):
         """Старые сообщения (> MAX_MESSAGE_AGE_SECONDS) пропускаются."""
         old_date = datetime.now(timezone.utc) - timedelta(seconds=MAX_MESSAGE_AGE_SECONDS + 10)
-        event = self._make_event(raw_text="/help вопрос", message_date=old_date)
+        event = self._make_event(raw_text="/helpme вопрос", message_date=old_date)
         client = AsyncMock()
         rl = HelperRateLimiter()
 
@@ -321,7 +326,7 @@ class TestHandleHelp(unittest.TestCase):
 
     def test_skip_bot_sender(self):
         """Сообщения от ботов пропускаются."""
-        event = self._make_event(raw_text="/help вопрос", is_bot=True)
+        event = self._make_event(raw_text="/helpme вопрос", is_bot=True)
         client = AsyncMock()
         rl = HelperRateLimiter()
 
@@ -331,7 +336,7 @@ class TestHandleHelp(unittest.TestCase):
 
     def test_rate_limit_user(self):
         """При превышении пользовательского лимита — сообщение об ограничении."""
-        event = self._make_event(raw_text="/help вопрос")
+        event = self._make_event(raw_text="/helpme вопрос")
         client = AsyncMock()
         rl = HelperRateLimiter(user_max=1, user_window=60, group_max=100, group_window=60)
         rl.record(123, -100999)
@@ -344,7 +349,7 @@ class TestHandleHelp(unittest.TestCase):
 
     def test_rate_limit_group(self):
         """При превышении группового лимита — сообщение об ограничении."""
-        event = self._make_event(raw_text="/help вопрос")
+        event = self._make_event(raw_text="/helpme вопрос")
         client = AsyncMock()
         rl = HelperRateLimiter(user_max=100, user_window=60, group_max=1, group_window=60)
         rl.record(999, -100999)  # другой user заполнил групповой лимит
@@ -358,8 +363,8 @@ class TestHandleHelp(unittest.TestCase):
 
     @patch("scripts.the_helper._edit_safe", new_callable=AsyncMock)
     def test_help_with_text_calls_router(self, mock_edit_safe):
-        """/help с текстом вызывает intent router."""
-        event = self._make_event(raw_text="/help код ошибки 4119")
+        """/helpme с текстом вызывает intent router."""
+        event = self._make_event(raw_text="/helpme код ошибки 4119")
         client = AsyncMock()
         rl = HelperRateLimiter(user_max=10, user_window=60, group_max=100, group_window=60)
 
@@ -383,8 +388,8 @@ class TestHandleHelp(unittest.TestCase):
 
     @patch("scripts.the_helper._edit_safe", new_callable=AsyncMock)
     def test_help_reply_to_message_calls_rag(self, mock_edit_safe):
-        """/help в ответ на сообщение → RAG напрямую."""
-        event = self._make_event(raw_text="/help", reply_to_msg_id=55)
+        """/helpme в ответ на сообщение → RAG напрямую."""
+        event = self._make_event(raw_text="/helpme", reply_to_msg_id=55)
         client = AsyncMock()
         rl = HelperRateLimiter(user_max=10, user_window=60, group_max=100, group_window=60)
 
@@ -415,7 +420,7 @@ class TestHandleHelp(unittest.TestCase):
     @patch("scripts.the_helper._edit_safe", new_callable=AsyncMock)
     def test_router_exception_shows_error(self, mock_edit_safe):
         """Исключение в роутере → плейсхолдер обновляется ошибкой."""
-        event = self._make_event(raw_text="/help вопрос")
+        event = self._make_event(raw_text="/helpme вопрос")
         client = AsyncMock()
         rl = HelperRateLimiter(user_max=10, user_window=60, group_max=100, group_window=60)
 
@@ -443,7 +448,7 @@ class TestHandleHelp(unittest.TestCase):
     @patch("scripts.the_helper._edit_safe", new_callable=AsyncMock)
     def test_disallowed_intent_fallbacks_to_rag(self, mock_edit_safe):
         """Неразрешённый intent в THE_HELPER принудительно отправляется в RAG."""
-        event = self._make_event(raw_text="/help вопрос по сертификации")
+        event = self._make_event(raw_text="/helpme вопрос по сертификации")
         client = AsyncMock()
         rl = HelperRateLimiter(user_max=10, user_window=60, group_max=100, group_window=60)
 
@@ -569,9 +574,9 @@ class TestMessages(unittest.TestCase):
         self.assertIn("15", msg)
 
     def test_usage_hint_contains_help(self):
-        """Подсказка содержит /help."""
+        """Подсказка содержит /helpme."""
         plain = _strip_markdown_v2_escaping(MSG_USAGE_HINT)
-        self.assertIn("/help", plain)
+        self.assertIn("/helpme", plain)
 
     def test_error_message_not_empty(self):
         """Сообщение об ошибке не пустое."""

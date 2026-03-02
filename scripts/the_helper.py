@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-THE_HELPER — Telethon-скрипт мониторинга /help в группах и супергруппах.
+THE_HELPER — Telethon-скрипт мониторинга /helpme в группах и супергруппах.
 
-Слушает новые сообщения с командой /help в настроенных группах,
+Слушает новые сообщения с командой /helpme в настроенных группах,
 маршрутизирует запрос через существующий AI-роутер (RAG / UPOS) и
 отвечает пользователю в стиле «плейсхолдер → редактирование».
 
@@ -69,8 +69,8 @@ MAX_QUERY_LENGTH = 4000
 # Максимальная длина одного сообщения Telegram (с запасом)
 MAX_TELEGRAM_MESSAGE_LENGTH = 3900
 
-# Паттерн команды /help (с возможным @username бота)
-HELP_COMMAND_RE = re.compile(r"^/help(?:@\w+)?\s*(.*)", re.DOTALL | re.IGNORECASE)
+# Паттерн команды /helpme (с возможным @username бота)
+HELP_COMMAND_RE = re.compile(r"^/helpme(?:@\w+)?\s*(.*)", re.DOTALL | re.IGNORECASE)
 
 # Разрешённые intent'ы для THE_HELPER
 HELPER_ALLOWED_INTENTS = {
@@ -104,9 +104,9 @@ MSG_RATE_LIMIT_GROUP = (
 )
 
 MSG_USAGE_HINT = (
-    "ℹ️ *Как пользоваться /help*\n\n"
-    "• `/help ваш вопрос` — задать вопрос\n"
-    "• Ответьте `/help` на чужое сообщение — "
+    "ℹ️ *Как пользоваться /helpme*\n\n"
+    "• `/helpme ваш вопрос` — задать вопрос\n"
+    "• Ответьте `/helpme` на чужое сообщение — "
     "получить ответ по тексту сообщения"
 )
 
@@ -463,7 +463,7 @@ async def _edit_safe(client: TelegramClient, chat_id: int, msg_id: int, text: st
 
 
 # ---------------------------------------------------------------------------
-# Обработка /help
+# Обработка /helpme
 # ---------------------------------------------------------------------------
 
 async def handle_help(
@@ -472,12 +472,12 @@ async def handle_help(
     rate_limiter: HelperRateLimiter,
 ) -> None:
     """
-    Обработать команду /help в группе.
+    Обработать команду /helpme в группе.
 
     Маршрутизация:
-        1. Голый /help (ответ на сообщение) → RAG по тексту сообщения-оригинала.
-        2. /help <текст> → полная AI-маршрутизация (RAG или UPOS).
-        3. Голый /help без ответа → подсказка по использованию.
+        1. Голый /helpme (ответ на сообщение) → RAG по тексту сообщения-оригинала.
+        2. /helpme <текст> → полная AI-маршрутизация (RAG или UPOS).
+        3. Голый /helpme без ответа → подсказка по использованию.
     """
     chat_id = event.chat_id
     user_id = event.sender_id
@@ -508,7 +508,7 @@ async def handle_help(
     direct_rag = False  # Флаг: напрямую в RAG, без полного роутера
 
     if not query_text and is_reply and reply_msg_id:
-        # Голый /help в ответ на сообщение → берём текст оригинала
+        # Голый /helpme в ответ на сообщение → берём текст оригинала
         try:
             replied = await client.get_messages(chat_id, ids=reply_msg_id)
             if replied and replied.text:
@@ -526,7 +526,7 @@ async def handle_help(
             )
 
     if not query_text:
-        # Голый /help без текста и без ответа → подсказка
+        # Голый /helpme без текста и без ответа → подсказка
         try:
             await _reply_safe(event, MSG_USAGE_HINT)
         except Exception as hint_exc:
@@ -561,7 +561,7 @@ async def handle_help(
     # --- Фиксируем запрос ---
     rate_limiter.record(user_id, chat_id)
     logger.info(
-        "Обработка /help: user=%s, chat=%s, direct_rag=%s, query_preview=%.80s",
+        "Обработка /helpme: user=%s, chat=%s, direct_rag=%s, query_preview=%.80s",
         user_id, chat_id, direct_rag, mask_sensitive_data(query_text[:80]),
     )
 
@@ -660,7 +660,7 @@ async def handle_help(
             pass
 
     logger.info(
-        "Завершена обработка /help: user=%s, chat=%s, status=%s, "
+        "Завершена обработка /helpme: user=%s, chat=%s, status=%s, "
         "response_len=%d",
         user_id, chat_id, status, len(response) if response else 0,
     )
@@ -940,7 +940,7 @@ async def manage_groups_interactive() -> None:
 # ---------------------------------------------------------------------------
 
 async def run_listener() -> None:
-    """Запустить Telethon-слушатель /help в настроенных группах."""
+    """Запустить Telethon-слушатель /helpme в настроенных группах."""
     groups = load_groups()
     group_ids = get_group_ids(groups)
 
@@ -979,7 +979,7 @@ async def run_listener() -> None:
         pattern=HELP_COMMAND_RE,
     ))
     async def on_help_message(event: events.NewMessage.Event) -> None:
-        """Обработчик новых сообщений /help в группах."""
+        """Обработчик новых сообщений /helpme в группах."""
         try:
             await handle_help(event, client, rate_limiter)
         except Exception as exc:
@@ -997,7 +997,7 @@ async def run_listener() -> None:
                     pass
 
     await client.start()
-    logger.info("✅ THE_HELPER запущен и слушает /help в %d группах.", len(group_ids))
+    logger.info("✅ THE_HELPER запущен и слушает /helpme в %d группах.", len(group_ids))
 
     # Корректное завершение
     stop_event = asyncio.Event()
@@ -1026,7 +1026,7 @@ async def run_listener() -> None:
 def main() -> None:
     """Точка входа CLI."""
     parser = argparse.ArgumentParser(
-        description="THE_HELPER — мониторинг /help в Telegram-группах",
+        description="THE_HELPER — мониторинг /helpme в Telegram-группах",
     )
     parser.add_argument(
         "--manage-groups",
