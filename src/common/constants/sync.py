@@ -26,3 +26,22 @@ TELETHON_SESSION_NAME: Final[str] = os.getenv("TELETHON_SESSION_NAME", "chat_syn
 
 # Заметка, добавляемая при автосинхронизации пользователей
 SYNC_AUTO_NOTE: Final[str] = "Auto-synced from Telegram group"
+
+# ===========================================================================
+# THE_HELPER — Telethon-скрипт мониторинга /help в группах
+# ===========================================================================
+
+# Имя сессии Telethon для THE_HELPER (отдельная от sync_chat_members)
+HELPER_SESSION_NAME: Final[str] = os.getenv("HELPER_SESSION_NAME", "helper_session")
+
+# Rate-limit: максимальное количество запросов одного пользователя за окно
+HELPER_RATE_LIMIT_USER_MAX: Final[int] = int(os.getenv("HELPER_RATE_LIMIT_USER_MAX", "10"))
+
+# Rate-limit: окно в секундах для пользователя
+HELPER_RATE_LIMIT_USER_WINDOW: Final[int] = int(os.getenv("HELPER_RATE_LIMIT_USER_WINDOW", "60"))
+
+# Rate-limit: максимальное количество запросов в группе за окно
+HELPER_RATE_LIMIT_GROUP_MAX: Final[int] = int(os.getenv("HELPER_RATE_LIMIT_GROUP_MAX", "60"))
+
+# Rate-limit: окно в секундах для группы
+HELPER_RATE_LIMIT_GROUP_WINDOW: Final[int] = int(os.getenv("HELPER_RATE_LIMIT_GROUP_WINDOW", "300"))
