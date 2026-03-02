@@ -30,9 +30,15 @@ from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
 from src.sbs_helper_telegram_bot.ai_router.messages import (
     AI_PROGRESS_STAGE_RAG_CACHE_HIT,
     AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
+    AI_PROGRESS_STAGE_RAG_FALLBACK_STARTED,
     AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
 )
-from src.sbs_helper_telegram_bot.ai_router.prompts import build_hyde_prompt, build_rag_prompt, build_rag_summary_prompt
+from src.sbs_helper_telegram_bot.ai_router.prompts import (
+    build_hyde_prompt,
+    build_rag_fallback_prompt,
+    build_rag_prompt,
+    build_rag_summary_prompt,
+)
 from src.sbs_helper_telegram_bot.ai_router.vector_search import (
     LocalEmbeddingProvider,
     LocalVectorIndex,
@@ -45,8 +51,13 @@ try:
 except Exception:
     BM25Okapi = None
 
-_TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
+_TOKEN_RE = re.compile(r"\d+(?:[\.,]\d+)+|[a-zа-яё0-9]+", re.IGNORECASE)
 _SHORT_ALNUM_TOKEN_RE = re.compile(r"(?:[a-zа-яё]\d|\d[a-zа-яё])", re.IGNORECASE)
+
+# Regex для удаления markdown code fences из JSON-ответа LLM.
+_JSON_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
+# Regex для извлечения первого JSON-объекта из текста.
+_JSON_OBJECT_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
 _CYRILLIC_TOKEN_RE = re.compile(r"[а-яё]", re.IGNORECASE)
 _HASHTAG_WORD_RE = re.compile(r"(?<!\S)#[a-zа-яё0-9_]+", re.IGNORECASE)
 _SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".docx", ".md", ".html", ".htm"}
@@ -171,6 +182,8 @@ _QUERY_STRIP_PATTERNS: list[re.Pattern[str]] = [
     ),
 ]
 _RAG_CHUNK_SCAN_LIMIT = 3000
+
+ #this is not the number of chunks, but the number of recently updated summaries to scan for prefiltering and fallback
 _RAG_SUMMARY_SCAN_LIMIT = 3000
 _RAG_EMBEDDING_UPSERT_BATCH_SIZE = 25
 _RAG_EMBEDDING_UPSERT_MAX_RETRIES = 3
@@ -193,6 +206,15 @@ class CachedAnswer:
 
     answer: str
     expires_at: float
+    is_fallback: bool = False
+
+
+@dataclass
+class RagAnswer:
+    """Результат RAG-ответа с флагом fallback."""
+
+    text: Optional[str]
+    is_fallback: bool = False
 
 
 class RagKnowledgeService:
@@ -1199,16 +1221,23 @@ class RagKnowledgeService:
         user_id: int,
         on_progress: Optional[Callable[[str, Optional[Dict[str, Any]]], Awaitable[None]]] = None,
         category_hint: Optional[str] = None,
-    ) -> Optional[str]:
+    ) -> RagAnswer:
         """
         Ответить на вопрос пользователя на основе документов.
+
+        Основной RAG-ответ использует JSON Mode: LLM возвращает
+        {"answer": "...", "question_answered": true/false}.
+        Если question_answered=false и summary-fallback включён,
+        выполняется дополнительный LLM-вызов по summary документов.
 
         Args:
             question: Текст вопроса.
             user_id: Telegram ID пользователя.
+            on_progress: Опциональный callback прогресса.
+            category_hint: Подсказка категории для ранжирования.
 
         Returns:
-            Ответ LLM или None, если релевантных данных нет.
+            RagAnswer с текстом ответа и флагом is_fallback.
         """
         async def _emit_progress(stage: str, payload: Optional[Dict[str, Any]] = None) -> None:
             """Безопасно отправить событие прогресса во внешний callback."""
@@ -1227,7 +1256,7 @@ class RagKnowledgeService:
 
         normalized_question = (question or "").strip()
         if len(normalized_question) < 3:
-            return None
+            return RagAnswer(text=None)
 
         corpus_version = self._get_corpus_version()
         cache_key = f"{corpus_version}:{normalized_question.lower()}"
@@ -1236,11 +1265,12 @@ class RagKnowledgeService:
         if cached and cached.expires_at > now:
             ttl_remaining = max(0.0, cached.expires_at - now)
             logger.info(
-                "RAG answer cache hit: user_id=%s corpus_version=%s question='%.120s' ttl_remaining_s=%.2f",
+                "RAG answer cache hit: user_id=%s corpus_version=%s question='%.120s' ttl_remaining_s=%.2f is_fallback=%s",
                 user_id,
                 corpus_version,
                 normalized_question,
                 ttl_remaining,
+                cached.is_fallback,
             )
             await _emit_progress(
                 AI_PROGRESS_STAGE_RAG_CACHE_HIT,
@@ -1249,7 +1279,7 @@ class RagKnowledgeService:
                     "cache_ttl_remaining_seconds": ttl_remaining,
                 },
             )
-            return cached.answer
+            return RagAnswer(text=cached.answer, is_fallback=cached.is_fallback)
 
         cache_miss_reason = "expired" if cached else "not_found"
         logger.info(
@@ -1311,7 +1341,15 @@ class RagKnowledgeService:
             hyde_text=hyde_text,
         )
         if not chunks:
-            return None
+            # Нет чанков — попробовать summary-fallback напрямую
+            return await self._try_summary_fallback(
+                normalized_question,
+                user_id=user_id,
+                hyde_text=hyde_text,
+                cache_key=cache_key,
+                now=now,
+                _emit_progress=_emit_progress,
+            )
 
         from src.sbs_helper_telegram_bot.ai_router.llm_provider import get_provider
 
@@ -1335,16 +1373,37 @@ class RagKnowledgeService:
                 "summary_blocks_count": len(summary_blocks),
             },
         )
-        answer = await provider.chat(
+        raw_answer = await provider.chat(
             messages=[{"role": "user", "content": normalized_question}],
             system_prompt=build_rag_prompt(context_blocks, summary_blocks=summary_blocks),
             user_id=user_id,
             purpose="rag_answer",
+            response_format={"type": "json_object"},
         )
 
+        answer_text, question_answered = self._parse_rag_json_response(raw_answer)
+
+        if not question_answered:
+            logger.info(
+                "RAG primary answer marked as not answered: user_id=%s question='%.120s' "
+                "answer_preview='%.120s'",
+                user_id,
+                normalized_question,
+                answer_text,
+            )
+            return await self._try_summary_fallback(
+                normalized_question,
+                user_id=user_id,
+                hyde_text=hyde_text,
+                cache_key=cache_key,
+                now=now,
+                _emit_progress=_emit_progress,
+            )
+
         self._answer_cache[cache_key] = CachedAnswer(
-            answer=answer,
+            answer=answer_text,
             expires_at=now + self._cache_ttl_seconds,
+            is_fallback=False,
         )
         self._clear_expired_cache()
 
@@ -1355,7 +1414,107 @@ class RagKnowledgeService:
             chunks_count=len(context_blocks),
         )
 
-        return answer
+        return RagAnswer(text=answer_text, is_fallback=False)
+
+    async def _try_summary_fallback(
+        self,
+        question: str,
+        user_id: int,
+        hyde_text: Optional[str],
+        cache_key: str,
+        now: float,
+        _emit_progress: Callable[[str, Optional[Dict[str, Any]]], Awaitable[None]],
+    ) -> RagAnswer:
+        """Попытаться ответить пользователю на основе summary документов (fallback).
+
+        Вызывается когда основной RAG-поиск по чанкам не дал ответа:
+        либо чанки не найдены, либо LLM сообщила question_answered=false.
+
+        Args:
+            question: Нормализованный вопрос пользователя.
+            user_id: Telegram ID пользователя.
+            hyde_text: Опциональный HyDE-текст.
+            cache_key: Ключ кэша RAG-ответа.
+            now: Текущее время (time.time()).
+            _emit_progress: Callback для прогресса.
+
+        Returns:
+            RagAnswer с fallback-ответом или пустым текстом.
+        """
+        if not ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED:
+            logger.info(
+                "RAG summary fallback disabled: user_id=%s question='%.120s'",
+                user_id,
+                question,
+            )
+            return RagAnswer(text=None)
+
+        await _emit_progress(
+            AI_PROGRESS_STAGE_RAG_FALLBACK_STARTED,
+            {"reason": "question_not_answered"},
+        )
+
+        fallback_blocks = self._retrieve_summaries_for_fallback(
+            question=question,
+            hyde_text=hyde_text,
+        )
+        if not fallback_blocks:
+            logger.info(
+                "RAG summary fallback: no summaries found: user_id=%s question='%.120s'",
+                user_id,
+                question,
+            )
+            return RagAnswer(text=None)
+
+        from src.sbs_helper_telegram_bot.ai_router.llm_provider import get_provider
+
+        provider = get_provider()
+        fallback_answer = await provider.chat(
+            messages=[{"role": "user", "content": question}],
+            system_prompt=build_rag_fallback_prompt(fallback_blocks),
+            user_id=user_id,
+            purpose="rag_fallback",
+        )
+
+        if not fallback_answer or not fallback_answer.strip():
+            logger.warning(
+                "RAG summary fallback: LLM returned empty answer: user_id=%s question='%.120s'",
+                user_id,
+                question,
+            )
+            return RagAnswer(text=None)
+
+        fallback_answer = fallback_answer.strip()
+        logger.info(
+            "RAG summary fallback answer generated: user_id=%s question='%.120s' "
+            "summary_blocks=%d answer_len=%d",
+            user_id,
+            question,
+            len(fallback_blocks),
+            len(fallback_answer),
+        )
+
+        fallback_cache_key = f"fallback:{cache_key}"
+        self._answer_cache[fallback_cache_key] = CachedAnswer(
+            answer=fallback_answer,
+            expires_at=now + self._cache_ttl_seconds,
+            is_fallback=True,
+        )
+        self._answer_cache[cache_key] = CachedAnswer(
+            answer=fallback_answer,
+            expires_at=now + self._cache_ttl_seconds,
+            is_fallback=True,
+        )
+        self._clear_expired_cache()
+
+        self._log_query(
+            user_id=user_id,
+            query=question,
+            cache_hit=False,
+            chunks_count=0,
+        )
+
+        return RagAnswer(text=fallback_answer, is_fallback=True)
 
     def _retrieve_context_for_question(
         self,
@@ -2924,6 +3083,209 @@ class RagKnowledgeService:
             summary_blocks.append(f"[Summary | {filename}]\n{safe_summary}")
             if len(summary_blocks) >= max_docs:
                 break
+        return summary_blocks
+
+    @staticmethod
+    def _parse_rag_json_response(raw: str) -> Tuple[str, bool]:
+        """Разобрать JSON-ответ RAG LLM.
+
+        Ожидаемый формат: {"answer": "...", "question_answered": true/false}
+
+        При невозможности разбора — fallback к исходному тексту с question_answered=True.
+
+        Args:
+            raw: Сырой ответ LLM.
+
+        Returns:
+            (текст ответа, question_answered).
+        """
+        text = (raw or "").strip()
+        if not text:
+            return "", True
+
+        # Шаг 1: удалить markdown code fences (```json ... ```)
+        # Используем .match() вместо .search(), чтобы избежать ложного срабатывания
+        # на code fences внутри поля "answer" JSON-объекта.
+        fence_match = _JSON_CODE_FENCE_RE.match(text)
+        if fence_match:
+            text = fence_match.group(1).strip()
+
+        # Шаг 2: попытка полного json.loads
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                answer = str(parsed.get("answer", "")).strip()
+                question_answered = parsed.get("question_answered", True)
+                if isinstance(question_answered, str):
+                    question_answered = question_answered.lower() not in {"false", "0", "no", "нет"}
+                return answer or raw.strip(), bool(question_answered)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Шаг 3: попытка найти первый JSON-объект в тексте
+        obj_match = _JSON_OBJECT_RE.search(text)
+        if obj_match:
+            try:
+                parsed = json.loads(obj_match.group(0))
+                if isinstance(parsed, dict):
+                    answer = str(parsed.get("answer", "")).strip()
+                    question_answered = parsed.get("question_answered", True)
+                    if isinstance(question_answered, str):
+                        question_answered = question_answered.lower() not in {"false", "0", "no", "нет"}
+                    return answer or raw.strip(), bool(question_answered)
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Шаг 4: graceful fallback — вернуть исходный текст как ответ
+        logger.warning(
+            "RAG JSON parse failed, using raw text as answer: raw_len=%d raw_preview='%.120s'",
+            len(raw),
+            raw,
+        )
+        return raw.strip(), True
+
+    def _retrieve_summaries_for_fallback(
+        self,
+        question: str,
+        hyde_text: Optional[str] = None,
+    ) -> List[str]:
+        """Получить ранжированные summary-блоки для fallback-ответа.
+
+        Выполняет независимый поиск по summary документов (BM25 + vector),
+        возвращает отформатированные summary-блоки для fallback-промпта.
+
+        Args:
+            question: Вопрос пользователя.
+            hyde_text: Опциональный HyDE-текст для vector scoring.
+
+        Returns:
+            Список строк-блоков формата "[Summary | filename]\\n{text}".
+        """
+        fallback_started_at = time.perf_counter()
+        tokens = self._tokenize(question)
+        if not tokens:
+            return []
+
+        stripped_question, pattern_stripped = self._strip_query_patterns(question)
+        if pattern_stripped:
+            retrieval_tokens = self._tokenize(stripped_question)
+        else:
+            retrieval_tokens = list(tokens)
+        retrieval_tokens = self._filter_stopwords(retrieval_tokens) or list(tokens)
+
+        if hyde_text and ai_settings.is_rag_hyde_lexical_enabled():
+            retrieval_tokens = self._augment_tokens_with_hyde(retrieval_tokens, hyde_text)
+
+        # Получить все активные summary из БД
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT s.document_id, s.summary_text, d.filename, d.source_type
+                    FROM rag_document_summaries s
+                    JOIN rag_documents d ON d.id = s.document_id
+                    WHERE d.status = 'active'
+                    ORDER BY s.updated_at DESC
+                    LIMIT %s
+                    """,
+                    (_RAG_SUMMARY_SCAN_LIMIT,),
+                )
+                rows = cursor.fetchall() or []
+
+        valid_rows: List[Tuple[int, str, str, str]] = []
+        summaries_for_vector: List[Tuple[int, str]] = []
+        for row in rows:
+            document_id = int(row.get("document_id") or 0)
+            filename = str(row.get("filename") or "document")
+            summary_text = str(row.get("summary_text") or "").strip()
+            source_type = str(row.get("source_type") or "").strip().lower()
+            if not document_id or not summary_text:
+                continue
+            valid_rows.append((document_id, filename, summary_text, source_type))
+            summaries_for_vector.append((document_id, summary_text))
+
+        if not valid_rows:
+            return []
+
+        # Vector scoring
+        vector_scores = self._search_summary_vector_scores_from_collection(
+            question=question,
+            document_ids=[doc_id for doc_id, _, _, _ in valid_rows],
+            limit=len(valid_rows),
+            hyde_text=hyde_text,
+        )
+        if not vector_scores:
+            vector_scores = self._compute_summary_vector_scores(
+                question=question,
+                summaries=summaries_for_vector,
+                hyde_text=hyde_text,
+            )
+
+        vector_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_VECTOR_WEIGHT))
+        lexical_scorer = ai_settings.get_rag_lexical_scorer()
+        token_weight = max(0.0, float(ai_settings.AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT))
+
+        # BM25 scoring
+        summary_bm25_scores: Dict[int, float] = {}
+        if lexical_scorer == "bm25":
+            summary_corpus_tokens = [self._tokenize(summary_text) for _, _, summary_text, _ in valid_rows]
+            dampened_tokens = self._dampen_common_query_tokens(retrieval_tokens, summary_corpus_tokens)
+            corpus_scores = self._score_corpus_bm25(summary_corpus_tokens, dampened_tokens)
+            for index, (document_id, _, _, _) in enumerate(valid_rows):
+                summary_bm25_scores[document_id] = float(corpus_scores[index]) if index < len(corpus_scores) else 0.0
+
+        # Score and rank
+        scored_docs: List[Tuple[int, str, str, float]] = []
+        for document_id, filename, summary_text, _ in valid_rows:
+            if lexical_scorer == "bm25":
+                lexical_score = summary_bm25_scores.get(document_id, 0.0) * token_weight
+                lexical_score += self._score_summary_phrase_match(
+                    summary_text=summary_text,
+                    question_tokens=retrieval_tokens,
+                    question=question,
+                )
+            else:
+                lexical_score = self._score_summary_text(
+                    summary_text=summary_text,
+                    question_tokens=retrieval_tokens,
+                    question=question,
+                )
+            vec_score = float(vector_scores.get(document_id, 0.0))
+            score = lexical_score + (vec_score * vector_weight)
+            if score <= 0:
+                continue
+            scored_docs.append((document_id, filename, summary_text, score))
+
+        scored_docs.sort(key=lambda item: item[3], reverse=True)
+
+        # Собрать summary-блоки с ограничениями
+        max_docs = max(1, int(ai_settings.AI_RAG_SUMMARY_FALLBACK_TOP_DOCS))
+        max_chars = max(500, int(ai_settings.AI_RAG_SUMMARY_FALLBACK_MAX_CONTEXT_CHARS))
+        summary_blocks: List[str] = []
+        total_chars = 0
+
+        for _, filename, summary_text, _ in scored_docs:
+            safe_summary = summary_text.strip()
+            if not safe_summary:
+                continue
+            block = f"[Summary | {filename}]\n{safe_summary}"
+            if total_chars + len(block) > max_chars:
+                break
+            summary_blocks.append(block)
+            total_chars += len(block)
+            if len(summary_blocks) >= max_docs:
+                break
+
+        fallback_ms = (time.perf_counter() - fallback_started_at) * 1000
+        logger.info(
+            "RAG summary fallback retrieval: valid_summaries=%d scored_docs=%d "
+            "selected_blocks=%d total_chars=%d elapsed_ms=%.1f",
+            len(valid_rows),
+            len(scored_docs),
+            len(summary_blocks),
+            total_chars,
+            fallback_ms,
+        )
         return summary_blocks
 
     @staticmethod

@@ -37,6 +37,7 @@ RAG-поток позволяет:
 - В retrieval добавлены category/freshness сигналы для `source_type=certification`: совпадение категории запроса даёт мягкий буст, неактуальные/неактивные вопросы получают штраф, но остаются в выдаче.
 - Для `source_type=certification` в RAG-контент и summary попадают только: вопрос, правильный ответ, пояснение и категории; неверные варианты ответов не включаются.
 - Summary для коротких сертификационных Q/A формируется детерминированно (без LLM), чтобы исключить попадание дистракторов и снизить шум в prefilter.
+- Summary-fallback: если RAG-чанки не найдены или LLM сообщила `question_answered=false`, система автоматически пытается ответить пользователю на основе summary документов. RAG-ответ возвращается в JSON Mode (`{"answer": "...", "question_answered": true/false}`), а при fallback выполняется отдельный LLM-вызов с контекстом summary. Управляется настройками `AI_RAG_SUMMARY_FALLBACK_ENABLED`, `AI_RAG_SUMMARY_FALLBACK_TOP_DOCS`, `AI_RAG_SUMMARY_FALLBACK_MAX_CONTEXT_CHARS`.
 
 ## Как загрузить документ
 

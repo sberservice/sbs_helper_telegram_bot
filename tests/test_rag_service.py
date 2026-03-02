@@ -4,6 +4,7 @@ test_rag_service.py — тесты сервиса RAG базы знаний.
 
 import builtins
 import hashlib
+import json
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,7 +13,7 @@ from src.sbs_helper_telegram_bot.ai_router.messages import (
     AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
     AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
 )
-from src.sbs_helper_telegram_bot.ai_router.rag_service import RagKnowledgeService, preload_rag_runtime_dependencies
+from src.sbs_helper_telegram_bot.ai_router.rag_service import RagAnswer, RagKnowledgeService, preload_rag_runtime_dependencies
 
 
 class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
@@ -544,15 +545,15 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         )
 
         provider = AsyncMock()
-        provider.chat.return_value = "SLA 4 часа"
+        provider.chat.return_value = json.dumps({"answer": "SLA 4 часа", "question_answered": True})
         mock_get_provider.return_value = provider
 
         q = "Какой SLA по критическим заявкам?"
         first = await service.answer_question(q, user_id=77)
         second = await service.answer_question(q, user_id=77)
 
-        self.assertEqual(first, "SLA 4 часа")
-        self.assertEqual(second, "SLA 4 часа")
+        self.assertEqual(first.text, "SLA 4 часа")
+        self.assertEqual(second.text, "SLA 4 часа")
         provider.chat.assert_awaited_once()
 
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
@@ -576,21 +577,21 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         )
 
         provider = AsyncMock()
-        provider.chat.return_value = "SLA 4 часа"
+        provider.chat.return_value = json.dumps({"answer": "SLA 4 часа", "question_answered": True})
         mock_get_provider.return_value = provider
 
         progress = AsyncMock()
         q = "Какой SLA по критическим заявкам?"
 
         first = await service.answer_question(q, user_id=77, on_progress=progress)
-        self.assertEqual(first, "SLA 4 часа")
+        self.assertEqual(first.text, "SLA 4 часа")
         self.assertEqual(progress.await_count, 2)
         self.assertEqual(progress.await_args_list[0].args[0], AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED)
         self.assertEqual(progress.await_args_list[1].args[0], AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED)
 
         progress.reset_mock()
         second = await service.answer_question(q, user_id=77, on_progress=progress)
-        self.assertEqual(second, "SLA 4 часа")
+        self.assertEqual(second.text, "SLA 4 часа")
         self.assertEqual(progress.await_count, 1)
         self.assertEqual(progress.await_args_list[0].args[0], AI_PROGRESS_STAGE_RAG_CACHE_HIT)
         cache_payload = progress.await_args_list[0].args[1]
@@ -877,6 +878,16 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("фн", tokens)
         self.assertIn("36", tokens)
         self.assertIn("осно", tokens)
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    def test_tokenize_keeps_decimal_number_with_comma(self, _mock_norm_enabled):
+        """Токенизация сохраняет десятичные числа с запятой как единый токен (36,6)."""
+        service = RagKnowledgeService()
+
+        tokens = service._tokenize("как установить терминал в аптеку 36,6")
+
+        self.assertIn("36,6", tokens)
+        self.assertNotIn("36", tokens)
 
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=True)
@@ -1585,12 +1596,12 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_build_prompt.return_value = "prompt"
 
         provider = AsyncMock()
-        provider.chat.return_value = "Ответ"
+        provider.chat.return_value = json.dumps({"answer": "Ответ", "question_answered": True})
         mock_get_provider.return_value = provider
 
         result = await service.answer_question("Какой SLA?", user_id=44)
 
-        self.assertEqual(result, "Ответ")
+        self.assertEqual(result.text, "Ответ")
         mock_build_prompt.assert_called_once()
         _, kwargs = mock_build_prompt.call_args
         self.assertEqual(kwargs.get("summary_blocks"), ["[Summary | reglament.txt]\nСводка по SLA"])
@@ -2387,18 +2398,20 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         result = service._get_cached_hyde_text("expired_q")
         self.assertIsNone(result)
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
     async def test_hyde_disabled_skips_generation(self, _mock_hyde_enabled):
         """При выключенном HyDE LLM не вызывается и hyde_text=None."""
         service = RagKnowledgeService()
         with patch.object(service, "_retrieve_context_for_question", return_value=([], [])) as mock_retrieve:
             result = await service.answer_question("тестовый вопрос", user_id=1)
-            self.assertIsNone(result)
+            self.assertIsNone(result.text)
             if mock_retrieve.called:
                 call_kwargs = mock_retrieve.call_args
                 hyde_arg = call_kwargs.kwargs.get("hyde_text") if call_kwargs.kwargs else None
                 self.assertIsNone(hyde_arg)
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 200)
     async def test_hyde_enabled_generates_text(self, *_):
@@ -2420,6 +2433,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
                     self.assertIsNotNone(hyde_arg)
                     self.assertIn("Любовь", hyde_arg)
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 200)
     async def test_hyde_failure_graceful_degradation(self, *_):
@@ -2435,12 +2449,13 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             ) as mock_retrieve:
                 # Не должно выбрасывать исключение
                 result = await service.answer_question("тестовый вопрос", user_id=1)
-                self.assertIsNone(result)
+                self.assertIsNone(result.text)
                 if mock_retrieve.called:
                     call_kwargs = mock_retrieve.call_args
                     hyde_arg = call_kwargs.kwargs.get("hyde_text") if call_kwargs.kwargs else None
                     self.assertIsNone(hyde_arg)
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 100)
     async def test_hyde_text_cached_on_success(self, *_):
@@ -2458,6 +2473,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(cached)
         self.assertEqual(cached, "Кэшируемый ответ")
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 100)
     async def test_hyde_cache_hit_skips_llm_call(self, *_):
@@ -2486,6 +2502,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(len(hyde_calls), 0)
 
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 50)
     async def test_hyde_text_truncated_to_max_chars(self, *_):

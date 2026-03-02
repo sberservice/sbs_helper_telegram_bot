@@ -102,6 +102,7 @@ class LLMProvider(ABC):
         user_id: Optional[int] = None,
         purpose: str = "response",
         model_override: Optional[str] = None,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Получить свободный текстовый ответ от LLM.
@@ -109,6 +110,7 @@ class LLMProvider(ABC):
         Args:
             messages: Список сообщений диалога [{role, content}, ...].
             system_prompt: Системный промпт.
+            response_format: Опциональный формат ответа (например, {"type": "json_object"}).
 
         Returns:
             Текстовый ответ LLM.
@@ -241,6 +243,7 @@ class DeepSeekProvider(LLMProvider):
         user_id: Optional[int] = None,
         purpose: str = "response",
         model_override: Optional[str] = None,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Получить свободный текстовый ответ через DeepSeek API."""
         full_messages = [{"role": "system", "content": system_prompt}] + messages
@@ -253,6 +256,7 @@ class DeepSeekProvider(LLMProvider):
                 purpose=purpose,
                 user_id=user_id,
                 force_model=model_override,
+                response_format=response_format,
             )
         except LLMProviderTemporaryError as exc:
             logger.warning(
@@ -346,7 +350,14 @@ class DeepSeekProvider(LLMProvider):
         response: Optional[httpx.Response] = None
         for attempt in range(1, max_attempts + 1):
             try:
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(
+                        connect=self._timeout,
+                        read=ai_settings.LLM_READ_TIMEOUT,
+                        write=self._timeout,
+                        pool=self._timeout,
+                    )
+                ) as client:
                     response = await client.post(
                         f"{self._base_url}/v1/chat/completions",
                         json=payload,

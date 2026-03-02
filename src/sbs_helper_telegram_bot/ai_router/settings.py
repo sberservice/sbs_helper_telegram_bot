@@ -63,6 +63,10 @@ ALLOWED_DEEPSEEK_MODELS: Final[tuple[str, ...]] = (
 # Максимальное время ожидания ответа от LLM API.
 LLM_REQUEST_TIMEOUT: Final[int] = int(os.getenv("AI_LLM_REQUEST_TIMEOUT", "30"))
 
+# Таймаут чтения ответа от LLM (секунды).
+# RAG-ответы могут генерироваться дольше — устанавливаем выше, чем общий таймаут.
+LLM_READ_TIMEOUT: Final[int] = int(os.getenv("AI_LLM_READ_TIMEOUT", "120"))
+
 # Параметры генерации LLM для intent-классификации.
 LLM_CLASSIFICATION_TEMPERATURE: Final[float] = float(
     os.getenv("AI_LLM_CLASSIFICATION_TEMPERATURE", "0.1")
@@ -212,6 +216,21 @@ AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS: Final[int] = int(
 # Влияет на ранжирование prefilter_docs и на поле vec_w в диагностическом логе prefilter_top.
 AI_RAG_SUMMARY_VECTOR_WEIGHT: Final[float] = float(
     os.getenv("AI_RAG_SUMMARY_VECTOR_WEIGHT", "20")
+)
+
+# Summary-fallback: когда LLM сообщает, что чанки не содержат ответа,
+# выполняется дополнительный LLM-запрос по summary документов.
+# Мастер-переключатель summary-fallback.
+AI_RAG_SUMMARY_FALLBACK_ENABLED: Final[bool] = (
+    os.getenv("AI_RAG_SUMMARY_FALLBACK_ENABLED", "1") == "1"
+)
+# Количество top-summary документов для fallback-промпта.
+AI_RAG_SUMMARY_FALLBACK_TOP_DOCS: Final[int] = int(
+    os.getenv("AI_RAG_SUMMARY_FALLBACK_TOP_DOCS", "5")
+)
+# Верхняя граница суммарного размера summary-контекста в fallback-промпте (символов).
+AI_RAG_SUMMARY_FALLBACK_MAX_CONTEXT_CHARS: Final[int] = int(
+    os.getenv("AI_RAG_SUMMARY_FALLBACK_MAX_CONTEXT_CHARS", "8000")
 )
 
 # TTL-кэш ответов RAG (секунды)

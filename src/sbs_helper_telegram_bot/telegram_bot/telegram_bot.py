@@ -221,6 +221,7 @@ from src.sbs_helper_telegram_bot.ai_router.messages import (
     AI_MESSAGE_KEY_WAITING_FOR_AI,
     AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
     AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
+    AI_PROGRESS_STAGE_UPOS_NOT_FOUND_FALLBACK_STARTED,
     get_ai_message_by_key,
     get_ai_progress_message,
     get_ai_status_message,
@@ -1335,6 +1336,8 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             mark_step("ai_placeholder_sent")
 
             classified_intent = None
+            upos_not_found_notice_sent = False
+            upos_fallback_flow = False
 
             async def _on_ai_classified(classification) -> None:
                 """Обновить плейсхолдер, когда запрос распознан как RAG."""
@@ -1355,14 +1358,38 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
             async def _on_ai_progress(stage: str, payload=None) -> None:
                 """Обновить плейсхолдер по этапам прогресса RAG."""
+                nonlocal classified_intent, upos_not_found_notice_sent, upos_fallback_flow
+                if isinstance(payload, dict) and payload.get("intent") == "rag_qa":
+                    classified_intent = "rag_qa"
+
                 if stage not in {
                     AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
                     AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
+                    AI_PROGRESS_STAGE_UPOS_NOT_FOUND_FALLBACK_STARTED,
                 }:
                     return
 
                 stage_message = get_ai_progress_message(stage)
                 if not stage_message:
+                    return
+
+                if stage == AI_PROGRESS_STAGE_UPOS_NOT_FOUND_FALLBACK_STARTED:
+                    upos_fallback_flow = True
+                    if upos_not_found_notice_sent:
+                        return
+                    try:
+                        await update.message.reply_text(
+                            stage_message,
+                            parse_mode=constants.ParseMode.MARKDOWN_V2,
+                        )
+                        upos_not_found_notice_sent = True
+                    except Exception as progress_notice_exc:
+                        logger.warning(
+                            "Failed to send UPOS fallback notice message: stage=%s payload=%s error=%s",
+                            stage,
+                            payload,
+                            progress_notice_exc,
+                        )
                     return
 
                 try:
@@ -1415,6 +1442,21 @@ async def text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     if is_rag_response
                     else [response]
                 )
+                if upos_fallback_flow:
+                    try:
+                        await placeholder.delete()
+                    except Exception:
+                        pass
+                    await _reply_markdown_safe(
+                        update.message,
+                        response_chunks[0],
+                        restore_keyboard,
+                    )
+                    for chunk in response_chunks[1:]:
+                        await _reply_markdown_safe(update.message, chunk, None)
+                    mark_step("reply_ai_response")
+                    profile_result = f"ai_{status}"
+                    return
                 try:
                     await _edit_markdown_safe(placeholder, response_chunks[0])
                     for chunk in response_chunks[1:]:

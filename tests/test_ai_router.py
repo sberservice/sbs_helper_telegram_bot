@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.sbs_helper_telegram_bot.ai_router.circuit_breaker import CircuitBreaker
 from src.sbs_helper_telegram_bot.ai_router.context_manager import ConversationContextManager
+from src.sbs_helper_telegram_bot.ai_router.intent_handlers import HandlerExecutionResult
 from src.sbs_helper_telegram_bot.ai_router.intent_router import (
     IntentRouter,
     get_router,
@@ -18,6 +19,7 @@ from src.sbs_helper_telegram_bot.ai_router.llm_provider import (
 from src.sbs_helper_telegram_bot.ai_router.messages import (
     AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
     AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
+    AI_PROGRESS_STAGE_UPOS_NOT_FOUND_FALLBACK_STARTED,
 )
 from src.sbs_helper_telegram_bot.ai_router.rate_limiter import AIRateLimiter
 
@@ -109,6 +111,99 @@ class TestIntentRouterClassification(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, "routed")
         self.assertEqual(result, "✅ Код найден")
         mock_handler.execute.assert_awaited_once()
+
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=["upos_errors", "ai_router"])
+    @patch.object(IntentRouter, "_log_to_db")
+    async def test_upos_not_found_fallbacks_to_rag(
+        self,
+        mock_log,
+        mock_modules,
+        mock_enabled,
+    ):
+        """Если код UPOS не найден, роутер уведомляет и делает fallback в RAG."""
+        provider = AsyncMock()
+        provider.classify.return_value = ClassificationResult(
+            intent="upos_error_lookup",
+            confidence=0.95,
+            parameters={"error_code": "9999"},
+            explain_code="ERR_NUM_MATCH",
+        )
+
+        router = _make_router(provider=provider)
+
+        upos_handler = AsyncMock()
+        upos_handler.intent_name = "upos_error_lookup"
+        upos_handler.module_key = "upos_errors"
+        upos_handler.execute.return_value = HandlerExecutionResult(
+            response="❌ Код ошибки `9999` не найден в базе\\.",
+            meta={"upos_not_found": True, "error_code": "9999"},
+        )
+        router._handlers["upos_error_lookup"] = upos_handler
+
+        rag_handler = AsyncMock()
+        rag_handler.intent_name = "rag_qa"
+        rag_handler.module_key = "ai_router"
+        rag_handler.execute.return_value = "📚 *Ответ по базе знаний*\n\nПроверьте описание ошибки 9999"
+        router._handlers["rag_qa"] = rag_handler
+
+        on_progress = AsyncMock()
+        result, status = await router.route(
+            "ошибка 9999",
+            user_id=11,
+            on_progress=on_progress,
+        )
+
+        self.assertEqual(status, "routed")
+        self.assertIn("Ответ по базе знаний", result)
+        rag_handler.execute.assert_awaited_once_with(
+            {"question": "ошибка 9999"},
+            11,
+            on_progress=unittest.mock.ANY,
+        )
+        stages = [call.args[0] for call in on_progress.await_args_list]
+        self.assertIn(AI_PROGRESS_STAGE_UPOS_NOT_FOUND_FALLBACK_STARTED, stages)
+
+    @patch("src.common.bot_settings.is_module_enabled", return_value=True)
+    @patch("src.common.bot_settings.get_enabled_modules", return_value=["upos_errors", "ai_router"])
+    @patch.object(IntentRouter, "_log_to_db")
+    async def test_upos_not_found_returns_not_found_when_rag_fails(
+        self,
+        mock_log,
+        mock_modules,
+        mock_enabled,
+    ):
+        """Если fallback в RAG завершается ошибкой, возвращается исходный ответ UPOS not-found."""
+        provider = AsyncMock()
+        provider.classify.return_value = ClassificationResult(
+            intent="upos_error_lookup",
+            confidence=0.95,
+            parameters={"error_code": "4040"},
+            explain_code="ERR_NUM_MATCH",
+        )
+
+        router = _make_router(provider=provider)
+
+        upos_handler = AsyncMock()
+        upos_handler.intent_name = "upos_error_lookup"
+        upos_handler.module_key = "upos_errors"
+        upos_handler.execute.return_value = HandlerExecutionResult(
+            response="❌ Код ошибки `4040` не найден в базе\\.",
+            meta={"upos_not_found": True, "error_code": "4040"},
+        )
+        router._handlers["upos_error_lookup"] = upos_handler
+
+        rag_handler = AsyncMock()
+        rag_handler.intent_name = "rag_qa"
+        rag_handler.module_key = "ai_router"
+        rag_handler.execute.side_effect = RuntimeError("RAG unavailable")
+        router._handlers["rag_qa"] = rag_handler
+
+        result, status = await router.route("ошибка 4040", user_id=22)
+
+        self.assertEqual(status, "routed")
+        self.assertIn("не найден", result)
+        rag_handler.execute.assert_awaited_once()
 
     @patch("src.common.bot_settings.is_module_enabled", return_value=True)
     @patch("src.common.bot_settings.get_enabled_modules", return_value=["ai_router"])

@@ -10,6 +10,7 @@ import logging
 import re
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, Optional
 
@@ -21,6 +22,14 @@ from src.sbs_helper_telegram_bot.ai_router.messages import (
 logger = logging.getLogger(__name__)
 
 _EDGE_INVISIBLE_CHARS_RE = re.compile(r'^[\s\u200b\u200c\u200d\ufeff]+|[\s\u200b\u200c\u200d\ufeff]+$')
+
+
+@dataclass(frozen=True)
+class HandlerExecutionResult:
+    """Результат выполнения intent-обработчика с метаданными маршрутизации."""
+
+    response: str
+    meta: Dict[str, Any] | None = None
 
 
 def _normalize_lookup_code(value: Any, to_upper: bool = False) -> str:
@@ -55,7 +64,7 @@ class IntentHandler(ABC):
         ...
 
     @abstractmethod
-    async def execute(self, params: Dict[str, Any], user_id: int) -> str:
+    async def execute(self, params: Dict[str, Any], user_id: int) -> str | HandlerExecutionResult:
         """
         Выполнить действие по намерению.
 
@@ -84,7 +93,7 @@ class UposErrorHandler(IntentHandler):
     def module_key(self) -> str:
         return "upos_errors"
 
-    async def execute(self, params: Dict[str, Any], user_id: int) -> str:
+    async def execute(self, params: Dict[str, Any], user_id: int) -> str | HandlerExecutionResult:
         """Найти ошибку UPOS по коду."""
         from src.sbs_helper_telegram_bot.upos_error.upos_error_bot_part import (
             get_error_code_by_code,
@@ -118,10 +127,17 @@ class UposErrorHandler(IntentHandler):
             record_error_request(user_id, error_code, found=False)
             record_unknown_code(error_code)
             escaped_code = escape_markdown_v2(error_code)
-            return (
+            not_found_response = (
                 f"❌ Код ошибки `{escaped_code}` не найден в базе\\.\n\n"
                 "Попробуйте другой код или обратитесь к разделу "
                 "🔢 *UPOS Ошибки* в меню\\."
+            )
+            return HandlerExecutionResult(
+                response=not_found_response,
+                meta={
+                    "upos_not_found": True,
+                    "error_code": error_code,
+                },
             )
 
 
@@ -462,19 +478,19 @@ class RagQaHandler(IntentHandler):
 
         try:
             rag_service = get_rag_service()
-            answer = await rag_service.answer_question(
+            rag_answer = await rag_service.answer_question(
                 question,
                 user_id=user_id,
                 on_progress=on_progress,
                 category_hint=category_hint or None,
             )
-            if not answer:
+            if not rag_answer.text:
                 return (
                     "📚 В загруженных документах не найден точный ответ\\.\n\n"
                     "Попробуйте переформулировать вопрос или уточнить формулировку\\."
                 )
 
-            safe_answer = format_rag_answer_markdown_v2(answer)
+            safe_answer = format_rag_answer_markdown_v2(rag_answer.text)
             return f"📚 *Ответ по базе знаний*\n\n{safe_answer}"
         except Exception as exc:
             logger.exception(
@@ -483,7 +499,7 @@ class RagQaHandler(IntentHandler):
                 type(exc).__name__,
                 exc,
             )
-            return "❌ Не удалось получить ответ из базы знаний\\. Попробуйте позже\\."
+            return "❌ Не удалось получить ответ из базы знаний\\. У меня проблемы с интернетом. Попробуйте позже\\."
 
 
 # =============================================
