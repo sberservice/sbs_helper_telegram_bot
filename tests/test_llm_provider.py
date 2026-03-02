@@ -421,7 +421,7 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
 
     @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
     async def test_call_api_timeout_raises_temporary_error_after_retry(self, mock_async_client):
-        """После двух таймаутов _call_api выбрасывает LLMProviderTemporaryError."""
+        """После всех попыток (max_attempts=5) _call_api выбрасывает LLMProviderTemporaryError."""
         provider = DeepSeekProvider(api_key="test_key", model="deepseek-chat")
 
         mock_client = mock_async_client.return_value.__aenter__.return_value
@@ -430,7 +430,7 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(LLMProviderTemporaryError):
             await provider._call_api(messages=[{"role": "user", "content": "hi"}], purpose="chat")
 
-        self.assertEqual(mock_client.post.await_count, 2)
+        self.assertEqual(mock_client.post.await_count, 5)
 
     @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
     async def test_call_api_supports_structured_list_content(self, mock_async_client):

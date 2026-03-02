@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import MagicMock, patch, AsyncMock
 
 from src.sbs_helper_telegram_bot.ai_router.intent_handlers import (
+    HandlerExecutionResult,
     RagQaHandler,
     UposErrorHandler,
     TicketValidatorHandler,
@@ -13,6 +14,7 @@ from src.sbs_helper_telegram_bot.ai_router.intent_handlers import (
     NewsHandler,
     get_all_handlers,
 )
+from src.sbs_helper_telegram_bot.ai_router.rag_service import RagAnswer
 
 
 class TestHandlerProperties(unittest.TestCase):
@@ -139,7 +141,9 @@ class TestUposErrorHandler(unittest.IsolatedAsyncioTestCase):
             h = UposErrorHandler()
             result = await h.execute({"error_code": "UNKNOWN"}, user_id=55)
             mock_record.assert_called_once_with(55, "UNKNOWN", found=False)
-            self.assertIn("не найден", result)
+            self.assertIsInstance(result, HandlerExecutionResult)
+            self.assertIn("не найден", result.response)
+            self.assertTrue((result.meta or {}).get("upos_not_found"))
 
     async def test_error_code_trimmed_with_invisible_chars(self):
         """UPOS-код очищается от пробелов и невидимых символов по краям."""
@@ -190,7 +194,7 @@ class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
     async def test_answer_from_rag(self, mock_get_rag_service):
         """Успешный ответ RAG форматируется и возвращается пользователю."""
         mock_service = AsyncMock()
-        mock_service.answer_question.return_value = "Ответ из базы знаний"
+        mock_service.answer_question.return_value = RagAnswer(text="Ответ из базы знаний")
         mock_get_rag_service.return_value = mock_service
 
         handler = RagQaHandler()
@@ -203,7 +207,7 @@ class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
     async def test_answer_from_rag_passes_category_hint(self, mock_get_rag_service):
         """Опциональный category_hint из параметров передаётся в RAG-сервис."""
         mock_service = AsyncMock()
-        mock_service.answer_question.return_value = "Ответ из базы знаний"
+        mock_service.answer_question.return_value = RagAnswer(text="Ответ из базы знаний")
         mock_get_rag_service.return_value = mock_service
 
         handler = RagQaHandler()
@@ -226,11 +230,11 @@ class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
     async def test_answer_from_rag_preserves_supported_markdown(self, mock_get_rag_service):
         """RAG-ответ сохраняет поддерживаемый markdown и экранирует остальное."""
         mock_service = AsyncMock()
-        mock_service.answer_question.return_value = (
+        mock_service.answer_question.return_value = RagAnswer(text=(
             "1. **Важно**\n"
             "Команда: `echo ok`\n"
             "Ссылка [x](https://example.com)"
-        )
+        ))
         mock_get_rag_service.return_value = mock_service
 
         handler = RagQaHandler()
@@ -244,7 +248,7 @@ class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
     async def test_not_found_in_rag(self, mock_get_rag_service):
         """Если релевантных чанков нет — возвращается корректный fallback."""
         mock_service = AsyncMock()
-        mock_service.answer_question.return_value = None
+        mock_service.answer_question.return_value = RagAnswer(text=None)
         mock_get_rag_service.return_value = mock_service
 
         handler = RagQaHandler()
@@ -560,7 +564,7 @@ class TestTicketValidatorHandler(unittest.IsolatedAsyncioTestCase):
         """Пустой текст заявки возвращает предупреждение."""
         h = TicketValidatorHandler()
         result = await h.execute({"ticket_text": ""}, user_id=123)
-        self.assertIn("Не указан текст заявки", result)
+        self.assertIn("Не указан текст тикета", result)
 
     async def test_active_soos_job_returns_warning(self):
         """Если есть активная задача СООС, handler возвращает предупреждение."""

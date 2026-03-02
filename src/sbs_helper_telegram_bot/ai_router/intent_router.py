@@ -16,7 +16,11 @@ import src.common.database as database
 from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
 from src.sbs_helper_telegram_bot.ai_router.circuit_breaker import CircuitBreaker
 from src.sbs_helper_telegram_bot.ai_router.context_manager import ConversationContextManager
-from src.sbs_helper_telegram_bot.ai_router.intent_handlers import IntentHandler, get_all_handlers
+from src.sbs_helper_telegram_bot.ai_router.intent_handlers import (
+    HandlerExecutionResult,
+    IntentHandler,
+    get_all_handlers,
+)
 from src.sbs_helper_telegram_bot.ai_router.llm_provider import (
     ClassificationResult,
     LLMProviderTemporaryError,
@@ -24,6 +28,7 @@ from src.sbs_helper_telegram_bot.ai_router.llm_provider import (
     get_provider,
 )
 from src.sbs_helper_telegram_bot.ai_router.messages import (
+    AI_PROGRESS_STAGE_UPOS_NOT_FOUND_FALLBACK_STARTED,
     MESSAGE_AI_UNAVAILABLE,
     MESSAGE_AI_LOW_CONFIDENCE,
     format_ai_chat_response,
@@ -410,9 +415,90 @@ class IntentRouter:
                             progress_payload.update(payload)
                         await on_progress(stage, progress_payload)
 
-                    response = await handler.execute(params, user_id, on_progress=_rag_progress)
+                    execution_result = await handler.execute(params, user_id, on_progress=_rag_progress)
                 else:
-                    response = await handler.execute(params, user_id)
+                    execution_result = await handler.execute(params, user_id)
+
+                response_meta: Dict[str, Any] = {}
+                if isinstance(execution_result, HandlerExecutionResult):
+                    response = execution_result.response
+                    response_meta = execution_result.meta or {}
+                else:
+                    response = execution_result
+
+                if intent == "upos_error_lookup" and response_meta.get("upos_not_found"):
+                    fallback_notice = response
+                    error_code = str(response_meta.get("error_code", "")).strip()
+
+                    if on_progress is not None:
+                        try:
+                            progress_payload = {
+                                "intent": "rag_qa",
+                                "route_path": "upos_not_found_to_rag",
+                            }
+                            if error_code:
+                                progress_payload["error_code"] = error_code
+                            await on_progress(
+                                AI_PROGRESS_STAGE_UPOS_NOT_FOUND_FALLBACK_STARTED,
+                                progress_payload,
+                            )
+                        except Exception as progress_exc:
+                            logger.warning(
+                                "AI progress callback failed for UPOS fallback: user=%s, intent=%s, error_type=%s, error_repr=%r",
+                                user_id,
+                                intent,
+                                type(progress_exc).__name__,
+                                progress_exc,
+                                exc_info=True,
+                            )
+
+                    rag_handler = self._handlers.get("rag_qa")
+                    if rag_handler:
+                        try:
+                            rag_progress_callback = None
+                            if on_progress is not None:
+                                async def _rag_progress(
+                                    stage: str,
+                                    payload: Optional[Dict[str, Any]] = None,
+                                ) -> None:
+                                    progress_payload = {
+                                        "intent": "rag_qa",
+                                        "route_path": "upos_not_found_to_rag",
+                                    }
+                                    if payload:
+                                        progress_payload.update(payload)
+                                    await on_progress(stage, progress_payload)
+
+                                rag_progress_callback = _rag_progress
+
+                            if rag_progress_callback is None:
+                                rag_response = await rag_handler.execute(
+                                    {"question": original_text},
+                                    user_id,
+                                )
+                            else:
+                                rag_response = await rag_handler.execute(
+                                    {"question": original_text},
+                                    user_id,
+                                    on_progress=rag_progress_callback,
+                                )
+                            if rag_response:
+                                dispatch_meta["path"] = "upos_not_found_to_rag"
+                                dispatch_meta["handler_ms"] = int((time.monotonic() - handler_started_at) * 1000)
+                                return rag_response, "routed", dispatch_meta
+                        except Exception as rag_exc:
+                            logger.warning(
+                                "AI UPOS fallback to RAG failed: user=%s, error_type=%s, error_repr=%r",
+                                user_id,
+                                type(rag_exc).__name__,
+                                rag_exc,
+                                exc_info=True,
+                            )
+
+                    dispatch_meta["path"] = "upos_not_found"
+                    dispatch_meta["handler_ms"] = int((time.monotonic() - handler_started_at) * 1000)
+                    return fallback_notice, "routed", dispatch_meta
+
                 dispatch_meta["path"] = "handler"
                 dispatch_meta["handler_ms"] = int((time.monotonic() - handler_started_at) * 1000)
                 return response, "routed", dispatch_meta

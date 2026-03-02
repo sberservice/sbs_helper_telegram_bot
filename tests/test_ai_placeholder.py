@@ -21,8 +21,10 @@ from src.sbs_helper_telegram_bot.ai_router.messages import (
     MESSAGE_AI_WAITING_FOR_AI,
     MESSAGE_AI_PREFILTERING_DOCUMENTS,
     MESSAGE_AI_REQUESTING_AUGMENTED_PAYLOAD,
+    MESSAGE_AI_UPOS_NOT_FOUND_FALLBACK,
     AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
     AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
+    AI_PROGRESS_STAGE_UPOS_NOT_FOUND_FALLBACK_STARTED,
     MESSAGE_AI_LOW_CONFIDENCE,
     MESSAGE_AI_UNAVAILABLE,
 )
@@ -326,6 +328,63 @@ class TestAIPlaceholderFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mock_edit_safe.await_args_list[0].args[1], MESSAGE_AI_PREFILTERING_DOCUMENTS)
         self.assertEqual(mock_edit_safe.await_args_list[1].args[1], MESSAGE_AI_REQUESTING_AUGMENTED_PAYLOAD)
         self.assertEqual(mock_edit_safe.await_args_list[2].args[1], "RAG ответ после reroute")
+
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_user_auth_status")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_ai_router")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_main_menu_keyboard")
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot._edit_markdown_safe", new_callable=AsyncMock)
+    @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot._reply_markdown_safe", new_callable=AsyncMock)
+    async def test_upos_not_found_notice_sent_as_separate_message(
+        self, mock_reply_safe, mock_edit_safe, mock_keyboard, mock_get_router, mock_auth
+    ):
+        """UPOS fallback-уведомление отправляется отдельным сообщением и не затирается плейсхолдером."""
+        from src.sbs_helper_telegram_bot.telegram_bot.telegram_bot import text_entered
+
+        auth = MagicMock()
+        auth.is_pre_invited = False
+        auth.is_pre_invited_activated = True
+        auth.is_invite_blocked = False
+        auth.is_legit = True
+        auth.is_admin = False
+        mock_auth.return_value = auth
+
+        mock_keyboard.return_value = MagicMock()
+
+        mock_router = MagicMock()
+
+        async def _route_with_upos_fallback(_text, _user_id, on_classified=None, on_progress=None):
+            if on_classified is not None:
+                await on_classified(SimpleNamespace(intent="upos_error_lookup"))
+            if on_progress is not None:
+                await on_progress(
+                    AI_PROGRESS_STAGE_UPOS_NOT_FOUND_FALLBACK_STARTED,
+                    {"intent": "rag_qa", "route_path": "upos_not_found_to_rag", "error_code": "9999"},
+                )
+                await on_progress(AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED, {"intent": "rag_qa"})
+                await on_progress(AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED, {"intent": "rag_qa"})
+            return "📚 *Ответ по базе знаний*\n\nПояснение", "routed"
+
+        mock_router.route = AsyncMock(side_effect=_route_with_upos_fallback)
+        mock_get_router.return_value = mock_router
+
+        update, context = _make_update_and_context(text="ошибка 9999")
+        placeholder_msg = MagicMock()
+        update.message.reply_text.return_value = placeholder_msg
+
+        await text_entered(update, context)
+
+        update.message.reply_text.assert_any_await(
+            MESSAGE_AI_UPOS_NOT_FOUND_FALLBACK,
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+        )
+        edited_messages = [call.args[1] for call in mock_edit_safe.await_args_list]
+        self.assertNotIn(MESSAGE_AI_UPOS_NOT_FOUND_FALLBACK, edited_messages)
+        self.assertNotIn("📚 *Ответ по базе знаний*\n\nПояснение", edited_messages)
+        mock_reply_safe.assert_any_await(
+            update.message,
+            "📚 *Ответ по базе знаний*\n\nПояснение",
+            mock_keyboard.return_value,
+        )
 
     @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_user_auth_status")
     @patch("src.sbs_helper_telegram_bot.telegram_bot.telegram_bot.get_ai_router")
