@@ -23,6 +23,9 @@
     # Только верхний уровень директории (без рекурсии)
     python scripts/rag_directory_ingest.py -d ~/docs/knowledge_base --no-recursive
 
+    # Показать текущий режим ingestion (сплиттер, настройки, статистика)
+    python scripts/rag_directory_ingest.py -d ~/docs/knowledge_base --info
+
     # Подробный лог
     python scripts/rag_directory_ingest.py -d ~/docs/knowledge_base -v
 """
@@ -32,6 +35,8 @@ from __future__ import annotations
 import argparse
 import atexit
 import hashlib
+import importlib
+import importlib.metadata
 import logging
 import os
 import sys
@@ -60,6 +65,31 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+
+def _resolve_package_version(import_name: str, dist_name: Optional[str] = None) -> str:
+    """Безопасно получить версию установленного Python-пакета.
+
+    Сначала пытается взять ``__version__`` из импортированного модуля,
+    затем fallback на ``importlib.metadata.version`` по имени дистрибутива.
+    """
+    distribution_name = dist_name or import_name.replace("_", "-")
+
+    try:
+        module = importlib.import_module(import_name)
+    except ImportError:
+        return "недоступен"
+
+    module_version = getattr(module, "__version__", None)
+    if module_version:
+        return str(module_version)
+
+    try:
+        return importlib.metadata.version(distribution_name)
+    except importlib.metadata.PackageNotFoundError:
+        return "неизвестна"
+    except Exception:
+        return "неизвестна"
 
 
 def _build_lock_file_path(directory: Path) -> Path:
@@ -318,6 +348,99 @@ def _log_chunking_diagnostics(rag_service: RagKnowledgeService) -> None:
     )
 
 
+def display_ingest_info(directory: Path, recursive: bool) -> None:
+    """Вывести подробную информацию о текущем режиме ingestion.
+
+    Показывает доступность LangChain, активный сплиттер,
+    параметры чанкинга, поддерживаемые форматы и статистику директории.
+    """
+    rag_service = RagKnowledgeService()
+
+    # Диагностика chunking
+    diagnostics = rag_service.get_chunking_diagnostics()
+
+    # Поддерживаемые расширения
+    supported_ext = sorted({".pdf", ".txt", ".docx", ".md", ".html", ".htm"})
+
+    # Статистика директории
+    root_dir = directory.resolve()
+    files = _scan_files(root_dir, recursive=recursive)
+    supported_files = [f for f in files if rag_service.is_supported_file(f.name)]
+    ext_counts: Dict[str, int] = {}
+    for f in supported_files:
+        ext = f.suffix.lower()
+        ext_counts[ext] = ext_counts.get(ext, 0) + 1
+
+    # Версии LangChain
+    langchain_version = _resolve_package_version("langchain", "langchain")
+    langchain_text_splitters_version = _resolve_package_version(
+        "langchain_text_splitters",
+        "langchain-text-splitters",
+    )
+
+    # HTML splitter class
+    html_splitter_class = "недоступен"
+    try:
+        splitter_cls = rag_service._get_html_splitter_class()
+        html_splitter_class = f"{splitter_cls.__module__}.{splitter_cls.__name__}"
+    except Exception:
+        pass
+
+    # Python version
+    py_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+
+    print("\n" + "=" * 60)
+    print("ИНФОРМАЦИЯ О РЕЖИМЕ INGESTION")
+    print("=" * 60)
+
+    print(f"\n--- Среда ---")
+    print(f"  Python:                      {py_version}")
+    print(f"  langchain:                   {langchain_version}")
+    print(f"  langchain-text-splitters:    {langchain_text_splitters_version}")
+
+    print(f"\n--- Сплиттеры ---")
+    print(f"  LangChain доступен:         {'да' if diagnostics.get('langchain_splitter_supported') else 'нет'}")
+    print(f"  Text slicer:                 {diagnostics.get('text_slicer')}")
+    print(f"  HTML splitter включён:      {'да' if diagnostics.get('html_splitter_enabled') else 'нет'}")
+    print(f"  HTML splitter class:         {html_splitter_class}")
+    print(f"  HTML стратегия:             {diagnostics.get('html_strategy')}")
+    print(f"  Plain text стратегия:       {diagnostics.get('plain_text_strategy')}")
+
+    print(f"\n--- Параметры чанкинга ---")
+    print(f"  chunk_size:                  {diagnostics.get('chunk_size')}")
+    print(f"  chunk_overlap:               {diagnostics.get('chunk_overlap')}")
+    print(f"  max_chunks_per_doc:          {getattr(__import__('src.sbs_helper_telegram_bot.ai_router.settings', fromlist=['AI_RAG_MAX_CHUNKS_PER_DOC']), 'AI_RAG_MAX_CHUNKS_PER_DOC', 'N/A')}")
+    print(f"  max_file_size_mb:            {getattr(__import__('src.sbs_helper_telegram_bot.ai_router.settings', fromlist=['AI_RAG_MAX_FILE_SIZE_MB']), 'AI_RAG_MAX_FILE_SIZE_MB', 'N/A')}")
+    # Сепараторы
+    separators = getattr(rag_service, '_RU_SEPARATORS', None)
+    if separators:
+        separator_names = []
+        for sep in separators:
+            if sep == "\n\n":
+                separator_names.append("\\n\\n")
+            elif sep == "\n":
+                separator_names.append("\\n")
+            elif sep == "":
+                separator_names.append('""')
+            else:
+                separator_names.append(repr(sep))
+        print(f"  сепараторы:                 {', '.join(separator_names)}")
+
+    print(f"\n--- Поддерживаемые форматы ---")
+    print(f"  Расширения:                 {', '.join(supported_ext)}")
+
+    print(f"\n--- Директория ---")
+    print(f"  Путь:                        {root_dir}")
+    print(f"  Рекурсивный скан:          {'да' if recursive else 'нет'}")
+    print(f"  Всего файлов:              {len(files)}")
+    print(f"  Поддерживаемых файлов:    {len(supported_files)}")
+    if ext_counts:
+        for ext, count in sorted(ext_counts.items()):
+            print(f"    {ext}: {count}")
+
+    print("\n" + "=" * 60 + "\n")
+
+
 def run_ingest_cycle(
     directory: Path,
     recursive: bool,
@@ -395,7 +518,7 @@ def run_ingest_cycle(
                 stats["purged"] += 1
 
         try:
-            ingest_result = rag_service.ingest_document_from_bytes(
+            ingest_result = rag_service.ingest_document_from_bytes_sync(
                 filename=file_path.name,
                 payload=payload,
                 uploaded_by=uploaded_by,
@@ -508,6 +631,11 @@ def main() -> None:
         help="Перегенерировать summary для всех документов (при изменении промпта)",
     )
     parser.add_argument(
+        "--info",
+        action="store_true",
+        help="Показать текущий режим ingestion (сплиттеры, настройки, статистика) и выйти",
+    )
+    parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
@@ -528,6 +656,14 @@ def main() -> None:
         raise SystemExit(1)
 
     recursive = not args.no_recursive
+
+    if args.info:
+        display_ingest_info(
+            directory=target_dir,
+            recursive=recursive,
+        )
+        raise SystemExit(0)
+
     lock_file_path = _build_lock_file_path(target_dir)
     lock_fd: Optional[int] = None
 

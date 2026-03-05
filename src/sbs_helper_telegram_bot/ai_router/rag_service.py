@@ -188,10 +188,8 @@ _QUERY_STRIP_PATTERNS: list[re.Pattern[str]] = [
         re.IGNORECASE,
     ),
 ]
-_RAG_CHUNK_SCAN_LIMIT = 3000
-
- #this is not the number of chunks, but the number of recently updated summaries to scan for prefiltering and fallback
-_RAG_SUMMARY_SCAN_LIMIT = 3000
+_RAG_CHUNK_SCAN_LIMIT = 6000 
+_RAG_SUMMARY_SCAN_LIMIT = 6000
 _RAG_EMBEDDING_UPSERT_BATCH_SIZE = 25
 _RAG_EMBEDDING_UPSERT_MAX_RETRIES = 3
 _RAG_EMBEDDING_RETRY_BASE_DELAY_SECONDS = 0.25
@@ -291,11 +289,16 @@ class RagKnowledgeService:
             return "manual_window_slicer"
 
         try:
-            from langchain.text_splitter import RecursiveCharacterTextSplitter  # noqa: F401
+            from langchain_text_splitters import RecursiveCharacterTextSplitter  # noqa: F401
 
-            return "RecursiveCharacterTextSplitter(langchain.text_splitter)"
+            return "RecursiveCharacterTextSplitter(langchain_text_splitters)"
         except Exception:
-            return "manual_window_slicer"
+            try:
+                from langchain.text_splitter import RecursiveCharacterTextSplitter  # noqa: F401
+
+                return "RecursiveCharacterTextSplitter(langchain.text_splitter)"
+            except Exception:
+                return "manual_window_slicer"
 
     def get_chunking_diagnostics(self) -> Dict[str, object]:
         """Вернуть текущую диагностику стратегии чанкинга для runtime-логирования."""
@@ -363,7 +366,7 @@ class RagKnowledgeService:
 
         raise RuntimeError(f"DB retry loop exhausted: {operation_name}")
 
-    def ingest_document_from_bytes(
+    async def ingest_document_from_bytes(
         self,
         filename: str,
         payload: bytes,
@@ -376,7 +379,58 @@ class RagKnowledgeService:
         preset_summary_model_name: Optional[str] = None,
     ) -> Dict[str, int]:
         """
-        Загрузить документ в базу знаний.
+        Загрузить документ в базу знаний (async-версия).
+
+        Offload-ит синхронные DB/IO-операции в thread executor,
+        чтобы не блокировать event loop при вызове из async-контекста.
+
+        Args:
+            filename: Имя файла.
+            payload: Байтовое содержимое файла.
+            uploaded_by: Telegram ID администратора.
+            source_type: Тип источника.
+            source_url: URL источника (если применимо).
+            upsert_vectors: Выполнять ли немедленный upsert векторных эмбеддингов.
+            summary_model_scope: Контекст выбора модели summary (например, directory_ingest).
+            preset_summary_text: Предустановленный summary (если требуется обойти LLM-суммаризацию).
+            preset_summary_model_name: Имя модели/режима для предустановленного summary.
+
+        Returns:
+            Статистика загрузки документа.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self.ingest_document_from_bytes_sync(
+                filename=filename,
+                payload=payload,
+                uploaded_by=uploaded_by,
+                source_type=source_type,
+                source_url=source_url,
+                upsert_vectors=upsert_vectors,
+                summary_model_scope=summary_model_scope,
+                preset_summary_text=preset_summary_text,
+                preset_summary_model_name=preset_summary_model_name,
+            ),
+        )
+
+    def ingest_document_from_bytes_sync(
+        self,
+        filename: str,
+        payload: bytes,
+        uploaded_by: int,
+        source_type: str = "telegram",
+        source_url: Optional[str] = None,
+        upsert_vectors: bool = True,
+        summary_model_scope: str = "default",
+        preset_summary_text: Optional[str] = None,
+        preset_summary_model_name: Optional[str] = None,
+    ) -> Dict[str, int]:
+        """
+        Загрузить документ в базу знаний (синхронная версия).
+
+        Используется скриптами и sync-кодом напрямую.
+        Для async-контекста используйте ``ingest_document_from_bytes``.
 
         Args:
             filename: Имя файла.
@@ -901,7 +955,7 @@ class RagKnowledgeService:
                     self.delete_document(existing_doc_id, updated_by=uploaded_by, hard_delete=True)
                     stats["updated"] += 1
 
-                ingest_result = self.ingest_document_from_bytes(
+                ingest_result = self.ingest_document_from_bytes_sync(
                     filename=filename,
                     payload=payload,
                     uploaded_by=uploaded_by,
@@ -2838,6 +2892,22 @@ class RagKnowledgeService:
             import warnings
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
+                from langchain_text_splitters import RecursiveCharacterTextSplitter  # noqa: F401
+            return True
+        except Exception:
+            pass
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                from langchain.text_splitter import RecursiveCharacterTextSplitter  # noqa: F401
+            return True
+        except Exception:
+            pass
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
                 from langchain_text_splitters import HTMLSemanticPreservingSplitter  # noqa: F401
             return True
         except Exception:
@@ -2864,38 +2934,123 @@ class RagKnowledgeService:
             )
             return False
 
+    # =============================================
+    # Защита аббревиатур при splitting
+    # =============================================
+    # Регулярное выражение для распространённых русскоязычных аббревиатур
+    # вида «т.д.», «т.п.», «г.», «т.е.», «тыс.», «руб.» и подобных.
+    # При splitting точки внутри аббревиатур заменяются на плейсхолдер,
+    # чтобы сплиттер не разрезал текст посередине выражения.
+    _RU_ABBREVIATION_RE = re.compile(
+        r"\b(?:"
+        r"т\.\s*д|т\.\s*п|т\.\s*е|т\.\s*к|т\.\s*н|т\.\s*о"
+        r"|д\.\s*р|н\.\s*э|н\.\s*э\.\s*л"
+        r"|пр\.\s*(?=[а-яА-ЯёЁ])|др\.\s*(?=[а-яА-ЯёЁ])"
+        r"|им\.\s*(?=[а-яА-ЯёЁ])|ул\.\s*(?=[а-яА-ЯёЁ])"
+        r"|обл|тыс|руб|коп|млн|млрд|кв|стр|корп|каб"
+        r"|гг?|вв?|чч?|мм?|сс?|кг|км|мин|сек|час"
+        r"|ООО|ОАО|ЗАО|ПАО|АО|ИП|ИНН|СНИЛС|ОГРН"
+        r"|НДС|ФНС|ФСС|ПФР|СФР|ЕНП|ЕНС"
+        r"|ККТ|ОФД|ФН|ФД|ФП|СНО|БСО|ЗН|РН"
+        r"|стр\.\s*(?=[0-9])|корп\.\s*(?=[0-9])"
+        r")\.",
+        re.IGNORECASE,
+    )
+    _ABBREVIATION_PLACEHOLDER = "\u2060"  # Zero-width non-breaking space
+
+    # Русскоязычные сепараторы для RecursiveCharacterTextSplitter.
+    # Порядок: от крупных структурных единиц к мелким.
+    _RU_SEPARATORS: List[str] = [
+        "\n\n",      # Граница абзацев
+        "\n",        # Перевод строки
+        ". ",        # Конец предложения (после защиты аббревиатур)
+        "! ",        # Восклицание
+        "? ",        # Вопрос
+        "; ",        # Точка с запятой
+        ", ",        # Запятая
+        "— ",        # Начало прямой речи / тире
+        " ",         # Граница слов
+        "",          # Крайний случай — посимвольно
+    ]
+
+    @classmethod
+    def _protect_abbreviations(cls, text: str) -> str:
+        """Заменить точки внутри русскоязычных аббревиатур на плейсхолдер.
+
+        Предотвращает разрезание текста посередине выражений типа
+        «т.д.», «т.п.», «г.», «тыс.» и аналогичных сокращений.
+        """
+        def _replace_dots(match: re.Match) -> str:
+            return match.group(0).replace(".", cls._ABBREVIATION_PLACEHOLDER)
+        return cls._RU_ABBREVIATION_RE.sub(_replace_dots, text)
+
+    @classmethod
+    def _restore_abbreviations(cls, text: str) -> str:
+        """Восстановить точки в аббревиатурах после splitting."""
+        return text.replace(cls._ABBREVIATION_PLACEHOLDER, ".")
+
     @staticmethod
     def _split_text(text: str) -> List[str]:
-        """Разбить текст на чанки; при наличии langchain использует его splitter."""
+        """Разбить текст на чанки; при наличии langchain использует его splitter.
+
+        Для русскоязычных текстов используется расширенный набор сепараторов
+        и защита аббревиатур от разрезания.
+        """
         cleaned = (text or "").strip()
         if not cleaned:
             return []
 
+        # Защита аббревиатур перед splitting
+        protected = RagKnowledgeService._protect_abbreviations(cleaned)
+
         if RagKnowledgeService._is_langchain_splitter_supported():
             try:
-                from langchain.text_splitter import RecursiveCharacterTextSplitter
+                try:
+                    from langchain_text_splitters import RecursiveCharacterTextSplitter
+                except Exception:
+                    from langchain.text_splitter import RecursiveCharacterTextSplitter
 
                 splitter = RecursiveCharacterTextSplitter(
                     chunk_size=ai_settings.AI_RAG_CHUNK_SIZE,
                     chunk_overlap=ai_settings.AI_RAG_CHUNK_OVERLAP,
-                    separators=["\n\n", "\n", ". ", " ", ""],
+                    separators=RagKnowledgeService._RU_SEPARATORS,
                 )
-                chunks = splitter.split_text(cleaned)
-                return [chunk.strip() for chunk in chunks if chunk and chunk.strip()]
+                chunks = splitter.split_text(protected)
+                return [
+                    RagKnowledgeService._restore_abbreviations(chunk.strip())
+                    for chunk in chunks
+                    if chunk and chunk.strip()
+                ]
             except Exception:
                 pass
 
+        # Manual window slicer с учётом границ предложений
         chunk_size = ai_settings.AI_RAG_CHUNK_SIZE
         overlap = ai_settings.AI_RAG_CHUNK_OVERLAP
         chunks: List[str] = []
         start = 0
-        text_len = len(cleaned)
+        text_len = len(protected)
+        # Регулярное выражение для поиска границ предложений
+        _sentence_boundary_re = re.compile(r"[.!?]\s+", re.MULTILINE)
 
         while start < text_len:
             end = min(start + chunk_size, text_len)
-            chunk = cleaned[start:end].strip()
+            # Если не конец текста, пытаемся найти ближайшую границу предложения
+            if end < text_len:
+                window = protected[start:end]
+                # Ищем последнюю границу предложения в окне
+                last_boundary = None
+                for match in _sentence_boundary_re.finditer(window):
+                    boundary_pos = match.end()
+                    # Граница должна быть не слишком близко к началу (мин. 20% чанка)
+                    if boundary_pos >= chunk_size * 0.2:
+                        last_boundary = boundary_pos
+                if last_boundary is not None:
+                    end = start + last_boundary
+
+            chunk = protected[start:end].strip()
             if chunk:
-                chunks.append(chunk)
+                chunks.append(RagKnowledgeService._restore_abbreviations(chunk))
             if end >= text_len:
                 break
             start = max(end - overlap, start + 1)
@@ -3095,7 +3250,16 @@ class RagKnowledgeService:
         if lexical_scorer == "bm25":
             summary_corpus_tokens = [self._tokenize(summary_text) for _, _, summary_text, _ in valid_rows]
             # IDF dampening: подавить query-токены, встречающиеся почти во всех summary
-            dampened_tokens = self._dampen_common_query_tokens(question_tokens, summary_corpus_tokens)
+            dampened_tokens, dampening_diagnostics = self._dampen_common_query_tokens(
+                question_tokens,
+                summary_corpus_tokens,
+                return_diagnostics=True,
+            )
+            self._log_idf_dampening_effect(
+                stage="summary_prefilter",
+                question=question,
+                diagnostics=dampening_diagnostics,
+            )
             corpus_scores = self._score_corpus_bm25(summary_corpus_tokens, dampened_tokens)
             for index, (document_id, _, _, _) in enumerate(valid_rows):
                 summary_bm25_scores[document_id] = float(corpus_scores[index]) if index < len(corpus_scores) else 0.0
@@ -3665,7 +3829,16 @@ class RagKnowledgeService:
         summary_bm25_scores: Dict[int, float] = {}
         if lexical_scorer == "bm25":
             summary_corpus_tokens = [self._tokenize(summary_text) for _, _, summary_text, _ in valid_rows]
-            dampened_tokens = self._dampen_common_query_tokens(retrieval_tokens, summary_corpus_tokens)
+            dampened_tokens, dampening_diagnostics = self._dampen_common_query_tokens(
+                retrieval_tokens,
+                summary_corpus_tokens,
+                return_diagnostics=True,
+            )
+            self._log_idf_dampening_effect(
+                stage="summary_fallback",
+                question=question,
+                diagnostics=dampening_diagnostics,
+            )
             corpus_scores = self._score_corpus_bm25(summary_corpus_tokens, dampened_tokens)
             for index, (document_id, _, _, _) in enumerate(valid_rows):
                 summary_bm25_scores[document_id] = float(corpus_scores[index]) if index < len(corpus_scores) else 0.0
@@ -4542,7 +4715,8 @@ class RagKnowledgeService:
     def _dampen_common_query_tokens(
         query_tokens: List[str],
         corpus_tokens: List[List[str]],
-    ) -> List[str]:
+        return_diagnostics: bool = False,
+    ) -> List[str] | Tuple[List[str], Dict[str, object]]:
         """Подавить query-токены с высокой document frequency в corpus.
 
         Токены, встречающиеся более чем в ``AI_RAG_PREFILTER_IDF_DAMPEN_RATIO``
@@ -4553,18 +4727,85 @@ class RagKnowledgeService:
         веса терминов), метод возвращает модифицированный список query-токенов,
         в котором часто встречающиеся токены заменены на одну «dampened» копию,
         а редкие — повторяются для усиления влияния.
+
+        Если ``return_diagnostics=True``, дополнительно возвращает словарь
+        с диагностикой применения dampening (для runtime-логирования).
         """
-        if not query_tokens or not corpus_tokens:
-            return query_tokens
+        def _result(
+            tokens: List[str],
+            *,
+            reason: str,
+            doc_count: int,
+            threshold: float,
+            dampen_ratio: float,
+            dampen_factor: float,
+            common_tokens: Optional[set[str]] = None,
+            rare_tokens: Optional[List[str]] = None,
+            boost_factor: int = 1,
+        ) -> List[str] | Tuple[List[str], Dict[str, object]]:
+            if not return_diagnostics:
+                return tokens
+
+            before_counts = Counter(query_tokens)
+            after_counts = Counter(tokens)
+            changed_counts: Dict[str, Dict[str, int]] = {}
+            for token in sorted(set(before_counts) | set(after_counts)):
+                before = int(before_counts.get(token, 0))
+                after = int(after_counts.get(token, 0))
+                if before != after:
+                    changed_counts[token] = {"before": before, "after": after}
+
+            diagnostics: Dict[str, object] = {
+                "applied": bool(reason == "applied"),
+                "reason": reason,
+                "doc_count": int(doc_count),
+                "threshold_docs": float(threshold),
+                "dampen_ratio": float(dampen_ratio),
+                "dampen_factor": float(dampen_factor),
+                "boost_factor": int(boost_factor),
+                "before_count": len(query_tokens),
+                "after_count": len(tokens),
+                "before_tokens": list(query_tokens),
+                "after_tokens": list(tokens),
+                "common_tokens": sorted(common_tokens or set()),
+                "rare_tokens": sorted(set(rare_tokens or [])),
+                "changed_token_counts": changed_counts,
+            }
+            return tokens, diagnostics
 
         dampen_ratio = max(0.0, min(1.0, float(ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_RATIO)))
         dampen_factor = max(0.0, min(1.0, float(ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR)))
+
+        if not query_tokens or not corpus_tokens:
+            return _result(
+                list(query_tokens),
+                reason="empty_input",
+                doc_count=len(corpus_tokens),
+                threshold=0.0,
+                dampen_ratio=dampen_ratio,
+                dampen_factor=dampen_factor,
+            )
+
         if dampen_ratio >= 1.0:
-            return query_tokens
+            return _result(
+                list(query_tokens),
+                reason="ratio_disabled",
+                doc_count=len(corpus_tokens),
+                threshold=0.0,
+                dampen_ratio=dampen_ratio,
+                dampen_factor=dampen_factor,
+            )
 
         doc_count = len(corpus_tokens)
         if doc_count == 0:
-            return query_tokens
+            return _result(
+                list(query_tokens),
+                reason="empty_corpus",
+                doc_count=doc_count,
+                threshold=0.0,
+                dampen_ratio=dampen_ratio,
+                dampen_factor=dampen_factor,
+            )
 
         # Подсчёт document frequency каждого уникального query-токена
         unique_query_tokens = set(query_tokens)
@@ -4578,12 +4819,29 @@ class RagKnowledgeService:
         common_tokens = {token for token, df in doc_freq.items() if df > threshold}
 
         if not common_tokens:
-            return query_tokens
+            return _result(
+                list(query_tokens),
+                reason="no_common_tokens",
+                doc_count=doc_count,
+                threshold=threshold,
+                dampen_ratio=dampen_ratio,
+                dampen_factor=dampen_factor,
+                common_tokens=common_tokens,
+            )
 
         # Все токены являются common — не подавляем (возвращаем как есть)
         rare_tokens = [t for t in query_tokens if t not in common_tokens]
         if not rare_tokens:
-            return query_tokens
+            return _result(
+                list(query_tokens),
+                reason="all_tokens_common",
+                doc_count=doc_count,
+                threshold=threshold,
+                dampen_ratio=dampen_ratio,
+                dampen_factor=dampen_factor,
+                common_tokens=common_tokens,
+                rare_tokens=rare_tokens,
+            )
 
         # Строим модифицированный список: rare-токены усиливаются повторением,
         # common-токены включаются один раз с пониженным коэффициентом.
@@ -4602,7 +4860,64 @@ class RagKnowledgeService:
                 for _ in range(boost_factor):
                     dampened_query.append(token)
 
-        return dampened_query
+        return _result(
+            dampened_query,
+            reason="applied",
+            doc_count=doc_count,
+            threshold=threshold,
+            dampen_ratio=dampen_ratio,
+            dampen_factor=dampen_factor,
+            common_tokens=common_tokens,
+            rare_tokens=rare_tokens,
+            boost_factor=boost_factor,
+        )
+
+    @staticmethod
+    def _trim_tokens_for_log(tokens: List[str], limit: int = 20) -> List[str]:
+        """Ограничить размер списка токенов для компактного runtime-лога."""
+        if len(tokens) <= limit:
+            return list(tokens)
+        return list(tokens[:limit]) + [f"...(+{len(tokens) - limit})"]
+
+    def _log_idf_dampening_effect(
+        self,
+        *,
+        stage: str,
+        question: str,
+        diagnostics: Dict[str, object],
+    ) -> None:
+        """Записать в лог, как IDF-dampening повлиял на query-токены."""
+        question_preview = _SPACES_RE.sub(" ", str(question or "").strip())
+        if len(question_preview) > 160:
+            question_preview = f"{question_preview[:159]}…"
+
+        before_tokens = [str(token) for token in diagnostics.get("before_tokens", [])]
+        after_tokens = [str(token) for token in diagnostics.get("after_tokens", [])]
+        common_tokens = [str(token) for token in diagnostics.get("common_tokens", [])]
+        rare_tokens = [str(token) for token in diagnostics.get("rare_tokens", [])]
+        changed_token_counts = diagnostics.get("changed_token_counts", {})
+        if not isinstance(changed_token_counts, dict):
+            changed_token_counts = {}
+
+        payload = {
+            "question": question_preview,
+            "applied": bool(diagnostics.get("applied", False)),
+            "reason": str(diagnostics.get("reason", "unknown")),
+            "doc_count": int(diagnostics.get("doc_count", 0) or 0),
+            "threshold_docs": round(float(diagnostics.get("threshold_docs", 0.0) or 0.0), 3),
+            "dampen_ratio": round(float(diagnostics.get("dampen_ratio", 0.0) or 0.0), 3),
+            "dampen_factor": round(float(diagnostics.get("dampen_factor", 0.0) or 0.0), 3),
+            "boost_factor": int(diagnostics.get("boost_factor", 1) or 1),
+            "before_count": int(diagnostics.get("before_count", len(before_tokens)) or 0),
+            "after_count": int(diagnostics.get("after_count", len(after_tokens)) or 0),
+            "before_tokens": self._trim_tokens_for_log(before_tokens),
+            "after_tokens": self._trim_tokens_for_log(after_tokens),
+            "common_tokens": self._trim_tokens_for_log(common_tokens, limit=10),
+            "rare_tokens": self._trim_tokens_for_log(rare_tokens, limit=10),
+            "changed_token_counts": changed_token_counts,
+        }
+
+        logger.info("RAG IDF dampening [%s]: %s", stage, json.dumps(payload, ensure_ascii=False, sort_keys=True))
 
     def _normalize_token(self, token: str) -> str:
         """Нормализовать токен с кэшем (лемматизация/стемминг для русского)."""

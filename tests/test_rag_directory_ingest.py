@@ -12,6 +12,7 @@ from scripts.rag_directory_ingest import (
     _acquire_single_instance_lock,
     _build_lock_file_path,
     _release_single_instance_lock,
+    display_ingest_info,
     run_ingest_cycle,
 )
 
@@ -46,14 +47,14 @@ class FakeRagService:
         return {
             "html_strategy": "html_semantic_preserving_splitter_with_fallback",
             "plain_text_strategy": "extract_text_then_split_text",
-            "text_slicer": "RecursiveCharacterTextSplitter(langchain.text_splitter)",
+            "text_slicer": "RecursiveCharacterTextSplitter(langchain_text_splitters)",
             "chunk_size": 1000,
             "chunk_overlap": 150,
             "html_splitter_enabled": True,
             "langchain_splitter_supported": True,
         }
 
-    def ingest_document_from_bytes(
+    def ingest_document_from_bytes_sync(
         self,
         filename,
         payload,
@@ -314,6 +315,52 @@ class TestRagDirectoryIngestScript(unittest.TestCase):
                 self.assertTrue(lock_path.exists())
             finally:
                 _release_single_instance_lock(lock_path, fd)
+
+    def test_display_ingest_info_prints_diagnostics(self):
+        """--info выводит информацию о текущем режиме ingestion."""
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "doc.txt").write_text("content", encoding="utf-8")
+            (directory / "notes.md").write_text("# Title", encoding="utf-8")
+            (directory / "archive.zip").write_bytes(b"PK")
+
+            with patch(
+                "scripts.rag_directory_ingest.RagKnowledgeService"
+            ) as MockService:
+                mock_instance = MockService.return_value
+                mock_instance.get_chunking_diagnostics.return_value = {
+                    "html_strategy": "html_semantic_preserving_splitter_with_fallback",
+                    "plain_text_strategy": "extract_text_then_split_text",
+                    "text_slicer": "RecursiveCharacterTextSplitter(langchain_text_splitters)",
+                    "chunk_size": 1000,
+                    "chunk_overlap": 150,
+                    "html_splitter_enabled": True,
+                    "langchain_splitter_supported": True,
+                }
+                mock_instance.is_supported_file.side_effect = lambda fn: fn.lower().endswith(
+                    (".txt", ".md", ".pdf", ".docx", ".html", ".htm")
+                )
+                mock_instance._RU_SEPARATORS = ["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", "\u2014 ", " ", ""]
+
+                from io import StringIO
+                import sys as _sys
+
+                captured = StringIO()
+                old_stdout = _sys.stdout
+                _sys.stdout = captured
+                try:
+                    display_ingest_info(directory, recursive=True)
+                finally:
+                    _sys.stdout = old_stdout
+
+                output = captured.getvalue()
+
+        self.assertIn("ИНФОРМАЦИЯ О РЕЖИМЕ INGESTION", output)
+        self.assertIn("RecursiveCharacterTextSplitter", output)
+        self.assertIn("chunk_size", output)
+        self.assertIn("1000", output)
+        self.assertIn("150", output)
+        self.assertIn("Поддерживаемых файлов", output)
 
 
 if __name__ == "__main__":

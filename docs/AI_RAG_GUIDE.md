@@ -21,6 +21,7 @@ RAG-поток позволяет:
 - Для `HTML` используется `HTMLSemanticPreservingSplitter` (если доступен в окружении), чтобы учитывать структуру заголовков `h1-h6` и лучше сохранять семантику документа.
 - Для `HTML` предусмотрен безопасный fallback на очищенный plain-text chunking, если semantic splitter (или его fallback `HTMLHeaderTextSplitter`) недоступен или не вернул чанков.
 - Для `HTML` доступен runtime-переключатель `ai_rag_html_splitter_enabled` в админ-настройках AI (можно принудительно выключить HTML splitter).
+- Для plain-text chunking `RecursiveCharacterTextSplitter` импортируется из `langchain_text_splitters` (с backward-compatible fallback на legacy namespace), чтобы корректно работать на `langchain 1.x`.
 - На Python `3.14+` LangChain splitters работают корректно (предупреждения `pydantic.v1` подавляются); fallback chunking включается только если импорт/инициализация splitter-а завершились ошибкой.
 - Таблицы БД: `rag_documents`, `rag_chunks`, `rag_corpus_version`, `rag_query_log`, `rag_document_signals`.
 - Таблица полного AI I/O логирования: `ai_model_io_log` (prompt/response всех LLM-вызовов, включая RAG).
@@ -167,6 +168,12 @@ python scripts/rag_sentence_similarity.py \
 	--threshold 0.70
 ```
 
+Интерактивный REPL с историей, настройками и экспортом:
+
+```bash
+python scripts/rag_sentence_similarity.py -i
+```
+
 JSON-вывод для автопроверок/скриптов:
 
 ```bash
@@ -241,6 +248,7 @@ python scripts/rag_directory_ingest.py --directory /path/to/docs --dry-run
 - Ошибки в `ai_router` и RAG-обработчике логируются с явным типом исключения (`error_type`/`error_repr`); для временных сетевых сбоев LLM (timeout/request error) используется warning-ветка без длинного traceback, чтобы уменьшить шум логов.
 - Для каждого retrieval-цикла RAG пишется диагностический многострочный блок `RAG retrieval:` в табличном формате (`metric` / `value`) с полями `mode`, `tokens`, `retrieval_tokens`, `prefilter_docs`, `prefilter_scope_docs`, `fallback_docs`, `lexical_hits`, `vector_hits`, `selected`, `selected_unique_docs`, `selected_top_docs`, `top_source`, а также `timings_ms.total/prefilter/lexical/vector/merge/summary_blocks`; длинные `source` автоматически сокращаются для читаемости.
 - Перед `RAG retrieval:` пишется диагностический многострочный блок `RAG query preprocessing:` в табличном формате (`metric` / `value`) с полями `original_tokens`, `retrieval_tokens`, `stopwords_removed`, `pattern_stripped`, `hyde`, `hyde_lexical_augmented`, `strip_result` (строка после pattern-strip; слова с префиксом `#` сохраняются), `preprocess_result` (итоговая строка после stopwords-фильтрации), `spellcheck_source` (источник коррекции: `corpus`/`llm`/`none`), `spellcheck_corrections` (число исправленных слов) и `spellcheck_changes` (список замен `original→corrected`).
+- На этапах BM25 summary scoring (`summary_prefilter` и `summary_fallback`) пишется строка `RAG IDF dampening [stage]: {...}` с JSON-полезной нагрузкой: `applied`, `reason`, `doc_count`, `threshold_docs`, `dampen_ratio`, `dampen_factor`, `boost_factor`, `before_count/after_count`, списки `before_tokens/after_tokens`, а также `common_tokens`, `rare_tokens` и `changed_token_counts` (изменение кратности токенов до/после dampening).
 - `prefilter_docs` отражает только top-N документов этапа summary-prefilter, а `prefilter_scope_docs` — фактический размер области поиска после добавления fallback-документов.
 - `selected` отражает число выбранных чанков, `selected_unique_docs` — число уникальных документов среди этих чанков, `selected_top_docs` — top уникальных `document_id` по порядку ранжирования.
 - Для каждого retrieval-цикла RAG пишется блок `RAG priority evidence:` с двумя табличными секциями (`prefilter_top` и `selected_top`). В `prefilter_top` отображаются `rank`, `doc`, `summary`, `lexical`, `vec`, `vec_w` (взвешенный вклад `vec * AI_RAG_SUMMARY_VECTOR_WEIGHT`), `excerpt` (краткий фрагмент summary ~80 символов) и `source`; в `selected_top` — `rank`, `doc`, `chunk`, `fused`, `summary`, `origin` (`prefilter`/`fallback`/`global`), разложение lexical-компоненты (`lex_raw`, `lex_bonus`, `lex_total`, `lex_norm`), формула `hybrid=(lex_norm*lexical_weight)+(vector_score*vector_weight)`, `summary_bonus` и `source`; `lex_total` — исходный raw lexical score (с учётом summary-bonus на lexical-этапе), `lex_norm` — нормализованный lexical score в диапазоне `0..1` (min-max по пулу lexical-кандидатов); hybrid-формула использует `lex_norm`, чтобы lexical- и vector-компоненты были на одной шкале; `lex_bonus`/`summary_bonus` считаются из нормализованного summary-score документа в диапазоне `0..1` по относительной min-max схеме в текущем prefilter-пуле.
