@@ -11,7 +11,7 @@ import logging
 import random
 from typing import Any, Dict, Optional
 
-from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
+from config import ai_settings
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ async def judge_pair(
     }
 
     try:
-        from src.sbs_helper_telegram_bot.ai_router.llm_provider import get_provider
+        from src.core.ai.llm_provider import get_provider
 
         provider = get_provider()
 

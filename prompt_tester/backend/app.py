@@ -181,7 +181,7 @@ async def api_preview_prompt(prompt_id: int) -> Dict[str, Any]:
     if not doc:
         raise HTTPException(404, "Нет доступных документов для предпросмотра")
 
-    from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
+    from config import ai_settings
 
     excerpt = (doc.get("excerpt") or "")[:int(ai_settings.AI_RAG_SUMMARY_INPUT_MAX_CHARS)]
 

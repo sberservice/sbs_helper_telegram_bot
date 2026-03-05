@@ -4,7 +4,7 @@ import types
 import unittest
 from unittest import mock
 
-from src.sbs_helper_telegram_bot.ai_router.vector_search import LocalEmbeddingProvider, LocalVectorIndex
+from src.core.ai.vector_search import LocalEmbeddingProvider, LocalVectorIndex
 
 
 class TestLocalVectorIndex(unittest.TestCase):
@@ -32,7 +32,7 @@ class TestLocalVectorIndex(unittest.TestCase):
         self.assertEqual(match_payload.get("any"), [11, 12])
 
     @mock.patch(
-        "src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_SUMMARY_VECTOR_COLLECTION",
+        "src.core.ai.vector_search.ai_settings.AI_RAG_SUMMARY_VECTOR_COLLECTION",
         "rag_summary_v2",
     )
     def test_summary_collection_name_defaults_from_settings(self):
@@ -49,12 +49,12 @@ class TestLocalVectorIndex(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertNotEqual(first, other)
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_API_KEY", "secret")
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_API_KEY", "secret")
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
     def test_logs_effective_remote_configuration_on_init(self):
         """При инициализации индекса пишется диагностический лог эффективной remote-конфигурации."""
-        with mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.logger.info") as mock_info:
+        with mock.patch("src.core.ai.vector_search.logger.info") as mock_info:
             _ = LocalVectorIndex()
 
         self.assertTrue(
@@ -64,7 +64,7 @@ class TestLocalVectorIndex(unittest.TestCase):
             )
         )
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "")
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "")
     def test_get_client_stops_retries_after_qdrant_storage_lock(self):
         """После lock-ошибки локального хранилища повторные инициализации клиента не выполняются."""
         qdrant_error = RuntimeError(
@@ -82,9 +82,9 @@ class TestLocalVectorIndex(unittest.TestCase):
         self.assertIsNone(second_client)
         self.assertEqual(fake_constructor.call_count, 1)
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD", 3)
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD", 3)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
     def test_get_client_prefers_remote_when_available(self):
         """При доступном remote backend выбирается удалённый Qdrant-клиент."""
 
@@ -113,10 +113,10 @@ class TestLocalVectorIndex(unittest.TestCase):
         self.assertEqual(counters["remote"], 1)
         self.assertEqual(counters["local"], 0)
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD", 2)
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS", 300)
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD", 2)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS", 300)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
     def test_get_client_fallbacks_to_local_after_remote_failures_threshold(self):
         """После N ошибок remote backend временно отключается, клиент переключается на local."""
 
@@ -149,10 +149,10 @@ class TestLocalVectorIndex(unittest.TestCase):
         self.assertEqual(counters["remote"], 2)
         self.assertEqual(counters["local"], 1)
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD", 1)
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS", 300)
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD", 1)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS", 300)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
     def test_search_uses_local_when_remote_not_responding(self):
         """Поиск переключается на local backend, если remote не отвечает."""
 
@@ -160,7 +160,7 @@ class TestLocalVectorIndex(unittest.TestCase):
             def get_collections(self):
                 return {"collections": []}
 
-            def search(self, **_kwargs):
+            def query_points(self, **_kwargs):
                 raise RuntimeError("remote search failed")
 
         class _Point:
@@ -174,8 +174,8 @@ class TestLocalVectorIndex(unittest.TestCase):
                 self.score = 0.91
 
         class _LocalClient:
-            def search(self, **_kwargs):
-                return [_Point()]
+            def query_points(self, **_kwargs):
+                return types.SimpleNamespace(points=[_Point()])
 
         counters = {"remote": 0, "local": 0}
 
@@ -196,8 +196,8 @@ class TestLocalVectorIndex(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].source, "local_doc.md")
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
     def test_logs_remote_state_up_on_successful_connect(self):
         """При успешном подключении к remote backend пишется лог перехода в состояние UP."""
 
@@ -209,17 +209,17 @@ class TestLocalVectorIndex(unittest.TestCase):
 
         with mock.patch.dict("sys.modules", {"qdrant_client": fake_qdrant_module}):
             index = LocalVectorIndex()
-            with mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.logger.info") as mock_info:
+            with mock.patch("src.core.ai.vector_search.logger.info") as mock_info:
                 _ = index._get_client()
 
         self.assertTrue(
             any("Состояние remote Qdrant: UP" in str(call.args[0]) for call in mock_info.call_args_list)
         )
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD", 1)
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS", 60)
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "https://qdrant.remote")
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_FAILURE_THRESHOLD", 1)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_REMOTE_COOLDOWN_SECONDS", 60)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_LOCAL_MODE", True)
     def test_logs_remote_state_cooldown_after_threshold(self):
         """После достижения порога ошибок remote backend пишет лог перехода в COOLDOWN."""
 
@@ -239,7 +239,7 @@ class TestLocalVectorIndex(unittest.TestCase):
 
         with mock.patch.dict("sys.modules", {"qdrant_client": fake_qdrant_module}):
             index = LocalVectorIndex()
-            with mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.logger.warning") as mock_warning:
+            with mock.patch("src.core.ai.vector_search.logger.warning") as mock_warning:
                 _ = index._get_client()
 
         self.assertTrue(
@@ -250,7 +250,7 @@ class TestLocalVectorIndex(unittest.TestCase):
 class TestLocalEmbeddingProvider(unittest.TestCase):
     """Проверки выбора устройства и инициализации embedding-модели."""
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_DEVICE", "auto")
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_DEVICE", "auto")
     def test_resolve_device_auto_uses_cuda_when_available(self):
         """В режиме auto выбирается CUDA при доступном GPU."""
         captured = {}
@@ -272,7 +272,7 @@ class TestLocalEmbeddingProvider(unittest.TestCase):
         self.assertTrue(is_ready)
         self.assertEqual(captured["device"], "cuda")
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_DEVICE", "cuda")
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_DEVICE", "cuda")
     def test_resolve_device_forced_cuda_falls_back_to_cpu(self):
         """При принудительном CUDA без доступного GPU включается CPU fallback."""
         captured = {}
@@ -294,8 +294,8 @@ class TestLocalEmbeddingProvider(unittest.TestCase):
         self.assertTrue(is_ready)
         self.assertEqual(captured["device"], "cpu")
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_DEVICE", "cuda")
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.LocalEmbeddingProvider._resolve_device", return_value="cuda")
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_DEVICE", "cuda")
+    @mock.patch("src.core.ai.vector_search.LocalEmbeddingProvider._resolve_device", return_value="cuda")
     def test_ensure_model_loaded_passes_device_to_sentence_transformer(self, _mock_resolve_device):
         """Инициализация embedding-модели передаёт выбранный device в SentenceTransformer."""
         captured = {}
@@ -316,8 +316,8 @@ class TestLocalEmbeddingProvider(unittest.TestCase):
         self.assertEqual(captured["model_name"], "BAAI/bge-m3")
         self.assertEqual(captured["device"], "cuda")
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_EMBEDDING_FP16", True)
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.LocalEmbeddingProvider._resolve_device", return_value="cuda")
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_EMBEDDING_FP16", True)
+    @mock.patch("src.core.ai.vector_search.LocalEmbeddingProvider._resolve_device", return_value="cuda")
     def test_fp16_enabled_calls_model_half_on_cuda(self, _mock_resolve_device):
         """При включённом FP16 на CUDA вызывается half() у embedding-модели."""
         captured = {"half_calls": 0}
@@ -341,8 +341,8 @@ class TestLocalEmbeddingProvider(unittest.TestCase):
         self.assertEqual(captured["device"], "cuda")
         self.assertEqual(captured["half_calls"], 1)
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.ai_settings.AI_RAG_VECTOR_EMBEDDING_FP16", True)
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.vector_search.LocalEmbeddingProvider._resolve_device", return_value="cpu")
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_EMBEDDING_FP16", True)
+    @mock.patch("src.core.ai.vector_search.LocalEmbeddingProvider._resolve_device", return_value="cpu")
     def test_fp16_enabled_ignored_on_cpu(self, _mock_resolve_device):
         """При включённом FP16 и CPU устройство half() не вызывается."""
         captured = {"half_calls": 0}

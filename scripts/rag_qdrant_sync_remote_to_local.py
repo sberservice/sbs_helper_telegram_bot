@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     """Точка входа CLI-скрипта синхронизации remote→local Qdrant."""
-    from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
-    from src.sbs_helper_telegram_bot.ai_router.qdrant_sync import QdrantRemoteToLocalSync
+    from config import ai_settings
+    from src.core.ai.qdrant_sync import QdrantRemoteToLocalSync
 
     parser = argparse.ArgumentParser(
         description="Синхронизация Qdrant коллекции remote→local (best-effort)",

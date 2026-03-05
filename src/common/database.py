@@ -3,7 +3,7 @@ import mysql.connector
 import mysql.connector.pooling
 from contextlib import contextmanager
 from typing import Generator, Optional
-from src.common.constants.database import MYSQL_DATABASE, MYSQL_HOST, MYSQL_PASSWORD, MYSQL_PORT, MYSQL_USER
+from config.database_settings import MYSQL_DATABASE, MYSQL_HOST, MYSQL_PASSWORD, MYSQL_PORT, MYSQL_USER
 
 logger = logging.getLogger(__name__)
 

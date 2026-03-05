@@ -12,11 +12,11 @@ from src.sbs_helper_telegram_bot.ai_router.messages import (
     AI_PROGRESS_STAGE_RAG_FALLBACK_STARTED,
     AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
 )
-from src.sbs_helper_telegram_bot.ai_router.prompts import (
+from src.core.ai.prompts import (
     build_rag_fallback_prompt,
     build_rag_prompt,
 )
-from src.sbs_helper_telegram_bot.ai_router.rag_service import (
+from src.core.ai.rag_service import (
     RagAnswer,
     RagKnowledgeService,
 )
@@ -143,11 +143,11 @@ class TestParseRagJsonResponse(unittest.TestCase):
 class TestAnswerQuestionFallback(unittest.IsolatedAsyncioTestCase):
     """Тесты fallback-логики в answer_question."""
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._log_query")
+    @patch("src.core.ai.llm_provider.get_provider")
     async def test_answer_question_json_mode_answered(
         self,
         mock_get_provider,
@@ -179,13 +179,13 @@ class TestAnswerQuestionFallback(unittest.IsolatedAsyncioTestCase):
         call_kwargs = provider.chat.await_args.kwargs
         self.assertEqual(call_kwargs.get("response_format"), {"type": "json_object"})
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_summaries_for_fallback")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_summaries_for_fallback")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._log_query")
+    @patch("src.core.ai.llm_provider.get_provider")
     async def test_answer_question_fallback_triggered(
         self,
         mock_get_provider,
@@ -230,12 +230,12 @@ class TestAnswerQuestionFallback(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(second_call_kwargs.get("response_format"))
         self.assertEqual(second_call_kwargs.get("purpose"), "rag_fallback")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._log_query")
+    @patch("src.core.ai.llm_provider.get_provider")
     async def test_answer_question_fallback_disabled_returns_none(
         self,
         mock_get_provider,
@@ -265,11 +265,11 @@ class TestAnswerQuestionFallback(unittest.IsolatedAsyncioTestCase):
         # Только один вызов chat (основной, без fallback)
         provider.chat.assert_awaited_once()
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._log_query")
+    @patch("src.core.ai.llm_provider.get_provider")
     async def test_answer_question_no_fallback_on_answered(
         self,
         mock_get_provider,
@@ -297,13 +297,13 @@ class TestAnswerQuestionFallback(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.is_fallback)
         provider.chat.assert_awaited_once()
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_summaries_for_fallback")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_summaries_for_fallback")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._log_query")
+    @patch("src.core.ai.llm_provider.get_provider")
     async def test_answer_question_fallback_no_summaries_returns_none(
         self,
         mock_get_provider,
@@ -334,13 +334,13 @@ class TestAnswerQuestionFallback(unittest.IsolatedAsyncioTestCase):
         # Только основной вызов (fallback запросил summary, но не нашёл → нет второго LLM-вызова)
         provider.chat.assert_awaited_once()
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_summaries_for_fallback")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_summaries_for_fallback")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._log_query")
+    @patch("src.core.ai.llm_provider.get_provider")
     async def test_answer_question_zero_chunks_triggers_fallback(
         self,
         mock_get_provider,
@@ -372,13 +372,13 @@ class TestAnswerQuestionFallback(unittest.IsolatedAsyncioTestCase):
         call_kwargs = provider.chat.await_args.kwargs
         self.assertEqual(call_kwargs.get("purpose"), "rag_fallback")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=5)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_summaries_for_fallback")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._get_corpus_version", return_value=5)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_summaries_for_fallback")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._log_query")
+    @patch("src.core.ai.llm_provider.get_provider")
     async def test_fallback_progress_stage_emitted(
         self,
         mock_get_provider,
@@ -415,11 +415,11 @@ class TestAnswerQuestionFallback(unittest.IsolatedAsyncioTestCase):
         self.assertIn(AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED, stages)
         self.assertIn(AI_PROGRESS_STAGE_RAG_FALLBACK_STARTED, stages)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._log_query")
+    @patch("src.core.ai.llm_provider.get_provider")
     async def test_answer_question_cache_preserves_fallback_flag(
         self,
         mock_get_provider,
@@ -451,11 +451,11 @@ class TestAnswerQuestionFallback(unittest.IsolatedAsyncioTestCase):
         # LLM вызван только один раз
         provider.chat.assert_awaited_once()
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._log_query")
+    @patch("src.core.ai.llm_provider.get_provider")
     async def test_answer_question_json_parse_failure_treated_as_answered(
         self,
         mock_get_provider,
@@ -488,7 +488,7 @@ class TestChatResponseFormat(unittest.IsolatedAsyncioTestCase):
 
     async def test_chat_forwards_response_format_to_call_api(self):
         """response_format передаётся в _call_api из chat()."""
-        from src.sbs_helper_telegram_bot.ai_router.llm_provider import DeepSeekProvider
+        from src.core.ai.llm_provider import DeepSeekProvider
 
         provider = DeepSeekProvider(api_key="test_key")
         provider._call_api = AsyncMock(return_value="ok")
@@ -505,7 +505,7 @@ class TestChatResponseFormat(unittest.IsolatedAsyncioTestCase):
 
     async def test_chat_without_response_format(self):
         """Без response_format _call_api получает None."""
-        from src.sbs_helper_telegram_bot.ai_router.llm_provider import DeepSeekProvider
+        from src.core.ai.llm_provider import DeepSeekProvider
 
         provider = DeepSeekProvider(api_key="test_key")
         provider._call_api = AsyncMock(return_value="ok")

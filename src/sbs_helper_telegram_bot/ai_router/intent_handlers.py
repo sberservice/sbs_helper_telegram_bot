@@ -460,8 +460,8 @@ class RagQaHandler(IntentHandler):
         on_progress: Optional[Callable[[str, Optional[Dict[str, Any]]], Awaitable[None]]] = None,
     ) -> str:
         """Ответить на вопрос по загруженным документам."""
-        from src.sbs_helper_telegram_bot.ai_router.rag_service import get_rag_service
-        from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
+        from src.core.ai.rag_service import get_rag_service
+        from config import ai_settings
 
         if not ai_settings.AI_RAG_ENABLED:
             return "⚠️ Режим базы знаний временно отключён\\."

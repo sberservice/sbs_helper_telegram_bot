@@ -13,7 +13,7 @@ from src.common.messages import BUTTON_MAIN_MENU as COMMON_BUTTON_MAIN_MENU
 MODULE_NAME: Final[str] = "Новости"
 MODULE_DESCRIPTION: Final[str] = "Модуль публикации новостей и объявлений с поддержкой рассылки"
 MODULE_VERSION: Final[str] = "1.0.0"
-MODULE_AUTHOR: Final[str] = "SBS Helper Team"
+MODULE_AUTHOR: Final[str] = "SBS Archie Team"
 
 # ===== КНОПКИ МЕНЮ =====
 

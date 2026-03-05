@@ -5,7 +5,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from src.sbs_helper_telegram_bot.ai_router.circuit_breaker import (
+from src.core.ai.circuit_breaker import (
     CircuitBreaker,
     CircuitState,
 )

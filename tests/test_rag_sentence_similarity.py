@@ -7,7 +7,7 @@ import types
 import unittest
 from contextlib import redirect_stdout
 
-from src.sbs_helper_telegram_bot.ai_router import rag_similarity
+from src.core.ai import rag_similarity
 
 
 class _FakeEmbeddingProvider:
@@ -99,10 +99,10 @@ class TestRagSentenceSimilarity(unittest.TestCase):
 
         fake_module.main = fake_interactive_main
         original_module = sys.modules.get(
-            "src.sbs_helper_telegram_bot.ai_router.rag_similarity_interactive"
+            "src.core.ai.rag_similarity_interactive"
         )
         sys.modules[
-            "src.sbs_helper_telegram_bot.ai_router.rag_similarity_interactive"
+            "src.core.ai.rag_similarity_interactive"
         ] = fake_module
 
         try:
@@ -110,11 +110,11 @@ class TestRagSentenceSimilarity(unittest.TestCase):
         finally:
             if original_module is None:
                 del sys.modules[
-                    "src.sbs_helper_telegram_bot.ai_router.rag_similarity_interactive"
+                    "src.core.ai.rag_similarity_interactive"
                 ]
             else:
                 sys.modules[
-                    "src.sbs_helper_telegram_bot.ai_router.rag_similarity_interactive"
+                    "src.core.ai.rag_similarity_interactive"
                 ] = original_module
 
         self.assertEqual(exit_code, 0)

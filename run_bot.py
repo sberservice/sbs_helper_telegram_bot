@@ -82,7 +82,7 @@ def start_output_thread(process, prefix, stop_event):
 def run_bot():
     """Запустить Telegram-бота и фоновые обработчики очередей."""
     
-    print("🚀 Starting SPRINT Fake Location Overlay Bot...\n")
+    print("🚀 Starting SBS Archie...\n")
     
     # Отслеживаем попытки перезапуска для каждого процесса
     telegram_restart_count = 0
@@ -117,7 +117,7 @@ def run_bot():
     soos_thread = start_output_thread(soos_process, "SOOS", soos_stop_event)
     health_thread = start_output_thread(health_process, "HEALTH", health_stop_event)
     
-    print("✅ Both services started!\n")
+    print("✅ All services started!\n")
     print("Press Ctrl+C to stop all services.\n")
     
     # Корректно обрабатываем Ctrl+C

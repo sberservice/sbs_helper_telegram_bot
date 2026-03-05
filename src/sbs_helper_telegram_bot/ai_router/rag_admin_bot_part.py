@@ -9,7 +9,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from src.common.telegram_user import check_if_user_admin
-from src.sbs_helper_telegram_bot.ai_router.rag_service import get_rag_service
+from src.core.ai.rag_service import get_rag_service
 
 logger = logging.getLogger(__name__)
 

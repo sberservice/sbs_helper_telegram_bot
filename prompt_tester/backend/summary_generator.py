@@ -11,7 +11,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
-from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
+from config import ai_settings
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +158,7 @@ async def generate_summary(
 
     start_ts = time.monotonic()
     try:
-        from src.sbs_helper_telegram_bot.ai_router.llm_provider import get_provider
+        from src.core.ai.llm_provider import get_provider
 
         provider = get_provider()
         actual_model = model_name

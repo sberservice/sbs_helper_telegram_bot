@@ -5,7 +5,7 @@ test_ai_model_switch.py — тесты переключения модели Dee
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
+from config import ai_settings as ai_settings
 
 
 class TestAIModelSettings(unittest.TestCase):
@@ -16,7 +16,7 @@ class TestAIModelSettings(unittest.TestCase):
         self.assertEqual(ai_settings.normalize_deepseek_model("deepseek-chat"), "deepseek-chat")
         self.assertEqual(ai_settings.normalize_deepseek_model("DEEPSEEK-REASONER"), "deepseek-reasoner")
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.settings.DEEPSEEK_MODEL", "deepseek-chat"):
+        with patch("config.ai_settings.DEEPSEEK_MODEL", "deepseek-chat"):
             self.assertEqual(ai_settings.normalize_deepseek_model("unknown"), "deepseek-chat")
 
     @patch("src.common.bot_settings.get_setting", return_value="deepseek-reasoner")
@@ -40,7 +40,7 @@ class TestAIModelSettings(unittest.TestCase):
         mock_get_setting.assert_called_once_with(ai_settings.AI_RAG_HTML_SPLITTER_ENABLED_SETTING_KEY)
 
     @patch(
-        "src.sbs_helper_telegram_bot.ai_router.settings.AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL",
+        "config.ai_settings.AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL",
         "deepseek-reasoner",
     )
     def test_get_directory_ingest_summary_model_override_valid(self):
@@ -51,7 +51,7 @@ class TestAIModelSettings(unittest.TestCase):
         )
 
     @patch(
-        "src.sbs_helper_telegram_bot.ai_router.settings.AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL",
+        "config.ai_settings.AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL",
         "unsupported-model",
     )
     def test_get_directory_ingest_summary_model_override_invalid_returns_none(self):
