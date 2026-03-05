@@ -105,6 +105,8 @@ CLOSED ──(5 ошибок)──► OPEN ──(300с)──► HALF_OPEN
 
 **HTML-документы**: приоритетный semantic-preserving chunking через `HTMLSemanticPreservingSplitter` (h1–h6); при недоступности используется `HTMLHeaderTextSplitter`, затем fallback на plain-text.
 
+**Plain-text chunking**: `RecursiveCharacterTextSplitter` загружается из `langchain_text_splitters` (с fallback на legacy namespace для обратной совместимости).
+
 **Python 3.14+**: LangChain splitters поддерживаются; встроенный fallback используется только при ошибке импорта/инициализации splitter-а.
 
 ### Retrieval

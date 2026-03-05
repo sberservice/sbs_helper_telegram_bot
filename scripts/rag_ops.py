@@ -160,7 +160,6 @@ def cmd_health(_args: argparse.Namespace) -> int:
     _step("MySQL")
     try:
         from src.common import database  # noqa: PLC0415
-        from config import settings  # noqa: PLC0415
 
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
@@ -182,11 +181,10 @@ def cmd_health(_args: argparse.Namespace) -> int:
         if not ai_settings.AI_RAG_VECTOR_ENABLED:
             _warn("AI_RAG_VECTOR_ENABLED=0 — векторный слой отключён.")
         else:
-            from src.sbs_helper_telegram_bot.ai_router.vector_search import (  # noqa: PLC0415
-                VectorIndexFactory,
-            )
-            index = VectorIndexFactory.get_index()
-            if index is None:
+            from src.sbs_helper_telegram_bot.ai_router.vector_search import LocalVectorIndex  # noqa: PLC0415
+
+            index = LocalVectorIndex()
+            if not index.is_ready():
                 _warn("Векторный индекс не инициализирован (возможно, local mode + Qdrant не запущен).")
             else:
                 _ok("Qdrant подключён и векторный индекс доступен.")
@@ -267,10 +265,11 @@ def cmd_setup(args: argparse.Namespace) -> int:
         _ok(".env найден.")
 
     try:
-        from config import settings as cfg  # noqa: PLC0415
-        _ok(f"MySQL: {cfg.MYSQL_HOST}:{cfg.MYSQL_PORT}/{cfg.MYSQL_DATABASE}")
+        from src.common.constants import database as db_cfg  # noqa: PLC0415
+
+        _ok(f"MySQL: {db_cfg.MYSQL_HOST}:{db_cfg.MYSQL_PORT}/{db_cfg.MYSQL_DATABASE}")
     except Exception as exc:
-        _err(f"Ошибка загрузки config/settings.py: {exc}")
+        _err(f"Ошибка загрузки MySQL-конфигурации: {exc}")
         return 1
 
     try:
@@ -299,7 +298,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         return 1
 
     if apply_sql or (not yes and _confirm("Применить SQL-миграции?", default=True)):
-        from config import settings as cfg  # noqa: PLC0415
+        from src.common.constants import database as db_cfg  # noqa: PLC0415
 
         for sql_file in pending_files:
             name = Path(sql_file).name
@@ -307,12 +306,13 @@ def cmd_setup(args: argparse.Namespace) -> int:
                 result = subprocess.run(
                     [
                         "mysql",
-                        f"-h{cfg.MYSQL_HOST}",
-                        f"-P{cfg.MYSQL_PORT}",
-                        f"-u{cfg.MYSQL_USER}",
-                        f"-p{cfg.MYSQL_PASSWORD}",
-                        cfg.MYSQL_DATABASE,
+                        f"-h{db_cfg.MYSQL_HOST}",
+                        f"-P{db_cfg.MYSQL_PORT}",
+                        f"-u{db_cfg.MYSQL_USER}",
+                        f"-p{db_cfg.MYSQL_PASSWORD}",
+                        db_cfg.MYSQL_DATABASE,
                     ],
+                    check=False,
                     input=Path(sql_file).read_text(encoding="utf-8"),
                     capture_output=True,
                     text=True,
@@ -337,7 +337,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         "запустите backfill чанков и summary:"
     )
     print()
-    print(f"    python scripts/rag_vector_backfill.py --target both --batch-size 100")
+    print("    python scripts/rag_vector_backfill.py --target both --batch-size 100")
     print()
 
     try:

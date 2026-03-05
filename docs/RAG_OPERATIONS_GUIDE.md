@@ -420,6 +420,9 @@ python scripts/rag_ops.py setup [--apply-sql] [--yes]
 | `--apply-sql` | Применить SQL без вопросов |
 | `--yes` / `-y` | Подтверждать все шаги автоматически |
 
+Примечание: команда читает MySQL-параметры из переменных окружения `MYSQL_*`
+через `src.common.constants.database`.
+
 #### `update docs`
 
 ```bash
@@ -500,8 +503,10 @@ python scripts/rag_ops.py wizard
 
 ```bash
 python scripts/rag_directory_ingest.py -d PATH [--force-update] [--daemon] \
-  [--interval-seconds N] [--dry-run] [--regenerate-summaries] [--no-recursive] [-v]
+  [--interval-seconds N] [--dry-run] [--regenerate-summaries] [--no-recursive] [--info] [-v]
 ```
+
+**Флаг `--info`** — выводит подробную информацию о текущем режиме ingestion (версии LangChain, активный сплиттер, сепараторы, параметры чанкинга, статистика файлов в директории) и завершает работу без выполнения ingestion.
 
 **Важно:** не выполняет inline vector upsert — после запуска необходим `rag_vector_backfill.py`.
 
@@ -546,12 +551,38 @@ python scripts/rag_qdrant_sync_remote_to_local.py \
 
 Сравнение семантической/лексической близости двух фраз (для ручной проверки RAG).
 
+**Одноразовый режим** (legacy):
+
 ```bash
 python scripts/rag_sentence_similarity.py \
   --sentence-a "Ошибка UPOS: не проходит оплата" \
   --sentence-b "Оплата по карте не проходит на UPOS" \
   --threshold 0.70 [--json]
 ```
+
+**Интерактивный REPL** (`-i` / `--interactive`):
+
+```bash
+# Запуск пустого REPL
+python scripts/rag_sentence_similarity.py -i
+
+# С предустановленными предложениями
+python scripts/rag_sentence_similarity.py -i \
+  --sentence-a "Ошибка UPOS" --sentence-b "Сбой терминала"
+```
+
+Основные возможности REPL:
+
+| Команда | Описание |
+|---------|----------|
+| `a <текст>` / `b <текст>` | Задать/изменить одно предложение |
+| `compare` / `c` | Сравнить текущие предложения |
+| `swap` | Поменять A и B местами |
+| `threshold <0‥1>` | Изменить порог без повторного ввода |
+| `metrics [semantic lexical sequence \| all]` | Выбрать метрики для combined score |
+| `history` / `diff N M` | Просмотреть историю / сравнить два результата |
+| `export json <файл>` / `export csv <файл>` | Экспортировать историю |
+| `status` | Проверить статус embedding-модели |
 
 ---
 

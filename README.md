@@ -30,6 +30,22 @@
 
 **AI-маршрутизатор** работает в фоне — просто пишите боту текст, и он сам разберётся куда его направить. Circuit breaker, rate limiter и RAG-база знаний документов — всё включено.
 
+## Prompt Tester (major feature)
+
+В проект входит отдельный веб-инструмент **Prompt Tester** для слепого попарного сравнения промптов summary в RAG:
+- сравнение комбинаций `(system_prompt + user_message + model + temperature)`;
+- режимы оценки `human`, `llm`, `both`;
+- корректные этапы выполнения `generating -> judging -> in_progress/completed`;
+- итоговые рейтинги Elo + Win Rate.
+
+Запуск:
+
+```bash
+python -m prompt_tester
+```
+
+Документация: [prompt_tester/README.md](prompt_tester/README.md)
+
 ## Быстрый старт
 
 ### Требования
@@ -54,7 +70,7 @@ for f in bot_settings_setup initial_ticket_types initial_validation_rules \
          soos_image_queue_setup \
          gamification_setup feedback_setup news_setup ai_router_setup ai_rag_setup \
          ai_rag_document_summaries_setup ai_rag_vector_setup ai_rag_certification_signals_setup chat_members_setup health_check_setup \
-         health_outage_calendar_setup; do
+         health_outage_calendar_setup prompt_tester_setup; do
   mysql -u root -p sprint_db < "sql/${f}.sql"
 done
 # Для существующих БД без FULLTEXT-индекса summary_text:
@@ -137,7 +153,7 @@ pytest
 - [AI RAG — база знаний](docs/AI_RAG_GUIDE.md)
 - [Рекомендации по валидатору](docs/VALIDATOR_RECOMMENDATIONS.md)
 
-**Утилиты:** `scripts/sync_chat_members.py` (синхронизация Telegram-группы), `scripts/add_daily_scores.py` (массовое начисление очков), `scripts/rag_ops.py` (**единый CLI для всех RAG-операций**: health-check, status, первичная настройка, обновление документов/аттестации/векторов, sync-remote, интерактивный wizard — подробнее см. [docs/RAG_OPERATIONS_GUIDE.md](docs/RAG_OPERATIONS_GUIDE.md)), `scripts/rag_directory_ingest.py` (пакетная загрузка документов в RAG), `scripts/rag_certification_sync.py` (синхронизация вопросов/ответов аттестации в RAG), `scripts/rag_vector_backfill.py` (пакетная индексация существующих RAG-чанков и/или summary-документов в локальный Qdrant), `scripts/rag_qdrant_sync_remote_to_local.py` (best-effort синхронизация коллекции Qdrant из remote в local), `scripts/rag_sentence_similarity.py` (оценка похожести двух фраз для ручной проверки RAG).
+**Утилиты:** `scripts/sync_chat_members.py` (синхронизация Telegram-группы), `scripts/add_daily_scores.py` (массовое начисление очков), `scripts/rag_ops.py` (**единый CLI для всех RAG-операций**: health-check, status, первичная настройка, обновление документов/аттестации/векторов, sync-remote, интерактивный wizard — подробнее см. [docs/RAG_OPERATIONS_GUIDE.md](docs/RAG_OPERATIONS_GUIDE.md)), `scripts/rag_directory_ingest.py` (пакетная загрузка документов в RAG), `scripts/rag_certification_sync.py` (синхронизация вопросов/ответов аттестации в RAG), `scripts/rag_vector_backfill.py` (пакетная индексация существующих RAG-чанков и/или summary-документов в локальный Qdrant), `scripts/rag_qdrant_sync_remote_to_local.py` (best-effort синхронизация коллекции Qdrant из remote в local), `scripts/rag_sentence_similarity.py` (оценка похожести двух фраз для ручной проверки RAG), `python -m prompt_tester` (веб-интерфейс Prompt Tester для слепого тестирования summary-промптов).
 
 ## Лицензия
 

@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import re
+import sys
 from difflib import SequenceMatcher
 from typing import List, Optional
 
@@ -126,8 +127,20 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[List[str]] = None) -> int:
     """Точка входа CLI-утилиты сравнения предложений."""
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+
+    if "--interactive" in raw_argv or "-i" in raw_argv:
+        filtered_argv = [
+            arg for arg in raw_argv
+            if arg not in ("--interactive", "-i")
+        ]
+        from src.sbs_helper_telegram_bot.ai_router.rag_similarity_interactive import (
+            main as interactive_main,
+        )
+        return interactive_main(filtered_argv)
+
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
 
     if args.threshold < -1.0 or args.threshold > 1.0:
         parser.error("--threshold должен быть в диапазоне от -1 до 1")

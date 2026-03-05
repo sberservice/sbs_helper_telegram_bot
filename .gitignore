@@ -46,3 +46,12 @@ typescript
 data/
 data/qdrant/collection/rag_chunks_v1/storage.sqlite
 config/helper_groups.json
+*/node_modules/
+node_modules/
+docs/RAG_OPERATIONS_GUIDE.md
+docs/AI_RAG_GUIDE.md
+RAG_PRESENTATION.md
+rag_pres1.md
+*.tsbuildinfo
+docs/IDF.md
+docs/ingestion.md

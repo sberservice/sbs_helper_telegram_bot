@@ -5,6 +5,67 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.3.0] - 2026-03-05
+
+### Added
+- Выпущен Prompt Tester как major-функция: отдельный веб-инструмент для слепого A/B тестирования пар `(system_prompt + user_message + model + temperature)` на документах RAG-базы с CRUD промптов, стратифицированной выборкой, split-view интерфейсом и рейтингами Elo + Win Rate.
+- Добавлен сценарий обновления существующей БД для нового статуса сессии LLM-оценки: SQL-миграция `sql/prompt_tester_add_judging_status.sql`.
+
+### Changed
+- Для сессий Prompt Tester введён явный промежуточный статус `judging` (LLM-as-Judge в процессе), чтобы корректно отражать этапы `generating -> judging -> in_progress/completed`.
+- Обновлён UX статусов в веб-интерфейсе Prompt Tester: во время LLM-оценки показываются отдельные состояние и прогресс без предложения ручного голосования до завершения judge-этапа.
+
+### Fixed
+- Исправлено некорректное поведение LLM-only тестов: сессии больше не помечаются завершёнными до фактического окончания LLM-as-Judge.
+- Исправлён подсчёт прогресса LLM-оценки в списке сессий Prompt Tester: завершённые автоматические сравнения теперь инкрементируют `completed_comparisons`, вместо зависания на `0/N`.
+- Исправлено форматирование access-логов Prompt Tester (uvicorn): устранены runtime-ошибки `Formatting field not found in record: 'client_addr'`.
+
+## [0.2.63] - 2026-03-05
+
+### Added
+- Слепой A/B тестер промптов для сравнения пар (system\_prompt + user\_message) при генерации summary документов RAG-базы: CRUD промптов, стратифицированная выборка документов, Elo + Win Rate рейтинг, LLM-as-Judge автоматическая оценка, split-view интерфейс с клавиатурными хоткеями.
+
+## [0.2.62] - 2026-03-05
+
+### Fixed
+- Исправлен запуск `rag_sentence_similarity.py -i` без дополнительных аргументов: флаг интерактивного режима теперь корректно удаляется из argv до передачи в REPL-парсер, что устраняет ошибку `unrecognized arguments: -i`.
+
+## [0.2.61] - 2026-03-05
+
+### Added
+- Интерактивный REPL-режим для `rag_sentence_similarity.py` (`--interactive` / `-i`): история сравнений, изменение одного предложения за раз, настройка порога и активных метрик без повторного ввода, команды `diff` / `swap` / `export` (JSON/CSV), автодополнение команд, визуальные прогресс-бары метрик.
+
+## [0.2.60] - 2026-03-05
+
+### Fixed
+- Исправлен `rag_ops.py setup`: MySQL-параметры теперь читаются из `src.common.constants.database`, что устраняет падение с ошибкой `config.settings has no attribute MYSQL_HOST`.
+- Исправлен `rag_ops.py health`: проверка векторного слоя использует актуальный `LocalVectorIndex` вместо удалённого `VectorIndexFactory`.
+
+## [0.2.59] - 2026-03-05
+
+### Changed
+- Добавлено диагностическое runtime-логирование действия IDF dampening в RAG summary BM25 (`summary_prefilter` и `summary_fallback`): теперь в лог пишется JSON с причиной применения, порогами, common/rare токенами и изменением кратности токенов до/после dampening для каждого запроса.
+
+## [0.2.58] - 2026-03-05
+
+### Fixed
+- Исправлен вывод `--info` в `rag_directory_ingest.py`: версия `langchain-text-splitters` теперь определяется через `importlib.metadata` и корректно отображается даже когда у модуля отсутствует `__version__`.
+
+## [0.2.57] - 2026-03-05
+
+### Fixed
+- Исправлена интеграция `langchain-text-splitters` для plain-text chunking в RAG: `RecursiveCharacterTextSplitter` теперь загружается из `langchain_text_splitters` с fallback на legacy namespace, что устраняет тихую деградацию в `manual_window_slicer` на окружениях с `langchain 1.x` и Python 3.14+.
+
+## [0.2.56] - 2026-03-04
+
+### Added
+- Русскоязычные сепараторы для `RecursiveCharacterTextSplitter` \(`! `, `? `, `; `, `, `, `— `\) и защита аббревиатур \(т\.\u0434\., т\.\u043f\., г\., ККТ\., НДС\. и др\.\) от разрезания при chunking\.
+- Fallback manual window slicer теперь ищет границы предложений \(`.`, `!`, `?`\) вместо слепой резки по символам\.
+- Флаг `--info` в `rag_directory_ingest.py` для отображения текущего режима ingestion: версии LangChain, активный сплиттер, параметры чанкинга, сепараторы, статистика директории\.
+
+### Changed
+- `ingest_document_from_bytes` стал `async` с offload\-ом DB/IO\-операций в thread executor \(`run_in_executor`\)\. Синхронный вариант доступен как `ingest_document_from_bytes_sync`\. LLM\-суммаризация теперь работает даже при вызове из async\-контекста Telegram\-бота\.
+
 ## [0.2.55] - 2026-03-02
 
 ### Changed
@@ -189,7 +250,7 @@
 
 ### Added
 - Новый единый CLI `scripts/rag_ops.py` с командами `health`, `status`, `setup`, `update docs/cert/vectors/all`, `sync-remote` и интерактивным `wizard` для управления RAG-корпусом.
-- Новый документ `docs/RAG_OPERATIONS_GUIDE.md` — полное руководство по первичной настройке, workflow обновлений и восстановлению RAG-индекса.
+
 
 ## [0.2.22] - 2026-02-27
 

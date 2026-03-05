@@ -79,6 +79,47 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         chunks = RagKnowledgeService._split_text(long_text)
         self.assertGreaterEqual(len(chunks), 3)
 
+    def test_split_text_preserves_russian_abbreviations(self):
+        """Точки в русских аббревиатурах не разрезают текст на чанки."""
+        text = "Система ККТ используется для учёта товаров и т.д. Также применяется для расчёта НДС и т.п. Это важно."
+        chunks = RagKnowledgeService._split_text(text)
+        joined = " ".join(chunks)
+        self.assertIn("т.д.", joined)
+        self.assertIn("т.п.", joined)
+
+    def test_split_text_uses_russian_separators_with_langchain(self):
+        """При наличии LangChain используются русскоязычные сепараторы."""
+        # Текст с вопросительным и восклицательным знаками — они должны быть сепараторами
+        text = "Первая часть текста. " * 50 + "Что такое ККТ? " * 50 + "Это важно! " * 50
+        chunks = RagKnowledgeService._split_text(text)
+        self.assertGreater(len(chunks), 1)
+        # ни один чанк не должен быть пустым
+        for chunk in chunks:
+            self.assertTrue(chunk.strip())
+
+    def test_protect_abbreviations_replaces_dots(self):
+        """_protect_abbreviations заменяет точки в аббревиатурах на плейсхолдер."""
+        text = "и т.д. и т.п."
+        protected = RagKnowledgeService._protect_abbreviations(text)
+        self.assertNotEqual(text, protected)
+        restored = RagKnowledgeService._restore_abbreviations(protected)
+        self.assertEqual(restored, text)
+
+    def test_split_text_fallback_respects_sentence_boundaries(self):
+        """Fallback-slicer ищет границу предложения вместо резки посередине слова."""
+        # Создаём текст из чётких предложений
+        sentences = [f"Предложение номер {i} содержит важную информацию." for i in range(1, 30)]
+        text = " ".join(sentences)
+        with patch.object(RagKnowledgeService, "_is_langchain_splitter_supported", return_value=False):
+            chunks = RagKnowledgeService._split_text(text)
+        self.assertGreater(len(chunks), 1)
+        # Каждый чанк должен заканчиваться точкой или продолжением предложения
+        for chunk in chunks[:-1]:  # Последний чанк может быть неполным
+            self.assertTrue(
+                chunk.rstrip().endswith(".") or chunk.rstrip()[-1].isalpha(),
+                f"Чанк неожиданно заканчивается: ...{chunk[-30:]!r}"
+            )
+
     def test_split_text_skips_langchain_import_on_python_314(self):
         """На Python 3.14+ не выполняется импорт langchain, используется fallback."""
 
@@ -362,7 +403,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         service = RagKnowledgeService()
 
         with patch.object(service, "_is_langchain_splitter_supported", return_value=True):
-            with patch.object(service, "_resolve_text_slicer_name", return_value="RecursiveCharacterTextSplitter(langchain.text_splitter)"):
+            with patch.object(service, "_resolve_text_slicer_name", return_value="RecursiveCharacterTextSplitter(langchain_text_splitters)"):
                 with patch(
                     "src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_html_splitter_enabled",
                     return_value=True,
@@ -371,7 +412,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(diagnostics["chunk_size"], 1000)
         self.assertEqual(diagnostics["chunk_overlap"], 150)
-        self.assertEqual(diagnostics["text_slicer"], "RecursiveCharacterTextSplitter(langchain.text_splitter)")
+        self.assertEqual(diagnostics["text_slicer"], "RecursiveCharacterTextSplitter(langchain_text_splitters)")
         self.assertEqual(diagnostics["html_strategy"], "html_semantic_preserving_splitter_with_fallback")
         self.assertEqual(diagnostics["plain_text_strategy"], "extract_text_then_split_text")
         self.assertTrue(diagnostics["html_splitter_enabled"])
@@ -1409,7 +1450,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
                 with patch.object(service, "delete_document", return_value=True) as mock_delete:
                     with patch.object(
                         service,
-                        "ingest_document_from_bytes",
+                        "ingest_document_from_bytes_sync",
                         return_value={"document_id": 555, "chunks_count": 1, "is_duplicate": 0},
                     ) as mock_ingest:
                         with patch.object(service, "_upsert_document_signal"):
@@ -1460,7 +1501,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
                 with patch.object(service, "delete_document", return_value=True) as mock_delete:
                     with patch.object(
                         service,
-                        "ingest_document_from_bytes",
+                        "ingest_document_from_bytes_sync",
                         return_value={"document_id": 777, "chunks_count": 1, "is_duplicate": 0},
                     ) as mock_ingest:
                         with patch.object(service, "_upsert_document_signal"):
@@ -1732,7 +1773,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             "status": "archived",
         }
 
-        result = service.ingest_document_from_bytes(
+        result = service.ingest_document_from_bytes_sync(
             filename="rules.txt",
             payload=b"test content",
             uploaded_by=100,
@@ -1770,7 +1811,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_split_text.return_value = ["Первый чанк", "Второй чанк"]
         mock_generate_summary.return_value = ("Краткое summary документа", "deepseek-chat")
 
-        result = service.ingest_document_from_bytes(
+        result = service.ingest_document_from_bytes_sync(
             filename="manual.txt",
             payload=b"payload",
             uploaded_by=7,
@@ -1824,7 +1865,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         cursor.execute.side_effect = execute_side_effect
 
-        result = service.ingest_document_from_bytes(
+        result = service.ingest_document_from_bytes_sync(
             filename="manual.txt",
             payload=b"payload",
             uploaded_by=7,
@@ -2147,7 +2188,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         cursor = mock_get_cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = {"id": 99, "status": "deleted"}
 
-        result = service.ingest_document_from_bytes(
+        result = service.ingest_document_from_bytes_sync(
             filename="manual.txt",
             payload=b"payload",
             uploaded_by=7,
@@ -2157,6 +2198,31 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["is_duplicate"], 1)
         self.assertEqual(result["reactivated"], 1)
         mock_set_vector_status.assert_called_once_with(99, "active")
+
+    @patch("src.common.database.get_db_connection")
+    @patch("src.common.database.get_cursor")
+    @patch.object(RagKnowledgeService, "_set_vector_document_status")
+    async def test_async_ingest_document_from_bytes_delegates_to_sync(
+        self,
+        mock_set_vector_status,
+        mock_get_cursor,
+        mock_get_db_connection,
+    ):
+        """Async ingest делегирует работу sync-методу через run_in_executor."""
+        service = RagKnowledgeService()
+        cursor = mock_get_cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {"id": 42, "status": "deleted"}
+
+        result = await service.ingest_document_from_bytes(
+            filename="async_test.txt",
+            payload=b"async payload",
+            uploaded_by=99,
+        )
+
+        self.assertEqual(result["document_id"], 42)
+        self.assertEqual(result["is_duplicate"], 1)
+        self.assertEqual(result["reactivated"], 1)
+        mock_set_vector_status.assert_called_once_with(42, "active")
 
     # =============================================
     # Тесты Query Preprocessing: стоп-слова, паттерны, IDF dampening
@@ -2313,6 +2379,47 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         """Пустые входные данные обрабатываются без ошибок."""
         self.assertEqual(RagKnowledgeService._dampen_common_query_tokens([], [["a"]]), [])
         self.assertEqual(RagKnowledgeService._dampen_common_query_tokens(["a"], []), ["a"])
+
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_RATIO", 0.5)
+    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR", 0.1)
+    def test_idf_dampening_logging_contains_effect_payload(self, *_):
+        """Лог IDF dampening содержит причину применения и изменённые веса токенов."""
+        service = RagKnowledgeService()
+        query_tokens = ["что", "такое", "любовь"]
+        corpus = [
+            ["что", "такое", "рассвет"],
+            ["что", "такое", "звезда"],
+            ["что", "такое", "эквайринг"],
+            ["любовь", "это", "чувство"],
+        ]
+
+        dampened_tokens, diagnostics = RagKnowledgeService._dampen_common_query_tokens(
+            query_tokens,
+            corpus,
+            return_diagnostics=True,
+        )
+
+        with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.info") as mock_logger_info:
+            service._log_idf_dampening_effect(
+                stage="summary_prefilter",
+                question="что такое любовь",
+                diagnostics=diagnostics,
+            )
+
+        self.assertTrue(dampened_tokens)
+        mock_logger_info.assert_called_once()
+        self.assertEqual(mock_logger_info.call_args.args[0], "RAG IDF dampening [%s]: %s")
+        self.assertEqual(mock_logger_info.call_args.args[1], "summary_prefilter")
+
+        payload_raw = str(mock_logger_info.call_args.args[2])
+        payload = json.loads(payload_raw)
+        self.assertTrue(payload["applied"])
+        self.assertEqual(payload["reason"], "applied")
+        self.assertIn("что", payload["common_tokens"])
+        self.assertIn("такое", payload["common_tokens"])
+        self.assertIn("любовь", payload["rare_tokens"])
+        self.assertIn("любовь", payload["changed_token_counts"])
+        self.assertGreater(payload["changed_token_counts"]["любовь"]["after"], payload["changed_token_counts"]["любовь"]["before"])
 
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT", 0.0)
     @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT", 1.0)

@@ -2,6 +2,8 @@
 
 import io
 import json
+import sys
+import types
 import unittest
 from contextlib import redirect_stdout
 
@@ -85,6 +87,38 @@ class TestRagSentenceSimilarity(unittest.TestCase):
                 "не пусто",
             ])
         self.assertEqual(cm.exception.code, 2)
+
+    def test_cli_interactive_short_flag_without_args(self):
+        """Флаг -i без доп. аргументов не должен падать на argparse."""
+        fake_module = types.SimpleNamespace()
+        captured = {}
+
+        def fake_interactive_main(argv=None):
+            captured["argv"] = argv
+            return 0
+
+        fake_module.main = fake_interactive_main
+        original_module = sys.modules.get(
+            "src.sbs_helper_telegram_bot.ai_router.rag_similarity_interactive"
+        )
+        sys.modules[
+            "src.sbs_helper_telegram_bot.ai_router.rag_similarity_interactive"
+        ] = fake_module
+
+        try:
+            exit_code = rag_similarity.main(["-i"])
+        finally:
+            if original_module is None:
+                del sys.modules[
+                    "src.sbs_helper_telegram_bot.ai_router.rag_similarity_interactive"
+                ]
+            else:
+                sys.modules[
+                    "src.sbs_helper_telegram_bot.ai_router.rag_similarity_interactive"
+                ] = original_module
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(captured["argv"], [])
 
 
 if __name__ == "__main__":
