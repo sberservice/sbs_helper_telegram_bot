@@ -13,7 +13,7 @@ RAG-поток позволяет:
 
 - Новый intent: `rag_qa`.
 - Новый обработчик: `RagQaHandler` в `src/sbs_helper_telegram_bot/ai_router/intent_handlers.py`.
-- Сервис базы знаний: `RagKnowledgeService` в `src/sbs_helper_telegram_bot/ai_router/rag_service.py`.
+- Сервис базы знаний: `RagKnowledgeService` в `src/core/ai/rag_service.py`.
 - Админ-загрузка документов через Telegram: отправка файла с подписью `#rag`.
 - Синхронизация директории документов через helper-скрипт `scripts/rag_directory_ingest.py` (on-demand и daemon-режим).
 - Синхронизация вопросов/ответов аттестации через helper-скрипт `scripts/rag_certification_sync.py`.

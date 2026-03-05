@@ -14,15 +14,16 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 import src.common.bot_settings as bot_settings
 import src.common.database as database
 
-from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings
-from src.sbs_helper_telegram_bot.ai_router.circuit_breaker import CircuitBreaker
-from src.sbs_helper_telegram_bot.ai_router.context_manager import ConversationContextManager
+from config import ai_settings
+from src.sbs_helper_telegram_bot.ai_router.settings import AI_MODULE_KEY
+from src.core.ai.circuit_breaker import CircuitBreaker
+from src.core.ai.context_manager import ConversationContextManager
 from src.sbs_helper_telegram_bot.ai_router.intent_handlers import (
     HandlerExecutionResult,
     IntentHandler,
     get_all_handlers,
 )
-from src.sbs_helper_telegram_bot.ai_router.llm_provider import (
+from src.core.ai.llm_provider import (
     ClassificationResult,
     LLMProviderTemporaryError,
     LLMProvider,
@@ -36,11 +37,11 @@ from src.sbs_helper_telegram_bot.ai_router.messages import (
     format_module_disabled_message,
     format_rate_limit_message,
 )
-from src.sbs_helper_telegram_bot.ai_router.prompts import (
+from src.core.ai.prompts import (
     build_chat_prompt,
     build_classification_prompt,
 )
-from src.sbs_helper_telegram_bot.ai_router.rate_limiter import AIRateLimiter
+from src.core.ai.rate_limiter import AIRateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +132,7 @@ class IntentRouter:
         provider_name = "unknown"
 
         # 1. Проверяем, включён ли AI-модуль
-        if not bot_settings.is_module_enabled(ai_settings.AI_MODULE_KEY):
+        if not bot_settings.is_module_enabled(AI_MODULE_KEY):
             return None, "disabled"
 
         # 2. Rate-limit
@@ -668,7 +669,7 @@ class IntentRouter:
             return False
         if "rag_qa" not in self._handlers:
             return False
-        if not bot_settings.is_module_enabled(ai_settings.AI_MODULE_KEY):
+        if not bot_settings.is_module_enabled(AI_MODULE_KEY):
             return False
         if self._is_small_talk_message(original_text):
             return False

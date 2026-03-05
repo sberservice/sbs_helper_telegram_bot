@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch, MagicMock, AsyncMock
 import httpx
 
-from src.sbs_helper_telegram_bot.ai_router.llm_provider import (
+from src.core.ai.llm_provider import (
     ClassificationResult,
     DeepSeekProvider,
     LLMProviderTemporaryError,
@@ -222,8 +222,8 @@ class TestDeepSeekProviderInit(unittest.TestCase):
 class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
     """Тесты runtime-выбора модели DeepSeek."""
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.settings.get_active_deepseek_model_for_response", return_value="deepseek-reasoner")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    @patch("config.ai_settings.get_active_deepseek_model_for_response", return_value="deepseek-reasoner")
+    @patch("src.core.ai.llm_provider.httpx.AsyncClient")
     async def test_call_api_uses_active_model(self, mock_async_client, mock_active_model):
         """_call_api отправляет в payload активную модель из настроек."""
         provider = DeepSeekProvider(api_key="test_key")
@@ -242,9 +242,9 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         post_kwargs = mock_client.post.await_args.kwargs
         self.assertEqual(post_kwargs["json"]["model"], "deepseek-reasoner")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.logger.info")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.AI_LOG_MODEL_IO", True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    @patch("src.core.ai.llm_provider.logger.info")
+    @patch("src.core.ai.llm_provider.ai_settings.AI_LOG_MODEL_IO", True)
+    @patch("src.core.ai.llm_provider.httpx.AsyncClient")
     async def test_call_api_logs_prompt_and_raw_response(self, mock_async_client, mock_logger_info):
         """При включённом флаге логируются prompt payload и сырой ответ модели."""
         provider = DeepSeekProvider(api_key="test_key")
@@ -263,8 +263,8 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("LLM request payload:" in msg for msg in logged_messages))
         self.assertTrue(any("LLM raw response:" in msg for msg in logged_messages))
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.settings.get_active_deepseek_model_for_classification", return_value="deepseek-chat")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    @patch("config.ai_settings.get_active_deepseek_model_for_classification", return_value="deepseek-chat")
+    @patch("src.core.ai.llm_provider.httpx.AsyncClient")
     async def test_call_api_uses_classification_model(self, mock_async_client, mock_class_model):
         """_call_api для классификации берёт отдельную модель классификатора."""
         provider = DeepSeekProvider(api_key="test_key")
@@ -283,8 +283,8 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         post_kwargs = mock_client.post.await_args.kwargs
         self.assertEqual(post_kwargs["json"]["model"], "deepseek-chat")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.settings.get_active_deepseek_model_for_response", return_value="deepseek-chat")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    @patch("config.ai_settings.get_active_deepseek_model_for_response", return_value="deepseek-chat")
+    @patch("src.core.ai.llm_provider.httpx.AsyncClient")
     async def test_chat_uses_model_override_when_provided(self, mock_async_client, mock_response_model):
         """chat использует model_override для конкретного вызова."""
         provider = DeepSeekProvider(api_key="test_key")
@@ -314,10 +314,10 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         provider._call_api = AsyncMock(return_value='{"intent":"general_chat","confidence":0.9}')
 
         with patch(
-            "src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.LLM_CLASSIFICATION_TEMPERATURE",
+            "src.core.ai.llm_provider.ai_settings.LLM_CLASSIFICATION_TEMPERATURE",
             0.25,
         ), patch(
-            "src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.LLM_CLASSIFICATION_MAX_TOKENS",
+            "src.core.ai.llm_provider.ai_settings.LLM_CLASSIFICATION_MAX_TOKENS",
             2048,
         ):
             result = await provider.classify(
@@ -338,10 +338,10 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         provider._call_api = AsyncMock(return_value="ok")
 
         with patch(
-            "src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.LLM_CHAT_TEMPERATURE",
+            "src.core.ai.llm_provider.ai_settings.LLM_CHAT_TEMPERATURE",
             0.55,
         ), patch(
-            "src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.LLM_CHAT_MAX_TOKENS",
+            "src.core.ai.llm_provider.ai_settings.LLM_CHAT_MAX_TOKENS",
             1536,
         ):
             result = await provider.chat(
@@ -355,8 +355,8 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call_kwargs["temperature"], 0.55)
         self.assertEqual(call_kwargs["max_tokens"], 1536)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.settings.get_active_deepseek_model_for_response", return_value="deepseek-reasoner")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    @patch("config.ai_settings.get_active_deepseek_model_for_response", return_value="deepseek-reasoner")
+    @patch("src.core.ai.llm_provider.httpx.AsyncClient")
     async def test_call_api_retries_with_chat_model_on_empty_reasoner_content(
         self,
         mock_async_client,
@@ -394,7 +394,7 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first_call_kwargs["json"]["model"], "deepseek-reasoner")
         self.assertEqual(second_call_kwargs["json"]["model"], "deepseek-chat")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    @patch("src.core.ai.llm_provider.httpx.AsyncClient")
     async def test_call_api_retries_once_on_timeout_and_succeeds(self, mock_async_client):
         """При таймауте выполняется один повтор, и успешный второй ответ возвращается."""
         provider = DeepSeekProvider(api_key="test_key", model="deepseek-chat")
@@ -419,9 +419,9 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "ok after retry")
         self.assertEqual(mock_client.post.await_count, 2)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    @patch("src.core.ai.llm_provider.httpx.AsyncClient")
     async def test_call_api_timeout_raises_temporary_error_after_retry(self, mock_async_client):
-        """После всех попыток (max_attempts=5) _call_api выбрасывает LLMProviderTemporaryError."""
+        """После всех попыток (max_attempts=2) _call_api выбрасывает LLMProviderTemporaryError."""
         provider = DeepSeekProvider(api_key="test_key", model="deepseek-chat")
 
         mock_client = mock_async_client.return_value.__aenter__.return_value
@@ -430,9 +430,9 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(LLMProviderTemporaryError):
             await provider._call_api(messages=[{"role": "user", "content": "hi"}], purpose="chat")
 
-        self.assertEqual(mock_client.post.await_count, 5)
+        self.assertEqual(mock_client.post.await_count, 2)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    @patch("src.core.ai.llm_provider.httpx.AsyncClient")
     async def test_call_api_supports_structured_list_content(self, mock_async_client):
         """_call_api корректно извлекает текст из content в list-формате."""
         provider = DeepSeekProvider(api_key="test_key", model="deepseek-chat")
@@ -458,10 +458,10 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, "Первая строка\nВторая строка")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.AI_MODEL_IO_DB_LOG_ENABLED", True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.database.get_cursor")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.database.get_db_connection")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    @patch("src.core.ai.llm_provider.ai_settings.AI_MODEL_IO_DB_LOG_ENABLED", True)
+    @patch("src.core.ai.llm_provider.database.get_cursor")
+    @patch("src.core.ai.llm_provider.database.get_db_connection")
+    @patch("src.core.ai.llm_provider.httpx.AsyncClient")
     async def test_call_api_stores_masked_full_text_in_db(
         self,
         mock_async_client,
@@ -503,9 +503,9 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("admin@test.ru", sql_params[4])
         self.assertNotIn("111-22-33", sql_params[4])
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.ai_settings.AI_MODEL_IO_DB_LOG_ENABLED", True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.database.get_db_connection", side_effect=Exception("db down"))
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.httpx.AsyncClient")
+    @patch("src.core.ai.llm_provider.ai_settings.AI_MODEL_IO_DB_LOG_ENABLED", True)
+    @patch("src.core.ai.llm_provider.database.get_db_connection", side_effect=Exception("db down"))
+    @patch("src.core.ai.llm_provider.httpx.AsyncClient")
     async def test_call_api_db_log_failure_does_not_break_response(
         self,
         mock_async_client,
@@ -530,7 +530,7 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.1)
         self.assertTrue(mock_get_db_connection.called)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.logger.exception")
+    @patch("src.core.ai.llm_provider.logger.exception")
     async def test_chat_logs_exception_type_for_empty_message(self, mock_logger_exception):
         """При пустом тексте исключения лог содержит тип ошибки и traceback."""
         provider = DeepSeekProvider(api_key="test_key")

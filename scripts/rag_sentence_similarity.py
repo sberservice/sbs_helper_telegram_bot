@@ -42,12 +42,12 @@ def _run() -> int:
             arg for arg in sys.argv[1:]
             if arg not in ("--interactive", "-i")
         ]
-        from src.sbs_helper_telegram_bot.ai_router.rag_similarity_interactive import (
+        from src.core.ai.rag_similarity_interactive import (
             main as interactive_main,
         )
         return interactive_main(filtered_argv)
 
-    from src.sbs_helper_telegram_bot.ai_router.rag_similarity import main
+    from src.core.ai.rag_similarity import main
     return main()
 
 

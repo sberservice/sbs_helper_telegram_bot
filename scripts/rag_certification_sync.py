@@ -19,7 +19,7 @@ def _bootstrap_project_root() -> None:
 
 _bootstrap_project_root()
 
-from src.sbs_helper_telegram_bot.ai_router.rag_service import RagKnowledgeService
+from src.core.ai.rag_service import RagKnowledgeService
 
 logging.basicConfig(
     level=logging.INFO,

@@ -13,7 +13,7 @@ from src.sbs_helper_telegram_bot.ai_router.messages import (
     AI_PROGRESS_STAGE_RAG_AUGMENTED_REQUEST_STARTED,
     AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
 )
-from src.sbs_helper_telegram_bot.ai_router.rag_service import RagAnswer, RagKnowledgeService, preload_rag_runtime_dependencies
+from src.core.ai.rag_service import RagAnswer, RagKnowledgeService, preload_rag_runtime_dependencies
 
 
 class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
@@ -26,19 +26,19 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             super().__init__(f"MySQL error: {errno}")
             self.errno = errno
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=True)
     def test_preload_rag_runtime_dependencies_loads_vector_and_ru_dependencies(self, _mock_ru_enabled, _mock_ru_mode):
         """Preload на старте прогревает vector-модель и RU-нормализацию."""
         service = RagKnowledgeService()
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service", return_value=service):
+        with patch("src.core.ai.rag_service.get_rag_service", return_value=service):
             with patch.object(service, "_is_vector_search_enabled", return_value=True):
                 with patch.object(service, "_get_embedding_provider", return_value=object()) as mock_provider:
                     with patch.object(service, "_get_vector_index", return_value=object()) as mock_vector_index:
                         with patch.object(service, "_get_ru_morph_analyzer", return_value=object()) as mock_morph:
                             with patch.object(service, "_get_ru_stemmer", return_value=object()) as mock_stemmer:
-                                with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.info") as mock_logger_info:
+                                with patch("src.core.ai.rag_service.logger.info") as mock_logger_info:
                                     result = preload_rag_runtime_dependencies()
 
         self.assertTrue(result["vector_provider_ready"])
@@ -278,9 +278,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(normalized[11], 0.0)
         self.assertAlmostEqual(normalized[12], 0.5)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_SCORE_CAP", 2.5)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_BONUS_WEIGHT", 0.45)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_POSTRANK_WEIGHT", 0.2)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_SCORE_CAP", 2.5)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_BONUS_WEIGHT", 0.45)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_POSTRANK_WEIGHT", 0.2)
     def test_summary_bonus_uses_normalized_summary_score(self):
         """Summary-бонусы используют нормализованный score документа в диапазоне 0..1."""
         lexical_bonus = RagKnowledgeService._summary_score_bonus(10.0)
@@ -405,7 +405,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         with patch.object(service, "_is_langchain_splitter_supported", return_value=True):
             with patch.object(service, "_resolve_text_slicer_name", return_value="RecursiveCharacterTextSplitter(langchain_text_splitters)"):
                 with patch(
-                    "src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_html_splitter_enabled",
+                    "src.core.ai.rag_service.ai_settings.is_rag_html_splitter_enabled",
                     return_value=True,
                 ):
                     diagnostics = service.get_chunking_diagnostics()
@@ -423,7 +423,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         service = RagKnowledgeService()
         html = b"<html><body><h1>SLA</h1><p>4 hours</p></body></html>"
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_html_splitter_enabled", return_value=True):
+        with patch("src.core.ai.rag_service.ai_settings.is_rag_html_splitter_enabled", return_value=True):
             with patch.object(service, "_split_html_with_semantic_preserving_splitter", return_value=["SLA\n4 hours"]) as mock_splitter:
                 with patch.object(service, "_extract_html_text") as mock_extract:
                     chunks = service._split_html_payload(html)
@@ -437,7 +437,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         service = RagKnowledgeService()
         html = b"<html><body><h1>SLA</h1><p>4 hours</p></body></html>"
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_html_splitter_enabled", return_value=True):
+        with patch("src.core.ai.rag_service.ai_settings.is_rag_html_splitter_enabled", return_value=True):
             with patch.object(service, "_split_html_with_semantic_preserving_splitter", return_value=[]):
                 with patch.object(service, "_extract_html_text", return_value="SLA 4 hours") as mock_extract:
                     with patch.object(service, "_split_text", return_value=["SLA 4 hours"]) as mock_split_text:
@@ -452,7 +452,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         service = RagKnowledgeService()
         html = b"<html><body><h1>SLA</h1><p>4 hours</p></body></html>"
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_html_splitter_enabled", return_value=False):
+        with patch("src.core.ai.rag_service.ai_settings.is_rag_html_splitter_enabled", return_value=False):
             with patch.object(service, "_split_html_with_semantic_preserving_splitter") as mock_semantic_splitter:
                 with patch.object(service, "_extract_html_text", return_value="SLA 4 hours") as mock_extract:
                     with patch.object(service, "_split_text", return_value=["SLA 4 hours"]) as mock_split_text:
@@ -529,8 +529,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("SLA", result[0][2])
         self.assertEqual(result[0][4], 8)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_lexical_scorer", return_value="bm25")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.get_rag_lexical_scorer", return_value="bm25")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
     def test_search_relevant_chunks_bm25_scoring(self, mock_get_cursor, mock_get_db_connection, mock_norm, mock_mode):
@@ -565,11 +565,11 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result[0][1], "reglament.txt")
         self.assertEqual(result[0][4], 8)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._log_query")
+    @patch("src.core.ai.llm_provider.get_provider")
     async def test_answer_question_uses_cache(
         self,
         mock_get_provider,
@@ -597,11 +597,11 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second.text, "SLA 4 часа")
         provider.chat.assert_awaited_once()
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._log_query")
+    @patch("src.core.ai.llm_provider.get_provider")
     async def test_answer_question_progress_callback_emits_stages_and_marks_cache_hit(
         self,
         mock_get_provider,
@@ -642,8 +642,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(cache_payload["cache_ttl_remaining_seconds"], 0.0)
         provider.chat.assert_awaited_once()
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_directory_ingest_summary_model_override", return_value="deepseek-reasoner")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.ai_settings.get_directory_ingest_summary_model_override", return_value="deepseek-reasoner")
+    @patch("src.core.ai.llm_provider.get_provider")
     def test_generate_document_summary_uses_directory_ingest_model_override(
         self,
         mock_get_provider,
@@ -671,10 +671,10 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(chat_kwargs.get("model_override"), "deepseek-reasoner")
         provider.get_model_name.assert_not_called()
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.warning")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL", "invalid-model")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_directory_ingest_summary_model_override", return_value=None)
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.logger.warning")
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_DIRECTORY_INGEST_SUMMARY_MODEL", "invalid-model")
+    @patch("src.core.ai.rag_service.ai_settings.get_directory_ingest_summary_model_override", return_value=None)
+    @patch("src.core.ai.llm_provider.get_provider")
     def test_generate_document_summary_invalid_override_falls_back_to_default_model(
         self,
         mock_get_provider,
@@ -735,10 +735,10 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(vec_scores, dict)
         self.assertEqual(vector_source, "fallback")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT", 0.0)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT", 1.0)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_lexical_scorer", return_value="bm25")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT", 0.0)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT", 1.0)
+    @patch("src.core.ai.rag_service.ai_settings.get_rag_lexical_scorer", return_value="bm25")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
     @patch.object(RagKnowledgeService, "_compute_summary_vector_scores", return_value={})
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
@@ -769,7 +769,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0][0], 1)
         self.assertEqual(vector_source, "fallback")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_EXCLUDE_CERTIFICATION_FROM_COUNT", True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PREFILTER_EXCLUDE_CERTIFICATION_FROM_COUNT", True)
     @patch.object(RagKnowledgeService, "_compute_summary_vector_scores", return_value={})
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
@@ -829,7 +829,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len([doc_id for doc_id in returned_ids if doc_id in non_cert_ids]), 3)
         self.assertEqual(len([doc_id for doc_id in returned_ids if doc_id in cert_ids]), 2)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_EXCLUDE_CERTIFICATION_FROM_COUNT", False)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PREFILTER_EXCLUDE_CERTIFICATION_FROM_COUNT", False)
     @patch.object(RagKnowledgeService, "_compute_summary_vector_scores", return_value={})
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
@@ -883,8 +883,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(rows), 3)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=True)
     def test_tokenize_applies_ru_normalization(self, mock_norm_enabled, mock_norm_mode):
         """Токенизация применяет RU-нормализацию, когда флаг включён."""
         service = RagKnowledgeService()
@@ -896,7 +896,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("магаз", tokens)
         self.assertIn("работают", tokens)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
     def test_tokenize_keeps_short_alnum_brand_model_tokens(self, _mock_norm_enabled):
         """Токенизация сохраняет короткие alnum-токены бренда/модели и отсекает служебные короткие слова."""
         service = RagKnowledgeService()
@@ -909,7 +909,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("в", tokens)
         self.assertNotIn("и", tokens)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
     def test_tokenize_keeps_short_numeric_and_domain_tokens(self, _mock_norm_enabled):
         """Токенизация сохраняет короткие доменные токены и числовые идентификаторы (фн 36)."""
         service = RagKnowledgeService()
@@ -920,7 +920,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("36", tokens)
         self.assertIn("осно", tokens)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
     def test_tokenize_keeps_decimal_number_with_comma(self, _mock_norm_enabled):
         """Токенизация сохраняет десятичные числа с запятой как единый токен (36,6)."""
         service = RagKnowledgeService()
@@ -930,8 +930,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("36,6", tokens)
         self.assertNotIn("36", tokens)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=True)
     def test_tokenize_does_not_stem_fixed_tax_term_osno(self, _mock_norm_enabled, _mock_norm_mode):
         """Фиксированный термин 'осно' не должен сокращаться стеммером до 'осн'."""
         service = RagKnowledgeService()
@@ -1103,7 +1103,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
     @patch.object(RagKnowledgeService, "_search_relevant_chunks_vector", return_value=[])
     @patch.object(RagKnowledgeService, "_search_relevant_chunks", return_value=([], {}))
     @patch.object(RagKnowledgeService, "_get_fallback_active_document_ids", return_value=[99, 100])
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS", 2)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_PREFILTER_FALLBACK_DOCS", 2)
     @patch.object(
         RagKnowledgeService,
         "_prefilter_documents_by_summary",
@@ -1131,9 +1131,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["normalized_summary_scores"], {5: 1.0})
         mock_fallback.assert_called_once_with(exclude_document_ids=[5], limit=2)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.info")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_stopwords_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.logger.info")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_stopwords_enabled", return_value=False)
     @patch.object(RagKnowledgeService, "_build_summary_blocks", return_value=[])
     @patch.object(RagKnowledgeService, "_determine_retrieval_mode", return_value="lexical_only")
     @patch.object(RagKnowledgeService, "_merge_retrieval_candidates", return_value=[])
@@ -1170,9 +1170,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("| strip_result", preprocessing_logs[0])
         self.assertIn("эквайринг", preprocessing_logs[0])
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.info")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_stopwords_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.logger.info")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_stopwords_enabled", return_value=True)
     @patch.object(RagKnowledgeService, "_build_summary_blocks", return_value=[])
     @patch.object(RagKnowledgeService, "_determine_retrieval_mode", return_value="lexical_only")
     @patch.object(RagKnowledgeService, "_merge_retrieval_candidates", return_value=[])
@@ -1220,9 +1220,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(matched)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_POSTRANK_WEIGHT", 0.2)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_SCORE_CAP", 2.5)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_POSTRANK_WEIGHT", 0.2)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_SCORE_CAP", 2.5)
     def test_merge_retrieval_candidates_applies_summary_postrank_bonus(self):
         """Post-merge bonus поднимает документы с высоким summary-score при равном vector score."""
         service = RagKnowledgeService()
@@ -1242,9 +1242,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0][1], "doc-high.txt")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_LEXICAL_WEIGHT", 0.4)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_SEMANTIC_WEIGHT", 0.6)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_VECTOR_LEXICAL_WEIGHT", 0.4)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_VECTOR_SEMANTIC_WEIGHT", 0.6)
     def test_merge_retrieval_candidates_hybrid(self):
         """Hybrid-слияние объединяет lexical и vector кандидаты с дедупликацией."""
         service = RagKnowledgeService()
@@ -1263,9 +1263,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0][1], "doc-a.txt")
         self.assertEqual(rows[1][1], "doc-c.txt")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_LEXICAL_WEIGHT", 0.5)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_SEMANTIC_WEIGHT", 0.5)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_VECTOR_LEXICAL_WEIGHT", 0.5)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_VECTOR_SEMANTIC_WEIGHT", 0.5)
     def test_merge_retrieval_candidates_normalizes_lexical_scores(self):
         """Lexical-score нормализуется в 0..1 перед hybrid-взвешиванием, чтобы не доминировать над vector."""
         service = RagKnowledgeService()
@@ -1294,9 +1294,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(rows[1][0], 0.45, places=2)
         self.assertAlmostEqual(rows[2][0], 0.25, places=2)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_LEXICAL_WEIGHT", 0.5)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_SEMANTIC_WEIGHT", 0.5)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_VECTOR_LEXICAL_WEIGHT", 0.5)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_VECTOR_SEMANTIC_WEIGHT", 0.5)
     def test_merge_retrieval_candidates_uses_all_lexical_scores_for_vector_only(self):
         """Vector-only чанки получают фактический lexical-score из all_lexical_scores вместо 0."""
         service = RagKnowledgeService()
@@ -1329,7 +1329,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(rows[1][0], 0.7, places=2)
         # Без all_lexical_scores doc-2 получил бы lex=0, fused=0*0.5+0.9*0.5=0.45
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", False)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", False)
     def test_merge_retrieval_candidates_vector_only(self):
         """При выключенном hybrid используются только vector-кандидаты."""
         service = RagKnowledgeService()
@@ -1340,8 +1340,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(rows, vector)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_CERTIFICATION_CATEGORY_BOOST", 0.4)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_CERTIFICATION_STALE_PENALTY", 0.2)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_CERTIFICATION_CATEGORY_BOOST", 0.4)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_CERTIFICATION_STALE_PENALTY", 0.2)
     def test_apply_signal_adjustments_to_chunks_prioritizes_category_and_penalizes_stale(self):
         """Category match повышает score, stale-флаг понижает score в финальном ранжировании."""
         service = RagKnowledgeService()
@@ -1519,9 +1519,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(mock_ingest.called)
         self.assertTrue(bool(mock_ingest.call_args.kwargs.get("upsert_vectors")))
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.info")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.time.perf_counter", side_effect=[10.0, 10.125])
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", True)
+    @patch("src.core.ai.rag_service.logger.info")
+    @patch("src.core.ai.rag_service.time.perf_counter", side_effect=[10.0, 10.125])
     def test_upsert_vectors_for_chunks_logs_duration_ms(
         self,
         mock_perf_counter,
@@ -1549,9 +1549,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             125.0,
         )
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.info")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", False)
+    @patch("src.core.ai.rag_service.logger.info")
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", False)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_HYBRID_ENABLED", False)
     @patch.object(RagKnowledgeService, "_merge_retrieval_candidates")
     @patch.object(RagKnowledgeService, "_search_relevant_chunks_vector")
     @patch.object(RagKnowledgeService, "_search_relevant_chunks")
@@ -1615,11 +1615,11 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.build_rag_prompt")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._retrieve_context_for_question")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.build_rag_prompt")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._get_corpus_version", return_value=3)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._retrieve_context_for_question")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._log_query")
+    @patch("src.core.ai.llm_provider.get_provider")
     async def test_answer_question_passes_summary_blocks_to_prompt(
         self,
         mock_get_provider,
@@ -1647,8 +1647,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         _, kwargs = mock_build_prompt.call_args
         self.assertEqual(kwargs.get("summary_blocks"), ["[Summary | reglament.txt]\nСводка по SLA"])
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PROMPT_SUMMARY_DOCS", 2)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PROMPT_SUMMARIES_EXCLUDE_CERTIFICATION", True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PROMPT_SUMMARY_DOCS", 2)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PROMPT_SUMMARIES_EXCLUDE_CERTIFICATION", True)
     def test_build_summary_blocks_excludes_certification_when_enabled(self, *_):
         """При включённом флаге summary сертификационных Q/A не попадают в joined_summaries."""
         blocks = RagKnowledgeService._build_summary_blocks(
@@ -1666,8 +1666,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("certification_q_11.md", "\n".join(blocks))
         self.assertNotIn("certification_q_12.md", "\n".join(blocks))
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PROMPT_SUMMARY_DOCS", 2)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PROMPT_SUMMARIES_EXCLUDE_CERTIFICATION", False)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PROMPT_SUMMARY_DOCS", 2)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PROMPT_SUMMARIES_EXCLUDE_CERTIFICATION", False)
     def test_build_summary_blocks_keeps_certification_when_disabled(self, *_):
         """При выключенном флаге summary сертификационных Q/A могут попадать в joined_summaries."""
         blocks = RagKnowledgeService._build_summary_blocks(
@@ -1747,7 +1747,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(changed)
         self.assertGreaterEqual(cursor.execute.call_count, 3)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService.set_document_status")
+    @patch("src.core.ai.rag_service.RagKnowledgeService.set_document_status")
     def test_delete_document_soft(self, mock_set_status):
         """Мягкое удаление делегируется в set_document_status."""
         service = RagKnowledgeService()
@@ -1758,7 +1758,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._bump_corpus_version")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._bump_corpus_version")
     def test_ingest_reactivates_existing_non_active_hash(
         self,
         mock_bump,
@@ -1789,10 +1789,10 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._bump_corpus_version")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._split_text")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._extract_text")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._generate_document_summary")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._bump_corpus_version")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._split_text")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._extract_text")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._generate_document_summary")
     def test_ingest_persists_document_summary(
         self,
         mock_generate_summary,
@@ -1827,13 +1827,13 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_generate_summary.assert_called_once()
         mock_bump.assert_called_once()
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.time.sleep")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.warning")
+    @patch("src.core.ai.rag_service.time.sleep")
+    @patch("src.core.ai.rag_service.logger.warning")
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._split_text")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._extract_text")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._generate_document_summary")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._split_text")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._extract_text")
+    @patch("src.core.ai.rag_service.RagKnowledgeService._generate_document_summary")
     @patch.object(RagKnowledgeService, "_upsert_vectors_for_chunks")
     def test_ingest_retries_on_lock_wait_timeout(
         self,
@@ -1917,7 +1917,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0]["source_type"], "filesystem")
         cursor.execute.assert_called_once()
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", True)
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
     def test_backfill_vector_index_dry_run(self, mock_get_cursor, mock_get_db_connection):
@@ -1949,8 +1949,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats["summaries_indexed"], 0)
         self.assertEqual(stats["errors"], 0)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_summary_vector_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_summary_vector_enabled", return_value=True)
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
     def test_backfill_vector_index_dry_run_target_summaries(
@@ -1979,8 +1979,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats["summaries_indexed"], 1)
         self.assertEqual(stats["errors"], 0)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_summary_vector_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_summary_vector_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_VECTOR_ENABLED", True)
     def test_prefilter_documents_by_summary_uses_collection_scores(self, mock_summary_enabled):
         """Summary-prefilter использует vector-score из коллекции без fallback на in-memory encode."""
         service = RagKnowledgeService()
@@ -2015,8 +2015,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_collection_scores.assert_called_once()
         mock_fallback_scores.assert_not_called()
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.time.sleep")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.warning")
+    @patch("src.core.ai.rag_service.time.sleep")
+    @patch("src.core.ai.rag_service.logger.warning")
     @patch("src.common.database.get_cursor")
     @patch("src.common.database.get_db_connection")
     def test_record_chunk_embedding_metadata_retries_on_lock_wait(
@@ -2051,8 +2051,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.time.sleep")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.warning")
+    @patch("src.core.ai.rag_service.time.sleep")
+    @patch("src.core.ai.rag_service.logger.warning")
     @patch("src.common.database.get_cursor")
     @patch("src.common.database.get_db_connection")
     def test_record_chunk_embedding_metadata_does_not_retry_non_retryable_error(
@@ -2088,8 +2088,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         )
 
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.time.sleep")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.warning")
+    @patch("src.core.ai.rag_service.time.sleep")
+    @patch("src.core.ai.rag_service.logger.warning")
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
     @patch.object(RagKnowledgeService, "_delete_vector_document")
@@ -2131,8 +2131,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.time.sleep")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.warning")
+    @patch("src.core.ai.rag_service.time.sleep")
+    @patch("src.core.ai.rag_service.logger.warning")
     @patch("src.common.database.get_db_connection")
     @patch("src.common.database.get_cursor")
     @patch.object(RagKnowledgeService, "_set_vector_document_status")
@@ -2228,7 +2228,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
     # Тесты Query Preprocessing: стоп-слова, паттерны, IDF dampening
     # =============================================
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_stopwords_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_stopwords_enabled", return_value=True)
     def test_filter_stopwords_removes_common_words(self, _mock_enabled):
         """Стоп-слова 'что', 'такое' удаляются, предметный токен 'любовь' остаётся."""
         service = RagKnowledgeService()
@@ -2240,7 +2240,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("любовь", result)
         self.assertEqual(len(result), 1)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_stopwords_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_stopwords_enabled", return_value=True)
     def test_filter_stopwords_preserves_all_if_all_stopwords(self, _mock_enabled):
         """Если все токены — стоп-слова, safety guard возвращает оригинал."""
         service = RagKnowledgeService()
@@ -2249,7 +2249,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, tokens)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_stopwords_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_stopwords_enabled", return_value=False)
     def test_filter_stopwords_disabled_returns_original(self, _mock_enabled):
         """При отключённых стоп-словах список возвращается без изменений."""
         service = RagKnowledgeService()
@@ -2258,85 +2258,85 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, tokens)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_stopwords_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_stopwords_enabled", return_value=True)
     def test_filter_stopwords_empty_input(self, _mock_enabled):
         """Пустой список токенов возвращается без изменений."""
         service = RagKnowledgeService()
         result = service._filter_stopwords([])
         self.assertEqual(result, [])
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
     def test_strip_query_patterns_extracts_subject(self, _mock_enabled):
         """'что такое любовь' → 'любовь'."""
         result, stripped = RagKnowledgeService._strip_query_patterns("что такое любовь")
         self.assertTrue(stripped)
         self.assertEqual(result, "любовь")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
     def test_strip_query_patterns_multi_word_subject(self, _mock_enabled):
         """'что такое ключ транзакции' → 'ключ транзакции'."""
         result, stripped = RagKnowledgeService._strip_query_patterns("что такое ключ транзакции")
         self.assertTrue(stripped)
         self.assertEqual(result, "ключ транзакции")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
     def test_strip_query_patterns_kak_rabotaet(self, _mock_enabled):
         """'как работает NFC' → 'NFC'."""
         result, stripped = RagKnowledgeService._strip_query_patterns("как работает NFC")
         self.assertTrue(stripped)
         self.assertEqual(result, "NFC")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
     def test_strip_query_patterns_zachem_nuzhen(self, _mock_enabled):
         """'зачем нужен POS-терминал' → 'POS-терминал'."""
         result, stripped = RagKnowledgeService._strip_query_patterns("зачем нужен POS-терминал")
         self.assertTrue(stripped)
         self.assertIn("POS", result)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
     def test_strip_query_patterns_no_match_returns_original(self, _mock_enabled):
         """Запрос без шаблонного префикса возвращается без изменений."""
         result, stripped = RagKnowledgeService._strip_query_patterns("расписание дежурств")
         self.assertFalse(stripped)
         self.assertEqual(result, "расписание дежурств")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
     def test_strip_query_patterns_empty_subject_returns_original(self, _mock_enabled):
         """'что такое ?' — предметная часть пуста, возвращается оригинал."""
         result, stripped = RagKnowledgeService._strip_query_patterns("что такое ?")
         self.assertFalse(stripped)
         self.assertEqual(result, "что такое ?")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=False)
     def test_strip_query_patterns_disabled_returns_original(self, _mock_enabled):
         """При отключённым pattern-stripping запрос не изменяется."""
         result, stripped = RagKnowledgeService._strip_query_patterns("что такое любовь")
         self.assertFalse(stripped)
         self.assertEqual(result, "что такое любовь")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
     def test_strip_query_patterns_rasskazhi_pro(self, _mock_enabled):
         """'расскажи про эквайринг' → 'эквайринг'."""
         result, stripped = RagKnowledgeService._strip_query_patterns("расскажи про эквайринг")
         self.assertTrue(stripped)
         self.assertEqual(result, "эквайринг")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
     def test_strip_query_patterns_strips_trailing_punctuation(self, _mock_enabled):
         """Из предметной части удаляются завершающие знаки пунктуации."""
         result, stripped = RagKnowledgeService._strip_query_patterns("что такое эквайринг?")
         self.assertTrue(stripped)
         self.assertEqual(result, "эквайринг")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_query_pattern_strip_enabled", return_value=True)
     def test_strip_query_patterns_preserves_hashtag_words(self, _mock_enabled):
         """В strip-result сохраняются слова, начинающиеся с '#' (хештеги)."""
         result, stripped = RagKnowledgeService._strip_query_patterns("расскажи про #upos подробно")
         self.assertTrue(stripped)
         self.assertEqual(result, "#upos подробно")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_RATIO", 0.5)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR", 0.1)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_RATIO", 0.5)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR", 0.1)
     def test_dampen_common_query_tokens_boosts_rare(self, *_):
         """Редкие токены повторяются, а частые — нет."""
         query_tokens = ["что", "такое", "любовь"]
@@ -2360,8 +2360,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         # Редкий токен повторяется (boost_factor = round(1/0.1) = 10)
         self.assertGreater(count_rare, 1)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_RATIO", 0.8)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR", 0.1)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_RATIO", 0.8)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR", 0.1)
     def test_dampen_common_query_tokens_all_common_returns_original(self, *_):
         """Если все query-токены common, dampening не применяется (safety guard)."""
         query_tokens = ["что", "такое"]
@@ -2373,15 +2373,15 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         result = RagKnowledgeService._dampen_common_query_tokens(query_tokens, corpus)
         self.assertEqual(result, query_tokens)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_RATIO", 0.8)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR", 0.1)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_RATIO", 0.8)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR", 0.1)
     def test_dampen_common_query_tokens_empty_inputs(self, *_):
         """Пустые входные данные обрабатываются без ошибок."""
         self.assertEqual(RagKnowledgeService._dampen_common_query_tokens([], [["a"]]), [])
         self.assertEqual(RagKnowledgeService._dampen_common_query_tokens(["a"], []), ["a"])
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_RATIO", 0.5)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR", 0.1)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_RATIO", 0.5)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR", 0.1)
     def test_idf_dampening_logging_contains_effect_payload(self, *_):
         """Лог IDF dampening содержит причину применения и изменённые веса токенов."""
         service = RagKnowledgeService()
@@ -2399,7 +2399,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             return_diagnostics=True,
         )
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.logger.info") as mock_logger_info:
+        with patch("src.core.ai.rag_service.logger.info") as mock_logger_info:
             service._log_idf_dampening_effect(
                 stage="summary_prefilter",
                 question="что такое любовь",
@@ -2421,12 +2421,12 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("любовь", payload["changed_token_counts"])
         self.assertGreater(payload["changed_token_counts"]["любовь"]["after"], payload["changed_token_counts"]["любовь"]["before"])
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT", 0.0)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT", 1.0)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_RATIO", 0.5)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR", 0.1)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_lexical_scorer", return_value="bm25")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT", 0.0)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_MATCH_TOKEN_WEIGHT", 1.0)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_RATIO", 0.5)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_PREFILTER_IDF_DAMPEN_FACTOR", 0.1)
+    @patch("src.core.ai.rag_service.ai_settings.get_rag_lexical_scorer", return_value="bm25")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
     @patch.object(RagKnowledgeService, "_search_summary_vector_scores_from_collection", return_value={})
     @patch.object(RagKnowledgeService, "_compute_summary_vector_scores", return_value={})
     @patch("src.common.database.get_db_connection")
@@ -2467,7 +2467,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
     def test_hyde_prompt_builds_correctly(self):
         """build_hyde_prompt включает вопрос и лимит символов."""
-        from src.sbs_helper_telegram_bot.ai_router.prompts import build_hyde_prompt
+        from src.core.ai.prompts import build_hyde_prompt
 
         prompt = build_hyde_prompt("что такое любовь", max_chars=300)
         self.assertIn("что такое любовь", prompt)
@@ -2476,7 +2476,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
     def test_hyde_prompt_default_max_chars(self):
         """build_hyde_prompt с дефолтным max_chars содержит '500'."""
-        from src.sbs_helper_telegram_bot.ai_router.prompts import build_hyde_prompt
+        from src.core.ai.prompts import build_hyde_prompt
 
         prompt = build_hyde_prompt("тест")
         self.assertIn("500", prompt)
@@ -2494,7 +2494,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         result = service._get_cached_hyde_text("неизвестный вопрос")
         self.assertIsNone(result)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYDE_CACHE_TTL_SECONDS", 0)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_HYDE_CACHE_TTL_SECONDS", 0)
     def test_hyde_cache_expired_returns_none(self):
         """HyDE кэш возвращает None для просроченного ключа."""
         import time
@@ -2505,8 +2505,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         result = service._get_cached_hyde_text("expired_q")
         self.assertIsNone(result)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
     async def test_hyde_disabled_skips_generation(self, _mock_hyde_enabled):
         """При выключенном HyDE LLM не вызывается и hyde_text=None."""
         service = RagKnowledgeService()
@@ -2518,9 +2518,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
                 hyde_arg = call_kwargs.kwargs.get("hyde_text") if call_kwargs.kwargs else None
                 self.assertIsNone(hyde_arg)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 200)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 200)
     async def test_hyde_enabled_generates_text(self, *_):
         """При включенном HyDE генерируется гипотетический документ и передаётся в retrieval."""
         service = RagKnowledgeService()
@@ -2528,7 +2528,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_provider = MagicMock()
         mock_provider.chat = AsyncMock(return_value="Любовь — это глубокое чувство")
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider", return_value=mock_provider):
+        with patch("src.core.ai.llm_provider.get_provider", return_value=mock_provider):
             with patch.object(
                 service, "_retrieve_context_for_question", return_value=([], [])
             ) as mock_retrieve:
@@ -2540,9 +2540,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
                     self.assertIsNotNone(hyde_arg)
                     self.assertIn("Любовь", hyde_arg)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 200)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 200)
     async def test_hyde_failure_graceful_degradation(self, *_):
         """При ошибке HyDE-генерации retrieval продолжается без HyDE."""
         service = RagKnowledgeService()
@@ -2550,7 +2550,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_provider = MagicMock()
         mock_provider.chat = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider", return_value=mock_provider):
+        with patch("src.core.ai.llm_provider.get_provider", return_value=mock_provider):
             with patch.object(
                 service, "_retrieve_context_for_question", return_value=([], [])
             ) as mock_retrieve:
@@ -2562,9 +2562,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
                     hyde_arg = call_kwargs.kwargs.get("hyde_text") if call_kwargs.kwargs else None
                     self.assertIsNone(hyde_arg)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 100)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 100)
     async def test_hyde_text_cached_on_success(self, *_):
         """Успешно сгенерированный HyDE-текст кэшируется."""
         service = RagKnowledgeService()
@@ -2572,7 +2572,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_provider = MagicMock()
         mock_provider.chat = AsyncMock(return_value="Кэшируемый ответ")
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider", return_value=mock_provider):
+        with patch("src.core.ai.llm_provider.get_provider", return_value=mock_provider):
             with patch.object(service, "_retrieve_context_for_question", return_value=([], [])):
                 await service.answer_question("кэш вопрос", user_id=1)
 
@@ -2580,9 +2580,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(cached)
         self.assertEqual(cached, "Кэшируемый ответ")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 100)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 100)
     async def test_hyde_cache_hit_skips_llm_call(self, *_):
         """При наличии HyDE в кэше LLM не вызывается повторно."""
         service = RagKnowledgeService()
@@ -2591,7 +2591,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_provider = MagicMock()
         mock_provider.chat = AsyncMock(return_value="new text")
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider", return_value=mock_provider):
+        with patch("src.core.ai.llm_provider.get_provider", return_value=mock_provider):
             with patch.object(
                 service, "_retrieve_context_for_question", return_value=([], [])
             ) as mock_retrieve:
@@ -2609,9 +2609,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(len(hyde_calls), 0)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 50)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SUMMARY_FALLBACK_ENABLED", False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_HYDE_MAX_CHARS", 50)
     async def test_hyde_text_truncated_to_max_chars(self, *_):
         """HyDE-текст обрезается до AI_RAG_HYDE_MAX_CHARS."""
         service = RagKnowledgeService()
@@ -2620,7 +2620,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_provider = MagicMock()
         mock_provider.chat = AsyncMock(return_value=long_text)
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider", return_value=mock_provider):
+        with patch("src.core.ai.llm_provider.get_provider", return_value=mock_provider):
             with patch.object(
                 service, "_retrieve_context_for_question", return_value=([], [])
             ) as mock_retrieve:
@@ -2674,7 +2674,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
         mock_embedding.encode_texts.assert_called_once_with(["оригинальный вопрос"])
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_summary_vector_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_summary_vector_enabled", return_value=True)
     def test_summary_vector_collection_uses_hyde_text(self, _):
         """_search_summary_vector_scores_from_collection эмбеддит hyde_text."""
         service = RagKnowledgeService()
@@ -2718,7 +2718,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
     def test_is_rag_hyde_enabled_default_false(self):
         """is_rag_hyde_enabled по умолчанию возвращает False."""
-        from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings_mod
+        from config import ai_settings as ai_settings_mod
 
         with patch.object(ai_settings_mod, "AI_RAG_HYDE_ENABLED", False):
             with patch.object(ai_settings_mod, "_safe_get_setting", return_value=None):
@@ -2727,7 +2727,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
     def test_is_rag_hyde_enabled_db_override(self):
         """is_rag_hyde_enabled учитывает DB override."""
-        from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings_mod
+        from config import ai_settings as ai_settings_mod
 
         with patch.object(ai_settings_mod, "AI_RAG_HYDE_ENABLED", False):
             with patch.object(ai_settings_mod, "_safe_get_setting", return_value="1"):
@@ -2736,8 +2736,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
     # ─── HyDE lexical augmentation ─────────────────────────────────
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
     def test_augment_tokens_with_hyde_adds_unique_tokens(self, *_):
         """_augment_tokens_with_hyde добавляет уникальные HyDE-токены к query-токенам."""
         service = RagKnowledgeService()
@@ -2750,8 +2750,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         # Исходный токен не дублируется
         self.assertEqual(result.count("любовь"), 1)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
     def test_augment_tokens_with_hyde_empty_text_returns_original(self, *_):
         """_augment_tokens_with_hyde с пустым HyDE возвращает оригинальные токены."""
         service = RagKnowledgeService()
@@ -2759,8 +2759,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         result = service._augment_tokens_with_hyde(original, "")
         self.assertEqual(result, original)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
     def test_augment_tokens_with_hyde_filters_stopwords(self, *_):
         """_augment_tokens_with_hyde не добавляет стоп-слова из HyDE-текста."""
         service = RagKnowledgeService()
@@ -2772,8 +2772,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         for token in result:
             self.assertNotIn(token, {"это", "такое"})
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
     def test_augment_tokens_with_hyde_no_new_tokens(self, *_):
         """_augment_tokens_with_hyde возвращает оригинал если HyDE не добавляет новых токенов."""
         service = RagKnowledgeService()
@@ -2783,8 +2783,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result, original)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
     def test_augment_tokens_preserves_original_order(self, *_):
         """_augment_tokens_with_hyde сохраняет оригинальные токены в начале."""
         service = RagKnowledgeService()
@@ -2799,7 +2799,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
     def test_is_rag_hyde_lexical_enabled_default_true(self):
         """is_rag_hyde_lexical_enabled по умолчанию возвращает True."""
-        from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings_mod
+        from config import ai_settings as ai_settings_mod
 
         with patch.object(ai_settings_mod, "AI_RAG_HYDE_LEXICAL_ENABLED", True):
             with patch.object(ai_settings_mod, "_safe_get_setting", return_value=None):
@@ -2808,16 +2808,16 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
     def test_is_rag_hyde_lexical_enabled_db_disable(self):
         """is_rag_hyde_lexical_enabled отключается через DB override."""
-        from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings_mod
+        from config import ai_settings as ai_settings_mod
 
         with patch.object(ai_settings_mod, "AI_RAG_HYDE_LEXICAL_ENABLED", True):
             with patch.object(ai_settings_mod, "_safe_get_setting", return_value="0"):
                 result = ai_settings_mod.is_rag_hyde_lexical_enabled()
                 self.assertFalse(result)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_lexical_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_lexical_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
     def test_hyde_lexical_disabled_skips_augmentation(self, *_):
         """При выключенном HyDE lexical токены не дополняются."""
         service = RagKnowledgeService()
@@ -2833,10 +2833,10 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(len(result), len(original))
 
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._get_corpus_version", return_value=10)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.RagKnowledgeService._log_query")
-    @patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider")
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_hyde_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._get_corpus_version", return_value=10)
+    @patch("src.core.ai.rag_service.RagKnowledgeService._log_query")
+    @patch("src.core.ai.llm_provider.get_provider")
     async def test_answer_question_concurrent_queries_do_not_block_each_other(
         self,
         mock_get_provider,
@@ -2895,9 +2895,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
 
     # ─── Spell-correction tests ──────────────────────────────────────
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
     def test_spellcheck_corrects_simple_typo(self, *_mocks):
         """Corpus-based коррекция исправляет простую одно-символьную опечатку."""
         service = RagKnowledgeService()
@@ -2923,9 +2923,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(changes), 1)
         self.assertEqual(changes[0], ("рагистрация", "регистрация"))
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
     def test_spellcheck_preserves_fixed_terms(self, *_mocks):
         """Защищённые термины из _RAG_FIXED_QUERY_TERMS никогда не корректируются."""
         service = RagKnowledgeService()
@@ -2944,7 +2944,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         service._spellcheck_vocab_size = 4
         service._spellcheck_vocab_ready = True
 
-        from src.sbs_helper_telegram_bot.ai_router.rag_service import _RAG_FIXED_QUERY_TERMS
+        from src.core.ai.rag_service import _RAG_FIXED_QUERY_TERMS
 
         # Проверяем, что каждый из этих терминов не меняется
         for term in ["осно", "усн", "инн", "ккт"]:
@@ -2953,9 +2953,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(corrected, [term], f"Термин '{term}' был изменён")
             self.assertEqual(len(changes), 0, f"Термин '{term}' не должен иметь changes")
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
     def test_spellcheck_skips_short_tokens(self, *_mocks):
         """Токены короче min_token_length (4) не корректируются."""
         service = RagKnowledgeService()
@@ -2977,9 +2977,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(corrected, ["кат"])
         self.assertEqual(len(changes), 0)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
     def test_spellcheck_skips_latin_tokens(self, *_mocks):
         """Латинские токены не корректируются (акронимы, бренды)."""
         service = RagKnowledgeService()
@@ -2999,7 +2999,7 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(corrected, ["posst"])
         self.assertEqual(len(changes), 0)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=False)
     def test_spellcheck_disabled_returns_original(self, *_mocks):
         """Если spellcheck отключён — токены возвращаются без изменений."""
         service = RagKnowledgeService()
@@ -3019,11 +3019,11 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(corrected, ["опечатка", "тест"])
         self.assertEqual(len(changes), 0)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_llm_fallback_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_FALLBACK_THRESHOLD", 0.5)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_MAX_CHARS", 500)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS", 300)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_spellcheck_llm_fallback_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_FALLBACK_THRESHOLD", 0.5)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_MAX_CHARS", 500)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS", 300)
     async def test_spellcheck_llm_fallback_triggered(self, *_mocks):
         """LLM fallback вызывается, если доля uncorrected suspicious-токенов ≥ threshold."""
         service = RagKnowledgeService()
@@ -3031,15 +3031,15 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_provider = MagicMock()
         mock_provider.chat = AsyncMock(return_value='{"corrected": "регистрация кассы", "changes": [{"from": "рагистрацуя", "to": "регистрация"}]}')
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider", return_value=mock_provider):
+        with patch("src.core.ai.llm_provider.get_provider", return_value=mock_provider):
             corrected, changes = await service._spellcheck_llm_fallback("рагистрацуя кассы", user_id=123)
 
         self.assertEqual(corrected, "регистрация кассы")
         self.assertEqual(len(changes), 1)
         self.assertEqual(changes[0], ("рагистрацуя", "регистрация"))
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_MAX_CHARS", 500)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS", 300)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_MAX_CHARS", 500)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS", 300)
     async def test_spellcheck_llm_fallback_error_graceful(self, *_mocks):
         """При ошибке LLM fallback возвращается исходный текст."""
         service = RagKnowledgeService()
@@ -3047,14 +3047,14 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         mock_provider = MagicMock()
         mock_provider.chat = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider", return_value=mock_provider):
+        with patch("src.core.ai.llm_provider.get_provider", return_value=mock_provider):
             corrected, changes = await service._spellcheck_llm_fallback("рагистрация", user_id=123)
 
         self.assertEqual(corrected, "рагистрация")
         self.assertEqual(len(changes), 0)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_MAX_CHARS", 500)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS", 300)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_MAX_CHARS", 500)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS", 300)
     async def test_spellcheck_llm_cache_hit(self, *_mocks):
         """Повторный запрос с тем же текстом возвращает кэшированный результат LLM."""
         import time as _time
@@ -3072,8 +3072,8 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(corrected, "регистрация")
         self.assertEqual(len(changes), 1)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_MAX_CHARS", 500)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS", 300)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_MAX_CHARS", 500)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_LLM_CACHE_TTL_SECONDS", 300)
     async def test_spellcheck_llm_protects_fixed_terms(self, *_mocks):
         """Если LLM удалил защищённый термин — возвращаем оригинал."""
         service = RagKnowledgeService()
@@ -3084,16 +3084,16 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
             return_value='{"corrected": "регистрация кота", "changes": [{"from": "ккт", "to": "кота"}]}'
         )
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.llm_provider.get_provider", return_value=mock_provider):
+        with patch("src.core.ai.llm_provider.get_provider", return_value=mock_provider):
             corrected, changes = await service._spellcheck_llm_fallback("регистрация ккт", user_id=123)
 
         # Должен вернуть оригинал, т.к. "ккт" — защищённый термин
         self.assertEqual(corrected, "регистрация ккт")
         self.assertEqual(len(changes), 0)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
     def test_spellcheck_apply_to_question_reconstructs_string(self, *_mocks):
         """_apply_spellcheck_to_question восстанавливает строку с заменами."""
         service = RagKnowledgeService()
@@ -3117,9 +3117,9 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         # Строка останется без изменений если edit distance > max_edit_distance
         self.assertIn(source, ("corpus", "none"))
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
     def test_spellcheck_vocabulary_build(self, *_mocks):
         """Словарь строится из mock summary и чанков, включает защищённые термины."""
         service = RagKnowledgeService()
@@ -3185,18 +3185,18 @@ class TestRagKnowledgeService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("spellcheck_changes", log_output)
         self.assertIn("рагистрация→регистрация", log_output)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_spellcheck_enabled", return_value=True)
+    @patch("src.core.ai.rag_service.ai_settings.is_rag_ru_normalization_enabled", return_value=False)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MAX_EDIT_DISTANCE", 1)
+    @patch("src.core.ai.rag_service.ai_settings.AI_RAG_SPELLCHECK_MIN_TOKEN_LENGTH", 4)
     def test_spellcheck_preload_adds_vocab_status(self, *_mocks):
         """preload_rag_runtime_dependencies включает spellcheck_vocab_ready в результат."""
         service = RagKnowledgeService()
 
-        with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service", return_value=service):
+        with patch("src.core.ai.rag_service.get_rag_service", return_value=service):
             with patch.object(service, "_is_vector_search_enabled", return_value=False):
                 with patch.object(service, "_build_spellcheck_vocabulary", return_value=True) as mock_build:
-                    with patch("src.sbs_helper_telegram_bot.ai_router.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem"):
+                    with patch("src.core.ai.rag_service.ai_settings.get_rag_ru_normalization_mode", return_value="lemma_then_stem"):
                         result = preload_rag_runtime_dependencies()
 
         self.assertTrue(result["spellcheck_vocab_ready"])

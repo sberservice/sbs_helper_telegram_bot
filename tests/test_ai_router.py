@@ -4,15 +4,15 @@ test_ai_router.py — тесты для IntentRouter AI-маршрутизаци
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.sbs_helper_telegram_bot.ai_router.circuit_breaker import CircuitBreaker
-from src.sbs_helper_telegram_bot.ai_router.context_manager import ConversationContextManager
+from src.core.ai.circuit_breaker import CircuitBreaker
+from src.core.ai.context_manager import ConversationContextManager
 from src.sbs_helper_telegram_bot.ai_router.intent_handlers import HandlerExecutionResult
 from src.sbs_helper_telegram_bot.ai_router.intent_router import (
     IntentRouter,
     get_router,
     reset_router,
 )
-from src.sbs_helper_telegram_bot.ai_router.llm_provider import (
+from src.core.ai.llm_provider import (
     ClassificationResult,
     LLMProviderTemporaryError,
 )
@@ -21,7 +21,7 @@ from src.sbs_helper_telegram_bot.ai_router.messages import (
     AI_PROGRESS_STAGE_RAG_PREFILTER_STARTED,
     AI_PROGRESS_STAGE_UPOS_NOT_FOUND_FALLBACK_STARTED,
 )
-from src.sbs_helper_telegram_bot.ai_router.rate_limiter import AIRateLimiter
+from src.core.ai.rate_limiter import AIRateLimiter
 
 
 def _make_router(

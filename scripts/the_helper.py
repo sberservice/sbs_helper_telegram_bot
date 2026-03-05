@@ -677,8 +677,8 @@ async def _run_rag_only(
     Returns:
         Кортеж (response, status), где status совместим со статусами router.route.
     """
-    from src.sbs_helper_telegram_bot.ai_router.rag_service import get_rag_service
-    from src.sbs_helper_telegram_bot.ai_router.messages import format_rag_answer_markdown_v2
+    from src.core.ai.rag_service import get_rag_service
+    from src.core.ai.formatters import format_rag_answer_markdown_v2
 
     rag_service = get_rag_service()
     rag_answer = await rag_service.answer_question(
@@ -698,7 +698,7 @@ def _get_fallback_message(status: str) -> str:
     """Вернуть fallback-сообщение по статусу AI-маршрутизации."""
     from src.sbs_helper_telegram_bot.ai_router.messages import (
         get_ai_status_message,
-    )
+    )  # Остаётся в ai_router — бот-специфичная функция
     msg = get_ai_status_message(status)
     if msg:
         return msg

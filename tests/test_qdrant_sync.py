@@ -4,7 +4,7 @@ import types
 import unittest
 from unittest import mock
 
-from src.sbs_helper_telegram_bot.ai_router.qdrant_sync import QdrantRemoteToLocalSync
+from src.core.ai.qdrant_sync import QdrantRemoteToLocalSync
 
 
 class _Point:
@@ -18,7 +18,7 @@ class TestQdrantRemoteToLocalSync(unittest.TestCase):
     """Проверки best-effort синхронизации remote→local."""
 
     @mock.patch(
-        "src.sbs_helper_telegram_bot.ai_router.qdrant_sync.ai_settings.AI_RAG_VECTOR_SYNC_COLLECTION",
+        "src.core.ai.qdrant_sync.ai_settings.AI_RAG_VECTOR_SYNC_COLLECTION",
         "env_collection",
     )
     def test_collection_name_defaults_from_sync_env(self):
@@ -26,14 +26,14 @@ class TestQdrantRemoteToLocalSync(unittest.TestCase):
         syncer = QdrantRemoteToLocalSync()
         self.assertEqual(syncer.collection_name, "env_collection")
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.qdrant_sync.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "")
+    @mock.patch("src.core.ai.qdrant_sync.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "")
     def test_validate_arguments_requires_remote_url(self):
         """Синхронизация не запускается без URL удалённого Qdrant."""
         syncer = QdrantRemoteToLocalSync(collection_name="rag_chunks_v1")
         with self.assertRaises(ValueError):
             syncer.sync()
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.qdrant_sync.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "http://remote")
+    @mock.patch("src.core.ai.qdrant_sync.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "http://remote")
     def test_validate_arguments_blocks_delete_missing_with_max_points(self):
         """Комбинация delete-missing и max-points запрещена для безопасности."""
         syncer = QdrantRemoteToLocalSync(
@@ -44,7 +44,7 @@ class TestQdrantRemoteToLocalSync(unittest.TestCase):
         with self.assertRaises(ValueError):
             syncer.sync()
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.qdrant_sync.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "http://remote")
+    @mock.patch("src.core.ai.qdrant_sync.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "http://remote")
     def test_sync_dry_run_counts_without_upsert(self):
         """В dry-run режимe считаются точки без записи в local индекс."""
 
@@ -72,7 +72,7 @@ class TestQdrantRemoteToLocalSync(unittest.TestCase):
         self.assertEqual(stats.batches, 1)
         local_client.upsert.assert_not_called()
 
-    @mock.patch("src.sbs_helper_telegram_bot.ai_router.qdrant_sync.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "http://remote")
+    @mock.patch("src.core.ai.qdrant_sync.ai_settings.AI_RAG_VECTOR_REMOTE_URL", "http://remote")
     def test_sync_upserts_points_to_local(self):
         """При обычном запуске точки из remote записываются в local."""
 
@@ -172,7 +172,7 @@ class TestQdrantRemoteToLocalSync(unittest.TestCase):
         )
 
         with mock.patch.dict("sys.modules", {"qdrant_client": fake_qdrant_module}), mock.patch(
-            "src.sbs_helper_telegram_bot.ai_router.qdrant_sync.ai_settings.AI_RAG_VECTOR_REMOTE_URL",
+            "src.core.ai.qdrant_sync.ai_settings.AI_RAG_VECTOR_REMOTE_URL",
             "http://remote",
         ), mock.patch.object(syncer, "_build_remote_client", return_value=_RemoteClient()), mock.patch.object(
             syncer,

@@ -5,6 +5,17 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.4.0] - 2026-03-12
+
+### Changed
+- Проект переименован в «SBS Archie» (Archie = Architect) — теперь это платформа, а не только Telegram-бот.
+- AI/RAG/LLM настройки вынесены из пакета бота в `config/ai_settings.py` — единый источник истины для всех компонентов (бот, Prompt Tester, CLI-утилиты).
+- MySQL credentials вынесены в `config/database_settings.py`.
+- Реусабельный AI-движок выделен в `src/core/ai/` (LLM provider, RAG service, vector search, circuit breaker, rate limiter, context manager, prompts, formatters) — без зависимости от Telegram.
+- Модули `ai_router/` теперь реэкспортируют из `src/core/ai/` с предупреждениями о deprecation для обратной совместимости.
+- `.env.example` дополнен заголовками секций для удобства навигации.
+- Обновлены README.md, copilot-instructions.md, MODULE_GUIDE_RU.md и AI_RAG_GUIDE.md.
+
 ## [0.3.0] - 2026-03-05
 
 ### Added
@@ -1017,7 +1028,7 @@
 - Добавлен README.md для модуля AI-маршрутизатора (`src/sbs_helper_telegram_bot/ai_router/README.md`).
 
 ### Changed
-- Проект переименован в «SBS Helper AI Telegram Bot» с акцентом на AI-возможности.
+- Проект переименован в « AI Telegram Bot» с акцентом на AI-возможности.
 - Главный README.md полностью переработан: компактная структура, таблица модулей со ссылками на отдельные README.
 - Обновлены ссылки на проект в README модулей (ticket\_validator, gamification) и в `docs/MODULE_GUIDE_RU.md`.
 

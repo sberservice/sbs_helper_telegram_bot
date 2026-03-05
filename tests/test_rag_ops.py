@@ -71,7 +71,7 @@ class TestRagOpsScript(unittest.TestCase):
 
         self.assertEqual(rc, 0)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.vector_search.LocalVectorIndex")
+    @patch("src.core.ai.vector_search.LocalVectorIndex")
     @patch("src.common.database.get_cursor")
     @patch("src.common.database.get_db_connection")
     def test_cmd_health_checks_vector_index_via_local_vector_index(

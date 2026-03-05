@@ -89,7 +89,7 @@ from src.sbs_helper_telegram_bot.soos import settings as soos_settings
 from src.sbs_helper_telegram_bot.upos_error import messages as upos_messages
 from src.sbs_helper_telegram_bot.upos_error import keyboards as upos_keyboards
 from src.sbs_helper_telegram_bot.upos_error import settings as upos_settings
-from src.sbs_helper_telegram_bot.ai_router.rag_service import preload_rag_runtime_dependencies
+from src.core.ai.rag_service import preload_rag_runtime_dependencies
 
 from src.common.telegram_user import (
     check_if_user_legit,

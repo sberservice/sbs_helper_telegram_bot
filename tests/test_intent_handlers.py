@@ -14,7 +14,7 @@ from src.sbs_helper_telegram_bot.ai_router.intent_handlers import (
     NewsHandler,
     get_all_handlers,
 )
-from src.sbs_helper_telegram_bot.ai_router.rag_service import RagAnswer
+from src.core.ai.rag_service import RagAnswer
 
 
 class TestHandlerProperties(unittest.TestCase):
@@ -177,7 +177,7 @@ class TestUposErrorHandler(unittest.IsolatedAsyncioTestCase):
 class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
     """Тесты исполнения RagQaHandler."""
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.settings.AI_RAG_ENABLED", False)
+    @patch("config.ai_settings.AI_RAG_ENABLED", False)
     async def test_rag_disabled(self):
         """При выключенном RAG возвращается сообщение о недоступности."""
         handler = RagQaHandler()
@@ -190,7 +190,7 @@ class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
         result = await handler.execute({"question": "   "}, user_id=1)
         self.assertIn("Уточните вопрос", result)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service")
+    @patch("src.core.ai.rag_service.get_rag_service")
     async def test_answer_from_rag(self, mock_get_rag_service):
         """Успешный ответ RAG форматируется и возвращается пользователю."""
         mock_service = AsyncMock()
@@ -203,7 +203,7 @@ class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Ответ по базе знаний", result)
         self.assertIn("Ответ из базы знаний", result)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service")
+    @patch("src.core.ai.rag_service.get_rag_service")
     async def test_answer_from_rag_passes_category_hint(self, mock_get_rag_service):
         """Опциональный category_hint из параметров передаётся в RAG-сервис."""
         mock_service = AsyncMock()
@@ -226,7 +226,7 @@ class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
             category_hint="upos ошибки",
         )
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service")
+    @patch("src.core.ai.rag_service.get_rag_service")
     async def test_answer_from_rag_preserves_supported_markdown(self, mock_get_rag_service):
         """RAG-ответ сохраняет поддерживаемый markdown и экранирует остальное."""
         mock_service = AsyncMock()
@@ -244,7 +244,7 @@ class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
         self.assertIn("`echo ok`", result)
         self.assertIn("\\[x\\]\\(https://example\\.com\\)", result)
 
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service")
+    @patch("src.core.ai.rag_service.get_rag_service")
     async def test_not_found_in_rag(self, mock_get_rag_service):
         """Если релевантных чанков нет — возвращается корректный fallback."""
         mock_service = AsyncMock()
@@ -256,7 +256,7 @@ class TestRagQaHandler(unittest.IsolatedAsyncioTestCase):
         self.assertIn("не найден точный ответ", result)
 
     @patch("src.sbs_helper_telegram_bot.ai_router.intent_handlers.logger.exception")
-    @patch("src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service")
+    @patch("src.core.ai.rag_service.get_rag_service")
     async def test_rag_exception_with_empty_message_logs_type(
         self,
         mock_get_rag_service,

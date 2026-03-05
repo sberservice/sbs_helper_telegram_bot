@@ -57,7 +57,7 @@ def _bootstrap_project_root() -> None:
 _bootstrap_project_root()
 
 from src.common import database
-from src.sbs_helper_telegram_bot.ai_router.rag_service import RagKnowledgeService
+from src.core.ai.rag_service import RagKnowledgeService
 
 logging.basicConfig(
     level=logging.INFO,
@@ -409,8 +409,8 @@ def display_ingest_info(directory: Path, recursive: bool) -> None:
     print(f"\n--- Параметры чанкинга ---")
     print(f"  chunk_size:                  {diagnostics.get('chunk_size')}")
     print(f"  chunk_overlap:               {diagnostics.get('chunk_overlap')}")
-    print(f"  max_chunks_per_doc:          {getattr(__import__('src.sbs_helper_telegram_bot.ai_router.settings', fromlist=['AI_RAG_MAX_CHUNKS_PER_DOC']), 'AI_RAG_MAX_CHUNKS_PER_DOC', 'N/A')}")
-    print(f"  max_file_size_mb:            {getattr(__import__('src.sbs_helper_telegram_bot.ai_router.settings', fromlist=['AI_RAG_MAX_FILE_SIZE_MB']), 'AI_RAG_MAX_FILE_SIZE_MB', 'N/A')}")
+    print(f"  max_chunks_per_doc:          {getattr(__import__('config.ai_settings', fromlist=['AI_RAG_MAX_CHUNKS_PER_DOC']), 'AI_RAG_MAX_CHUNKS_PER_DOC', 'N/A')}")
+    print(f"  max_file_size_mb:            {getattr(__import__('config.ai_settings', fromlist=['AI_RAG_MAX_FILE_SIZE_MB']), 'AI_RAG_MAX_FILE_SIZE_MB', 'N/A')}")
     # Сепараторы
     separators = getattr(rag_service, '_RU_SEPARATORS', None)
     if separators:

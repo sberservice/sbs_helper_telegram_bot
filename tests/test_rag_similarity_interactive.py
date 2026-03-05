@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
-from src.sbs_helper_telegram_bot.ai_router.rag_similarity_interactive import (
+from src.core.ai.rag_similarity_interactive import (
     SimilaritySession,
     _parse_input,
     run_interactive,
@@ -489,7 +489,7 @@ class TestInteractiveREPL(unittest.TestCase):
         ]
         with patch("builtins.input", side_effect=commands):
             with patch(
-                "src.sbs_helper_telegram_bot.ai_router.rag_similarity_interactive"
+                "src.core.ai.rag_similarity_interactive"
                 ".SimilaritySession._ensure_provider",
                 return_value=provider,
             ):

@@ -176,12 +176,12 @@ def cmd_health(_args: argparse.Namespace) -> int:
     # --- Qdrant ---
     _step("Qdrant (vector index)")
     try:
-        from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings  # noqa: PLC0415
+        from config import ai_settings  # noqa: PLC0415
 
         if not ai_settings.AI_RAG_VECTOR_ENABLED:
             _warn("AI_RAG_VECTOR_ENABLED=0 — векторный слой отключён.")
         else:
-            from src.sbs_helper_telegram_bot.ai_router.vector_search import LocalVectorIndex  # noqa: PLC0415
+            from src.core.ai.vector_search import LocalVectorIndex  # noqa: PLC0415
 
             index = LocalVectorIndex()
             if not index.is_ready():
@@ -265,7 +265,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         _ok(".env найден.")
 
     try:
-        from src.common.constants import database as db_cfg  # noqa: PLC0415
+        from config import database_settings as db_cfg  # noqa: PLC0415
 
         _ok(f"MySQL: {db_cfg.MYSQL_HOST}:{db_cfg.MYSQL_PORT}/{db_cfg.MYSQL_DATABASE}")
     except Exception as exc:
@@ -273,7 +273,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings  # noqa: PLC0415
+        from config import ai_settings  # noqa: PLC0415
         vec_enabled = bool(ai_settings.AI_RAG_VECTOR_ENABLED)
         _info(f"AI_RAG_VECTOR_ENABLED={'1 (векторный слой активен)' if vec_enabled else '0 (только lexical)'}")
     except Exception as exc:
@@ -298,7 +298,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         return 1
 
     if apply_sql or (not yes and _confirm("Применить SQL-миграции?", default=True)):
-        from src.common.constants import database as db_cfg  # noqa: PLC0415
+        from config import database_settings as db_cfg  # noqa: PLC0415
 
         for sql_file in pending_files:
             name = Path(sql_file).name
@@ -341,7 +341,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
     print()
 
     try:
-        from src.sbs_helper_telegram_bot.ai_router import settings as ai_settings  # noqa: PLC0415
+        from config import ai_settings  # noqa: PLC0415
         if not ai_settings.AI_RAG_VECTOR_ENABLED:
             _info("Векторный слой отключён — backfill не требуется.")
         elif not yes and _confirm("Запустить backfill сейчас?", default=False):

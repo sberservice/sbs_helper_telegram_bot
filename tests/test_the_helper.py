@@ -404,7 +404,7 @@ class TestHandleHelp(unittest.TestCase):
         mock_rag_service.answer_question = AsyncMock(return_value=mock_rag_answer)
 
         with patch(
-            "src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service",
+            "src.core.ai.rag_service.get_rag_service",
             return_value=mock_rag_service,
         ), patch(
             "src.sbs_helper_telegram_bot.ai_router.messages.format_rag_answer_markdown_v2",
@@ -473,7 +473,7 @@ class TestHandleHelp(unittest.TestCase):
             "src.sbs_helper_telegram_bot.ai_router.intent_router.get_router",
             return_value=mock_router,
         ), patch(
-            "src.sbs_helper_telegram_bot.ai_router.rag_service.get_rag_service",
+            "src.core.ai.rag_service.get_rag_service",
             return_value=mock_rag_service,
         ), patch(
             "src.sbs_helper_telegram_bot.ai_router.messages.format_rag_answer_markdown_v2",

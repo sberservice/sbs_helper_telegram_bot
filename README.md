@@ -1,4 +1,4 @@
-# SBS Helper AI Telegram Bot 🤖
+# SBS Archie 🤖
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/) [![Лицензия](https://img.shields.io/badge/license-CC--BY--NC--SA--4.0-red.svg)](LICENSE)
 
@@ -6,13 +6,31 @@
 
 ## О проекте
 
-**SBS Helper AI Telegram Bot** — модульный AI-powered Telegram-бот для инженеров **СберСервис**. Просто напишите боту что угодно — AI поймёт, о чём вы, и направит в нужный модуль. Никаких лишних кнопок, никаких инструкций на 20 страниц. Пишите как человеку — бот разберётся. Ну, почти всегда. 😉
+**SBS Archie** (Archie = Architect) — модульная AI-платформа для инженеров **СберСервис**. Проект включает Telegram-бота, веб-инструменты и CLI-утилиты — объединённые общим AI-ядром.
 
 Построен на архитектуре плагинов с AI-маршрутизатором в центре. Каждый модуль независим, включается/отключается через админку, а AI-роутер связывает их в единое целое — как мозг.
 
 Демо: [@vyezdbyl_bot](https://t.me/vyezdbyl_bot) *(может не отражать текущую стадию разработки)*
 
-## Что умеет
+## Архитектура
+
+```
+SBS Archie
+├── src/core/ai/           ← Общее AI-ядро (LLM, RAG, vector search)
+├── src/sbs_helper_telegram_bot/  ← Telegram-бот (модули)
+├── prompt_tester/         ← Веб-приложение (FastAPI + React)
+├── scripts/               ← CLI-утилиты
+└── config/                ← Настройки (.env)
+    ├── ai_settings.py     ← AI/RAG/LLM параметры
+    ├── database_settings.py ← MySQL credentials
+    └── settings.py        ← Telegram и сетевые настройки
+```
+
+## Компоненты
+
+### Telegram-бот
+
+Основной интерфейс. Просто напишите боту что угодно — AI поймёт, о чём вы, и направит в нужный модуль.
 
 | | Модуль | Суть | Подробнее |
 |---|--------|------|-----------|
@@ -28,17 +46,13 @@
 | 🏆 | **Геймификация** | Очки, достижения (🥉🥈🥇), ранги, лидерборды | [README](src/sbs_helper_telegram_bot/gamification/README.md) |
 | 🛠️ | **Админ бота** | Пользователи, инвайты, модули, настройки, плановые работы | [README](src/sbs_helper_telegram_bot/bot_admin/README.md) |
 
-**AI-маршрутизатор** работает в фоне — просто пишите боту текст, и он сам разберётся куда его направить. Circuit breaker, rate limiter и RAG-база знаний документов — всё включено.
+### Prompt Tester (веб-приложение)
 
-## Prompt Tester (major feature)
-
-В проект входит отдельный веб-инструмент **Prompt Tester** для слепого попарного сравнения промптов summary в RAG:
+Веб-инструмент для слепого попарного сравнения промптов summary в RAG:
 - сравнение комбинаций `(system_prompt + user_message + model + temperature)`;
 - режимы оценки `human`, `llm`, `both`;
 - корректные этапы выполнения `generating -> judging -> in_progress/completed`;
 - итоговые рейтинги Elo + Win Rate.
-
-Запуск:
 
 ```bash
 python -m prompt_tester
@@ -46,64 +60,40 @@ python -m prompt_tester
 
 Документация: [prompt_tester/README.md](prompt_tester/README.md)
 
+### AI-ядро (`src/core/ai/`)
+
+Переиспользуемый AI-движок, не зависящий от Telegram:
+- **LLM Provider** — абстракция над DeepSeek API с circuit breaker и rate limiter
+- **RAG Service** — полнотекстовый + векторный поиск, HyDE, spellcheck, summary-aware retrieval
+- **Vector Search** — Qdrant (local/remote) с sentence-transformers
+- **Prompts** — системные промпты для классификации и генерации
+
+### CLI-утилиты (`scripts/`)
+
+| Скрипт | Описание |
+|--------|----------|
+| `rag_ops.py` | Единый CLI для всех RAG-операций (health, status, setup, wizard) |
+| `rag_directory_ingest.py` | Пакетная загрузка документов в RAG |
+| `rag_certification_sync.py` | Синхронизация вопросов аттестации в RAG |
+| `rag_vector_backfill.py` | Пакетная индексация в Qdrant |
+| `rag_qdrant_sync_remote_to_local.py` | Синхронизация Qdrant remote→local |
+| `rag_sentence_similarity.py` | Оценка похожести фраз для отладки RAG |
+| `sync_chat_members.py` | Синхронизация участников Telegram-группы |
+| `add_daily_scores.py` | Массовое начисление очков геймификации |
+
 ## Быстрый старт
-
-### Требования
-
-- Python 3.10+ · MySQL 8.0+ · [Telegram Bot Token](https://t.me/botfather)
-
-### Установка
 
 ```bash
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # Заполнить TELEGRAM_TOKEN, MYSQL_*, DEEPSEEK_API_KEY
-```
-
-### База данных
-
-```bash
 mysql -u root -p < schema.sql
-# Модули (все скрипты в sql/*_setup.sql):
-for f in bot_settings_setup initial_ticket_types initial_validation_rules \
-         map_rules_to_ticket_types certification_setup ktr_setup upos_error_setup \
-         soos_image_queue_setup \
-         gamification_setup feedback_setup news_setup ai_router_setup ai_rag_setup \
-         ai_rag_document_summaries_setup ai_rag_vector_setup ai_rag_certification_signals_setup chat_members_setup health_check_setup \
-         health_outage_calendar_setup prompt_tester_setup; do
-  mysql -u root -p sprint_db < "sql/${f}.sql"
-done
-# Для существующих БД без FULLTEXT-индекса summary_text:
-mysql -u root -p sprint_db < sql/rag_document_summaries_fulltext_index.sql
-```
-
-### Запуск
-
-```bash
 python run_bot.py
 ```
 
-Стартуют процессы: **Telegram Bot**, **Image Queue Processor**, **SOOS Queue Processor**, **Health Check**. Автоперезапуск при сбоях (до 3 раз). `Ctrl+C` для остановки.
+Подробная установка, настройка БД и конфигурация `.env` — см. [docs/SETUP.md](docs/SETUP.md).
 
-## Конфигурация
-
-Все настройки — через `.env` (см. `.env.example`). Ключевые группы:
-
-| Группа | Переменные | Описание |
-|--------|-----------|----------|
-| **Telegram** | `TELEGRAM_TOKEN` | Токен бота |
-| **MySQL** | `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` | Подключение к БД |
-| **AI** | `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `AI_CONFIDENCE_THRESHOLD`, `AI_LOG_MODEL_IO`, `AI_MODEL_IO_DB_LOG_ENABLED` | LLM-провайдер, пороги и логирование prompt/response |
-| **RAG** | `AI_RAG_ENABLED`, `AI_RAG_CHUNK_SIZE`, `AI_RAG_TOP_K`, `AI_RAG_PREFILTER_TOP_DOCS`, `AI_RAG_PREFILTER_EXCLUDE_CERTIFICATION_FROM_COUNT`, `AI_RAG_PROMPT_SUMMARIES_EXCLUDE_CERTIFICATION`, `AI_RAG_SUMMARY_MATCH_PHRASE_WEIGHT`, `AI_RAG_SUMMARY_VECTOR_WEIGHT`, `AI_RAG_VECTOR_ENABLED`, `AI_RAG_CERTIFICATION_CATEGORY_BOOST`, `AI_RAG_CERTIFICATION_STALE_PENALTY` | База знаний документов |
-| **Сеть** | `TELEGRAM_HTTP_MAX_RETRIES`, `TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS` | Сетевые профили |
-
-Для хранения полных AI/RAG логов (`prompt/response`) используется таблица `ai_model_io_log` (создаётся в `sql/ai_router_setup.sql`).
-Записи маскируют чувствительные данные (email/телефон/ИНН/СНИЛС) перед сохранением.
-Очистка старых записей выполняется через `sql/ai_model_io_log_retention.sql` (по умолчанию старше 30 дней).
-
-Полный список переменных — в `.env.example`. AI-модели переключаются в runtime через админ-панель (`🧠 AI модель`).
-
-## Навигация
+## Навигация бота
 
 ```
 🏠 Главное меню
@@ -123,14 +113,6 @@ python run_bot.py
 | `/cancel` | Отмена операции |
 | `/invite` | Коды приглашений |
 
-## Тестирование
-
-```bash
-pytest
-```
-
-Конфигурация: `pytest.ini`, таймаут 30 сек/тест.
-
 ## Зависимости
 
 | Пакет | Зачем |
@@ -142,18 +124,19 @@ pytest
 | `openpyxl`, `xlrd` | Excel (.xlsx, .xls) |
 | `python-dotenv` | Переменные окружения |
 | `telethon` | Синхронизация участников группы |
+| `fastapi`, `uvicorn` | Веб-сервер Prompt Tester |
 
 ## Документация
 
-**Модули** — каждый модуль содержит свой README с полным описанием (см. таблицу «Что умеет» выше).
+**Модули** — каждый модуль содержит свой README с полным описанием (см. таблицу модулей выше).
 
 **Гайды:**
+- [Установка и настройка](docs/SETUP.md)
 - [Руководство по разработке модулей](docs/MODULE_GUIDE_RU.md)
 - [Конфигурация модулей](docs/MODULE_CONFIG_GUIDE.md) · [Быстрый справочник](docs/MODULE_CONFIG_QUICK_REF.md)
 - [AI RAG — база знаний](docs/AI_RAG_GUIDE.md)
+- [RAG-операции (CLI)](docs/RAG_OPERATIONS_GUIDE.md)
 - [Рекомендации по валидатору](docs/VALIDATOR_RECOMMENDATIONS.md)
-
-**Утилиты:** `scripts/sync_chat_members.py` (синхронизация Telegram-группы), `scripts/add_daily_scores.py` (массовое начисление очков), `scripts/rag_ops.py` (**единый CLI для всех RAG-операций**: health-check, status, первичная настройка, обновление документов/аттестации/векторов, sync-remote, интерактивный wizard — подробнее см. [docs/RAG_OPERATIONS_GUIDE.md](docs/RAG_OPERATIONS_GUIDE.md)), `scripts/rag_directory_ingest.py` (пакетная загрузка документов в RAG), `scripts/rag_certification_sync.py` (синхронизация вопросов/ответов аттестации в RAG), `scripts/rag_vector_backfill.py` (пакетная индексация существующих RAG-чанков и/или summary-документов в локальный Qdrant), `scripts/rag_qdrant_sync_remote_to_local.py` (best-effort синхронизация коллекции Qdrant из remote в local), `scripts/rag_sentence_similarity.py` (оценка похожести двух фраз для ручной проверки RAG), `python -m prompt_tester` (веб-интерфейс Prompt Tester для слепого тестирования summary-промптов).
 
 ## Лицензия
 
@@ -163,5 +146,5 @@ pytest
 
 ---
 
-*Разработано с ❤️ и AI для инженеров СберСервис · Февраль 2026*
+*Разработано с ❤️ и AI для инженеров СберСервис · Март 2026*
 
