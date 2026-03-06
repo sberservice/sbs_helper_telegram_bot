@@ -613,3 +613,55 @@ def is_rag_spellcheck_llm_fallback_enabled() -> bool:
 
     normalized = str(db_value).strip().lower()
     return normalized in {"1", "true", "yes", "on"}
+
+
+# =============================================
+# Настройки GigaChat (визуальное описание изображений)
+# =============================================
+
+# Авторизационный ключ GigaChat API.
+GIGACHAT_CREDENTIALS: Final[str] = os.getenv("GIGACHAT_CREDENTIALS", "")
+# Область доступа API: GIGACHAT_API_PERS (физ. лица), GIGACHAT_API_B2B, GIGACHAT_API_CORP.
+GIGACHAT_SCOPE: Final[str] = os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
+# Модель GigaChat по умолчанию для vision-задач.
+GIGACHAT_MODEL: Final[str] = os.getenv("GIGACHAT_MODEL", "GigaChat-Pro")
+# Проверять SSL-сертификаты GigaChat (для продакшн — True).
+GIGACHAT_VERIFY_SSL_CERTS: Final[bool] = os.getenv("GIGACHAT_VERIFY_SSL_CERTS", "false").lower() in {"1", "true", "yes", "on"}
+# Путь к файлу CA-сертификата (Russian Trusted Root CA).
+GIGACHAT_CA_BUNDLE_FILE: Final[str] = os.getenv("GIGACHAT_CA_BUNDLE_FILE", "")
+# Таймаут запросов к GigaChat (секунды).
+GIGACHAT_TIMEOUT: Final[float] = float(os.getenv("GIGACHAT_TIMEOUT", "60.0"))
+# Максимальное число повторных попыток при ошибках GigaChat.
+GIGACHAT_MAX_RETRIES: Final[int] = int(os.getenv("GIGACHAT_MAX_RETRIES", "2"))
+
+# =============================================
+# Настройки Group Knowledge (майнинг знаний)
+# =============================================
+
+# Путь к хранилищу изображений из групп.
+GK_IMAGE_STORAGE_PATH: Final[str] = os.getenv("GK_IMAGE_STORAGE_PATH", "./data/group_knowledge/images")
+# Модель для описания изображений (GigaChat vision).
+GK_IMAGE_DESCRIPTION_MODEL: Final[str] = os.getenv("GK_IMAGE_DESCRIPTION_MODEL", "GigaChat-Pro")
+# Модель для анализа Q&A пар (DeepSeek).
+GK_ANALYSIS_MODEL: Final[str] = os.getenv("GK_ANALYSIS_MODEL", "deepseek-chat")
+# Модель для автоответчика (DeepSeek).
+GK_RESPONDER_MODEL: Final[str] = os.getenv("GK_RESPONDER_MODEL", "deepseek-chat")
+# Режим dry-run автоответчика (по умолчанию включён — не отправляет реальные ответы).
+GK_DRY_RUN: Final[bool] = os.getenv("GK_DRY_RUN", "1") == "1"
+# Минимальный порог уверенности для автоматического ответа.
+GK_RESPONDER_CONFIDENCE_THRESHOLD: Final[float] = float(
+    os.getenv("GK_RESPONDER_CONFIDENCE_THRESHOLD", "0.7")
+)
+# Имя Qdrant-коллекции для Q&A пар.
+GK_QA_VECTOR_COLLECTION: Final[str] = os.getenv("GK_QA_VECTOR_COLLECTION", "gk_qa_pairs_v1")
+# Максимальное число Q&A пар в контексте для генерации ответа.
+GK_RESPONDER_TOP_K: Final[int] = int(os.getenv("GK_RESPONDER_TOP_K", "5"))
+# Максимальный размер батча сообщений, отправляемого в LLM для анализа.
+GK_ANALYSIS_BATCH_SIZE: Final[int] = int(os.getenv("GK_ANALYSIS_BATCH_SIZE", "50"))
+# Промпт для описания изображений через GigaChat.
+GK_IMAGE_DESCRIPTION_PROMPT: Final[str] = os.getenv(
+    "GK_IMAGE_DESCRIPTION_PROMPT",
+    "Опиши подробно что изображено на этом изображении. "
+    "Если на изображении есть текст ошибки, код ошибки или сообщение об ошибке, "
+    "обязательно укажи его дословно. Если на изображении устройство — опиши его состояние."
+)

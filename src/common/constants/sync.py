@@ -45,3 +45,25 @@ HELPER_RATE_LIMIT_GROUP_MAX: Final[int] = int(os.getenv("HELPER_RATE_LIMIT_GROUP
 
 # Rate-limit: окно в секундах для группы
 HELPER_RATE_LIMIT_GROUP_WINDOW: Final[int] = int(os.getenv("HELPER_RATE_LIMIT_GROUP_WINDOW", "300"))
+
+# ===========================================================================
+# GROUP_KNOWLEDGE — сбор знаний из Telegram-групп
+# ===========================================================================
+
+# Имя сессии Telethon для коллектора сообщений
+GK_COLLECTOR_SESSION_NAME: Final[str] = os.getenv("GK_COLLECTOR_SESSION_NAME", "gk_collector_session")
+
+# Имя сессии Telethon для автоответчика
+GK_RESPONDER_SESSION_NAME: Final[str] = os.getenv("GK_RESPONDER_SESSION_NAME", "gk_responder_session")
+
+# Rate-limit: максимальное число ответов одному пользователю за окно
+GK_RATE_LIMIT_USER_MAX: Final[int] = int(os.getenv("GK_RATE_LIMIT_USER_MAX", "5"))
+
+# Rate-limit: окно в секундах для пользователя
+GK_RATE_LIMIT_USER_WINDOW: Final[int] = int(os.getenv("GK_RATE_LIMIT_USER_WINDOW", "120"))
+
+# Rate-limit: максимальное число ответов в группе за окно
+GK_RATE_LIMIT_GROUP_MAX: Final[int] = int(os.getenv("GK_RATE_LIMIT_GROUP_MAX", "30"))
+
+# Rate-limit: окно в секундах для группы
+GK_RATE_LIMIT_GROUP_WINDOW: Final[int] = int(os.getenv("GK_RATE_LIMIT_GROUP_WINDOW", "300"))
