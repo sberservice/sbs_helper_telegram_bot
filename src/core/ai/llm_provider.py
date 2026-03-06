@@ -897,11 +897,359 @@ class DeepSeekProvider(LLMProvider):
 
 
 # =============================================
+# GigaChat-провайдер (Sber GigaChat API)
+# =============================================
+
+class GigaChatProvider(LLMProvider):
+    """
+    Провайдер на основе GigaChat API (Sber).
+
+    Поддерживает текстовый чат и описание изображений (vision).
+    Использует библиотеку gigachat для взаимодействия с API.
+    """
+
+    def __init__(
+        self,
+        credentials: Optional[str] = None,
+        scope: Optional[str] = None,
+        model: Optional[str] = None,
+        timeout: Optional[float] = None,
+        verify_ssl_certs: Optional[bool] = None,
+        ca_bundle_file: Optional[str] = None,
+        max_retries: Optional[int] = None,
+    ):
+        """
+        Инициализация GigaChat-провайдера.
+
+        Args:
+            credentials: Авторизационный ключ (по умолчанию из настроек).
+            scope: Область доступа API (по умолчанию из настроек).
+            model: Модель GigaChat (по умолчанию из настроек).
+            timeout: Таймаут запросов (по умолчанию из настроек).
+            verify_ssl_certs: Проверять ли SSL (по умолчанию из настроек).
+            ca_bundle_file: Путь к CA-сертификату (по умолчанию из настроек).
+            max_retries: Число повторных попыток (по умолчанию из настроек).
+        """
+        self._credentials = credentials or ai_settings.GIGACHAT_CREDENTIALS
+        self._scope = scope or ai_settings.GIGACHAT_SCOPE
+        self._model = model or ai_settings.GIGACHAT_MODEL
+        self._timeout = timeout if timeout is not None else ai_settings.GIGACHAT_TIMEOUT
+        self._verify_ssl_certs = (
+            verify_ssl_certs if verify_ssl_certs is not None
+            else ai_settings.GIGACHAT_VERIFY_SSL_CERTS
+        )
+        self._ca_bundle_file = ca_bundle_file or ai_settings.GIGACHAT_CA_BUNDLE_FILE or None
+        self._max_retries = max_retries if max_retries is not None else ai_settings.GIGACHAT_MAX_RETRIES
+
+        if not self._credentials:
+            logger.warning("GigaChat credentials не заданы. GigaChat-провайдер будет недоступен.")
+
+    def _create_client_kwargs(self) -> Dict[str, Any]:
+        """Получить словарь аргументов для создания GigaChat-клиента."""
+        kwargs: Dict[str, Any] = {
+            "credentials": self._credentials,
+            "scope": self._scope,
+            "model": self._model,
+            "timeout": self._timeout,
+            "verify_ssl_certs": self._verify_ssl_certs,
+            "max_retries": self._max_retries,
+        }
+        if self._ca_bundle_file:
+            kwargs["ca_bundle_file"] = self._ca_bundle_file
+        return kwargs
+
+    @staticmethod
+    def _format_gigachat_error(exc: Exception) -> str:
+        """Преобразовать ошибку GigaChat в понятное сообщение для пользователя."""
+        message = str(exc)
+        normalized = message.lower()
+
+        if "authorization error: header is incorrect" in normalized:
+            return (
+                "Неверный формат GIGACHAT_CREDENTIALS. Для GigaChat нужен не access token и не просто API key, "
+                "а авторизационный ключ для OAuth (Authorization key / Basic key) из кабинета Sber Developers. "
+                "Проверьте GIGACHAT_CREDENTIALS и GIGACHAT_SCOPE в .env"
+            )
+        if "401" in normalized and "oauth" in normalized:
+            return (
+                "Ошибка авторизации GigaChat OAuth. Проверьте корректность GIGACHAT_CREDENTIALS, "
+                "GIGACHAT_SCOPE и доступ к проекту GigaChat в кабинете Sber Developers"
+            )
+        return message
+
+    @property
+    def name(self) -> str:
+        return "gigachat"
+
+    def get_model_name(self, purpose: str = "response") -> Optional[str]:
+        """Вернуть имя модели GigaChat."""
+        return self._model
+
+    async def classify(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: str,
+        user_id: Optional[int] = None,
+    ) -> ClassificationResult:
+        """Классифицировать сообщение через GigaChat API (делегирует к chat)."""
+        start_time = time.monotonic()
+
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
+
+        try:
+            raw = await self._call_gigachat(
+                full_messages,
+                temperature=0.1,
+                user_id=user_id,
+            )
+        except Exception as exc:
+            elapsed = int((time.monotonic() - start_time) * 1000)
+            logger.exception(
+                "GigaChat classify error: type=%s repr=%r (elapsed=%dms)",
+                type(exc).__name__,
+                exc,
+                elapsed,
+            )
+            raise
+
+        elapsed = int((time.monotonic() - start_time) * 1000)
+        return DeepSeekProvider._parse_classification(raw, elapsed)
+
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: str,
+        user_id: Optional[int] = None,
+        purpose: str = "response",
+        model_override: Optional[str] = None,
+        response_format: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Получить свободный текстовый ответ через GigaChat API."""
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
+
+        try:
+            raw = await self._call_gigachat(
+                full_messages,
+                temperature=0.7,
+                model_override=model_override,
+                user_id=user_id,
+            )
+        except Exception as exc:
+            logger.exception(
+                "GigaChat chat error: type=%s repr=%r",
+                type(exc).__name__,
+                exc,
+            )
+            raise
+
+        return raw
+
+    async def health_check(self) -> bool:
+        """Проверить доступность GigaChat API."""
+        if not self._credentials:
+            return False
+        try:
+            from gigachat import GigaChat
+
+            with GigaChat(**self._create_client_kwargs()) as client:
+                models = client.get_models()
+                return bool(models and models.data)
+        except Exception as exc:
+            logger.warning("GigaChat health check failed: %s", exc)
+            return False
+
+    async def describe_image(
+        self,
+        image_path: str,
+        prompt: Optional[str] = None,
+    ) -> str:
+        """
+        Описать изображение через GigaChat Vision API.
+
+        Загружает изображение в хранилище GigaChat, отправляет запрос
+        с attachment'ом и возвращает текстовое описание.
+
+        Args:
+            image_path: Путь к файлу изображения.
+            prompt: Промпт для описания (по умолчанию из настроек).
+
+        Returns:
+            Текстовое описание изображения.
+
+        Raises:
+            FileNotFoundError: если файл не найден.
+            RuntimeError: при ошибках GigaChat API.
+        """
+        import os as _os
+        if not _os.path.exists(image_path):
+            raise FileNotFoundError(f"Файл изображения не найден: {image_path}")
+
+        if not prompt:
+            prompt = ai_settings.GK_IMAGE_DESCRIPTION_PROMPT
+
+        logger.info(
+            "GigaChat describe_image: path=%s model=%s",
+            image_path,
+            self._model,
+        )
+
+        try:
+            result = await asyncio.to_thread(
+                self._describe_image_sync, image_path, prompt
+            )
+            logger.info(
+                "GigaChat describe_image success: path=%s result_length=%d",
+                image_path,
+                len(result),
+            )
+            return result
+        except Exception as exc:
+            logger.error(
+                "GigaChat describe_image error: path=%s error=%s",
+                image_path,
+                exc,
+                exc_info=True,
+            )
+            raise RuntimeError(
+                f"Ошибка описания изображения через GigaChat: {self._format_gigachat_error(exc)}"
+            ) from exc
+
+    def _describe_image_sync(self, image_path: str, prompt: str) -> str:
+        """Синхронная обёртка описания изображения через GigaChat SDK."""
+        from gigachat import GigaChat
+
+        with GigaChat(**self._create_client_kwargs()) as client:
+            # Загрузить изображение в хранилище GigaChat
+            with open(image_path, "rb") as f:
+                uploaded = client.upload_file(f, purpose="general")
+
+            file_id = self._extract_uploaded_file_id(uploaded)
+            logger.debug("GigaChat file uploaded: id=%s", file_id)
+
+            # Отправить запрос с attachment
+            result = client.chat({
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt,
+                        "attachments": [file_id],
+                    }
+                ],
+                "temperature": 0.1,
+            })
+
+            content = result.choices[0].message.content
+
+            # Удалить файл из хранилища после использования
+            try:
+                client.delete_file(file_id)
+            except Exception as del_exc:
+                logger.warning("Не удалось удалить файл из GigaChat: %s", del_exc)
+
+            return content
+
+    @staticmethod
+    def _extract_uploaded_file_id(uploaded: Any) -> str:
+        """Достать идентификатор файла из ответа SDK с учётом разных версий моделей."""
+        file_id = getattr(uploaded, "id", None) or getattr(uploaded, "id_", None)
+
+        if not file_id and hasattr(uploaded, "model_dump"):
+            try:
+                payload = uploaded.model_dump()
+                file_id = payload.get("id") or payload.get("id_")
+            except Exception:
+                file_id = None
+
+        if not file_id and hasattr(uploaded, "dict"):
+            try:
+                payload = uploaded.dict()
+                file_id = payload.get("id") or payload.get("id_")
+            except Exception:
+                file_id = None
+
+        if not file_id:
+            raise AttributeError("Не удалось определить идентификатор загруженного файла GigaChat")
+
+        return str(file_id)
+
+    async def _call_gigachat(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        model_override: Optional[str] = None,
+        user_id: Optional[int] = None,
+    ) -> str:
+        """
+        Выполнить вызов к GigaChat API через библиотеку gigachat.
+
+        Args:
+            messages: Список сообщений диалога.
+            temperature: Температура генерации.
+            model_override: Переопределение модели.
+            user_id: ID пользователя для логирования.
+
+        Returns:
+            Текстовый контент ответа.
+        """
+        from gigachat import GigaChat
+        from gigachat.models import Chat, Messages, MessagesRole
+
+        client_kwargs = self._create_client_kwargs()
+        if model_override:
+            client_kwargs["model"] = model_override
+
+        # Конвертируем формат сообщений
+        giga_messages = []
+        for msg in messages:
+            role_str = msg.get("role", "user")
+            role = {
+                "system": MessagesRole.SYSTEM,
+                "user": MessagesRole.USER,
+                "assistant": MessagesRole.ASSISTANT,
+            }.get(role_str, MessagesRole.USER)
+            giga_messages.append(Messages(role=role, content=msg.get("content", "")))
+
+        chat_request = Chat(
+            messages=giga_messages,
+            temperature=temperature,
+        )
+
+        request_text = json.dumps(messages, ensure_ascii=False)
+
+        try:
+            result = await asyncio.to_thread(
+                self._call_gigachat_sync, client_kwargs, chat_request
+            )
+        except Exception as exc:
+            logger.error(
+                "GigaChat API error: type=%s error=%s",
+                type(exc).__name__,
+                exc,
+            )
+            raise LLMProviderTemporaryError(
+                f"Временная ошибка GigaChat: {exc}"
+            ) from exc
+
+        return result
+
+    @staticmethod
+    def _call_gigachat_sync(client_kwargs: Dict[str, Any], chat_request: Any) -> str:
+        """Синхронный вызов GigaChat API."""
+        from gigachat import GigaChat
+
+        with GigaChat(**client_kwargs) as client:
+            response = client.chat(chat_request)
+            content = response.choices[0].message.content
+            return content or ""
+
+
+# =============================================
 # Фабрика провайдеров
 # =============================================
 
 _providers: Dict[str, type] = {
     "deepseek": DeepSeekProvider,
+    "gigachat": GigaChatProvider,
 }
 
 

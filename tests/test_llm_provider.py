@@ -9,6 +9,7 @@ import httpx
 from src.core.ai.llm_provider import (
     ClassificationResult,
     DeepSeekProvider,
+    GigaChatProvider,
     LLMProviderTemporaryError,
     get_provider,
     register_provider,
@@ -217,6 +218,38 @@ class TestDeepSeekProviderInit(unittest.TestCase):
         """Имя провайдера — deepseek."""
         provider = DeepSeekProvider(api_key="test_key")
         self.assertEqual(provider.name, "deepseek")
+
+
+class TestGigaChatProviderHelpers(unittest.TestCase):
+    """Тесты вспомогательных методов GigaChatProvider."""
+
+    def test_extract_uploaded_file_id_from_id(self):
+        """Идентификатор берётся из поля id."""
+        uploaded = MagicMock()
+        uploaded.id = "file-123"
+        uploaded.id_ = None
+
+        result = GigaChatProvider._extract_uploaded_file_id(uploaded)
+        self.assertEqual(result, "file-123")
+
+    def test_extract_uploaded_file_id_from_id_underscore(self):
+        """Идентификатор берётся из поля id_ для текущей версии SDK."""
+        uploaded = MagicMock()
+        uploaded.id = None
+        uploaded.id_ = "file-456"
+
+        result = GigaChatProvider._extract_uploaded_file_id(uploaded)
+        self.assertEqual(result, "file-456")
+
+    def test_extract_uploaded_file_id_from_model_dump(self):
+        """Идентификатор берётся из model_dump(), если прямого атрибута нет."""
+        uploaded = MagicMock()
+        uploaded.id = None
+        uploaded.id_ = None
+        uploaded.model_dump.return_value = {"id_": "file-789"}
+
+        result = GigaChatProvider._extract_uploaded_file_id(uploaded)
+        self.assertEqual(result, "file-789")
 
 
 class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
