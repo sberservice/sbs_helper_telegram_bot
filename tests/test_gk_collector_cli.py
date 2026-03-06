@@ -1,0 +1,115 @@
+"""Тесты CLI-логики scripts/gk_collector.py."""
+
+import argparse
+import asyncio
+import importlib.util
+import sys
+import types
+import unittest
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+SCRIPT_PATH = Path(__file__).resolve().parent.parent / "scripts" / "gk_collector.py"
+SPEC = importlib.util.spec_from_file_location("gk_collector_module_for_tests", SCRIPT_PATH)
+GK_COLLECTOR = importlib.util.module_from_spec(SPEC)
+assert SPEC and SPEC.loader
+
+fake_telethon = types.ModuleType("telethon")
+fake_telethon.events = types.SimpleNamespace(NewMessage=lambda *args, **kwargs: None)
+with patch.dict(sys.modules, {"telethon": fake_telethon}):
+    SPEC.loader.exec_module(GK_COLLECTOR)
+
+
+class TestGKCollectorCli(unittest.TestCase):
+    """Тесты daemon collector с встроенным responder."""
+
+    def test_extract_qa_query(self):
+        """Команда /qa распознаётся и извлекает текст вопроса."""
+        self.assertEqual(
+            GK_COLLECTOR._extract_qa_query("/qa как починить терминал"),
+            "как починить терминал",
+        )
+        self.assertIsNone(GK_COLLECTOR._extract_qa_query("как починить терминал"))
+
+    def test_run_collector_initializes_responder_bridge(self):
+        """Daemon collector поднимает встроенный responder и bridge при обычном запуске."""
+        args = argparse.Namespace(
+            manage_groups=False,
+            backfill=False,
+            days=7,
+            force=False,
+            live=False,
+            test_mode=False,
+            collect_only=False,
+        )
+        mock_client = AsyncMock()
+        mock_client.on = lambda *_args, **_kwargs: (lambda func: func)
+        mock_client.__bool__ = lambda self: True
+
+        async def _run():
+            with patch.object(GK_COLLECTOR, "load_groups_config", return_value=[{"id": -1001, "title": "Real"}]):
+                with patch.object(GK_COLLECTOR, "start_telegram_client_with_logging", AsyncMock(return_value=mock_client)):
+                    with patch.object(GK_COLLECTOR, "disconnect_client_quietly", AsyncMock()):
+                        with patch.object(GK_COLLECTOR, "MessageCollector") as mock_collector_cls:
+                            mock_collector = mock_collector_cls.return_value
+                            mock_collector.group_ids = {-1001}
+                            mock_collector.sync_missed_messages = AsyncMock(return_value=0)
+                            mock_collector.handle_new_message = AsyncMock(return_value=None)
+                            with patch.object(GK_COLLECTOR, "GroupResponder") as mock_responder_cls:
+                                with patch.object(GK_COLLECTOR, "CollectorResponderBridge") as mock_bridge_cls:
+                                    mock_bridge_cls.return_value.stop = AsyncMock()
+                                    with patch("signal.signal"):
+                                        with patch.object(GK_COLLECTOR.asyncio, "sleep", new=AsyncMock(side_effect=[asyncio.CancelledError()])):
+                                            try:
+                                                await GK_COLLECTOR.run_collector(args)
+                                            except asyncio.CancelledError:
+                                                pass
+
+            return mock_responder_cls, mock_bridge_cls
+
+        mock_responder_cls, mock_bridge_cls = asyncio.run(_run())
+        mock_responder_cls.assert_called_once()
+        mock_bridge_cls.assert_called_once()
+
+    def test_run_collector_syncs_missed_messages_before_listener(self):
+        """Перед запуском listener collector добирает пропущенные сообщения."""
+        args = argparse.Namespace(
+            manage_groups=False,
+            backfill=False,
+            days=7,
+            force=False,
+            live=False,
+            test_mode=False,
+            collect_only=False,
+        )
+        mock_client = AsyncMock()
+        mock_client.on = lambda *_args, **_kwargs: (lambda func: func)
+        mock_client.__bool__ = lambda self: True
+
+        async def _run():
+            with patch.object(GK_COLLECTOR, "load_groups_config", return_value=[{"id": -1001, "title": "Real"}]):
+                with patch.object(GK_COLLECTOR, "start_telegram_client_with_logging", AsyncMock(return_value=mock_client)):
+                    with patch.object(GK_COLLECTOR, "disconnect_client_quietly", AsyncMock()):
+                        with patch.object(GK_COLLECTOR, "MessageCollector") as mock_collector_cls:
+                            mock_collector = mock_collector_cls.return_value
+                            mock_collector.group_ids = {-1001}
+                            mock_collector.sync_missed_messages = AsyncMock(return_value=3)
+                            mock_collector.handle_new_message = AsyncMock(return_value=None)
+                            with patch.object(GK_COLLECTOR, "GroupResponder"):
+                                with patch.object(GK_COLLECTOR, "CollectorResponderBridge") as mock_bridge_cls:
+                                    mock_bridge_cls.return_value.stop = AsyncMock()
+                                    with patch("signal.signal"):
+                                        with patch.object(GK_COLLECTOR.asyncio, "sleep", new=AsyncMock(side_effect=[asyncio.CancelledError()])):
+                                            try:
+                                                await GK_COLLECTOR.run_collector(args)
+                                            except asyncio.CancelledError:
+                                                pass
+            return mock_collector.sync_missed_messages
+
+        mock_sync = asyncio.run(_run())
+        mock_sync.assert_awaited_once_with()
+
+
+if __name__ == "__main__":
+    unittest.main()

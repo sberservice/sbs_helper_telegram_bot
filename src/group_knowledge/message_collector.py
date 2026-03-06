@@ -15,10 +15,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from config import ai_settings
 from src.group_knowledge import database as gk_db
 from src.group_knowledge.image_processor import ImageProcessor
 from src.group_knowledge.models import GroupMessage
+from src.group_knowledge.question_classifier import QuestionClassifierService
 from src.group_knowledge.settings import (
     MAX_MESSAGE_AGE_SECONDS,
     MAX_MESSAGE_TEXT_LENGTH,
@@ -92,6 +92,7 @@ class MessageCollector:
         """
         self._client = client
         self._image_processor = image_processor or ImageProcessor()
+        self._question_classifier = QuestionClassifierService()
         self._groups = groups if groups is not None else load_groups_config()
         self._group_ids = {g["id"] for g in self._groups}
         self._group_titles = {g["id"]: g.get("title", "") for g in self._groups}
@@ -102,7 +103,7 @@ class MessageCollector:
         """Множество отслеживаемых group_id."""
         return self._group_ids
 
-    async def handle_new_message(self, event) -> None:
+    async def handle_new_message(self, event) -> Optional[GroupMessage]:
         """
         Обработать новое сообщение из группы.
 
@@ -113,12 +114,12 @@ class MessageCollector:
 
         # Пропустить служебные сообщения
         if not message or message.action:
-            return
+            return None
 
         # Извлечь chat_id
         chat_id = self._get_chat_id(event)
         if chat_id not in self._group_ids:
-            return
+            return None
 
         # Пропустить слишком старые сообщения (при реконнекте)
         if message.date:
@@ -128,12 +129,12 @@ class MessageCollector:
                     "Пропущено старое сообщение: group=%d msg=%d age=%ds",
                     chat_id, message.id, int(msg_age),
                 )
-                return
+                return None
 
         # Пропустить сообщения от ботов
         sender = await event.get_sender()
         if sender and getattr(sender, "bot", False):
-            return
+            return None
 
         # Извлечь данные сообщения
         sender_id = getattr(sender, "id", 0) if sender else 0
@@ -174,12 +175,19 @@ class MessageCollector:
             message_date=int(message.date.timestamp()) if message.date else int(time.time()),
         )
 
+        await self._classify_message_question(msg_obj)
+
         # Сохранить в БД
         try:
             msg_db_id = gk_db.store_message(msg_obj)
             logger.info(
-                "Сообщение сохранено: group=%d msg_tg=%d db_id=%d sender=%s has_image=%s",
-                chat_id, message.id, msg_db_id, sender_name, has_image,
+                "Сообщение сохранено: group=%d msg_tg=%d db_id=%d sender=%s has_image=%s message_ts=%s",
+                chat_id,
+                message.id,
+                msg_db_id,
+                sender_name,
+                has_image,
+                self._format_message_timestamp(msg_obj.message_date),
             )
         except Exception as exc:
             logger.error(
@@ -187,7 +195,9 @@ class MessageCollector:
                 chat_id, message.id, exc,
                 exc_info=True,
             )
-            return
+            return None
+
+        msg_obj.id = msg_db_id
 
         # Скачать изображение и поставить в очередь
         if has_image and msg_db_id:
@@ -210,6 +220,8 @@ class MessageCollector:
                     msg_db_id, exc,
                     exc_info=True,
                 )
+
+        return msg_obj
 
     async def backfill_messages(
         self,
@@ -294,12 +306,23 @@ class MessageCollector:
                         message_date=int(message.date.timestamp()) if message.date else 0,
                     )
 
+                    await self._classify_message_question(msg_obj)
+
                     try:
                         existing_message = gk_db.get_message_by_telegram_id(gid, message.id)
                         if existing_message and not force:
                             continue
 
                         msg_db_id = gk_db.store_message(msg_obj)
+                        logger.info(
+                            "Backfill: сообщение сохранено: group=%d msg_tg=%d db_id=%d sender=%s has_image=%s message_ts=%s",
+                            gid,
+                            message.id,
+                            msg_db_id,
+                            sender_name,
+                            has_image,
+                            self._format_message_timestamp(msg_obj.message_date),
+                        )
 
                         if force and existing_message and msg_db_id:
                             if existing_message.image_path and os.path.exists(existing_message.image_path):
@@ -356,9 +379,195 @@ class MessageCollector:
 
         return total_collected
 
+    async def sync_missed_messages(
+        self,
+        group_id: Optional[int] = None,
+    ) -> int:
+        """
+        Добрать сообщения, пропущенные с прошлого запуска daemon.
+
+        Логика опирается на максимальный `telegram_message_id`, уже сохранённый в БД
+        для каждой группы. Если для группы ещё нет ни одного сообщения, историческая
+        догрузка не выполняется — для первичного наполнения нужно использовать backfill.
+
+        Args:
+            group_id: Конкретная группа (None — все группы).
+
+        Returns:
+            Число догруженных сообщений.
+        """
+        target_groups = self._groups
+        if group_id is not None:
+            target_groups = [g for g in self._groups if g["id"] == group_id]
+
+        if not target_groups:
+            logger.warning("Нет групп для добора пропущенных сообщений")
+            return 0
+
+        total_collected = 0
+
+        for group_info in target_groups:
+            gid = group_info["id"]
+            title = group_info.get("title", "")
+            latest_message_id = gk_db.get_latest_telegram_message_id(gid)
+
+            if not latest_message_id:
+                logger.info(
+                    "Добор пропущенных сообщений пропущен: group=%d title=%s reason=нет локальной контрольной точки",
+                    gid,
+                    title,
+                )
+                continue
+
+            logger.info(
+                "Добор пропущенных сообщений: group=%d title=%s after_tg_msg_id=%d",
+                gid,
+                title,
+                latest_message_id,
+            )
+
+            try:
+                entity = await self._client.get_entity(gid)
+                count = 0
+
+                async for message in self._client.iter_messages(
+                    entity,
+                    min_id=latest_message_id,
+                    reverse=True,
+                ):
+                    if message.action:
+                        continue
+
+                    sender = await message.get_sender()
+                    if sender and getattr(sender, "bot", False):
+                        continue
+
+                    sender_id = getattr(sender, "id", 0) if sender else 0
+                    sender_name = self._get_sender_name(sender)
+                    text = message.text or ""
+                    caption = message.message if message.media and not message.text else None
+
+                    if caption and text and caption == text:
+                        caption = None
+
+                    has_image = self._message_has_image(message)
+                    reply_to_id = None
+                    if message.reply_to:
+                        reply_to_id = message.reply_to.reply_to_msg_id
+
+                    msg_obj = GroupMessage(
+                        telegram_message_id=message.id,
+                        group_id=gid,
+                        group_title=title,
+                        sender_id=sender_id,
+                        sender_name=sender_name,
+                        message_text=text[:MAX_MESSAGE_TEXT_LENGTH],
+                        caption=caption[:MAX_MESSAGE_TEXT_LENGTH] if caption else None,
+                        has_image=has_image,
+                        reply_to_message_id=reply_to_id,
+                        message_date=int(message.date.timestamp()) if message.date else int(time.time()),
+                    )
+
+                    await self._classify_message_question(msg_obj)
+
+                    try:
+                        existing_message = gk_db.get_message_by_telegram_id(gid, message.id)
+                        if existing_message:
+                            continue
+
+                        msg_db_id = gk_db.store_message(msg_obj)
+                        logger.info(
+                            "Добор: сообщение сохранено: group=%d msg_tg=%d db_id=%d sender=%s has_image=%s message_ts=%s",
+                            gid,
+                            message.id,
+                            msg_db_id,
+                            sender_name,
+                            has_image,
+                            self._format_message_timestamp(msg_obj.message_date),
+                        )
+                        count += 1
+
+                        if has_image and msg_db_id:
+                            image_path = await self._image_processor.download_image(
+                                client=self._client,
+                                message=message,
+                                group_id=gid,
+                            )
+                            if image_path:
+                                gk_db.update_message_image_path(msg_db_id, image_path)
+                                gk_db.enqueue_image(msg_db_id, image_path)
+                    except Exception as exc:
+                        logger.warning(
+                            "Ошибка сохранения при доборе пропущенных сообщений: group=%d msg=%d error=%s",
+                            gid,
+                            message.id,
+                            exc,
+                        )
+
+                    if count % 100 == 0 and count > 0:
+                        logger.info(
+                            "Добор пропущенных сообщений: группа %d — собрано %d сообщений...",
+                            gid,
+                            count,
+                        )
+                        await asyncio.sleep(1.0)
+
+                total_collected += count
+                logger.info(
+                    "Добор пропущенных сообщений завершён: group=%d title=%s collected=%d",
+                    gid,
+                    title,
+                    count,
+                )
+            except Exception as exc:
+                logger.error(
+                    "Ошибка добора пропущенных сообщений для группы %d: %s",
+                    gid,
+                    exc,
+                    exc_info=True,
+                )
+
+        return total_collected
+
+    async def _classify_message_question(self, msg_obj: GroupMessage) -> None:
+        """Классифицировать новое сообщение как вопрос и сохранить метаданные в объекте."""
+        text = (msg_obj.message_text or msg_obj.caption or "").strip()
+        if not text:
+            return
+
+        if "?" in text:
+            msg_obj.is_question = True
+            msg_obj.question_confidence = 1.0
+            msg_obj.question_reason = "Явный вопросительный знак в сообщении"
+            msg_obj.question_model_used = "rule:question_mark"
+            msg_obj.question_detected_at = int(time.time())
+            return
+
+        try:
+            result = await self._question_classifier.classify(text)
+            msg_obj.is_question = result.is_question
+            msg_obj.question_confidence = result.confidence
+            msg_obj.question_reason = result.reason
+            msg_obj.question_model_used = result.model_used
+            msg_obj.question_detected_at = result.detected_at
+        except Exception as exc:
+            logger.warning(
+                "Ошибка классификации сообщения как вопроса: group=%d msg_tg=%d error=%s",
+                msg_obj.group_id,
+                msg_obj.telegram_message_id,
+                exc,
+            )
+
     def stop(self) -> None:
         """Послать сигнал остановки."""
         self._stop_event.set()
+
+    @staticmethod
+    def _format_message_timestamp(message_date: int) -> str:
+        """Преобразовать UNIX timestamp сообщения в строку для логов."""
+        if not message_date:
+            return "unknown"
+        return datetime.fromtimestamp(message_date).strftime("%Y-%m-%d %H:%M:%S")
 
     @staticmethod
     def _get_chat_id(event) -> int:

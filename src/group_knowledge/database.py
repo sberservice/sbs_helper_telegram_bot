@@ -39,8 +39,10 @@ def store_message(msg: GroupMessage) -> int:
                         telegram_message_id, group_id, group_title,
                         sender_id, sender_name, message_text, caption,
                         has_image, image_path, image_description,
-                        reply_to_message_id, message_date, collected_at, processed
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        reply_to_message_id, message_date, collected_at, processed,
+                        is_question, question_confidence, question_reason,
+                        question_model_used, question_detected_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
                         group_title = VALUES(group_title),
                         sender_id = VALUES(sender_id),
@@ -52,7 +54,12 @@ def store_message(msg: GroupMessage) -> int:
                         reply_to_message_id = VALUES(reply_to_message_id),
                         message_date = VALUES(message_date),
                         collected_at = VALUES(collected_at),
-                        sender_name = VALUES(sender_name)
+                        sender_name = VALUES(sender_name),
+                        is_question = VALUES(is_question),
+                        question_confidence = VALUES(question_confidence),
+                        question_reason = VALUES(question_reason),
+                        question_model_used = VALUES(question_model_used),
+                        question_detected_at = VALUES(question_detected_at)
                     """,
                     (
                         msg.telegram_message_id,
@@ -69,6 +76,11 @@ def store_message(msg: GroupMessage) -> int:
                         msg.message_date,
                         now,
                         0,
+                        1 if msg.is_question is True else 0 if msg.is_question is False else None,
+                        msg.question_confidence,
+                        msg.question_reason,
+                        msg.question_model_used,
+                        msg.question_detected_at,
                     ),
                 )
                 # Получить ID записи (INSERT или существующая)
@@ -111,6 +123,36 @@ def get_message_by_telegram_id(
                 return _row_to_message(row)
     except Exception as exc:
         logger.error("Ошибка получения сообщения: %s", exc, exc_info=True)
+        return None
+
+
+def get_latest_telegram_message_id(group_id: int) -> Optional[int]:
+    """
+    Получить максимальный Telegram message ID, уже собранный для группы.
+
+    Args:
+        group_id: ID группы.
+
+    Returns:
+        Максимальный telegram_message_id или None, если сообщений ещё нет.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    "SELECT MAX(telegram_message_id) AS latest_message_id FROM gk_messages WHERE group_id = %s",
+                    (group_id,),
+                )
+                row = cursor.fetchone()
+                if not row or row.get("latest_message_id") is None:
+                    return None
+                return int(row["latest_message_id"])
+    except Exception as exc:
+        logger.error(
+            "Ошибка получения последнего Telegram message ID: %s",
+            exc,
+            exc_info=True,
+        )
         return None
 
 
@@ -175,6 +217,36 @@ def get_unprocessed_messages(group_id: int, date_str: str) -> List[GroupMessage]
         return []
 
 
+def get_unprocessed_dates(group_id: int) -> List[str]:
+    """
+    Получить даты, где у группы есть необработанные сообщения.
+
+    Args:
+        group_id: ID группы.
+
+    Returns:
+        Список дат в формате YYYY-MM-DD.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT DISTINCT DATE(FROM_UNIXTIME(message_date)) AS message_date
+                    FROM gk_messages
+                    WHERE group_id = %s
+                      AND processed = 0
+                    ORDER BY message_date ASC
+                    """,
+                    (group_id,),
+                )
+                rows = cursor.fetchall()
+                return [str(row["message_date"]) for row in rows if row.get("message_date")]
+    except Exception as exc:
+        logger.error("Ошибка получения дат необработанных сообщений: %s", exc, exc_info=True)
+        return []
+
+
 def mark_messages_processed(message_ids: List[int]) -> None:
     """
     Отметить сообщения как обработанные.
@@ -213,6 +285,51 @@ def update_message_image_description(message_id: int, description: str) -> None:
                 )
     except Exception as exc:
         logger.error("Ошибка обновления описания изображения: %s", exc, exc_info=True)
+
+
+def update_message_question_classification(
+    message_id: int,
+    is_question: bool,
+    confidence: float,
+    reason: str,
+    model_used: str,
+    detected_at: int,
+) -> None:
+    """
+    Обновить LLM-классификацию сообщения как вопроса.
+
+    Args:
+        message_id: ID записи в БД.
+        is_question: Является ли сообщение вопросом.
+        confidence: Уверенность классификатора.
+        reason: Краткая причина классификации.
+        model_used: Имя модели.
+        detected_at: Время классификации.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    UPDATE gk_messages
+                    SET is_question = %s,
+                        question_confidence = %s,
+                        question_reason = %s,
+                        question_model_used = %s,
+                        question_detected_at = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        1 if is_question else 0,
+                        confidence,
+                        reason[:512] if reason else "",
+                        model_used[:128] if model_used else "",
+                        detected_at,
+                        message_id,
+                    ),
+                )
+    except Exception as exc:
+        logger.error("Ошибка обновления классификации вопроса: %s", exc, exc_info=True)
 
 
 def update_message_image_path(message_id: int, image_path: str) -> None:
@@ -309,6 +426,135 @@ def get_collected_groups() -> List[Dict[str, Any]]:
         return []
 
 
+def get_qa_pair_ids_by_group(group_id: int) -> List[int]:
+    """
+    Получить список ID Q&A-пар для указанной группы.
+
+    Args:
+        group_id: ID группы.
+
+    Returns:
+        Список ID пар.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT id
+                    FROM gk_qa_pairs
+                    WHERE group_id = %s
+                    ORDER BY id ASC
+                    """,
+                    (group_id,),
+                )
+                rows = cursor.fetchall()
+                return [int(row["id"]) for row in rows if row.get("id") is not None]
+    except Exception as exc:
+        logger.error("Ошибка получения ID Q&A-пар группы: %s", exc, exc_info=True)
+        return []
+
+
+def delete_group_data(group_id: int, dry_run: bool = True) -> Dict[str, int]:
+    """
+    Удалить данные Group Knowledge для указанной группы.
+
+    Удаляются данные из таблиц:
+    - gk_image_queue (через join с сообщениями группы)
+    - gk_responder_log
+    - gk_qa_pairs
+    - gk_messages
+
+    Args:
+        group_id: ID группы.
+        dry_run: Если True, только вернуть статистику без удаления.
+
+    Returns:
+        Словарь со статистикой найденных и удалённых записей.
+    """
+    stats: Dict[str, int] = {
+        "group_id": int(group_id),
+        "messages_found": 0,
+        "qa_pairs_found": 0,
+        "responder_logs_found": 0,
+        "image_queue_found": 0,
+        "messages_deleted": 0,
+        "qa_pairs_deleted": 0,
+        "responder_logs_deleted": 0,
+        "image_queue_deleted": 0,
+        "dry_run": 1 if dry_run else 0,
+    }
+
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) AS cnt FROM gk_messages WHERE group_id = %s",
+                    (group_id,),
+                )
+                stats["messages_found"] = int((cursor.fetchone() or {}).get("cnt", 0))
+
+                cursor.execute(
+                    "SELECT COUNT(*) AS cnt FROM gk_qa_pairs WHERE group_id = %s",
+                    (group_id,),
+                )
+                stats["qa_pairs_found"] = int((cursor.fetchone() or {}).get("cnt", 0))
+
+                cursor.execute(
+                    "SELECT COUNT(*) AS cnt FROM gk_responder_log WHERE group_id = %s",
+                    (group_id,),
+                )
+                stats["responder_logs_found"] = int((cursor.fetchone() or {}).get("cnt", 0))
+
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS cnt
+                    FROM gk_image_queue iq
+                    INNER JOIN gk_messages gm ON gm.id = iq.message_id
+                    WHERE gm.group_id = %s
+                    """,
+                    (group_id,),
+                )
+                stats["image_queue_found"] = int((cursor.fetchone() or {}).get("cnt", 0))
+
+                if dry_run:
+                    return stats
+
+                cursor.execute(
+                    """
+                    DELETE iq
+                    FROM gk_image_queue iq
+                    INNER JOIN gk_messages gm ON gm.id = iq.message_id
+                    WHERE gm.group_id = %s
+                    """,
+                    (group_id,),
+                )
+                stats["image_queue_deleted"] = int(cursor.rowcount or 0)
+
+                cursor.execute(
+                    "DELETE FROM gk_responder_log WHERE group_id = %s",
+                    (group_id,),
+                )
+                stats["responder_logs_deleted"] = int(cursor.rowcount or 0)
+
+                cursor.execute(
+                    "DELETE FROM gk_qa_pairs WHERE group_id = %s",
+                    (group_id,),
+                )
+                stats["qa_pairs_deleted"] = int(cursor.rowcount or 0)
+
+                cursor.execute(
+                    "DELETE FROM gk_messages WHERE group_id = %s",
+                    (group_id,),
+                )
+                stats["messages_deleted"] = int(cursor.rowcount or 0)
+
+        return stats
+    except Exception as exc:
+        logger.error("Ошибка удаления данных группы %s: %s", group_id, exc, exc_info=True)
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Q&A-пары (gk_qa_pairs)
 # ---------------------------------------------------------------------------
@@ -327,6 +573,50 @@ def store_qa_pair(pair: QAPair) -> int:
     try:
         with get_db_connection() as conn:
             with get_cursor(conn) as cursor:
+                existing_id = None
+                if pair.question_message_id:
+                    cursor.execute(
+                        """
+                        SELECT id
+                        FROM gk_qa_pairs
+                        WHERE question_message_id = %s
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """,
+                        (pair.question_message_id,),
+                    )
+                    row = cursor.fetchone()
+                    existing_id = row["id"] if row else None
+
+                if existing_id is not None:
+                    cursor.execute(
+                        """
+                        UPDATE gk_qa_pairs
+                        SET question_text = %s,
+                            answer_text = %s,
+                            answer_message_id = %s,
+                            group_id = %s,
+                            extraction_type = %s,
+                            confidence = %s,
+                            llm_model_used = %s,
+                            approved = %s,
+                            vector_indexed = 0
+                        WHERE id = %s
+                        """,
+                        (
+                            pair.question_text,
+                            pair.answer_text,
+                            pair.answer_message_id,
+                            pair.group_id,
+                            pair.extraction_type,
+                            pair.confidence,
+                            pair.llm_model_used[:128] if pair.llm_model_used else "",
+                            pair.approved,
+                            existing_id,
+                        ),
+                    )
+                    return int(existing_id)
+
                 cursor.execute(
                     """
                     INSERT INTO gk_qa_pairs (
@@ -680,6 +970,11 @@ def _row_to_message(row: Dict[str, Any]) -> GroupMessage:
         message_date=row.get("message_date", 0),
         collected_at=row.get("collected_at", 0),
         processed=row.get("processed", 0),
+        is_question=(None if row.get("is_question") is None else bool(row.get("is_question"))),
+        question_confidence=row.get("question_confidence"),
+        question_reason=row.get("question_reason"),
+        question_model_used=row.get("question_model_used"),
+        question_detected_at=row.get("question_detected_at"),
     )
 
 

@@ -186,6 +186,40 @@ class TestSettings(unittest.TestCase):
         self.assertLessEqual(MIN_QUESTION_LENGTH, 50)
 
 
+class TestQuestionClassifierService(unittest.TestCase):
+    """Тесты общего LLM-классификатора вопросов."""
+
+    def test_classify_message_as_question(self):
+        """Классификатор возвращает parsed JSON как объект результата."""
+        from src.group_knowledge.question_classifier import QuestionClassifierService
+
+        mock_provider = MagicMock()
+        mock_provider.chat = AsyncMock(return_value=json.dumps({
+            "is_question": True,
+            "confidence": 0.87,
+            "reason": "Пользователь описывает проблему и просит решение",
+        }))
+
+        service = QuestionClassifierService(model_name="deepseek-test")
+        with patch("src.group_knowledge.question_classifier.get_provider", return_value=mock_provider):
+            result = _run_async(service.classify("терминал не включается после обновления"))
+
+        self.assertTrue(result.is_question)
+        self.assertAlmostEqual(result.confidence, 0.87, places=2)
+        self.assertEqual(result.model_used, "deepseek-test")
+
+    def test_classify_short_message_without_llm(self):
+        """Слишком короткое сообщение не отправляется в LLM."""
+        from src.group_knowledge.question_classifier import QuestionClassifierService
+
+        service = QuestionClassifierService()
+        with patch("src.group_knowledge.question_classifier.get_provider") as mock_get_provider:
+            result = _run_async(service.classify("ok"))
+
+        self.assertFalse(result.is_question)
+        mock_get_provider.assert_not_called()
+
+
 # ===========================================================================
 # Responder — question detection heuristic
 # ===========================================================================
@@ -319,6 +353,120 @@ class TestQAAnalyzerJsonParsing(unittest.TestCase):
         self.assertIsNone(self._parse("not json at all"))
 
 
+class TestQAAnalyzerAnalyzeDay(unittest.TestCase):
+    """Тесты поведения analyze_day с учётом processed-флага."""
+
+    def test_analyze_day_reads_only_unprocessed_messages(self):
+        """Повторный запуск анализирует только processed=0 сообщения."""
+        from src.group_knowledge.models import GroupMessage
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        messages = [
+            GroupMessage(
+                id=1,
+                telegram_message_id=101,
+                group_id=-1001234,
+                sender_id=11,
+                sender_name="User 11",
+                message_text="Не работает терминал, как починить?",
+                message_date=1000,
+                processed=0,
+            ),
+            GroupMessage(
+                id=2,
+                telegram_message_id=102,
+                group_id=-1001234,
+                sender_id=22,
+                sender_name="User 22",
+                message_text="Перезапустите сервис",
+                reply_to_message_id=101,
+                message_date=1001,
+                processed=0,
+            ),
+        ]
+
+        with patch(
+            "src.group_knowledge.qa_analyzer.gk_db.get_unprocessed_messages",
+            return_value=messages,
+        ) as mock_get_unprocessed:
+            with patch.object(analyzer, "_extract_thread_pairs", new=AsyncMock(return_value=[])) as mock_thread:
+                with patch.object(analyzer, "_extract_llm_inferred_pairs", new=AsyncMock(return_value=[])) as mock_llm:
+                    with patch("src.group_knowledge.qa_analyzer.gk_db.mark_messages_processed") as mock_mark:
+                        result = _run_async(analyzer.analyze_day(-1001234, "2026-03-06"))
+
+        self.assertEqual(result.total_messages, 2)
+        mock_get_unprocessed.assert_called_once_with(-1001234, "2026-03-06")
+        mock_thread.assert_awaited_once()
+        mock_llm.assert_awaited_once()
+        mock_mark.assert_called_once_with([1, 2])
+
+    def test_analyze_day_skips_when_no_unprocessed_messages(self):
+        """Если новых сообщений нет, пары повторно не генерируются."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+
+        with patch(
+            "src.group_knowledge.qa_analyzer.gk_db.get_unprocessed_messages",
+            return_value=[],
+        ) as mock_get_unprocessed:
+            with patch.object(analyzer, "_extract_thread_pairs", new=AsyncMock()) as mock_thread:
+                with patch.object(analyzer, "_extract_llm_inferred_pairs", new=AsyncMock()) as mock_llm:
+                    with patch("src.group_knowledge.qa_analyzer.gk_db.mark_messages_processed") as mock_mark:
+                        result = _run_async(analyzer.analyze_day(-1001234, "2026-03-06"))
+
+        self.assertEqual(result.total_messages, 0)
+        self.assertEqual(result.thread_pairs_found, 0)
+        self.assertEqual(result.llm_pairs_found, 0)
+        mock_get_unprocessed.assert_called_once_with(-1001234, "2026-03-06")
+        mock_thread.assert_not_awaited()
+        mock_llm.assert_not_awaited()
+        mock_mark.assert_not_called()
+
+    def test_analyze_day_force_reanalyze_reads_all_messages(self):
+        """С force_reanalyze анализатор берёт все сообщения за дату."""
+        from src.group_knowledge.models import GroupMessage
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        messages = [
+            GroupMessage(
+                id=10,
+                telegram_message_id=201,
+                group_id=-1001234,
+                sender_id=101,
+                sender_name="User 101",
+                message_text="Старое, но нужное сообщение",
+                message_date=2000,
+                processed=1,
+            )
+        ]
+
+        with patch(
+            "src.group_knowledge.qa_analyzer.gk_db.get_messages_for_date",
+            return_value=messages,
+        ) as mock_get_all:
+            with patch("src.group_knowledge.qa_analyzer.gk_db.get_unprocessed_messages") as mock_get_unprocessed:
+                with patch.object(analyzer, "_extract_thread_pairs", new=AsyncMock(return_value=[])) as mock_thread:
+                    with patch.object(analyzer, "_extract_llm_inferred_pairs", new=AsyncMock(return_value=[])) as mock_llm:
+                        with patch("src.group_knowledge.qa_analyzer.gk_db.mark_messages_processed") as mock_mark:
+                            result = _run_async(
+                                analyzer.analyze_day(
+                                    -1001234,
+                                    "2026-03-06",
+                                    force_reanalyze=True,
+                                )
+                            )
+
+        self.assertEqual(result.total_messages, 1)
+        mock_get_all.assert_called_once_with(-1001234, "2026-03-06")
+        mock_get_unprocessed.assert_not_called()
+        mock_thread.assert_awaited_once()
+        mock_llm.assert_awaited_once()
+        mock_mark.assert_called_once_with([10])
+
+
 # ===========================================================================
 # QA Search — JSON parsing
 # ===========================================================================
@@ -406,6 +554,42 @@ class TestDatabaseLayer(unittest.TestCase):
             self.assertEqual(result, 7)
 
     @patch("src.group_knowledge.database.get_db_connection")
+    def test_store_qa_pair_updates_existing_by_question_message_id(self, mock_conn_ctx):
+        """Повторная пара с тем же question_message_id обновляет запись, а не вставляет новую."""
+        from src.group_knowledge.database import store_qa_pair
+        from src.group_knowledge.models import QAPair
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn_ctx.return_value = mock_conn
+
+        with patch("src.group_knowledge.database.get_cursor") as mock_cur_ctx:
+            mock_cur_ctx.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+            mock_cur_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+            mock_cursor.fetchone.return_value = {"id": 55}
+
+            pair = QAPair(
+                question_text="Вопрос (обновлён)",
+                answer_text="Ответ (обновлён)",
+                question_message_id=123,
+                answer_message_id=124,
+                group_id=-100,
+                extraction_type="thread_reply",
+                confidence=0.95,
+                llm_model_used="deepseek-chat",
+            )
+
+            result = store_qa_pair(pair)
+
+            self.assertEqual(result, 55)
+            self.assertEqual(mock_cursor.execute.call_count, 2)
+            self.assertIn("SELECT id", mock_cursor.execute.call_args_list[0][0][0])
+            self.assertIn("UPDATE gk_qa_pairs", mock_cursor.execute.call_args_list[1][0][0])
+
+    @patch("src.group_knowledge.database.get_db_connection")
     def test_get_messages_for_date(self, mock_conn_ctx):
         """Запрос сообщений за дату."""
         from src.group_knowledge.database import get_messages_for_date
@@ -442,6 +626,128 @@ class TestDatabaseLayer(unittest.TestCase):
             messages = get_messages_for_date(-1001234, "2024-01-15")
             self.assertEqual(len(messages), 1)
             self.assertEqual(messages[0].telegram_message_id, 100)
+
+    @patch("src.group_knowledge.database.get_db_connection")
+    def test_get_unprocessed_dates(self, mock_conn_ctx):
+        """Возвращает все даты с необработанными сообщениями в хронологическом порядке."""
+        from src.group_knowledge.database import get_unprocessed_dates
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [
+            {"message_date": "2024-01-14"},
+            {"message_date": "2024-01-15"},
+        ]
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn_ctx.return_value = mock_conn
+
+        with patch("src.group_knowledge.database.get_cursor") as mock_cur_ctx:
+            mock_cur_ctx.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+            mock_cur_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+            dates = get_unprocessed_dates(-1001234)
+
+        self.assertEqual(dates, ["2024-01-14", "2024-01-15"])
+        mock_cursor.execute.assert_called_once()
+
+    @patch("src.group_knowledge.database.get_db_connection")
+    def test_get_qa_pair_ids_by_group(self, mock_conn_ctx):
+        """Возвращает список ID Q&A-пар по группе."""
+        from src.group_knowledge.database import get_qa_pair_ids_by_group
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [{"id": 10}, {"id": 11}]
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn_ctx.return_value = mock_conn
+
+        with patch("src.group_knowledge.database.get_cursor") as mock_cur_ctx:
+            mock_cur_ctx.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+            mock_cur_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+            pair_ids = get_qa_pair_ids_by_group(-1001234)
+
+        self.assertEqual(pair_ids, [10, 11])
+        mock_cursor.execute.assert_called_once()
+
+    @patch("src.group_knowledge.database.get_db_connection")
+    def test_delete_group_data_dry_run(self, mock_conn_ctx):
+        """Dry-run возвращает статистику и не выполняет DELETE-запросы."""
+        from src.group_knowledge.database import delete_group_data
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.side_effect = [
+            {"cnt": 5},
+            {"cnt": 3},
+            {"cnt": 2},
+            {"cnt": 1},
+        ]
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn_ctx.return_value = mock_conn
+
+        with patch("src.group_knowledge.database.get_cursor") as mock_cur_ctx:
+            mock_cur_ctx.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+            mock_cur_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+            stats = delete_group_data(-1001234, dry_run=True)
+
+        self.assertEqual(stats["messages_found"], 5)
+        self.assertEqual(stats["qa_pairs_found"], 3)
+        self.assertEqual(stats["responder_logs_found"], 2)
+        self.assertEqual(stats["image_queue_found"], 1)
+        self.assertEqual(stats["messages_deleted"], 0)
+        self.assertEqual(stats["dry_run"], 1)
+        self.assertEqual(mock_cursor.execute.call_count, 4)
+
+    @patch("src.group_knowledge.database.get_db_connection")
+    def test_delete_group_data_executes_delete_queries(self, mock_conn_ctx):
+        """Реальный запуск удаляет данные группы из всех целевых таблиц."""
+        from src.group_knowledge.database import delete_group_data
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.side_effect = [
+            {"cnt": 4},
+            {"cnt": 6},
+            {"cnt": 2},
+            {"cnt": 1},
+        ]
+        mock_cursor.rowcount = 0
+
+        executed_queries = []
+        delete_rowcounts = iter([1, 2, 6, 4])
+
+        def _execute_side_effect(query, _params=None):
+            normalized = " ".join(query.split())
+            executed_queries.append(normalized)
+            if normalized.startswith("DELETE"):
+                mock_cursor.rowcount = next(delete_rowcounts)
+
+        mock_cursor.execute.side_effect = _execute_side_effect
+
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn_ctx.return_value = mock_conn
+
+        with patch("src.group_knowledge.database.get_cursor") as mock_cur_ctx:
+            mock_cur_ctx.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+            mock_cur_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+            stats = delete_group_data(-1001234, dry_run=False)
+
+        self.assertEqual(stats["image_queue_deleted"], 1)
+        self.assertEqual(stats["responder_logs_deleted"], 2)
+        self.assertEqual(stats["qa_pairs_deleted"], 6)
+        self.assertEqual(stats["messages_deleted"], 4)
+        self.assertEqual(stats["dry_run"], 0)
+        self.assertTrue(any("DELETE iq" in query for query in executed_queries))
+        self.assertTrue(any("DELETE FROM gk_responder_log" in query for query in executed_queries))
+        self.assertTrue(any("DELETE FROM gk_qa_pairs" in query for query in executed_queries))
+        self.assertTrue(any("DELETE FROM gk_messages" in query for query in executed_queries))
 
 
 # ===========================================================================
@@ -519,6 +825,168 @@ class TestImageProcessor(unittest.TestCase):
             and call.args[3] == "На скриншоте ошибка подключения к серверу"
             for call in mock_logger_info.call_args_list
         ))
+
+class TestMessageCollectorQuestionClassification(unittest.TestCase):
+    """Тесты классификации вопросов на этапе сбора сообщений."""
+
+    def test_classify_message_question_marks_message_with_question_mark(self):
+        """Сообщение с '?' помечается как вопрос без вызова LLM."""
+        from src.group_knowledge.message_collector import MessageCollector
+        from src.group_knowledge.models import GroupMessage
+
+        collector = MessageCollector(client=MagicMock(), groups=[])
+        msg = GroupMessage(message_text="Почему терминал не печатает?")
+
+        with patch.object(collector._question_classifier, "classify", new=AsyncMock()) as mock_classify:
+            _run_async(collector._classify_message_question(msg))
+
+        self.assertTrue(msg.is_question)
+        self.assertEqual(msg.question_model_used, "rule:question_mark")
+        mock_classify.assert_not_called()
+
+    def test_classify_message_without_question_mark_uses_llm(self):
+        """Сообщение без '?' классифицируется через общий сервис."""
+        from src.group_knowledge.message_collector import MessageCollector
+        from src.group_knowledge.models import GroupMessage
+        from src.group_knowledge.question_classifier import QuestionClassificationResult
+
+        collector = MessageCollector(client=MagicMock(), groups=[])
+        msg = GroupMessage(
+            group_id=-1001234,
+            telegram_message_id=555,
+            message_text="терминал не видит сеть после обновления",
+        )
+
+        with patch.object(
+            collector._question_classifier,
+            "classify",
+            new=AsyncMock(return_value=QuestionClassificationResult(
+                is_question=True,
+                confidence=0.91,
+                reason="Похоже на описание технической проблемы",
+                model_used="deepseek-test",
+                detected_at=123456,
+            )),
+        ):
+            _run_async(collector._classify_message_question(msg))
+
+        self.assertTrue(msg.is_question)
+        self.assertAlmostEqual(msg.question_confidence, 0.91, places=2)
+        self.assertEqual(msg.question_model_used, "deepseek-test")
+
+
+class TestMessageCollectorLogging(unittest.TestCase):
+    """Тесты логирования collector."""
+
+    def test_handle_new_message_logs_message_timestamp(self):
+        """При live-сборе в лог пишется timestamp исходного сообщения."""
+        from src.group_knowledge.message_collector import MessageCollector
+
+        fixed_ts = int(time.time())
+        message = types.SimpleNamespace(
+            id=7001,
+            text="Тестовое сообщение",
+            message="Тестовое сообщение",
+            media=None,
+            action=None,
+            reply_to=None,
+            date=datetime.fromtimestamp(fixed_ts),
+        )
+        event = types.SimpleNamespace(
+            message=message,
+            chat=types.SimpleNamespace(id=-1001234),
+            get_sender=AsyncMock(return_value=types.SimpleNamespace(id=123, bot=False, first_name="Иван", last_name="")),
+        )
+
+        collector = MessageCollector(client=MagicMock(), groups=[{"id": -1001234, "title": "Test Group"}])
+
+        with patch("src.group_knowledge.message_collector.gk_db.store_message", return_value=55), \
+             patch.object(collector, "_classify_message_question", new=AsyncMock()), \
+             patch.object(collector, "_message_has_image", return_value=False), \
+             patch("src.group_knowledge.message_collector.logger.info") as mock_logger_info, \
+             patch("src.group_knowledge.message_collector.time.time", return_value=fixed_ts):
+            result = _run_async(collector.handle_new_message(event))
+
+        self.assertIsNotNone(result)
+        self.assertTrue(any(
+            call.args
+            and call.args[0] == "Сообщение сохранено: group=%d msg_tg=%d db_id=%d sender=%s has_image=%s message_ts=%s"
+            and call.args[1] == -1001234
+            and call.args[2] == 7001
+            and call.args[3] == 55
+            and call.args[6] == datetime.fromtimestamp(fixed_ts).strftime("%Y-%m-%d %H:%M:%S")
+            for call in mock_logger_info.call_args_list
+        ))
+
+
+class TestCollectorResponderBridge(unittest.TestCase):
+    """Тесты склейки сообщений пользователя перед автоответом."""
+
+    def test_build_combined_question_merges_text_and_image_marker(self):
+        """Склейка собирает текст и маркер изображения в один вопрос."""
+        from src.group_knowledge.collector_responder import CollectorResponderBridge
+        from src.group_knowledge.models import GroupMessage
+
+        messages = [
+            GroupMessage(
+                telegram_message_id=1,
+                group_id=-1001,
+                sender_id=10,
+                message_text="терминал не печатает",
+                message_date=100,
+            ),
+            GroupMessage(
+                telegram_message_id=2,
+                group_id=-1001,
+                sender_id=10,
+                has_image=True,
+                message_date=101,
+            ),
+        ]
+
+        combined = CollectorResponderBridge._build_combined_question(messages)
+
+        self.assertIn("терминал не печатает", combined)
+        self.assertIn("[Пользователь приложил изображение без подписи]", combined)
+
+    def test_flush_after_delay_sends_one_combined_question(self):
+        """Несколько сообщений одного пользователя уходят в responder как один вопрос."""
+        from src.group_knowledge.collector_responder import CollectorResponderBridge, PendingQuestionBundle
+        from src.group_knowledge.models import GroupMessage, ResponderResult
+
+        responder = MagicMock()
+        responder.handle_message = AsyncMock(return_value=ResponderResult(dry_run=True))
+        bridge = CollectorResponderBridge(responder=responder, group_ids={-1001}, grouping_window_seconds=1)
+
+        event = MagicMock()
+        bridge._pending[(-1001, 10)] = PendingQuestionBundle(
+            root_event=event,
+            latest_event=event,
+            messages=[
+                GroupMessage(
+                    telegram_message_id=1,
+                    group_id=-1001,
+                    sender_id=10,
+                    message_text="терминал не печатает",
+                    message_date=100,
+                    is_question=True,
+                ),
+                GroupMessage(
+                    telegram_message_id=2,
+                    group_id=-1001,
+                    sender_id=10,
+                    has_image=True,
+                    message_date=101,
+                ),
+            ],
+        )
+
+        with patch("src.group_knowledge.collector_responder.asyncio.sleep", new=AsyncMock()):
+            _run_async(bridge._flush_after_delay((-1001, 10)))
+
+        responder.handle_message.assert_awaited_once()
+        self.assertIn("терминал не печатает", responder.handle_message.await_args.kwargs["question_override"])
+        self.assertTrue(responder.handle_message.await_args.kwargs["force_as_question"])
 
 
 class TestMessageCollectorBackfill(unittest.TestCase):
@@ -629,6 +1097,54 @@ class TestMessageCollectorBackfill(unittest.TestCase):
         mock_enqueue.assert_called_once_with(88, "/tmp/new.jpg")
         image_processor.download_image.assert_awaited_once()
 
+    def test_sync_missed_messages_uses_last_saved_telegram_id(self):
+        """Добор пропущенных сообщений стартует от последнего сохранённого Telegram ID."""
+        from src.group_knowledge.message_collector import MessageCollector
+
+        client = MagicMock()
+        client.get_entity = AsyncMock(return_value=object())
+        message1 = self._make_message(5002, text="Пропущенное сообщение 1")
+        message2 = self._make_message(5003, text="Пропущенное сообщение 2")
+        client.iter_messages = MagicMock(return_value=self._iter_messages([message1, message2]))
+
+        collector = MessageCollector(
+            client=client,
+            image_processor=MagicMock(),
+            groups=[{"id": -1001234, "title": "Test Group"}],
+        )
+
+        with patch("src.group_knowledge.message_collector.gk_db.get_latest_telegram_message_id", return_value=5001), \
+             patch("src.group_knowledge.message_collector.gk_db.get_message_by_telegram_id", return_value=None), \
+             patch("src.group_knowledge.message_collector.gk_db.store_message", side_effect=[101, 102]) as mock_store, \
+             patch.object(collector, "_message_has_image", return_value=False), \
+             patch.object(collector, "_classify_message_question", new=AsyncMock()):
+            result = _run_async(collector.sync_missed_messages())
+
+        self.assertEqual(result, 2)
+        client.iter_messages.assert_called_once_with(
+            unittest.mock.ANY,
+            min_id=5001,
+            reverse=True,
+        )
+        self.assertEqual(mock_store.call_count, 2)
+
+    def test_sync_missed_messages_skips_group_without_checkpoint(self):
+        """Если для группы нет локальной контрольной точки, добор не запускается."""
+        from src.group_knowledge.message_collector import MessageCollector
+
+        client = MagicMock()
+        collector = MessageCollector(
+            client=client,
+            image_processor=MagicMock(),
+            groups=[{"id": -1001234, "title": "Test Group"}],
+        )
+
+        with patch("src.group_knowledge.message_collector.gk_db.get_latest_telegram_message_id", return_value=None):
+            result = _run_async(collector.sync_missed_messages())
+
+        self.assertEqual(result, 0)
+        client.get_entity.assert_not_called()
+
 
 # ===========================================================================
 # QA Analyzer — thread pair extraction (mocked LLM)
@@ -699,6 +1215,30 @@ class TestQAAnalyzerThreadExtraction(unittest.TestCase):
             )
         self.assertIsNone(result)
 
+    def test_validate_thread_chain_rejects_empty_clean_fields(self):
+        """Пустые clean_question/clean_answer не проходят валидацию."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        mock_provider = MagicMock()
+        mock_provider.chat = AsyncMock(return_value=json.dumps({
+            "is_valid_qa": True,
+            "confidence": 0.9,
+            "clean_question": "   ",
+            "clean_answer": "",
+            "answer_message_id": None,
+        }))
+
+        analyzer = QAAnalyzer()
+        messages = [
+            self._make_message(1, 101, 1, "Что-то сломалось?"),
+            self._make_message(2, 102, 2, "Проверьте настройки.", reply_to=101, date_offset=1),
+        ]
+
+        with patch("src.group_knowledge.qa_analyzer.get_provider", return_value=mock_provider):
+            result = _run_async(analyzer._validate_thread_chain(messages[0], messages))
+
+        self.assertIsNone(result)
+
     def test_validate_qa_pair_llm_error(self):
         """Ошибка LLM возвращает None."""
         from src.group_knowledge.qa_analyzer import QAAnalyzer
@@ -729,6 +1269,72 @@ class TestQAAnalyzerThreadExtraction(unittest.TestCase):
         collected = analyzer._collect_thread_messages(messages[0], children_index)
 
         self.assertEqual([msg.telegram_message_id for msg in collected], [101, 102, 103, 104, 105])
+
+    def test_collect_thread_messages_appends_nearby_same_participants(self):
+        """В цепочку добавляются соседние сообщения тех же участников без reply-связи."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        root = self._make_message(1, 101, 1, "Не работает терминал")
+        reply = self._make_message(2, 102, 2, "Какая ошибка?", reply_to=101, date_offset=1)
+        unlinked_same_user = self._make_message(3, 103, 1, "Ошибка 1001 на экране", date_offset=2)
+        unlinked_same_helper = self._make_message(4, 104, 2, "Перезапустите сервис", date_offset=3)
+        unrelated = self._make_message(5, 105, 999, "У нас всё ок", date_offset=2)
+
+        messages = [root, reply, unlinked_same_user, unlinked_same_helper, unrelated]
+        children_index = analyzer._build_reply_children_index(messages)
+
+        collected = analyzer._collect_thread_messages(
+            root,
+            children_index,
+            all_messages=messages,
+        )
+
+        collected_ids = [msg.telegram_message_id for msg in collected]
+        self.assertIn(103, collected_ids)
+        self.assertIn(104, collected_ids)
+        self.assertNotIn(105, collected_ids)
+
+    def test_collect_thread_messages_logs_added_nearby_messages(self):
+        """При добавлении соседних сообщений пишется явный лог о расширении цепочки."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        root = self._make_message(1, 101, 1, "Не работает терминал")
+        reply = self._make_message(2, 102, 2, "Какая ошибка?", reply_to=101, date_offset=1)
+        unlinked_same_user = self._make_message(3, 103, 1, "Ошибка 1001 на экране", date_offset=2)
+        messages = [root, reply, unlinked_same_user]
+        children_index = analyzer._build_reply_children_index(messages)
+
+        with patch("src.group_knowledge.qa_analyzer.logger.info") as mock_log_info:
+            analyzer._collect_thread_messages(
+                root,
+                children_index,
+                all_messages=messages,
+            )
+
+        self.assertTrue(any(
+            call.args and call.args[0] == "Найдены дополнительные последовательные сообщения: root_msg=%d added=%d total=%d"
+            for call in mock_log_info.call_args_list
+        ))
+
+    def test_format_thread_context_includes_timestamp_and_sender(self):
+        """Контекст для LLM содержит время сообщения и имя автора."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        messages = [
+            self._make_message(1, 101, 1, "Не работает терминал"),
+            self._make_message(2, 102, 2, "Какая ошибка?", reply_to=101, date_offset=1),
+        ]
+
+        context = analyzer._format_thread_context(messages)
+
+        self.assertIn("User 1", context)
+        self.assertIn("User 2", context)
+        self.assertIn("1970-01-01 00:16:40 UTC", context)
+        self.assertIn("1970-01-01 00:16:41 UTC", context)
+        self.assertIn("reply_to:101", context)
 
     def test_find_last_meaningful_message_skips_thanks(self):
         """Последнее осмысленное сообщение выбирается до благодарности."""
@@ -779,6 +1385,37 @@ class TestQAAnalyzerThreadExtraction(unittest.TestCase):
         self.assertEqual(pairs[0].answer_message_id, 4)
         self.assertEqual(pairs[0].extraction_type, "thread_reply")
 
+    def test_extract_thread_pairs_adds_image_gist_to_stored_question(self):
+        """При сохранении thread-пары gist из изображения добавляется в вопрос."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        messages = [
+            self._make_message(1, 101, 1, "Что с ошибкой на экране?"),
+            self._make_message(2, 102, 2, "Это ошибка сети, перезапустите модем.", reply_to=101, date_offset=1),
+        ]
+        messages[0].has_image = True
+        messages[0].image_description = "На скриншоте видно сообщение 'Нет связи с хостом' и красный статус сети."
+
+        with patch.object(
+            analyzer,
+            "_validate_thread_chain",
+            new=AsyncMock(return_value=(
+                "Как исправить ошибку связи на терминале?",
+                "Проверьте сетевое подключение и перезапустите модем.",
+                0.92,
+                102,
+            )),
+        ):
+            with patch("src.group_knowledge.qa_analyzer.gk_db.store_qa_pair", return_value=78):
+                with patch("src.group_knowledge.qa_analyzer.asyncio.sleep", new=AsyncMock()):
+                    pairs = _run_async(analyzer._extract_thread_pairs(messages))
+
+        self.assertEqual(len(pairs), 1)
+        self.assertIn("Как исправить ошибку связи на терминале?", pairs[0].question_text)
+        self.assertIn("Суть по изображению", pairs[0].question_text)
+        self.assertIn("Нет связи с хостом", pairs[0].question_text)
+
     def test_extract_thread_pairs_skips_single_sender_chain(self):
         """Цепочка одного отправителя не считается Q&A."""
         from src.group_knowledge.qa_analyzer import QAAnalyzer
@@ -794,6 +1431,283 @@ class TestQAAnalyzerThreadExtraction(unittest.TestCase):
 
         self.assertEqual(pairs, [])
         mock_validate.assert_not_called()
+
+    def test_analyze_day_ignores_configured_bot_sender(self):
+        """Анализатор исключает сообщения bot-user из анализа по sender_id."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+        from src.group_knowledge.models import GroupMessage
+
+        analyzer = QAAnalyzer()
+        messages = [
+            GroupMessage(id=1, telegram_message_id=101, group_id=-1001, sender_id=6627254238, message_text="служебный ответ", message_date=100),
+            GroupMessage(id=2, telegram_message_id=102, group_id=-1001, sender_id=123, message_text="Как починить терминал?", message_date=101),
+        ]
+
+        with patch("src.group_knowledge.qa_analyzer.gk_db.get_unprocessed_messages", return_value=messages):
+            with patch.object(analyzer, "_extract_thread_pairs", new=AsyncMock(return_value=[])) as mock_thread:
+                with patch.object(analyzer, "_extract_llm_inferred_pairs", new=AsyncMock(return_value=[])) as mock_llm:
+                    with patch("src.group_knowledge.qa_analyzer.gk_db.mark_messages_processed"):
+                        result = _run_async(analyzer.analyze_day(-1001, "2026-03-06"))
+
+        self.assertEqual(result.total_messages, 1)
+        self.assertEqual(len(mock_thread.await_args.args[0]), 1)
+        self.assertEqual(len(mock_llm.await_args.args[0]), 1)
+
+    def test_extract_thread_pairs_merges_overlapping_chains(self):
+        """При сильном overlap несколько цепочек объединяются в одну перед LLM."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        root_a = self._make_message(1, 101, 1, "Проблема А", date_offset=0)
+        root_b = self._make_message(2, 201, 2, "Проблема Б", date_offset=1)
+        shared_1 = self._make_message(3, 301, 3, "Общий контекст 1", date_offset=2)
+        shared_2 = self._make_message(4, 302, 3, "Общий контекст 2", date_offset=3)
+        shared_3 = self._make_message(5, 303, 2, "Общий контекст 3", date_offset=4)
+        extra_for_a = self._make_message(6, 304, 2, "Дополнительное сообщение для А", date_offset=5)
+
+        messages = [root_a, root_b, shared_1, shared_2, shared_3, extra_for_a]
+
+        chain_a = [root_a, shared_1, shared_2, shared_3, extra_for_a]
+        chain_b = [root_b, shared_1, shared_2, shared_3]
+
+        with patch.object(analyzer, "_find_thread_roots", return_value=[root_a, root_b]):
+            with patch.object(analyzer, "_collect_thread_messages", side_effect=[chain_a, chain_b]):
+                with patch.object(
+                    analyzer,
+                    "_validate_thread_chain",
+                    new=AsyncMock(return_value=(
+                        "Как решить проблему А?",
+                        "Сделайте шаги из shared_2.",
+                        0.9,
+                        302,
+                    )),
+                ) as mock_validate:
+                    with patch("src.group_knowledge.qa_analyzer.gk_db.store_qa_pair", return_value=701):
+                        with patch("src.group_knowledge.qa_analyzer.asyncio.sleep", new=AsyncMock()):
+                            pairs = _run_async(analyzer._extract_thread_pairs(messages))
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].question_message_id, 1)
+        self.assertEqual(pairs[0].answer_message_id, 4)
+        mock_validate.assert_awaited_once()
+        validate_root, validate_chain = mock_validate.await_args.args
+        self.assertEqual(validate_root.telegram_message_id, 101)
+        self.assertEqual(
+            {msg.telegram_message_id for msg in validate_chain},
+            {101, 201, 301, 302, 303, 304},
+        )
+
+    def test_merge_overlapping_candidates_tie_prefers_earlier_root(self):
+        """При равной длине и сильном overlap root объединённой цепочки — более ранний."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        early_root = self._make_message(1, 101, 1, "Ранний root", date_offset=0)
+        late_root = self._make_message(2, 202, 2, "Поздний root", date_offset=10)
+
+        candidates = [
+            {
+                "root": late_root,
+                "thread_messages": [late_root, self._make_message(3, 301, 3, "x"), self._make_message(4, 302, 3, "y"), self._make_message(5, 303, 2, "z")],
+                "message_ids": {202, 301, 302, 303},
+            },
+            {
+                "root": early_root,
+                "thread_messages": [early_root, self._make_message(6, 301, 3, "x"), self._make_message(7, 302, 3, "y"), self._make_message(8, 303, 2, "z")],
+                "message_ids": {101, 301, 302, 303},
+            },
+        ]
+
+        selected = analyzer._merge_overlapping_candidates(candidates)
+
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0]["root"].telegram_message_id, 101)
+        self.assertEqual(selected[0]["message_ids"], {101, 202, 301, 302, 303})
+
+    def test_analyze_batch_for_pairs_includes_question_hint_from_db(self):
+        """LLM-inference получает QUESTION_HINT из сохранённой классификации сообщения."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        batch = [
+            self._make_message(1, 101, 1, "терминал не видит сеть", date_offset=0),
+            self._make_message(2, 102, 2, "Проверьте сетевой кабель", date_offset=1),
+        ]
+        batch[0].is_question = True
+        batch[0].question_confidence = 0.88
+
+        captured_prompt = {}
+        mock_provider = MagicMock()
+
+        async def _chat(**kwargs):
+            captured_prompt["prompt"] = kwargs["messages"][0]["content"]
+            return json.dumps({"pairs": []})
+
+        mock_provider.chat = _chat
+
+        with patch("src.group_knowledge.qa_analyzer.get_provider", return_value=mock_provider):
+            pairs = _run_async(analyzer._analyze_batch_for_pairs(batch, -1001234, batch))
+
+        self.assertEqual(pairs, [])
+        self.assertIn("[QUESTION_HINT conf=0.88]", captured_prompt["prompt"])
+
+
+class TestQAAnalyzerIndexing(unittest.TestCase):
+    """Тесты индексации Q&A пар в Group Knowledge."""
+
+    def test_index_new_pairs_uses_current_vector_api(self):
+        """Индексация использует актуальный интерфейс vector_search."""
+        from src.group_knowledge.models import QAPair
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        pair = QAPair(
+            id=42,
+            question_text="Почему не печатает терминал?",
+            answer_text="Проверьте бумагу и перезапустите сервис печати.",
+            group_id=-100123,
+            extraction_type="thread_reply",
+            confidence=0.91,
+        )
+
+        mock_embedding_provider = MagicMock()
+        mock_embedding_provider.encode.return_value = [0.1, 0.2, 0.3]
+
+        mock_vector_index = MagicMock()
+        mock_vector_index.upsert_chunks.return_value = 1
+
+        analyzer = QAAnalyzer()
+
+        with patch("src.group_knowledge.qa_analyzer.gk_db.get_unindexed_qa_pairs", return_value=[pair]):
+            with patch("src.group_knowledge.qa_analyzer.gk_db.mark_qa_pair_indexed") as mock_mark:
+                with patch(
+                    "src.core.ai.vector_search.LocalEmbeddingProvider",
+                    return_value=mock_embedding_provider,
+                ):
+                    with patch(
+                        "src.core.ai.vector_search.LocalVectorIndex",
+                        return_value=mock_vector_index,
+                    ) as mock_index_cls:
+                        indexed = _run_async(analyzer.index_new_pairs())
+
+        self.assertEqual(indexed, 1)
+        mock_index_cls.assert_called_once_with(chunk_collection_name="gk_qa_pairs_v1")
+        mock_embedding_provider.encode.assert_called_once()
+        mock_vector_index.upsert_chunks.assert_called_once_with(
+            chunks=[{
+                "document_id": 42,
+                "chunk_index": 0,
+                "filename": "gk_qa_pair_42",
+                "chunk_text": "Вопрос: Почему не печатает терминал?\nОтвет: Проверьте бумагу и перезапустите сервис печати.",
+                "status": "active",
+            }],
+            embeddings=[[0.1, 0.2, 0.3]],
+        )
+        mock_mark.assert_called_once_with(42)
+
+    def test_llm_inferred_pair_adds_image_gist_to_question(self):
+        """LLM-inferred пара сохраняет gist изображения внутри вопроса."""
+        from src.group_knowledge.models import GroupMessage
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        question_msg = GroupMessage(
+            id=1,
+            telegram_message_id=201,
+            group_id=-1001234,
+            sender_id=1,
+            sender_name="User 1",
+            message_text="Что означает эта ошибка?",
+            message_date=1000,
+        )
+        question_msg.has_image = True
+        question_msg.image_description = "На скриншоте код 445 и текст 'Касса не отвечает'."
+        answer_msg = GroupMessage(
+            id=2,
+            telegram_message_id=202,
+            group_id=-1001234,
+            sender_id=2,
+            sender_name="User 2",
+            message_text="Перезапустите кассовый сервис.",
+            message_date=1001,
+        )
+
+        mock_provider = MagicMock()
+        mock_provider.chat = AsyncMock(return_value=json.dumps({
+            "pairs": [
+                {
+                    "question_msg_id": 201,
+                    "answer_msg_id": 202,
+                    "question": "Что означает ошибка 445?",
+                    "answer": "Перезапустите кассовый сервис.",
+                    "confidence": 0.84,
+                }
+            ]
+        }))
+
+        stored_pairs = []
+
+        def _store_pair(pair):
+            stored_pairs.append(pair)
+            return 901
+
+        with patch("src.group_knowledge.qa_analyzer.get_provider", return_value=mock_provider):
+            with patch("src.group_knowledge.qa_analyzer.gk_db.store_qa_pair", side_effect=_store_pair):
+                pairs = _run_async(
+                    analyzer._analyze_batch_for_pairs([question_msg, answer_msg], -1001234, [question_msg, answer_msg])
+                )
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(len(stored_pairs), 1)
+        self.assertIn("Что означает ошибка 445?", stored_pairs[0].question_text)
+        self.assertIn("Суть по изображению", stored_pairs[0].question_text)
+        self.assertIn("Касса не отвечает", stored_pairs[0].question_text)
+
+    def test_llm_inferred_skips_empty_pairs_from_model(self):
+        """LLM-inferred не сохраняет пары с пустыми question/answer."""
+        from src.group_knowledge.models import GroupMessage
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        question_msg = GroupMessage(
+            id=1,
+            telegram_message_id=201,
+            group_id=-1001234,
+            sender_id=1,
+            sender_name="User 1",
+            message_text="Что означает эта ошибка?",
+            message_date=1000,
+        )
+        answer_msg = GroupMessage(
+            id=2,
+            telegram_message_id=202,
+            group_id=-1001234,
+            sender_id=2,
+            sender_name="User 2",
+            message_text="Перезапустите сервис.",
+            message_date=1001,
+        )
+
+        mock_provider = MagicMock()
+        mock_provider.chat = AsyncMock(return_value=json.dumps({
+            "pairs": [
+                {
+                    "question_msg_id": 201,
+                    "answer_msg_id": 202,
+                    "question": "   ",
+                    "answer": "",
+                    "confidence": 0.8,
+                }
+            ]
+        }))
+
+        with patch("src.group_knowledge.qa_analyzer.get_provider", return_value=mock_provider):
+            with patch("src.group_knowledge.qa_analyzer.gk_db.store_qa_pair") as mock_store:
+                pairs = _run_async(
+                    analyzer._analyze_batch_for_pairs([question_msg, answer_msg], -1001234, [question_msg, answer_msg])
+                )
+
+        self.assertEqual(pairs, [])
+        mock_store.assert_not_called()
 
 
 # ===========================================================================
@@ -935,6 +1849,47 @@ class TestQASearchAnswer(unittest.TestCase):
                 result = _run_async(service.answer_question("Что-то совсем другое"))
         self.assertIsNone(result)
 
+    def test_vector_search_uses_pair_ids_from_vector_candidates(self):
+        """Векторный поиск поднимает полные пары из БД по document_id кандидата."""
+        from src.group_knowledge.models import QAPair
+        from src.group_knowledge.qa_search import QASearchService
+
+        pair = QAPair(
+            id=17,
+            question_text="Как включить NFC?",
+            answer_text="Откройте настройки терминала и активируйте NFC.",
+            group_id=-100555,
+            extraction_type="thread_reply",
+            confidence=0.93,
+        )
+
+        vector_hit = types.SimpleNamespace(document_id=17, score=0.87)
+        mock_embedding_provider = MagicMock()
+        mock_embedding_provider.encode.return_value = [0.4, 0.5, 0.6]
+        mock_vector_index = MagicMock()
+        mock_vector_index.search.return_value = [vector_hit]
+
+        service = QASearchService()
+
+        with patch(
+            "src.core.ai.vector_search.LocalEmbeddingProvider",
+            return_value=mock_embedding_provider,
+        ):
+            with patch(
+                "src.core.ai.vector_search.LocalVectorIndex",
+                return_value=mock_vector_index,
+            ) as mock_index_cls:
+                with patch("src.group_knowledge.qa_search.gk_db.get_qa_pair_by_id", return_value=pair):
+                    results = _run_async(service._vector_search("Как включить NFC?", 3))
+
+        self.assertEqual(results, [(pair, 0.87)])
+        mock_index_cls.assert_called_once_with(chunk_collection_name="gk_qa_pairs_v1")
+        mock_embedding_provider.encode.assert_called_once_with("Как включить NFC?")
+        mock_vector_index.search.assert_called_once_with(
+            query_vector=[0.4, 0.5, 0.6],
+            limit=3,
+        )
+
 
 # ===========================================================================
 # Responder — handle_message (integration-like with mocks)
@@ -983,7 +1938,8 @@ class TestGroupResponderHandleMessage(unittest.TestCase):
         responder = GroupResponder(dry_run=True)
         event = self._make_event("Спасибо всем за помощь, всё починил", -1001234)
 
-        result = _run_async(responder.handle_message(event, {-1001001234}))
+        with patch.object(responder, "_classify_message_as_question", new=AsyncMock(return_value=False)):
+            result = _run_async(responder.handle_message(event, {-1001001234}))
         self.assertIsNone(result)
 
     def test_skip_bot(self):
@@ -1076,6 +2032,104 @@ class TestGroupResponderHandleMessage(unittest.TestCase):
 
         result = _run_async(responder.handle_message(event, {-1001001234}))
         self.assertIsNone(result)
+
+    def test_message_without_question_mark_is_checked_by_llm(self):
+        """Сообщение без '?' отправляется в LLM-классификатор вопроса."""
+        from src.group_knowledge.responder import GroupResponder
+
+        mock_qa = MagicMock()
+        mock_qa.answer_question = AsyncMock(return_value={
+            "answer": "Проверьте питание и сетевой кабель.",
+            "confidence": 0.88,
+            "source_pair_ids": [5],
+            "is_relevant": True,
+        })
+
+        responder = GroupResponder(dry_run=True, qa_service=mock_qa)
+        event = self._make_event("терминал не включается после перезагрузки", -1001234)
+
+        with patch.object(responder, "_classify_message_as_question", new=AsyncMock(return_value=True)) as mock_classify:
+            with patch("src.group_knowledge.responder.gk_db"):
+                result = _run_async(responder.handle_message(event, {-1001001234}))
+
+        self.assertIsNotNone(result)
+        mock_classify.assert_awaited_once_with("терминал не включается после перезагрузки")
+
+    def test_question_mark_skips_llm_question_classifier(self):
+        """Сообщение с '?' не отправляется в LLM-классификатор вопроса."""
+        from src.group_knowledge.responder import GroupResponder
+
+        mock_qa = MagicMock()
+        mock_qa.answer_question = AsyncMock(return_value={
+            "answer": "Перезапустите сервис.",
+            "confidence": 0.9,
+            "source_pair_ids": [7],
+            "is_relevant": True,
+        })
+
+        responder = GroupResponder(dry_run=True, qa_service=mock_qa)
+        event = self._make_event("Почему терминал не печатает?", -1001234)
+
+        with patch.object(responder, "_classify_message_as_question", new=AsyncMock()) as mock_classify:
+            with patch("src.group_knowledge.responder.gk_db"):
+                result = _run_async(responder.handle_message(event, {-1001001234}))
+
+        self.assertIsNotNone(result)
+        mock_classify.assert_not_called()
+
+    def test_test_group_mapping_uses_real_group_for_logs(self):
+        """В test mode логирование и лимиты используют real group, а ответ уходит в test group."""
+        from src.group_knowledge.responder import GroupResponder
+
+        mock_qa = MagicMock()
+        mock_qa.answer_question = AsyncMock(return_value={
+            "answer": "Проверьте настройки сети.",
+            "confidence": 0.92,
+            "source_pair_ids": [12],
+            "is_relevant": True,
+        })
+
+        responder = GroupResponder(
+            dry_run=True,
+            qa_service=mock_qa,
+            test_group_mapping={-1001001234: -1002005678},
+        )
+        event = self._make_event("терминал не видит сеть", -1001234)
+
+        with patch.object(responder, "_classify_message_as_question", new=AsyncMock(return_value=True)):
+            with patch("src.group_knowledge.responder.gk_db.store_responder_log") as mock_store_log:
+                result = _run_async(responder.handle_message(event, {-1001001234}))
+
+        self.assertIsNotNone(result)
+        mock_store_log.assert_called_once()
+        self.assertEqual(mock_store_log.call_args.kwargs["group_id"], -1002005678)
+
+    def test_handle_message_with_question_override(self):
+        """question_override позволяет обработать /qa-команду как обычный вопрос."""
+        from src.group_knowledge.responder import GroupResponder
+
+        mock_qa = MagicMock()
+        mock_qa.answer_question = AsyncMock(return_value={
+            "answer": "Проверьте сетевой кабель и перезапустите терминал.",
+            "confidence": 0.91,
+            "source_pair_ids": [10],
+            "is_relevant": True,
+        })
+
+        responder = GroupResponder(dry_run=True, qa_service=mock_qa)
+        event = self._make_event("/qa как устранить ошибку сети", -1001234)
+
+        with patch("src.group_knowledge.responder.gk_db"):
+            result = _run_async(
+                responder.handle_message(
+                    event,
+                    {-1001001234},
+                    question_override="как устранить ошибку сети",
+                )
+            )
+
+        self.assertIsNotNone(result)
+        mock_qa.answer_question.assert_awaited_once_with("как устранить ошибку сети")
 
 
 # ===========================================================================
@@ -1261,6 +2315,21 @@ class TestGKSessionSelection(unittest.TestCase):
         resolved = gk_responder._resolve_session_name()
 
         self.assertEqual(resolved, gk_responder.GK_RESPONDER_SESSION_NAME)
+
+    def test_responder_extract_qa_query(self):
+        """gk_responder извлекает вопрос только из команды /qa."""
+        gk_responder = self._import_script_module("scripts.gk_responder")
+
+        self.assertEqual(
+            gk_responder._extract_qa_query("/qa как перезагрузить терминал?"),
+            "как перезагрузить терминал?",
+        )
+        self.assertEqual(
+            gk_responder._extract_qa_query("/qa@SbsArchieBot что делать с ошибкой 1001"),
+            "что делать с ошибкой 1001",
+        )
+        self.assertIsNone(gk_responder._extract_qa_query("/qa"))
+        self.assertIsNone(gk_responder._extract_qa_query("как починить?"))
 
 
 class TestTelethonSessionHelpers(unittest.TestCase):

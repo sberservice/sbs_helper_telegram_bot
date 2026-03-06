@@ -22,15 +22,16 @@ from src.common.constants.sync import (
 )
 from src.group_knowledge import database as gk_db
 from src.group_knowledge.models import ResponderResult
+from src.group_knowledge.question_classifier import QuestionClassifierService
 from src.group_knowledge.qa_search import QASearchService
 from src.group_knowledge.settings import (
+    GK_IGNORED_SENDER_IDS,
     MIN_QUESTION_LENGTH,
     QUESTION_KEYWORDS_RU,
     MAX_MESSAGE_AGE_SECONDS,
 )
 
 logger = logging.getLogger(__name__)
-
 
 class GKRateLimiter:
     """
@@ -118,6 +119,7 @@ class GroupResponder:
         dry_run: bool = True,
         qa_service: Optional[QASearchService] = None,
         confidence_threshold: Optional[float] = None,
+        test_group_mapping: Optional[Dict[int, int]] = None,
     ):
         """
         Инициализация автоответчика.
@@ -136,6 +138,11 @@ class GroupResponder:
         )
         self._rate_limiter = GKRateLimiter()
         self._stop_event = asyncio.Event()
+        self._question_classifier = QuestionClassifierService()
+        self._test_group_mapping = {
+            int(group_id): int(real_group_id)
+            for group_id, real_group_id in (test_group_mapping or {}).items()
+        }
 
     @property
     def dry_run(self) -> bool:
@@ -146,6 +153,8 @@ class GroupResponder:
         self,
         event,
         group_ids: set,
+        question_override: Optional[str] = None,
+        force_as_question: bool = False,
     ) -> Optional[ResponderResult]:
         """
         Обработать новое сообщение и решить, нужно ли отвечать.
@@ -153,6 +162,7 @@ class GroupResponder:
         Args:
             event: Telethon NewMessage event.
             group_ids: Множество отслеживаемых group_id.
+            question_override: Явный текст вопроса (например, из команды /qa).
 
         Returns:
             ResponderResult или None, если ответ не требуется.
@@ -172,6 +182,8 @@ class GroupResponder:
         if chat_id not in group_ids:
             return None
 
+        effective_group_id = self._resolve_effective_group_id(chat_id)
+
         # Пропустить старые сообщения
         if message.date:
             msg_age = time.time() - message.date.timestamp()
@@ -188,14 +200,16 @@ class GroupResponder:
             return None
 
         sender_id = getattr(sender, "id", 0) if sender else 0
-
-        # Пропустить команды
-        text = message.text or message.message or ""
-        if text.startswith("/"):
+        if sender_id in GK_IGNORED_SENDER_IDS:
             return None
 
-        # Определить, похоже ли на вопрос
-        if not self._looks_like_question(text):
+        # Пропустить команды
+        text = (question_override if question_override is not None else (message.text or message.message or "")).strip()
+        if question_override is None and text.startswith("/"):
+            return None
+
+        # Определить, является ли сообщение вопросом
+        if not await self._is_question_message(text, force_as_question=force_as_question):
             return None
 
         # Rate limit: пользователь
@@ -208,11 +222,11 @@ class GroupResponder:
             return None
 
         # Rate limit: группа
-        group_wait = self._rate_limiter.check_group(chat_id)
+        group_wait = self._rate_limiter.check_group(effective_group_id)
         if group_wait is not None:
             logger.debug(
-                "Rate limit (group): group=%d wait=%ds",
-                chat_id, group_wait,
+                "Rate limit (group): group=%d wait=%ds actual_group=%d",
+                effective_group_id, group_wait, chat_id,
             )
             return None
 
@@ -242,7 +256,7 @@ class GroupResponder:
             return None
 
         # Записать rate limit
-        self._rate_limiter.record(sender_id, chat_id)
+        self._rate_limiter.record(sender_id, effective_group_id)
 
         # Создать результат
         result = ResponderResult(
@@ -255,7 +269,7 @@ class GroupResponder:
 
         # Логировать
         gk_db.store_responder_log(
-            group_id=chat_id,
+            group_id=effective_group_id,
             question_message_id=message.id,
             question_text=text,
             answer_text=answer_text,
@@ -270,7 +284,7 @@ class GroupResponder:
                 "(conf=%.2f, sources=%s):\n"
                 "  Вопрос: %s\n"
                 "  Ответ: %s",
-                message.id, chat_id,
+                message.id, effective_group_id,
                 confidence, source_ids,
                 text[:200],
                 answer_text[:300],
@@ -296,6 +310,42 @@ class GroupResponder:
     def stop(self) -> None:
         """Послать сигнал остановки."""
         self._stop_event.set()
+
+    async def _is_question_message(
+        self,
+        text: str,
+        force_as_question: bool = False,
+    ) -> bool:
+        """Определить, является ли сообщение вопросом для автоответчика."""
+        normalized = (text or "").strip()
+        if not normalized:
+            return False
+
+        if force_as_question:
+            return True
+
+        if "?" in normalized:
+            return True
+
+        return await self._classify_message_as_question(normalized)
+
+    async def _classify_message_as_question(self, text: str) -> bool:
+        """Определить через LLM, является ли сообщение вопросом без вопросительного знака."""
+        try:
+            result = await self._question_classifier.classify(text)
+            logger.debug(
+                "LLM-классификация вопроса: is_question=%s confidence=%.2f text=%s",
+                result.is_question,
+                result.confidence,
+                text[:120],
+            )
+            return result.is_question
+        except Exception as exc:
+            logger.warning(
+                "Ошибка LLM-классификации вопроса, используется эвристика: %s",
+                exc,
+            )
+            return self._looks_like_question(text)
 
     @staticmethod
     def _looks_like_question(text: str) -> bool:
@@ -340,6 +390,10 @@ class GroupResponder:
                 return True
 
         return False
+
+    def _resolve_effective_group_id(self, chat_id: int) -> int:
+        """Вернуть реальный group_id для тестовой группы или исходный group_id."""
+        return self._test_group_mapping.get(chat_id, chat_id)
 
     @staticmethod
     def _resolve_chat_id(chat) -> int:

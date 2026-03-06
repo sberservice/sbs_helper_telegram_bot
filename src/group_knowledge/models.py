@@ -57,6 +57,21 @@ class GroupMessage:
     processed: int = 0
     """Флаг обработки: 0 — не обработано, 1 — обработано."""
 
+    is_question: Optional[bool] = None
+    """Результат классификации сообщения как вопроса (True/False/None)."""
+
+    question_confidence: Optional[float] = None
+    """Уверенность классификатора вопроса (0.0–1.0)."""
+
+    question_reason: Optional[str] = None
+    """Краткое объяснение классификации вопроса."""
+
+    question_model_used: Optional[str] = None
+    """Модель, использованная для классификации вопроса."""
+
+    question_detected_at: Optional[int] = None
+    """Время классификации вопроса (UNIX timestamp)."""
+
     @property
     def full_text(self) -> str:
         """Полный текст сообщения (текст + подпись + описание изображения)."""
