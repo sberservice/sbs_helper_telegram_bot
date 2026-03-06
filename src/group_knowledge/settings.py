@@ -4,7 +4,12 @@
 Содержит метаданные модуля и вспомогательные константы.
 """
 
+import os
 from typing import Final
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 MODULE_NAME: Final[str] = "group_knowledge"
 MODULE_VERSION: Final[str] = "0.1.0"
@@ -39,4 +44,16 @@ QUESTION_KEYWORDS_RU: Final[tuple[str, ...]] = (
     "каким", "какой", "какая", "какие", "какое",
     "сколько", "можно", "нужно", "подскажите", "помогите",
     "расскажите", "объясните", "скажите",
+)
+
+# Telegram user IDs, которые нужно игнорировать в анализе и автоответах
+GK_IGNORED_SENDER_IDS: Final[tuple[int, ...]] = tuple(
+    int(value.strip())
+    for value in os.getenv("GK_IGNORED_SENDER_IDS", "11111").split(",")
+    if value.strip()
+)
+
+# Окно склейки соседних сообщений одного пользователя в один вопрос
+GK_MESSAGE_GROUPING_WINDOW_SECONDS: Final[int] = int(
+    os.getenv("GK_MESSAGE_GROUPING_WINDOW_SECONDS", "20")
 )

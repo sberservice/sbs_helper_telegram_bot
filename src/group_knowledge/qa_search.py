@@ -123,8 +123,8 @@ class QASearchService:
         for i, pair in enumerate(relevant_pairs, 1):
             qa_context_parts.append(
                 f"Пара {i} (ID={pair.id}):\n"
-                f"  В: {pair.question_text[:500]}\n"
-                f"  О: {pair.answer_text[:500]}"
+                f"  В: {pair.question_text[:3500]}\n"
+                f"  О: {pair.answer_text[:3500]}"
             )
             if pair.id:
                 pair_id_map[i] = pair.id
@@ -207,36 +207,32 @@ class QASearchService:
             from src.core.ai.vector_search import LocalVectorIndex, LocalEmbeddingProvider
 
             embedding_provider = LocalEmbeddingProvider()
-            vector_index = LocalVectorIndex()
             collection_name = ai_settings.GK_QA_VECTOR_COLLECTION
+            vector_index = LocalVectorIndex(chunk_collection_name=collection_name)
 
             # Генерировать эмбеддинг запроса
             query_embedding = embedding_provider.encode(query)
+            if not query_embedding:
+                logger.warning("Не удалось получить эмбеддинг для поискового запроса")
+                return []
 
             # Поиск в Qdrant
             hits = vector_index.search(
-                collection_name=collection_name,
                 query_vector=query_embedding,
                 limit=top_k,
             )
 
             results = []
             for hit in hits:
-                pair_id = hit.payload.get("pair_id") if hit.payload else None
+                pair_id = getattr(hit, "document_id", 0)
                 if not pair_id:
                     continue
 
-                score = hit.score if hasattr(hit, "score") else 0.0
+                pair = gk_db.get_qa_pair_by_id(int(pair_id))
+                if not pair:
+                    continue
 
-                # Создать QAPair из payload
-                pair = QAPair(
-                    id=pair_id,
-                    question_text=hit.payload.get("question", ""),
-                    answer_text=hit.payload.get("answer", ""),
-                    group_id=hit.payload.get("group_id", 0),
-                    extraction_type=hit.payload.get("extraction_type", ""),
-                    confidence=hit.payload.get("confidence", 0.0),
-                )
+                score = float(getattr(hit, "score", 0.0) or 0.0)
                 results.append((pair, score))
 
             return results

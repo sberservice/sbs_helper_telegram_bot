@@ -70,6 +70,13 @@ class LocalEmbeddingProvider:
             )
         return vectors.tolist()
 
+    def encode(self, text: str) -> List[float]:
+        """Преобразовать один текст в dense-вектор для обратной совместимости."""
+        vectors = self.encode_texts([text])
+        if not vectors:
+            return []
+        return vectors[0]
+
     @staticmethod
     def _normalize_text(text: str, max_chars: int) -> str:
         """Нормализовать текст перед вычислением эмбеддинга."""

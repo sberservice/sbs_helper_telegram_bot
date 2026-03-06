@@ -22,10 +22,16 @@ CREATE TABLE IF NOT EXISTS `gk_messages` (
   `message_date` bigint(20) NOT NULL COMMENT 'Дата сообщения (UNIX timestamp)',
   `collected_at` bigint(20) NOT NULL COMMENT 'Время сбора (UNIX timestamp)',
   `processed` tinyint(1) NOT NULL DEFAULT 0 COMMENT '0=не обработано, 1=обработано',
+  `is_question` tinyint(1) DEFAULT NULL COMMENT 'Результат классификации сообщения как вопроса',
+  `question_confidence` float DEFAULT NULL COMMENT 'Уверенность классификатора вопроса',
+  `question_reason` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Краткая причина классификации вопроса',
+  `question_model_used` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Модель классификации вопроса',
+  `question_detected_at` bigint(20) DEFAULT NULL COMMENT 'Время классификации вопроса (UNIX timestamp)',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_group_message` (`group_id`, `telegram_message_id`),
   KEY `idx_group_date` (`group_id`, `message_date`),
   KEY `idx_processed` (`processed`),
+  KEY `idx_question_detection` (`group_id`, `is_question`, `message_date`),
   KEY `idx_reply_to` (`group_id`, `reply_to_message_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
