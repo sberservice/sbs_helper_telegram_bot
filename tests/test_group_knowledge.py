@@ -956,7 +956,11 @@ class TestCollectorResponderBridge(unittest.TestCase):
 
         responder = MagicMock()
         responder.handle_message = AsyncMock(return_value=ResponderResult(dry_run=True))
-        bridge = CollectorResponderBridge(responder=responder, group_ids={-1001}, grouping_window_seconds=1)
+        bridge = CollectorResponderBridge(
+            responder=responder,
+            group_ids={-1001},
+            grouping_window_seconds=1,
+        )
 
         event = MagicMock()
         bridge._pending[(-1001, 10)] = PendingQuestionBundle(
@@ -981,12 +985,143 @@ class TestCollectorResponderBridge(unittest.TestCase):
             ],
         )
 
-        with patch("src.group_knowledge.collector_responder.asyncio.sleep", new=AsyncMock()):
+        with patch("src.group_knowledge.collector_responder.asyncio.sleep", new=AsyncMock()), \
+            patch("src.group_knowledge.collector_responder.gk_db.get_message_by_telegram_id", return_value=None), \
+            patch("src.group_knowledge.collector_responder.logger.info") as mock_log_info:
             _run_async(bridge._flush_after_delay((-1001, 10)))
 
         responder.handle_message.assert_awaited_once()
         self.assertIn("терминал не печатает", responder.handle_message.await_args.kwargs["question_override"])
         self.assertTrue(responder.handle_message.await_args.kwargs["force_as_question"])
+        self.assertTrue(any(
+            call.args
+            and call.args[0] == "Bridge запускает автоответчик: group=%d sender=%d messages=%d text=%s"
+            and call.args[1] == -1001
+            and call.args[2] == 10
+            for call in mock_log_info.call_args_list
+        ))
+
+    def test_flush_after_delay_uses_image_description_from_db_refresh(self):
+        """Bridge перед flush подтягивает image_description из БД и включает его в question_override."""
+        from src.group_knowledge.collector_responder import CollectorResponderBridge, PendingQuestionBundle
+        from src.group_knowledge.models import GroupMessage, ResponderResult
+
+        responder = MagicMock()
+        responder.handle_message = AsyncMock(return_value=ResponderResult(dry_run=True))
+        bridge = CollectorResponderBridge(responder=responder, group_ids={-1001}, grouping_window_seconds=1)
+
+        event = MagicMock()
+        original_text_message = GroupMessage(
+            telegram_message_id=10,
+            group_id=-1001,
+            sender_id=77,
+            message_text="не проходит оплата",
+            message_date=100,
+            is_question=True,
+        )
+        original_image_message = GroupMessage(
+            telegram_message_id=11,
+            group_id=-1001,
+            sender_id=77,
+            has_image=True,
+            message_date=101,
+        )
+
+        bridge._pending[(-1001, 77)] = PendingQuestionBundle(
+            root_event=event,
+            latest_event=event,
+            messages=[original_text_message, original_image_message],
+        )
+
+        enriched_image_message = GroupMessage(
+            telegram_message_id=11,
+            group_id=-1001,
+            sender_id=77,
+            has_image=True,
+            image_description="На экране ошибка: Отказ в авторизации терминала",
+            message_date=101,
+        )
+
+        def _db_message_side_effect(group_id, telegram_message_id):
+            if group_id == -1001 and telegram_message_id == 11:
+                return enriched_image_message
+            return None
+
+        with patch("src.group_knowledge.collector_responder.asyncio.sleep", new=AsyncMock()), \
+             patch(
+                 "src.group_knowledge.collector_responder.gk_db.get_message_by_telegram_id",
+                 side_effect=_db_message_side_effect,
+             ), \
+             patch("src.group_knowledge.collector_responder.logger.info"):
+            _run_async(bridge._flush_after_delay((-1001, 77)))
+
+        responder.handle_message.assert_awaited_once()
+        question_override = responder.handle_message.await_args.kwargs["question_override"]
+        self.assertIn("не проходит оплата", question_override)
+        self.assertIn("[Изображение: На экране ошибка: Отказ в авторизации терминала]", question_override)
+
+    def test_queue_message_logs_skip_for_ignored_sender(self):
+        """Bridge пишет явный лог при пропуске sender из ignored списка."""
+        from src.group_knowledge.collector_responder import CollectorResponderBridge
+        from src.group_knowledge.models import GroupMessage
+
+        responder = MagicMock()
+        bridge = CollectorResponderBridge(responder=responder, group_ids={-1001}, grouping_window_seconds=1)
+        event = MagicMock()
+        message = GroupMessage(
+            telegram_message_id=55,
+            group_id=-1001,
+            sender_id=12345,
+            message_text="Тест",
+            message_date=100,
+        )
+
+        with patch("src.group_knowledge.collector_responder.GK_IGNORED_SENDER_IDS", new=(12345,)), \
+             patch("src.group_knowledge.collector_responder.logger.info") as mock_log_info:
+            _run_async(bridge.queue_message(event, message))
+
+        self.assertTrue(any(
+            call.args
+            and call.args[0] == "Буфер автоответчика: пропуск — sender в GK_IGNORED_SENDER_IDS sender=%d ignored=%s"
+            and call.args[1] == 12345
+            for call in mock_log_info.call_args_list
+        ))
+
+    def test_queue_message_does_not_skip_ignored_sender_for_test_group(self):
+        """В test-mode bridge не отбрасывает sender из ignored списка."""
+        from src.group_knowledge.collector_responder import CollectorResponderBridge
+        from src.group_knowledge.models import GroupMessage
+
+        responder = MagicMock()
+        bridge = CollectorResponderBridge(
+            responder=responder,
+            group_ids={-1001},
+            grouping_window_seconds=1,
+            test_group_ids={-1001},
+        )
+        event = MagicMock()
+        message = GroupMessage(
+            telegram_message_id=56,
+            group_id=-1001,
+            sender_id=12345,
+            message_text="Тест",
+            message_date=100,
+        )
+
+        fake_task = MagicMock()
+        with patch("src.group_knowledge.collector_responder.GK_IGNORED_SENDER_IDS", new=(12345,)), \
+             patch("src.group_knowledge.collector_responder.asyncio.create_task", return_value=fake_task), \
+             patch("src.group_knowledge.collector_responder.logger.info") as mock_log_info:
+            _run_async(bridge.queue_message(event, message))
+
+        self.assertEqual(bridge.stats["scheduled"], 1)
+        self.assertTrue(any(
+            call.args
+            and call.args[0] == "Буфер автоответчика: sender=%d в ignored, но группа %d помечена как test-mode — пропуск отключён"
+            and call.args[1] == 12345
+            and call.args[2] == -1001
+            for call in mock_log_info.call_args_list
+        ))
 
 
 class TestMessageCollectorBackfill(unittest.TestCase):
@@ -1015,7 +1150,7 @@ class TestMessageCollectorBackfill(unittest.TestCase):
             yield message
 
     def test_backfill_skips_existing_messages_without_force(self):
-        """Обычный backfill пропускает уже собранные сообщения."""
+        """Обычный backfill пропускает уже собранные сообщения без повторной LLM-классификации."""
         from src.group_knowledge.message_collector import MessageCollector
         from src.group_knowledge.models import GroupMessage
 
@@ -1043,13 +1178,15 @@ class TestMessageCollectorBackfill(unittest.TestCase):
 
         with patch("src.group_knowledge.message_collector.gk_db.get_message_by_telegram_id", return_value=existing), \
              patch("src.group_knowledge.message_collector.gk_db.store_message") as mock_store, \
-               patch("src.group_knowledge.message_collector.gk_db.enqueue_image") as mock_enqueue, \
-               patch.object(collector, "_message_has_image", return_value=True):
+             patch("src.group_knowledge.message_collector.gk_db.enqueue_image") as mock_enqueue, \
+             patch.object(collector, "_classify_message_question", new=AsyncMock()) as mock_classify, \
+             patch.object(collector, "_message_has_image", return_value=True):
             result = _run_async(collector.backfill_messages(days=1, force=False))
 
         self.assertEqual(result, 0)
         mock_store.assert_not_called()
         mock_enqueue.assert_not_called()
+        mock_classify.assert_not_called()
         image_processor.download_image.assert_not_called()
 
     def test_backfill_force_redownloads_and_requeues_images(self):
@@ -1096,6 +1233,88 @@ class TestMessageCollectorBackfill(unittest.TestCase):
         mock_update_path.assert_called_once_with(88, "/tmp/new.jpg")
         mock_enqueue.assert_called_once_with(88, "/tmp/new.jpg")
         image_processor.download_image.assert_awaited_once()
+
+    def test_backfill_stops_quickly_after_stop_request(self):
+        """Backfill прерывается сразу после запроса на остановку."""
+        from src.group_knowledge.message_collector import MessageCollector
+        from src.group_knowledge.models import GroupMessage
+
+        client = MagicMock()
+        client.get_entity = AsyncMock(return_value=object())
+        messages = [
+            self._make_message(5101),
+            self._make_message(5102),
+            self._make_message(5103),
+        ]
+        client.iter_messages = MagicMock(return_value=self._iter_messages(messages))
+
+        collector = MessageCollector(
+            client=client,
+            image_processor=MagicMock(),
+            groups=[{"id": -1001234, "title": "Test Group"}],
+        )
+        existing = GroupMessage(
+            id=90,
+            telegram_message_id=5101,
+            group_id=-1001234,
+        )
+        lookup_calls = 0
+
+        def lookup_message(_group_id, _message_id):
+            nonlocal lookup_calls
+            lookup_calls += 1
+            collector.stop()
+            return existing
+
+        with patch("src.group_knowledge.message_collector.gk_db.get_message_by_telegram_id", side_effect=lookup_message):
+            result = _run_async(collector.backfill_messages(days=1, force=False))
+
+        self.assertEqual(result, 0)
+        self.assertEqual(lookup_calls, 1)
+
+    def test_backfill_logs_progress_even_when_messages_are_skipped(self):
+        """Backfill пишет прогресс по просмотренным сообщениям, даже если все они пропущены."""
+        from src.group_knowledge.message_collector import MessageCollector
+        from src.group_knowledge.models import GroupMessage
+
+        client = MagicMock()
+        client.get_entity = AsyncMock(return_value=object())
+        messages = [self._make_message(5200 + index) for index in range(100)]
+        client.iter_messages = MagicMock(return_value=self._iter_messages(messages))
+
+        collector = MessageCollector(
+            client=client,
+            image_processor=MagicMock(),
+            groups=[{"id": -1001234, "title": "Test Group"}],
+        )
+        existing = GroupMessage(
+            id=91,
+            telegram_message_id=5200,
+            group_id=-1001234,
+        )
+
+        with patch("src.group_knowledge.message_collector.gk_db.get_message_by_telegram_id", return_value=existing), \
+             patch("src.group_knowledge.message_collector.logger.info") as mock_log_info:
+            result = _run_async(collector.backfill_messages(days=1, force=False))
+
+        self.assertEqual(result, 0)
+        self.assertTrue(any(
+            call.args
+            and call.args[0] == (
+                "Backfill %s: группа %d (%s) — просмотрено=%d сохранено=%d пропущено=%d "
+                "(existing=%d service=%d bots=%d)"
+            )
+            and call.args[1] == "progress"
+            and call.args[2] == -1001234
+            and call.args[3] == "Test Group"
+            and call.args[4] == 100
+            and call.args[5] == 0
+            and call.args[6] == 100
+            and call.args[7] == 100
+            and call.args[8] == 0
+            and call.args[9] == 0
+            for call in mock_log_info.call_args_list
+        ))
 
     def test_sync_missed_messages_uses_last_saved_telegram_id(self):
         """Добор пропущенных сообщений стартует от последнего сохранённого Telegram ID."""
@@ -1144,6 +1363,40 @@ class TestMessageCollectorBackfill(unittest.TestCase):
 
         self.assertEqual(result, 0)
         client.get_entity.assert_not_called()
+
+    def test_handle_new_message_skips_existing_message_without_llm(self):
+        """Live-сбор пропускает уже сохранённое сообщение без повторной LLM-классификации."""
+        from src.group_knowledge.message_collector import MessageCollector
+        from src.group_knowledge.models import GroupMessage
+
+        fixed_ts = int(time.time())
+        message = types.SimpleNamespace(
+            id=7002,
+            text="Тестовое сообщение",
+            message="Тестовое сообщение",
+            media=None,
+            action=None,
+            reply_to=None,
+            date=datetime.fromtimestamp(fixed_ts),
+        )
+        event = types.SimpleNamespace(
+            message=message,
+            chat=types.SimpleNamespace(id=-1001234),
+            get_sender=AsyncMock(return_value=types.SimpleNamespace(id=123, bot=False, first_name="Иван", last_name="")),
+        )
+
+        collector = MessageCollector(client=MagicMock(), groups=[{"id": -1001234, "title": "Test Group"}])
+        existing = GroupMessage(id=55, telegram_message_id=7002, group_id=-1001234)
+
+        with patch("src.group_knowledge.message_collector.gk_db.get_message_by_telegram_id", return_value=existing), \
+             patch("src.group_knowledge.message_collector.gk_db.store_message") as mock_store, \
+             patch.object(collector, "_classify_message_question", new=AsyncMock()) as mock_classify:
+            result = _run_async(collector.handle_new_message(event))
+
+        self.assertIsNone(result)
+        mock_store.assert_not_called()
+        mock_classify.assert_not_called()
+        event.get_sender.assert_not_called()
 
 
 # ===========================================================================
@@ -1928,6 +2181,9 @@ class TestGroupResponderHandleMessage(unittest.TestCase):
         sender.id = sender_id
         sender.bot = is_bot
         event.get_sender = AsyncMock(return_value=sender)
+        event.reply = AsyncMock()
+        event.client = MagicMock()
+        event.client.send_message = AsyncMock()
 
         return event
 
@@ -2040,7 +2296,7 @@ class TestGroupResponderHandleMessage(unittest.TestCase):
         mock_qa = MagicMock()
         mock_qa.answer_question = AsyncMock(return_value={
             "answer": "Проверьте питание и сетевой кабель.",
-            "confidence": 0.88,
+            "confidence": 0.95,
             "source_pair_ids": [5],
             "is_relevant": True,
         })
@@ -2104,6 +2360,34 @@ class TestGroupResponderHandleMessage(unittest.TestCase):
         mock_store_log.assert_called_once()
         self.assertEqual(mock_store_log.call_args.kwargs["group_id"], -1002005678)
 
+    def test_test_mode_does_not_skip_ignored_sender(self):
+        """В test-mode sender из ignored списка не блокируется."""
+        from src.group_knowledge.responder import GroupResponder
+
+        mock_qa = MagicMock()
+        mock_qa.answer_question = AsyncMock(return_value={
+            "answer": "Проверьте настройки сети.",
+            "confidence": 0.92,
+            "source_pair_ids": [12],
+            "is_relevant": True,
+        })
+
+        responder = GroupResponder(
+            dry_run=True,
+            qa_service=mock_qa,
+            test_group_mapping={-1001001234: -1002005678},
+        )
+        event = self._make_event("терминал не видит сеть", -1001234, sender_id=777)
+
+        with patch("src.group_knowledge.responder.GK_IGNORED_SENDER_IDS", new=(777,)):
+            with patch.object(responder, "_classify_message_as_question", new=AsyncMock(return_value=True)):
+                with patch("src.group_knowledge.responder.gk_db.store_responder_log") as mock_store_log:
+                    result = _run_async(responder.handle_message(event, {-1001001234}))
+
+        self.assertIsNotNone(result)
+        mock_qa.answer_question.assert_awaited_once()
+        mock_store_log.assert_called_once()
+
     def test_handle_message_with_question_override(self):
         """question_override позволяет обработать /qa-команду как обычный вопрос."""
         from src.group_knowledge.responder import GroupResponder
@@ -2130,6 +2414,79 @@ class TestGroupResponderHandleMessage(unittest.TestCase):
 
         self.assertIsNotNone(result)
         mock_qa.answer_question.assert_awaited_once_with("как устранить ошибку сети")
+
+    def test_redirect_test_mode_sends_to_external_group(self):
+        """Redirect test mode отправляет ответ в отдельную тестовую группу с метаданными источника."""
+        from src.group_knowledge.responder import GroupResponder
+
+        mock_qa = MagicMock()
+        mock_qa.answer_question = AsyncMock(return_value={
+            "answer": "Проверьте сетевой кабель и перезапустите сервис.",
+            "confidence": 0.91,
+            "source_pair_ids": [42],
+            "is_relevant": True,
+        })
+
+        responder = GroupResponder(
+            dry_run=False,
+            qa_service=mock_qa,
+            redirect_output_group={"id": -1003004005, "title": "GK Test Output"},
+        )
+        event = self._make_event("Почему терминал не видит сеть?", -1001234, sender_id=555)
+        event.chat.title = "Боевая группа"
+        awaitable_sender = MagicMock()
+        awaitable_sender.id = 555
+        awaitable_sender.bot = False
+        awaitable_sender.first_name = "Иван"
+        awaitable_sender.last_name = "Петров"
+        awaitable_sender.username = "ivanpetrov"
+        event.get_sender = AsyncMock(return_value=awaitable_sender)
+
+        with patch("src.group_knowledge.responder.gk_db.store_responder_log"):
+            result = _run_async(responder.handle_message(event, {-1001001234}))
+
+        self.assertIsNotNone(result)
+        self.assertTrue(result.responded)
+        event.reply.assert_not_awaited()
+        event.client.send_message.assert_awaited_once()
+        send_args = event.client.send_message.await_args.args
+        self.assertEqual(send_args[0], -1003004005)
+        self.assertIn("Источник: Боевая группа (-1001001234)", send_args[1])
+        self.assertIn("Отправитель: Иван Петров (@ivanpetrov, id=555)", send_args[1])
+        self.assertIn("Вопрос:", send_args[1])
+        self.assertIn("Ответ:", send_args[1])
+
+    def test_logs_rag_start_and_no_answer(self):
+        """При отсутствии ответа в логах видно запуск RAG и отрицательный результат."""
+        from src.group_knowledge.responder import GroupResponder
+
+        mock_qa = MagicMock()
+        mock_qa.answer_question = AsyncMock(return_value=None)
+
+        responder = GroupResponder(dry_run=True, qa_service=mock_qa)
+        event = self._make_event("Как исправить ошибку 1001?", -1001234)
+
+        with patch("src.group_knowledge.responder.logger.info") as mock_log_info:
+            result = _run_async(
+                responder.handle_message(
+                    event,
+                    {-1001001234},
+                    question_override="Как исправить ошибку 1001?",
+                    force_as_question=True,
+                )
+            )
+
+        self.assertIsNone(result)
+        self.assertTrue(any(
+            call.args
+            and call.args[0] == "Запуск RAG-поиска: group=%d actual_group=%d msg=%d dry_run=%s text=%s"
+            for call in mock_log_info.call_args_list
+        ))
+        self.assertTrue(any(
+            call.args
+            and call.args[0] == "RAG не нашёл ответ: group=%d actual_group=%d msg=%d text=%s"
+            for call in mock_log_info.call_args_list
+        ))
 
 
 # ===========================================================================
@@ -2365,6 +2722,580 @@ class TestTelethonSessionHelpers(unittest.TestCase):
         self.assertIsNone(result)
         mock_build.assert_called_once()
         locked_client.disconnect.assert_awaited_once()
+
+
+# ===========================================================================
+# QASearchService — Tokenize
+# ===========================================================================
+
+class TestGKTokenize(unittest.TestCase):
+    """Тесты для QASearchService._tokenize."""
+
+    def setUp(self):
+        from src.group_knowledge.qa_search import QASearchService
+        self.service = QASearchService()
+
+    def test_basic_tokenization(self):
+        """Базовая токенизация разбивает текст на слова."""
+        tokens = self.service._tokenize("Как включить NFC на терминале?")
+        self.assertIsInstance(tokens, list)
+        self.assertGreater(len(tokens), 0)
+        # 'как' должен быть отфильтрован как стоп-слово
+        lower_tokens = [t.lower() for t in tokens]
+        self.assertNotIn("как", lower_tokens)
+
+    def test_empty_text(self):
+        """Пустой текст возвращает пустой список."""
+        self.assertEqual(self.service._tokenize(""), [])
+        self.assertEqual(self.service._tokenize(None), [])
+
+    def test_fixed_terms_preserved(self):
+        """Защищённые термины (nfc, pos, ккт) сохраняются дословно."""
+        tokens = self.service._tokenize("ККТ не работает NFC")
+        lower_tokens = [t.lower() for t in tokens]
+        self.assertIn("ккт", lower_tokens)
+        self.assertIn("nfc", lower_tokens)
+
+    def test_short_tokens_filtered(self):
+        """Токены короче 3 символов фильтруются (кроме защищённых)."""
+        tokens = self.service._tokenize("я и он тут")
+        # 'я', 'и', 'он' — все < 3 символов и не в fixed_terms → отфильтрованы
+        # 'тут' — 3 символа → должен остаться
+        for t in tokens:
+            self.assertTrue(
+                len(t) >= 3 or t in {"я", "и", "он"},
+                f"Неожиданный короткий токен: {t}",
+            )
+
+    def test_stopwords_removed(self):
+        """Стоп-слова удаляются из результата, если остаются предметные токены."""
+        tokens = self.service._tokenize("что такое терминал для чего настройка")
+        lower_tokens = [t.lower() for t in tokens]
+        # Стоп-слова должны быть отфильтрованы
+        for sw in ["что", "для"]:
+            self.assertNotIn(sw, lower_tokens)
+        # Предметные слова должны остаться (возможно, нормализованы)
+        self.assertGreater(len(tokens), 0)
+
+    def test_all_stopwords_safety_guard(self):
+        """Если все токены — стоп-слова, возвращается исходный список."""
+        # 'что это как' — все стоп-слова
+        tokens = self.service._tokenize("что это как")
+        # safety guard: не должен вернуть пустой список
+        self.assertGreater(len(tokens), 0)
+
+    def test_tokenize_with_diagnostics_reports_removed_tokens(self):
+        """Диагностика токенизации показывает удалённые короткие токены и стоп-слова."""
+        diag = self.service._tokenize_with_diagnostics("ошибка при продаже почему? фн")
+
+        self.assertIn("tokens", diag)
+        self.assertIn("raw_tokens_total", diag)
+        self.assertIn("removed_short_tokens", diag)
+        self.assertIn("removed_stopwords", diag)
+        self.assertIn("removed_stopwords_count", diag)
+
+        self.assertGreaterEqual(diag["raw_tokens_total"], 5)
+        self.assertGreaterEqual(diag["removed_stopwords_count"], 2)
+        self.assertIn("при", diag["removed_stopwords"])
+        self.assertIn("почему", diag["removed_stopwords"])
+
+
+# ===========================================================================
+# QASearchService — BM25 scoring
+# ===========================================================================
+
+class TestGKBM25Scoring(unittest.TestCase):
+    """Тесты для QASearchService._score_corpus_bm25."""
+
+    def test_basic_scoring(self):
+        """BM25 даёт ненулевой score для релевантного документа."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        corpus = [
+            ["включить", "nfc", "терминал", "настройк"],
+            ["замена", "бумага", "чековый", "лента"],
+            ["nfc", "ошибка", "подключен", "модуль"],
+        ]
+        query = ["nfc", "включить"]
+        scores = QASearchService._score_corpus_bm25(corpus, query)
+
+        self.assertEqual(len(scores), 3)
+        # Первый и третий документы содержат "nfc"
+        self.assertGreater(scores[0], 0.0)
+        self.assertGreater(scores[2], 0.0)
+        # Первый документ релевантнее (содержит оба токена)
+        self.assertGreater(scores[0], scores[2])
+        # Второй документ нерелевантен
+        self.assertAlmostEqual(scores[1], 0.0)
+
+    def test_empty_corpus(self):
+        """Пустой корпус возвращает пустой список."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        scores = QASearchService._score_corpus_bm25([], ["test"])
+        self.assertEqual(scores, [])
+
+    def test_empty_query(self):
+        """Пустой запрос возвращает нулевые score."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        scores = QASearchService._score_corpus_bm25([["a", "b"]], [])
+        self.assertEqual(scores, [0.0])
+
+
+# ===========================================================================
+# QASearchService — BM25 search (end-to-end with mocked DB)
+# ===========================================================================
+
+class TestGKBM25Search(unittest.TestCase):
+    """Тесты для QASearchService._bm25_search с мок-корпусом."""
+
+    def test_bm25_search_returns_ranked_pairs(self):
+        """BM25-поиск возвращает пары, ранжированные по score."""
+        from src.group_knowledge.qa_search import QASearchService
+        from src.group_knowledge.models import QAPair
+
+        service = QASearchService()
+
+        pairs = [
+            QAPair(id=1, question_text="Как включить NFC на терминале?",
+                   answer_text="Откройте настройки и активируйте NFC.",
+                   group_id=-100, approved=1),
+            QAPair(id=2, question_text="Как заменить чековую ленту?",
+                   answer_text="Откройте крышку и вставьте новый рулон.",
+                   group_id=-100, approved=1),
+            QAPair(id=3, question_text="NFC модуль не отвечает, ошибка подключения",
+                   answer_text="Перезагрузите терминал и проверьте NFC-антенну.",
+                   group_id=-100, approved=1),
+        ]
+
+        with patch("src.group_knowledge.qa_search.gk_db.get_all_approved_qa_pairs", return_value=pairs):
+            results = service._bm25_search("Как включить NFC?", top_k=3)
+
+        self.assertGreater(len(results), 0)
+        # Все результаты — кортежи (QAPair, score)
+        for pair, score in results:
+            self.assertIsInstance(pair, QAPair)
+            self.assertGreater(score, 0.0)
+
+        # Результаты отсортированы по score desc
+        scores = [s for _, s in results]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_bm25_search_empty_corpus(self):
+        """BM25-поиск по пустому корпусу возвращает пустой список."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        service = QASearchService()
+        with patch("src.group_knowledge.qa_search.gk_db.get_all_approved_qa_pairs", return_value=[]):
+            results = service._bm25_search("Как включить NFC?", top_k=5)
+        self.assertEqual(results, [])
+
+    def test_corpus_caching(self):
+        """Корпус кэшируется и не перезагружается на каждый запрос."""
+        from src.group_knowledge.qa_search import QASearchService
+        from src.group_knowledge.models import QAPair
+
+        service = QASearchService()
+        pairs = [
+            QAPair(id=1, question_text="Тестовый вопрос",
+                   answer_text="Тестовый ответ", group_id=-100, approved=1),
+        ]
+
+        with patch("src.group_knowledge.qa_search.gk_db.get_all_approved_qa_pairs", return_value=pairs) as mock_get:
+            service._bm25_search("тест", top_k=5)
+            service._bm25_search("другой запрос", top_k=5)
+
+        # get_all_approved_qa_pairs вызывается только 1 раз (кэш)
+        mock_get.assert_called_once()
+
+    def test_invalidate_corpus_cache(self):
+        """invalidate_corpus_cache сбрасывает кэш."""
+        from src.group_knowledge.qa_search import QASearchService
+        from src.group_knowledge.models import QAPair
+
+        service = QASearchService()
+        pairs = [
+            QAPair(id=1, question_text="Вопрос", answer_text="Ответ",
+                   group_id=-100, approved=1),
+        ]
+
+        with patch("src.group_knowledge.qa_search.gk_db.get_all_approved_qa_pairs", return_value=pairs) as mock_get:
+            service._bm25_search("тест", top_k=5)
+            service.invalidate_corpus_cache()
+            service._bm25_search("тест", top_k=5)
+
+        # После инвалидации — загрузка повторяется
+        self.assertEqual(mock_get.call_count, 2)
+
+    def test_corpus_reloads_when_signature_changes(self):
+        """BM25-кэш перезагружается, если изменилась сигнатура корпуса."""
+        from src.group_knowledge.qa_search import QASearchService
+        from src.group_knowledge.models import QAPair
+
+        service = QASearchService()
+        pairs_v1 = [
+            QAPair(id=1, question_text="Ошибка продажи", answer_text="Проверьте ФН", group_id=-100, approved=1, created_at=100),
+        ]
+        pairs_v2 = [
+            QAPair(id=1, question_text="Ошибка продажи", answer_text="Проверьте ФН", group_id=-100, approved=1, created_at=100),
+            QAPair(id=2, question_text="Ошибка печати", answer_text="Проверьте бумагу", group_id=-100, approved=1, created_at=200),
+        ]
+
+        with patch("src.group_knowledge.qa_search.gk_db.get_approved_qa_pairs_corpus_signature", side_effect=[(1, 1, 100), (2, 2, 200)]), \
+             patch("src.group_knowledge.qa_search.gk_db.get_all_approved_qa_pairs", side_effect=[pairs_v1, pairs_v2]) as mock_get:
+            service._bm25_search("ошибка продажи", top_k=5)
+            service._bm25_search("ошибка печати", top_k=5)
+
+        self.assertEqual(mock_get.call_count, 2)
+
+    def test_warmup_preloads_corpus_and_vector_model(self):
+        """warmup прогревает корпус и vector модель, возвращая диагностику."""
+        from src.group_knowledge.qa_search import QASearchService
+        from src.group_knowledge.models import QAPair
+
+        service = QASearchService()
+        pairs = [
+            QAPair(id=1, question_text="Ошибка продажи", answer_text="Проверьте ФН", group_id=-100, approved=1, created_at=100),
+        ]
+
+        mock_embedding_provider = MagicMock()
+        mock_embedding_provider.encode.return_value = [0.1, 0.2, 0.3]
+
+        with patch("src.group_knowledge.qa_search.gk_db.get_approved_qa_pairs_corpus_signature", return_value=(1, 1, 100)), \
+             patch("src.group_knowledge.qa_search.gk_db.get_all_approved_qa_pairs", return_value=pairs), \
+             patch("src.core.ai.vector_search.LocalEmbeddingProvider", return_value=mock_embedding_provider), \
+             patch("src.core.ai.vector_search.LocalVectorIndex"):
+            diagnostics = service.warmup(preload_vector_model=True)
+
+        self.assertEqual(diagnostics["corpus_pairs"], 1)
+        self.assertEqual(diagnostics["corpus_signature"], (1, 1, 100))
+        self.assertTrue(diagnostics["vector_model_preloaded"])
+        mock_embedding_provider.encode.assert_called_once()
+
+    def test_bm25_log_contains_token_diagnostics(self):
+        """Лог BM25 содержит расширенную диагностику токенизации запроса."""
+        from src.group_knowledge.qa_search import QASearchService
+        from src.group_knowledge.models import QAPair
+
+        service = QASearchService()
+        pairs = [
+            QAPair(
+                id=1,
+                question_text="Ошибка при продаже",
+                answer_text="Проверьте ФН и перезапустите терминал",
+                group_id=-100,
+                approved=1,
+            ),
+        ]
+
+        with patch("src.group_knowledge.qa_search.gk_db.get_all_approved_qa_pairs", return_value=pairs), \
+             patch("src.group_knowledge.qa_search.logger.info") as mock_log_info:
+            service._bm25_search("ошибка при продаже почему?", top_k=3)
+
+        self.assertTrue(any(
+            call.args
+            and isinstance(call.args[0], str)
+            and "query_tokens_total=" in call.args[0]
+            and "removed_stopwords_count=" in call.args[0]
+            and "query_tokens_head=" in call.args[0]
+            for call in mock_log_info.call_args_list
+        ))
+
+
+# ===========================================================================
+# QASearchService — RRF merge
+# ===========================================================================
+
+class TestGKRRFMerge(unittest.TestCase):
+    """Тесты для QASearchService._rrf_merge."""
+
+    def _make_pair(self, pair_id, question="q"):
+        from src.group_knowledge.models import QAPair
+        return QAPair(id=pair_id, question_text=question, answer_text="a",
+                      group_id=-100, approved=1)
+
+    @patch("src.group_knowledge.qa_search.ai_settings")
+    def test_overlapping_results(self, mock_settings):
+        """Пары, присутствующие в обоих списках, получают более высокий RRF-score."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        mock_settings.GK_RRF_K = 60
+
+        pair_a = self._make_pair(1, "Общая пара")
+        pair_b = self._make_pair(2, "Только BM25")
+        pair_c = self._make_pair(3, "Только vector")
+
+        bm25_results = [(pair_a, 5.0), (pair_b, 3.0)]
+        vector_results = [(pair_c, 0.9), (pair_a, 0.85)]
+
+        merged, diagnostics = QASearchService._rrf_merge(bm25_results, vector_results, top_k=5)
+
+        # pair_a должна быть первой (присутствует в обоих списках)
+        self.assertEqual(merged[0][0].id, 1)
+        # Все 3 пары в результатах
+        result_ids = {p.id for p, _ in merged}
+        self.assertEqual(result_ids, {1, 2, 3})
+
+        # RRF-score пары A > любой одиночной пары
+        pair_a_score = next(s for p, s in merged if p.id == 1)
+        for p, s in merged:
+            if p.id != 1:
+                self.assertGreater(pair_a_score, s)
+
+    @patch("src.group_knowledge.qa_search.ai_settings")
+    def test_diagnostics_format(self, mock_settings):
+        """Диагностический словарь содержит все обязательные ключи."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        mock_settings.GK_RRF_K = 60
+
+        pair = self._make_pair(10, "Тестовый вопрос")
+        bm25_results = [(pair, 4.5)]
+        vector_results = [(pair, 0.92)]
+
+        _, diagnostics = QASearchService._rrf_merge(bm25_results, vector_results, top_k=5)
+
+        self.assertEqual(len(diagnostics), 1)
+        d = diagnostics[0]
+        self.assertIn("pair_id", d)
+        self.assertIn("question_preview", d)
+        self.assertIn("bm25_rank", d)
+        self.assertIn("bm25_score", d)
+        self.assertIn("vector_rank", d)
+        self.assertIn("vector_score", d)
+        self.assertIn("rrf_score", d)
+        self.assertEqual(d["pair_id"], 10)
+        self.assertEqual(d["bm25_rank"], 1)
+        self.assertEqual(d["vector_rank"], 1)
+
+    @patch("src.group_knowledge.qa_search.ai_settings")
+    def test_rrf_formula_correctness(self, mock_settings):
+        """RRF-score вычисляется по формуле 1/(k + rank)."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        mock_settings.GK_RRF_K = 60
+
+        pair = self._make_pair(1)
+        bm25_results = [(pair, 5.0)]
+        vector_results = [(pair, 0.9)]
+
+        merged, _ = QASearchService._rrf_merge(bm25_results, vector_results, top_k=1)
+
+        expected_rrf = 1.0 / (60 + 1) + 1.0 / (60 + 1)
+        self.assertAlmostEqual(merged[0][1], expected_rrf, places=6)
+
+    @patch("src.group_knowledge.qa_search.ai_settings")
+    def test_bm25_only_pair(self, mock_settings):
+        """Пара, присутствующая только в BM25, получает score от одного источника."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        mock_settings.GK_RRF_K = 60
+
+        pair = self._make_pair(1)
+        bm25_results = [(pair, 5.0)]
+        vector_results = []
+
+        merged, diagnostics = QASearchService._rrf_merge(bm25_results, vector_results, top_k=5)
+
+        self.assertEqual(len(merged), 1)
+        expected_rrf = 1.0 / (60 + 1)
+        self.assertAlmostEqual(merged[0][1], expected_rrf, places=6)
+        self.assertIsNone(diagnostics[0]["vector_rank"])
+
+    @patch("src.group_knowledge.qa_search.ai_settings")
+    def test_top_k_limits_output(self, mock_settings):
+        """top_k ограничивает количество выходных результатов."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        mock_settings.GK_RRF_K = 60
+
+        pairs = [self._make_pair(i) for i in range(1, 11)]
+        bm25_results = [(p, 10.0 - i) for i, p in enumerate(pairs)]
+        vector_results = [(p, 1.0 - i * 0.05) for i, p in enumerate(pairs)]
+
+        merged, diagnostics = QASearchService._rrf_merge(bm25_results, vector_results, top_k=3)
+
+        self.assertEqual(len(merged), 3)
+        self.assertEqual(len(diagnostics), 3)
+
+
+# ===========================================================================
+# QASearchService — Hybrid search (integration with mocked methods)
+# ===========================================================================
+
+class TestGKHybridSearch(unittest.TestCase):
+    """Тесты для QASearchService.search (гибридный BM25+Vector+RRF)."""
+
+    def _make_pair(self, pair_id, question="q"):
+        from src.group_knowledge.models import QAPair
+        return QAPair(id=pair_id, question_text=question, answer_text="a",
+                      group_id=-100, approved=1)
+
+    def test_hybrid_search_calls_both_methods(self):
+        """search() вызывает и BM25, и vector поиск."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        service = QASearchService()
+        pair1 = self._make_pair(1, "BM25 пара")
+        pair2 = self._make_pair(2, "Vector пара")
+
+        with patch.object(service, "_bm25_search", return_value=[(pair1, 5.0)]) as mock_bm25, \
+             patch.object(service, "_vector_search", new=AsyncMock(return_value=[(pair2, 0.9)])) as mock_vec:
+            results = _run_async(service.search("test query"))
+
+        mock_bm25.assert_called_once()
+        mock_vec.assert_called_once()
+        self.assertGreater(len(results), 0)
+
+    def test_hybrid_search_rrf_order(self):
+        """Пары из обоих списков ранжируются выше одиночных."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        service = QASearchService()
+        shared_pair = self._make_pair(1, "Общая")
+        bm25_only = self._make_pair(2, "Только BM25")
+        vec_only = self._make_pair(3, "Только vector")
+
+        bm25_results = [(shared_pair, 5.0), (bm25_only, 3.0)]
+        vector_results = [(vec_only, 0.95), (shared_pair, 0.85)]
+
+        with patch.object(service, "_bm25_search", return_value=bm25_results), \
+             patch.object(service, "_vector_search", new=AsyncMock(return_value=vector_results)):
+            results = _run_async(service.search("test", top_k=5))
+
+        # Shared pair должна быть первой
+        self.assertEqual(results[0].id, 1)
+
+    @patch("src.group_knowledge.qa_search.ai_settings")
+    def test_hybrid_disabled_uses_vector_only(self, mock_settings):
+        """Когда GK_HYBRID_ENABLED=False, используются только vector результаты."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        mock_settings.GK_HYBRID_ENABLED = False
+        mock_settings.GK_RESPONDER_TOP_K = 5
+        mock_settings.GK_RESPONDER_MODEL = "deepseek-chat"
+        mock_settings.GK_SEARCH_CANDIDATES_PER_METHOD = 20
+
+        service = QASearchService()
+        bm25_pair = self._make_pair(1, "BM25")
+        vec_pair = self._make_pair(2, "Vector")
+
+        with patch.object(service, "_bm25_search", return_value=[(bm25_pair, 5.0)]), \
+             patch.object(service, "_vector_search", new=AsyncMock(return_value=[(vec_pair, 0.9)])):
+            results = _run_async(service.search("test"))
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].id, 2)
+
+    def test_fallback_bm25_only_when_no_vector(self):
+        """Если vector пуст, используются только BM25 результаты."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        service = QASearchService()
+        pair = self._make_pair(1, "BM25 пара")
+
+        with patch.object(service, "_bm25_search", return_value=[(pair, 5.0)]), \
+             patch.object(service, "_vector_search", new=AsyncMock(return_value=[])):
+            results = _run_async(service.search("test"))
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].id, 1)
+
+    def test_fallback_vector_only_when_no_bm25(self):
+        """Если BM25 пуст, используются только vector результаты."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        service = QASearchService()
+        pair = self._make_pair(1, "Vector пара")
+
+        with patch.object(service, "_bm25_search", return_value=[]), \
+             patch.object(service, "_vector_search", new=AsyncMock(return_value=[(pair, 0.9)])):
+            results = _run_async(service.search("test"))
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].id, 1)
+
+
+# ===========================================================================
+# Database — get_all_approved_qa_pairs
+# ===========================================================================
+
+class TestGetAllApprovedQAPairs(unittest.TestCase):
+    """Тесты для database.get_all_approved_qa_pairs."""
+
+    @patch("src.group_knowledge.database.get_db_connection")
+    def test_returns_approved_pairs(self, mock_conn_ctx):
+        """Возвращает только одобренные Q&A-пары."""
+        from src.group_knowledge.database import get_all_approved_qa_pairs
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [
+            {
+                "id": 1, "question_text": "Q1", "answer_text": "A1",
+                "question_message_id": None, "answer_message_id": None,
+                "group_id": -100, "extraction_type": "thread_reply",
+                "confidence": 0.9, "llm_model_used": "", "created_at": 0,
+                "approved": 1, "vector_indexed": 0,
+            },
+        ]
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn_ctx.return_value = mock_conn
+
+        with patch("src.group_knowledge.database.get_cursor") as mock_cur_ctx:
+            mock_cur_ctx.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+            mock_cur_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+            pairs = get_all_approved_qa_pairs()
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].question_text, "Q1")
+
+    @patch("src.group_knowledge.database.get_db_connection")
+    def test_empty_table(self, mock_conn_ctx):
+        """Пустая таблица возвращает пустой список."""
+        from src.group_knowledge.database import get_all_approved_qa_pairs
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn_ctx.return_value = mock_conn
+
+        with patch("src.group_knowledge.database.get_cursor") as mock_cur_ctx:
+            mock_cur_ctx.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+            mock_cur_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+            pairs = get_all_approved_qa_pairs()
+
+        self.assertEqual(pairs, [])
+
+    @patch("src.group_knowledge.database.get_db_connection")
+    def test_get_approved_qa_pairs_corpus_signature(self, mock_conn_ctx):
+        """Сигнатура корпуса возвращает count/max_id/max_created_at."""
+        from src.group_knowledge.database import get_approved_qa_pairs_corpus_signature
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = {
+            "cnt": 42,
+            "max_id": 123,
+            "max_created_at": 1700000000,
+        }
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn_ctx.return_value = mock_conn
+
+        with patch("src.group_knowledge.database.get_cursor") as mock_cur_ctx:
+            mock_cur_ctx.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+            mock_cur_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+            signature = get_approved_qa_pairs_corpus_signature()
+
+        self.assertEqual(signature, (42, 123, 1700000000))
 
 
 if __name__ == "__main__":

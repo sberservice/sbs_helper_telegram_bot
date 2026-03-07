@@ -11,7 +11,7 @@ import logging
 import re
 import time
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from config import ai_settings
 from src.common.constants.sync import (
@@ -120,6 +120,7 @@ class GroupResponder:
         qa_service: Optional[QASearchService] = None,
         confidence_threshold: Optional[float] = None,
         test_group_mapping: Optional[Dict[int, int]] = None,
+        redirect_output_group: Optional[Dict[str, Any]] = None,
     ):
         """
         Инициализация автоответчика.
@@ -143,11 +144,19 @@ class GroupResponder:
             int(group_id): int(real_group_id)
             for group_id, real_group_id in (test_group_mapping or {}).items()
         }
+        self._redirect_output_group = dict(redirect_output_group or {})
+        self._redirect_output_group_id = self._parse_group_id(
+            self._redirect_output_group.get("id")
+        )
 
     @property
     def dry_run(self) -> bool:
         """Режим dry-run."""
         return self._dry_run
+
+    def preload_search_resources(self, preload_vector_model: bool = True) -> Dict[str, Any]:
+        """Предзагрузить поисковые ресурсы Q&A сервиса перед запуском listener."""
+        return self._qa_service.warmup(preload_vector_model=preload_vector_model)
 
     async def handle_message(
         self,
@@ -197,11 +206,31 @@ class GroupResponder:
         # Пропустить ботов
         sender = await event.get_sender()
         if sender and getattr(sender, "bot", False):
+            logger.info(
+                "Автоответчик пропускает сообщение: sender бот group=%d actual_group=%d msg=%d",
+                effective_group_id,
+                chat_id,
+                message.id,
+            )
             return None
 
         sender_id = getattr(sender, "id", 0) if sender else 0
-        if sender_id in GK_IGNORED_SENDER_IDS:
+        if sender_id in GK_IGNORED_SENDER_IDS and chat_id not in self._test_group_mapping:
+            logger.info(
+                "Автоответчик пропускает сообщение: sender в GK_IGNORED_SENDER_IDS sender=%d group=%d actual_group=%d msg=%d ignored=%s",
+                sender_id,
+                effective_group_id,
+                chat_id,
+                message.id,
+                sorted(GK_IGNORED_SENDER_IDS),
+            )
             return None
+        if sender_id in GK_IGNORED_SENDER_IDS and chat_id in self._test_group_mapping:
+            logger.info(
+                "Автоответчик: sender=%d в ignored, но chat=%d запущен в test-mode — пропуск отключён",
+                sender_id,
+                chat_id,
+            )
 
         # Пропустить команды
         text = (question_override if question_override is not None else (message.text or message.message or "")).strip()
@@ -210,7 +239,23 @@ class GroupResponder:
 
         # Определить, является ли сообщение вопросом
         if not await self._is_question_message(text, force_as_question=force_as_question):
+            logger.info(
+                "Автоответчик пропускает сообщение: не распознано как вопрос group=%d actual_group=%d msg=%d text=%s",
+                effective_group_id,
+                chat_id,
+                message.id,
+                text[:160],
+            )
             return None
+
+        logger.info(
+            "Запуск RAG-поиска: group=%d actual_group=%d msg=%d dry_run=%s text=%s",
+            effective_group_id,
+            chat_id,
+            message.id,
+            self._dry_run,
+            text[:200],
+        )
 
         # Rate limit: пользователь
         user_wait = self._rate_limiter.check_user(sender_id)
@@ -233,7 +278,13 @@ class GroupResponder:
         # Поиск ответа в Q&A базе
         answer_result = await self._qa_service.answer_question(text)
         if not answer_result:
-            logger.debug("Ответ не найден: group=%d msg=%d", chat_id, message.id)
+            logger.info(
+                "RAG не нашёл ответ: group=%d actual_group=%d msg=%d text=%s",
+                effective_group_id,
+                chat_id,
+                message.id,
+                text[:200],
+            )
             return None
 
         answer_text = answer_result["answer"]
@@ -243,8 +294,8 @@ class GroupResponder:
 
         if primary_source_link:
             answer_text = (
-                f"{answer_text}\n\n"
-                f"Похожий случай в группе: {primary_source_link}"
+                f"**Отвечает робот Арчи**: {answer_text}\n\n"
+                f"Похожий случай в группе, ссылка на ответ: {primary_source_link}"
             )
 
         # Проверить порог уверенности
@@ -292,11 +343,24 @@ class GroupResponder:
         else:
             # Отправить ответ
             try:
-                await event.reply(answer_text)
+                source_group_title = self._resolve_chat_title(chat)
+                sender_label = self._format_sender_label(sender, sender_id)
+                await self._send_answer(
+                    event=event,
+                    answer_text=answer_text,
+                    question_text=text,
+                    source_group_id=chat_id,
+                    source_group_title=source_group_title,
+                    sender_label=sender_label,
+                    source_message_id=message.id,
+                )
                 result.responded = True
                 logger.info(
-                    "Ответ отправлен: msg=%d group=%d conf=%.2f",
-                    message.id, chat_id, confidence,
+                    "Ответ отправлен: msg=%d group=%d conf=%.2f redirected_group=%s",
+                    message.id,
+                    chat_id,
+                    confidence,
+                    self._redirect_output_group_id,
                 )
             except Exception as exc:
                 logger.error(
@@ -394,6 +458,127 @@ class GroupResponder:
     def _resolve_effective_group_id(self, chat_id: int) -> int:
         """Вернуть реальный group_id для тестовой группы или исходный group_id."""
         return self._test_group_mapping.get(chat_id, chat_id)
+
+    async def _send_answer(
+        self,
+        event,
+        answer_text: str,
+        question_text: str,
+        source_group_id: int,
+        source_group_title: str,
+        sender_label: str,
+        source_message_id: int,
+    ) -> None:
+        """Отправить ответ либо reply в исходную группу, либо в тестовую группу."""
+        if self._redirect_output_group_id is None:
+            await event.reply(answer_text)
+            return
+
+        client = getattr(event, "client", None)
+        if client is None or not hasattr(client, "send_message"):
+            raise RuntimeError("У события отсутствует Telethon client для send_message")
+
+        redirect_message = self._build_redirect_message(
+            answer_text=answer_text,
+            question_text=question_text,
+            source_group_id=source_group_id,
+            source_group_title=source_group_title,
+            sender_label=sender_label,
+            source_message_id=source_message_id,
+        )
+        await client.send_message(self._redirect_output_group_id, redirect_message)
+
+    def _build_redirect_message(
+        self,
+        answer_text: str,
+        question_text: str,
+        source_group_id: int,
+        source_group_title: str,
+        sender_label: str,
+        source_message_id: int,
+    ) -> str:
+        """Сформировать сообщение для перенаправленного test mode."""
+        source_link = self._build_group_message_link(source_group_id, source_message_id)
+        source_group_title = source_group_title or "Без названия"
+        sender_label = sender_label or "Неизвестный отправитель"
+        link_line = source_link if source_link else f"msg_id={source_message_id}"
+
+        header = [
+            "GK REDIRECT TEST MODE",
+            f"Источник: {source_group_title} ({source_group_id})",
+            f"Отправитель: {sender_label}",
+            f"Сообщение: {link_line}",
+            "",
+            "Вопрос:",
+            self._truncate_for_telegram(question_text, 1200),
+            "",
+            "Ответ:",
+            self._truncate_for_telegram(answer_text, 2400),
+        ]
+        return "\n".join(header)
+
+    @staticmethod
+    def _truncate_for_telegram(text: str, max_length: int) -> str:
+        """Обрезать текст до безопасной длины для Telegram."""
+        normalized = (text or "").strip()
+        if len(normalized) <= max_length:
+            return normalized
+        return normalized[: max_length - 1].rstrip() + "…"
+
+    @staticmethod
+    def _resolve_chat_title(chat) -> str:
+        """Извлечь название чата, если оно доступно."""
+        title = getattr(chat, "title", "")
+        return title if isinstance(title, str) else ""
+
+    @staticmethod
+    def _format_sender_label(sender, sender_id: int) -> str:
+        """Сформировать читаемую подпись отправителя."""
+        if sender is None:
+            return str(sender_id) if sender_id else "Неизвестно"
+
+        title = getattr(sender, "title", None)
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+
+        first_name = getattr(sender, "first_name", None)
+        first_name = first_name.strip() if isinstance(first_name, str) else ""
+        last_name = getattr(sender, "last_name", None)
+        last_name = last_name.strip() if isinstance(last_name, str) else ""
+        full_name = " ".join(part for part in [first_name, last_name] if part).strip()
+        username = getattr(sender, "username", None)
+        username = username.strip() if isinstance(username, str) else ""
+        if full_name and username:
+            return f"{full_name} (@{username}, id={sender_id})"
+        if full_name:
+            return f"{full_name} (id={sender_id})"
+        if username:
+            return f"@{username} (id={sender_id})"
+        return str(sender_id) if sender_id else "Неизвестно"
+
+    @staticmethod
+    def _build_group_message_link(group_id: int, telegram_message_id: int) -> Optional[str]:
+        """Построить ссылку на исходное сообщение группы."""
+        if not group_id or not telegram_message_id:
+            return None
+
+        normalized_group_id = str(abs(group_id))
+        if normalized_group_id.startswith("100"):
+            normalized_group_id = normalized_group_id[3:]
+        if not normalized_group_id:
+            return None
+        return f"https://t.me/c/{normalized_group_id}/{telegram_message_id}"
+
+    @staticmethod
+    def _parse_group_id(value: Any) -> Optional[int]:
+        """Преобразовать group_id из конфига в целое число."""
+        if value in (None, ""):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            logger.warning("Некорректный redirect group id: %s", value)
+            return None
 
     @staticmethod
     def _resolve_chat_id(chat) -> int:
