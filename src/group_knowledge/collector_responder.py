@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+from src.group_knowledge import database as gk_db
 from src.group_knowledge.models import GroupMessage
 from src.group_knowledge.responder import GroupResponder
 from src.group_knowledge.settings import GK_IGNORED_SENDER_IDS
@@ -33,9 +34,11 @@ class CollectorResponderBridge:
         responder: GroupResponder,
         group_ids: set[int],
         grouping_window_seconds: int,
+        test_group_ids: Optional[set[int]] = None,
     ) -> None:
         self._responder = responder
         self._group_ids = set(group_ids)
+        self._test_group_ids = set(test_group_ids or set())
         self._grouping_window_seconds = max(1, int(grouping_window_seconds))
         self._pending: Dict[Tuple[int, int], PendingQuestionBundle] = {}
         self._stats = {"scheduled": 0, "processed": 0, "answered": 0, "dry_run": 0}
@@ -48,11 +51,28 @@ class CollectorResponderBridge:
     async def queue_message(self, event, message_record: Optional[GroupMessage]) -> None:
         """Добавить сообщение в буфер пользователя и запланировать совместную обработку."""
         if not message_record:
+            logger.info("Буфер автоответчика: пропуск — пустой message_record")
             return
         if message_record.group_id not in self._group_ids:
+            logger.info(
+                "Буфер автоответчика: пропуск — группа не отслеживается group=%d tracked_groups=%s",
+                message_record.group_id,
+                sorted(self._group_ids),
+            )
             return
-        if message_record.sender_id in GK_IGNORED_SENDER_IDS:
+        if message_record.sender_id in GK_IGNORED_SENDER_IDS and message_record.group_id not in self._test_group_ids:
+            logger.info(
+                "Буфер автоответчика: пропуск — sender в GK_IGNORED_SENDER_IDS sender=%d ignored=%s",
+                message_record.sender_id,
+                sorted(GK_IGNORED_SENDER_IDS),
+            )
             return
+        if message_record.sender_id in GK_IGNORED_SENDER_IDS and message_record.group_id in self._test_group_ids:
+            logger.info(
+                "Буфер автоответчика: sender=%d в ignored, но группа %d помечена как test-mode — пропуск отключён",
+                message_record.sender_id,
+                message_record.group_id,
+            )
 
         key = (message_record.group_id, message_record.sender_id)
         now = time.time()
@@ -75,6 +95,15 @@ class CollectorResponderBridge:
 
         bundle.task = asyncio.create_task(self._flush_after_delay(key))
         self._stats["scheduled"] += 1
+        logger.info(
+            "Буфер автоответчика: group=%d sender=%d msg_tg=%d flush_in=%ds queued_messages=%d is_question_hint=%s",
+            message_record.group_id,
+            message_record.sender_id,
+            message_record.telegram_message_id,
+            self._grouping_window_seconds,
+            len(bundle.messages),
+            message_record.is_question,
+        )
 
     async def stop(self) -> None:
         """Остановить bridge и дождаться обработки буферов."""
@@ -98,11 +127,20 @@ class CollectorResponderBridge:
         if bundle is None:
             return
 
-        combined_text = self._build_combined_question(bundle.messages)
+        latest_messages = self._refresh_messages_from_db(bundle.messages)
+        combined_text = self._build_combined_question(latest_messages)
         if not combined_text:
             return
 
-        force_as_question = any(msg.is_question is True for msg in bundle.messages)
+        logger.info(
+            "Bridge запускает автоответчик: group=%d sender=%d messages=%d text=%s",
+            key[0],
+            key[1],
+            len(latest_messages),
+            combined_text[:200],
+        )
+
+        force_as_question = any(msg.is_question is True for msg in latest_messages)
         result = await self._responder.handle_message(
             bundle.root_event,
             self._group_ids,
@@ -115,6 +153,34 @@ class CollectorResponderBridge:
                 self._stats["dry_run"] += 1
             elif result.responded:
                 self._stats["answered"] += 1
+
+    @staticmethod
+    def _refresh_messages_from_db(messages: List[GroupMessage]) -> List[GroupMessage]:
+        """Обновить сообщения из БД перед flush, чтобы подтянуть caption/image_description."""
+        refreshed: List[GroupMessage] = []
+        refreshed_count = 0
+
+        for msg in messages:
+            latest = gk_db.get_message_by_telegram_id(msg.group_id, msg.telegram_message_id)
+            if latest is None:
+                refreshed.append(msg)
+                continue
+
+            refreshed.append(latest)
+
+            had_textual_image_context = bool((msg.caption or "").strip() or (msg.image_description or "").strip())
+            has_textual_image_context_now = bool((latest.caption or "").strip() or (latest.image_description or "").strip())
+            if latest.full_text.strip() != msg.full_text.strip() or (not had_textual_image_context and has_textual_image_context_now):
+                refreshed_count += 1
+
+        if refreshed_count:
+            logger.info(
+                "Bridge обновил сообщения из БД перед автоответом: refreshed=%d total=%d",
+                refreshed_count,
+                len(messages),
+            )
+
+        return refreshed
 
     @staticmethod
     def _build_combined_question(messages: List[GroupMessage]) -> str:

@@ -32,6 +32,35 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Путь к конфигурации групп
 GK_GROUPS_CONFIG_PATH = PROJECT_ROOT / "config" / "gk_groups.json"
+GK_TEST_TARGET_GROUP_KEY = "test_target_group"
+
+
+def _load_groups_config_data() -> Dict[str, Any]:
+    """Загрузить полный JSON-конфиг Group Knowledge."""
+    if not GK_GROUPS_CONFIG_PATH.exists():
+        logger.warning("Файл конфигурации групп не найден: %s", GK_GROUPS_CONFIG_PATH)
+        return {}
+
+    try:
+        with open(GK_GROUPS_CONFIG_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+        logger.error(
+            "Некорректный формат конфигурации групп: ожидался объект JSON, получено %s",
+            type(data).__name__,
+        )
+        return {}
+    except (json.JSONDecodeError, IOError) as exc:
+        logger.error("Ошибка чтения конфигурации групп: %s", exc)
+        return {}
+
+
+def _save_groups_config_data(data: Dict[str, Any]) -> None:
+    """Сохранить полный JSON-конфиг Group Knowledge."""
+    GK_GROUPS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(GK_GROUPS_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 
 def load_groups_config() -> List[Dict[str, Any]]:
@@ -41,17 +70,35 @@ def load_groups_config() -> List[Dict[str, Any]]:
     Returns:
         Список групп [{id, title}, ...].
     """
-    if not GK_GROUPS_CONFIG_PATH.exists():
-        logger.warning("Файл конфигурации групп не найден: %s", GK_GROUPS_CONFIG_PATH)
-        return []
+    data = _load_groups_config_data()
+    groups = data.get("groups", [])
+    if isinstance(groups, list):
+        return groups
+    logger.error("Некорректный формат поля groups в %s", GK_GROUPS_CONFIG_PATH)
+    return []
 
-    try:
-        with open(GK_GROUPS_CONFIG_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("groups", [])
-    except (json.JSONDecodeError, IOError) as exc:
-        logger.error("Ошибка чтения конфигурации групп: %s", exc)
-        return []
+
+def load_test_target_group_config() -> Optional[Dict[str, Any]]:
+    """Загрузить группу назначения для перенаправленного test mode."""
+    data = _load_groups_config_data()
+    test_target_group = data.get(GK_TEST_TARGET_GROUP_KEY)
+    if not test_target_group:
+        return None
+    if not isinstance(test_target_group, dict):
+        logger.error(
+            "Некорректный формат поля %s в %s",
+            GK_TEST_TARGET_GROUP_KEY,
+            GK_GROUPS_CONFIG_PATH,
+        )
+        return None
+    if "id" not in test_target_group:
+        logger.error(
+            "В конфигурации %s отсутствует id у %s",
+            GK_GROUPS_CONFIG_PATH,
+            GK_TEST_TARGET_GROUP_KEY,
+        )
+        return None
+    return test_target_group
 
 
 def save_groups_config(groups: List[Dict[str, Any]]) -> None:
@@ -61,11 +108,26 @@ def save_groups_config(groups: List[Dict[str, Any]]) -> None:
     Args:
         groups: Список групп [{id, title}, ...].
     """
-    GK_GROUPS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    data = {"groups": groups}
-    with open(GK_GROUPS_CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    data = _load_groups_config_data()
+    data["groups"] = groups
+    _save_groups_config_data(data)
     logger.info("Конфигурация групп сохранена: %d групп", len(groups))
+
+
+def save_test_target_group_config(group: Optional[Dict[str, Any]]) -> None:
+    """Сохранить группу назначения для перенаправленного test mode."""
+    data = _load_groups_config_data()
+    if group is None:
+        data.pop(GK_TEST_TARGET_GROUP_KEY, None)
+        logger.info("Глобальная test target group очищена")
+    else:
+        data[GK_TEST_TARGET_GROUP_KEY] = group
+        logger.info(
+            "Глобальная test target group сохранена: %s (%s)",
+            group.get("title", "Без названия"),
+            group.get("id"),
+        )
+    _save_groups_config_data(data)
 
 
 class MessageCollector:
@@ -130,6 +192,15 @@ class MessageCollector:
                     chat_id, message.id, int(msg_age),
                 )
                 return None
+
+        existing_message = gk_db.get_message_by_telegram_id(chat_id, message.id)
+        if existing_message:
+            logger.debug(
+                "Пропущено уже собранное live-сообщение: group=%d msg=%d",
+                chat_id,
+                message.id,
+            )
+            return None
 
         # Пропустить сообщения от ботов
         sender = await event.get_sender()
@@ -254,6 +325,10 @@ class MessageCollector:
         cutoff_date = datetime.now() - timedelta(days=days)
 
         for group_info in target_groups:
+            if self._stop_event.is_set():
+                logger.info("Backfill остановлен до обработки следующей группы")
+                break
+
             gid = group_info["id"]
             title = group_info.get("title", "")
             logger.info(
@@ -264,20 +339,79 @@ class MessageCollector:
             try:
                 entity = await self._client.get_entity(gid)
                 count = 0
+                inspected_count = 0
+                skipped_existing_count = 0
+                skipped_action_count = 0
+                skipped_bot_count = 0
 
                 async for message in self._client.iter_messages(
                     entity,
                     offset_date=None,
                     reverse=False,
                 ):
+                    if self._stop_event.is_set():
+                        self._log_backfill_progress(
+                            gid=gid,
+                            title=title,
+                            inspected_count=inspected_count,
+                            saved_count=count,
+                            skipped_existing_count=skipped_existing_count,
+                            skipped_action_count=skipped_action_count,
+                            skipped_bot_count=skipped_bot_count,
+                            interrupted=True,
+                        )
+                        break
+
                     if message.date and message.date.timestamp() < cutoff_date.timestamp():
                         break
 
+                    inspected_count += 1
+
                     if message.action:
+                        skipped_action_count += 1
+                        if inspected_count % 100 == 0:
+                            self._log_backfill_progress(
+                                gid=gid,
+                                title=title,
+                                inspected_count=inspected_count,
+                                saved_count=count,
+                                skipped_existing_count=skipped_existing_count,
+                                skipped_action_count=skipped_action_count,
+                                skipped_bot_count=skipped_bot_count,
+                            )
+                            await asyncio.sleep(0)
+                        continue
+
+                    existing_message = gk_db.get_message_by_telegram_id(gid, message.id)
+                    if existing_message and not force:
+                        skipped_existing_count += 1
+                        if inspected_count % 100 == 0:
+                            self._log_backfill_progress(
+                                gid=gid,
+                                title=title,
+                                inspected_count=inspected_count,
+                                saved_count=count,
+                                skipped_existing_count=skipped_existing_count,
+                                skipped_action_count=skipped_action_count,
+                                skipped_bot_count=skipped_bot_count,
+                            )
+                            await asyncio.sleep(0)
                         continue
 
                     sender = await message.get_sender()
                     if sender and getattr(sender, "bot", False):
+                        skipped_bot_count += 1
+                        if inspected_count % 100 == 0:
+                            self._log_backfill_progress(
+                                gid=gid,
+                                title=title,
+                                inspected_count=inspected_count,
+                                saved_count=count,
+                                skipped_existing_count=skipped_existing_count,
+                                skipped_action_count=skipped_action_count,
+                                skipped_bot_count=skipped_bot_count,
+                            )
+                            await asyncio.sleep(0)
                         continue
 
                     sender_id = getattr(sender, "id", 0) if sender else 0
@@ -309,10 +443,6 @@ class MessageCollector:
                     await self._classify_message_question(msg_obj)
 
                     try:
-                        existing_message = gk_db.get_message_by_telegram_id(gid, message.id)
-                        if existing_message and not force:
-                            continue
-
                         msg_db_id = gk_db.store_message(msg_obj)
                         logger.info(
                             "Backfill: сообщение сохранено: group=%d msg_tg=%d db_id=%d sender=%s has_image=%s message_ts=%s",
@@ -360,15 +490,34 @@ class MessageCollector:
                             message.id, exc,
                         )
 
-                    # Rate limit: пауза каждые 100 сообщений
-                    if count % 100 == 0:
-                        logger.info("Backfill: группа %d — собрано %d сообщений...", gid, count)
+                    if inspected_count % 100 == 0:
+                        self._log_backfill_progress(
+                            gid=gid,
+                            title=title,
+                            inspected_count=inspected_count,
+                            saved_count=count,
+                            skipped_existing_count=skipped_existing_count,
+                            skipped_action_count=skipped_action_count,
+                            skipped_bot_count=skipped_bot_count,
+                        )
+                        await asyncio.sleep(0)
+
+                    # Rate limit: пауза каждые 100 сохранённых сообщений
+                    if count > 0 and count % 100 == 0:
                         await asyncio.sleep(1.0)
 
                 total_collected += count
                 logger.info(
-                    "Backfill завершён для группы %d (%s): %d сообщений",
-                    gid, title, count,
+                    "Backfill завершён для группы %d (%s): просмотрено=%d сохранено=%d пропущено=%d "
+                    "(existing=%d service=%d bots=%d)",
+                    gid,
+                    title,
+                    inspected_count,
+                    count,
+                    skipped_existing_count + skipped_action_count + skipped_bot_count,
+                    skipped_existing_count,
+                    skipped_action_count,
+                    skipped_bot_count,
                 )
             except Exception as exc:
                 logger.error(
@@ -438,6 +587,10 @@ class MessageCollector:
                     if message.action:
                         continue
 
+                    existing_message = gk_db.get_message_by_telegram_id(gid, message.id)
+                    if existing_message:
+                        continue
+
                     sender = await message.get_sender()
                     if sender and getattr(sender, "bot", False):
                         continue
@@ -471,10 +624,6 @@ class MessageCollector:
                     await self._classify_message_question(msg_obj)
 
                     try:
-                        existing_message = gk_db.get_message_by_telegram_id(gid, message.id)
-                        if existing_message:
-                            continue
-
                         msg_db_id = gk_db.store_message(msg_obj)
                         logger.info(
                             "Добор: сообщение сохранено: group=%d msg_tg=%d db_id=%d sender=%s has_image=%s message_ts=%s",
@@ -561,6 +710,38 @@ class MessageCollector:
     def stop(self) -> None:
         """Послать сигнал остановки."""
         self._stop_event.set()
+
+    @staticmethod
+    def _log_backfill_progress(
+        gid: int,
+        title: str,
+        inspected_count: int,
+        saved_count: int,
+        skipped_existing_count: int,
+        skipped_action_count: int,
+        skipped_bot_count: int,
+        interrupted: bool = False,
+    ) -> None:
+        """Записать в лог прогресс backfill по текущей группе."""
+        skipped_total = (
+            skipped_existing_count
+            + skipped_action_count
+            + skipped_bot_count
+        )
+        status = "прерван" if interrupted else "progress"
+        logger.info(
+            "Backfill %s: группа %d (%s) — просмотрено=%d сохранено=%d пропущено=%d "
+            "(existing=%d service=%d bots=%d)",
+            status,
+            gid,
+            title,
+            inspected_count,
+            saved_count,
+            skipped_total,
+            skipped_existing_count,
+            skipped_action_count,
+            skipped_bot_count,
+        )
 
     @staticmethod
     def _format_message_timestamp(message_date: int) -> str:

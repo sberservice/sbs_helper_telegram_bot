@@ -38,7 +38,9 @@ from src.group_knowledge.message_collector import (
     _get_available_groups,
     MessageCollector,
     load_groups_config,
+    load_test_target_group_config,
     manage_groups_interactive,
+    save_test_target_group_config,
 )
 from src.group_knowledge.responder import GroupResponder
 from src.group_knowledge.settings import GK_MESSAGE_GROUPING_WINDOW_SECONDS
@@ -165,6 +167,55 @@ async def _select_test_mode_mapping(client, configured_groups: list[dict]) -> di
     }
 
 
+async def _resolve_redirect_test_group(client, configured_groups: list[dict]) -> dict | None:
+    """Получить или интерактивно выбрать глобальную тестовую группу для redirect mode."""
+    configured_group_ids = {int(group["id"]) for group in configured_groups}
+    saved_group = load_test_target_group_config()
+    if saved_group is not None:
+        saved_group_id = int(saved_group["id"])
+        if saved_group_id in configured_group_ids:
+            logger.error(
+                "Сохранённая test target group (%s) совпадает с боевой отслеживаемой группой. "
+                "Выберите отдельную тестовую группу.",
+                saved_group_id,
+            )
+        else:
+            logger.info(
+                "Используется сохранённая test target group: %s (%s)",
+                saved_group.get("title", "Без названия"),
+                saved_group_id,
+            )
+            return saved_group
+
+    available_groups = await _get_available_groups(client)
+    if not available_groups:
+        logger.error("Не удалось получить доступные Telegram-группы для redirect test mode.")
+        return None
+
+    test_candidates = [
+        group for group in available_groups
+        if int(group["id"]) not in configured_group_ids
+    ]
+    if not test_candidates:
+        logger.error(
+            "Не найдено доступных тестовых групп, отличных от отслеживаемых боевых групп."
+        )
+        return None
+
+    print("\n=== Redirect test mode Group Knowledge (collector daemon) ===")
+    print("Выберите отдельную тестовую группу, куда будут отправляться ответы из боевых групп.")
+    test_group = _select_item_from_menu(
+        test_candidates,
+        prompt="Выберите тестовую группу",
+        formatter=lambda item: f"{item.get('title', 'Без названия')} (ID: {item['id']}, участников: {item.get('participants', '?')})",
+    )
+    if test_group is None:
+        return None
+
+    save_test_target_group_config(test_group)
+    return test_group
+
+
 async def run_collector(args: argparse.Namespace) -> None:
     """
     Основной цикл коллектора.
@@ -181,6 +232,7 @@ async def run_collector(args: argparse.Namespace) -> None:
 
     listened_groups = list(groups)
     group_mapping = {}
+    redirect_test_group = None
     logger.info("Загружено %d групп: %s", len(groups), {g["id"] for g in groups})
     _log_auth_hint()
 
@@ -212,6 +264,18 @@ async def run_collector(args: argparse.Namespace) -> None:
             test_mode_config["real_group"].get("title", "Без названия"),
             test_mode_config["real_group"]["id"],
         )
+    elif args.redirect_test_mode:
+        redirect_test_group = await _resolve_redirect_test_group(client, groups)
+        if not redirect_test_group:
+            logger.info("Redirect test mode отменён пользователем.")
+            await disconnect_client_quietly(client)
+            return
+        logger.info(
+            "Redirect test mode активирован: monitor_groups=%s -> test_group=%s (%s)",
+            [group["id"] for group in listened_groups],
+            redirect_test_group.get("title", "Без названия"),
+            redirect_test_group["id"],
+        )
 
     # Инициализировать коллектор
     image_processor = ImageProcessor()
@@ -220,14 +284,28 @@ async def run_collector(args: argparse.Namespace) -> None:
         image_processor=image_processor,
         groups=listened_groups,
     )
+    responder_dry_run = (not args.live) and (not args.test_mode) and (not args.redirect_test_mode)
     responder = GroupResponder(
-        dry_run=not args.live,
+        dry_run=responder_dry_run,
         test_group_mapping=group_mapping,
+        redirect_output_group=redirect_test_group,
     )
+    try:
+        warmup_stats = responder.preload_search_resources(preload_vector_model=True)
+        logger.info(
+            "Прогрев GK-поиска завершён: corpus_pairs=%s corpus_signature=%s vector_model_preloaded=%s",
+            warmup_stats.get("corpus_pairs"),
+            warmup_stats.get("corpus_signature"),
+            warmup_stats.get("vector_model_preloaded"),
+        )
+    except Exception as exc:
+        logger.warning("Прогрев GK-поиска завершился с ошибкой: %s", exc)
+
     responder_bridge = CollectorResponderBridge(
         responder=responder,
         group_ids=collector.group_ids,
         grouping_window_seconds=GK_MESSAGE_GROUPING_WINDOW_SECONDS,
+        test_group_ids=set(group_mapping.keys()),
     )
 
     stop_event = asyncio.Event()
@@ -236,6 +314,7 @@ async def run_collector(args: argparse.Namespace) -> None:
     def handle_signal(sig, _frame):
         logger.info("Получен сигнал %s, остановка...", sig)
         stop_event.set()
+        collector.stop()
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
@@ -246,17 +325,26 @@ async def run_collector(args: argparse.Namespace) -> None:
         if args.backfill:
             logger.info("Режим backfill: %d дней, force=%s", args.days, args.force)
             count = await collector.backfill_messages(days=args.days, force=args.force)
-            logger.info("Backfill завершён: %d сообщений", count)
+            if stop_event.is_set():
+                logger.info("Backfill остановлен пользователем: %d сохранённых сообщений", count)
+            else:
+                logger.info("Backfill завершён: %d сообщений", count)
 
             # Обработать скачанные изображения
             logger.info("Обработка очереди изображений...")
             total_images = 0
-            while True:
+            while not stop_event.is_set():
                 processed = await image_processor.process_queue(batch_size=10)
                 if processed == 0:
                     break
                 total_images += processed
-            logger.info("Обработано изображений: %d", total_images)
+            if stop_event.is_set():
+                logger.info(
+                    "Обработка очереди изображений остановлена пользователем: %d изображений",
+                    total_images,
+                )
+            else:
+                logger.info("Обработано изображений: %d", total_images)
             return
 
         missed_count = await collector.sync_missed_messages()
@@ -276,6 +364,11 @@ async def run_collector(args: argparse.Namespace) -> None:
                 raw_text = (event.message.text if event.message else "") or (event.message.message if event.message else "") or ""
                 qa_query = _extract_qa_query(raw_text)
                 if qa_query is not None:
+                    logger.info(
+                        "Daemon responder: обработка /qa команды group=%d msg_tg=%d",
+                        message_record.group_id,
+                        message_record.telegram_message_id,
+                    )
                     await responder.handle_message(
                         event,
                         collector.group_ids,
@@ -283,6 +376,12 @@ async def run_collector(args: argparse.Namespace) -> None:
                         force_as_question=True,
                     )
                 else:
+                    logger.info(
+                        "Daemon responder: передача сообщения в bridge group=%d sender=%d msg_tg=%d",
+                        message_record.group_id,
+                        message_record.sender_id,
+                        message_record.telegram_message_id,
+                    )
                     await responder_bridge.queue_message(event, message_record)
 
         # Запустить обработку очереди изображений как фоновую задачу
@@ -300,9 +399,14 @@ async def run_collector(args: argparse.Namespace) -> None:
         if args.collect_only:
             logger.info("Автоответчик в daemon collector отключён флагом --collect-only")
         else:
+            responder_mode = "LIVE"
+            if args.redirect_test_mode:
+                responder_mode = "REDIRECT-TEST"
+            elif responder_dry_run:
+                responder_mode = "DRY-RUN"
             logger.info(
                 "Daemon collector также выполняет автоответчик: режим=%s, окно склейки=%ds",
-                "LIVE" if args.live else "DRY-RUN",
+                responder_mode,
                 GK_MESSAGE_GROUPING_WINDOW_SECONDS,
             )
         logger.info("Нажмите Ctrl+C для остановки")
@@ -316,6 +420,7 @@ async def run_collector(args: argparse.Namespace) -> None:
     finally:
         logger.info("Остановка коллектора...")
         stop_event.set()
+        collector.stop()
         if image_task is not None:
             image_task.cancel()
             try:
@@ -364,11 +469,19 @@ def main() -> None:
         help="В daemon-режиме интерактивно выбрать test group и real group для ответов в тестовой группе",
     )
     parser.add_argument(
+        "--redirect-test-mode",
+        action="store_true",
+        help="Слушать боевые группы, но отправлять ответы в отдельную глобическую тестовую группу",
+    )
+    parser.add_argument(
         "--collect-only",
         action="store_true",
         help="Запустить только сборщик без встроенного автоответчика",
     )
     args = parser.parse_args()
+
+    if args.test_mode and args.redirect_test_mode:
+        parser.error("Флаги --test-mode и --redirect-test-mode нельзя использовать одновременно")
 
     if not _validate_telethon_credentials():
         return

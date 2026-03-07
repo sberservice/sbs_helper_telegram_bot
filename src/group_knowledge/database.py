@@ -7,7 +7,7 @@ Q&A-пар, очереди обработки изображений и лого
 
 import logging
 import time
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 from src.common.database import get_db_connection, get_cursor
 from src.group_knowledge.models import GroupMessage, QAPair
@@ -717,6 +717,66 @@ def get_qa_pair_by_id(pair_id: int) -> Optional[QAPair]:
                 return _row_to_qa_pair(row) if row else None
     except Exception as exc:
         logger.error("Ошибка получения Q&A-пары по ID: %s", exc, exc_info=True)
+        return None
+
+
+def get_all_approved_qa_pairs() -> List[QAPair]:
+    """
+    Получить все одобренные Q&A-пары из БД.
+
+    Используется для построения BM25-корпуса при гибридном поиске.
+
+    Returns:
+        Список всех QAPair с approved = 1, отсортированных по id.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT * FROM gk_qa_pairs
+                    WHERE approved = 1
+                    ORDER BY id
+                    """
+                )
+                rows = cursor.fetchall()
+                return [_row_to_qa_pair(row) for row in (rows or [])]
+    except Exception as exc:
+        logger.error("Ошибка получения одобренных Q&A-пар: %s", exc, exc_info=True)
+        return []
+
+
+def get_approved_qa_pairs_corpus_signature() -> Optional[Tuple[int, int, int]]:
+    """
+    Получить сигнатуру (версию) текущего approved-корпуса Q&A.
+
+    Сигнатура используется для быстрого определения изменений корпуса
+    без полной перезагрузки кэша BM25.
+
+    Returns:
+        Кортеж (count, max_id, max_created_at) или None при ошибке.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS cnt,
+                        COALESCE(MAX(id), 0) AS max_id,
+                        COALESCE(MAX(created_at), 0) AS max_created_at
+                    FROM gk_qa_pairs
+                    WHERE approved = 1
+                    """
+                )
+                row = cursor.fetchone() or {}
+                return (
+                    int(row.get("cnt") or 0),
+                    int(row.get("max_id") or 0),
+                    int(row.get("max_created_at") or 0),
+                )
+    except Exception as exc:
+        logger.error("Ошибка получения сигнатуры корпуса Q&A: %s", exc, exc_info=True)
         return None
 
 

@@ -650,7 +650,7 @@ GK_RESPONDER_MODEL: Final[str] = os.getenv("GK_RESPONDER_MODEL", "deepseek-chat"
 GK_DRY_RUN: Final[bool] = os.getenv("GK_DRY_RUN", "1") == "1"
 # Минимальный порог уверенности для автоматического ответа.
 GK_RESPONDER_CONFIDENCE_THRESHOLD: Final[float] = float(
-    os.getenv("GK_RESPONDER_CONFIDENCE_THRESHOLD", "0.7")
+    os.getenv("GK_RESPONDER_CONFIDENCE_THRESHOLD", "0.9")
 )
 # Имя Qdrant-коллекции для Q&A пар.
 GK_QA_VECTOR_COLLECTION: Final[str] = os.getenv("GK_QA_VECTOR_COLLECTION", "gk_qa_pairs_v1")
@@ -661,7 +661,26 @@ GK_ANALYSIS_BATCH_SIZE: Final[int] = int(os.getenv("GK_ANALYSIS_BATCH_SIZE", "50
 # Промпт для описания изображений через GigaChat.
 GK_IMAGE_DESCRIPTION_PROMPT: Final[str] = os.getenv(
     "GK_IMAGE_DESCRIPTION_PROMPT",
-    "Опиши подробно что изображено на этом изображении, включая текст."
+    "Опиши подробно что изображено на этом изображении, включая текст. Если видишь на устройстве слово Эвотор - это касса Эвотор."
 #    "Если на изображении есть текст ошибки, код ошибки или сообщение об ошибке, "
 #    "обязательно укажи его дословно. Если на изображении устройство — опиши его состояние."
 )
+
+# =============================================
+# Гибридный поиск GK (BM25 + Vector RRF)
+# =============================================
+
+# Мастер-переключатель гибридного поиска BM25 + Vector для Q&A-пар.
+GK_HYBRID_ENABLED: Final[bool] = os.getenv("GK_HYBRID_ENABLED", "1") == "1"
+# Параметр k1 для BM25 (управляет насыщением частоты терминов).
+GK_BM25_K1: Final[float] = float(os.getenv("GK_BM25_K1", "1.5"))
+# Параметр b для BM25 (управляет нормализацией длины документа).
+GK_BM25_B: Final[float] = float(os.getenv("GK_BM25_B", "0.75"))
+# Константа k для Reciprocal Rank Fusion (стандартное значение по Cormack et al.).
+GK_RRF_K: Final[int] = int(os.getenv("GK_RRF_K", "60"))
+# Включить Russian normalization (лемматизация/стемминг) для токенизации GK.
+GK_RU_NORMALIZATION_ENABLED: Final[bool] = os.getenv("GK_RU_NORMALIZATION_ENABLED", "1") == "1"
+# Количество кандидатов из каждого метода поиска перед RRF-слиянием.
+GK_SEARCH_CANDIDATES_PER_METHOD: Final[int] = int(os.getenv("GK_SEARCH_CANDIDATES_PER_METHOD", "20"))
+# TTL кэша BM25-корпуса в секундах (перезагружает Q&A-пары из БД).
+GK_BM25_CORPUS_TTL_SECONDS: Final[int] = int(os.getenv("GK_BM25_CORPUS_TTL_SECONDS", "300"))
