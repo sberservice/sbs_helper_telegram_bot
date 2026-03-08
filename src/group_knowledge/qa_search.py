@@ -25,6 +25,11 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+_ANSWER_ALLOWED_EXTRACTION_TYPES: Tuple[str, ...] = (
+    "thread_reply",
+    "llm_inferred",
+)
+
 # ---------------------------------------------------------------------------
 # Токенизация и нормализация текста
 # ---------------------------------------------------------------------------
@@ -107,6 +112,7 @@ class QASearchService:
         self._corpus_tokens: List[List[str]] = []
         self._corpus_loaded_at: float = 0.0
         self._corpus_signature: Optional[Tuple[int, int, int]] = None
+        self._corpus_extraction_types: Optional[Tuple[str, ...]] = None
 
         # Кэш нормализации токенов
         self._normalized_token_cache: Dict[str, str] = {}
@@ -388,12 +394,16 @@ class QASearchService:
         """Загрузить или перезагрузить BM25-корпус, если TTL истёк."""
         now = time.time()
         ttl = ai_settings.GK_BM25_CORPUS_TTL_SECONDS
-        latest_signature = gk_db.get_approved_qa_pairs_corpus_signature()
+        allowed_extraction_types = self._get_allowed_extraction_types()
+        latest_signature = gk_db.get_approved_qa_pairs_corpus_signature(
+            extraction_types=allowed_extraction_types,
+        )
 
         ttl_not_expired = self._corpus_pairs and (now - self._corpus_loaded_at) < ttl
         signature_unchanged = latest_signature is not None and latest_signature == self._corpus_signature
+        extraction_types_unchanged = allowed_extraction_types == self._corpus_extraction_types
 
-        if ttl_not_expired and signature_unchanged:
+        if ttl_not_expired and signature_unchanged and extraction_types_unchanged:
             return
 
         if latest_signature is not None and self._corpus_signature is not None and latest_signature != self._corpus_signature:
@@ -404,7 +414,9 @@ class QASearchService:
             )
 
         try:
-            pairs = gk_db.get_all_approved_qa_pairs()
+            pairs = gk_db.get_all_approved_qa_pairs(
+                extraction_types=allowed_extraction_types,
+            )
             corpus_tokens = []
             for pair in pairs:
                 text = f"{pair.question_text} {pair.answer_text}"
@@ -415,12 +427,14 @@ class QASearchService:
             self._corpus_tokens = corpus_tokens
             self._corpus_loaded_at = now
             self._corpus_signature = latest_signature or self._build_corpus_signature_from_pairs(pairs)
+            self._corpus_extraction_types = allowed_extraction_types
 
             logger.info(
-                "GK BM25: корпус загружен — %d Q&A-пар, avg_tokens=%.1f signature=%s",
+                "GK BM25: корпус загружен — %d Q&A-пар, avg_tokens=%.1f signature=%s extraction_types=%s",
                 len(pairs),
                 (sum(len(t) for t in corpus_tokens) / max(len(corpus_tokens), 1)),
                 self._corpus_signature,
+                allowed_extraction_types,
             )
         except Exception as exc:
             logger.error("GK BM25: ошибка загрузки корпуса: %s", exc, exc_info=True)
@@ -431,6 +445,7 @@ class QASearchService:
         self._corpus_pairs = []
         self._corpus_tokens = []
         self._corpus_signature = None
+        self._corpus_extraction_types = None
 
     @staticmethod
     def _build_corpus_signature_from_pairs(pairs: List[QAPair]) -> Tuple[int, int, int]:
@@ -480,6 +495,8 @@ class QASearchService:
             )
 
             results = []
+            allowed_extraction_types = set(self._get_allowed_extraction_types())
+            skipped_by_extraction_type = 0
             for hit in hits:
                 pair_id = getattr(hit, "document_id", 0)
                 if not pair_id:
@@ -488,15 +505,19 @@ class QASearchService:
                 pair = gk_db.get_qa_pair_by_id(int(pair_id))
                 if not pair:
                     continue
+                if pair.extraction_type not in allowed_extraction_types:
+                    skipped_by_extraction_type += 1
+                    continue
 
                 score = float(getattr(hit, "score", 0.0) or 0.0)
                 results.append((pair, score))
 
             logger.info(
-                "GK Vector: query=%s hits=%d results=%d top_score=%.4f",
+                "GK Vector: query=%s hits=%d results=%d skipped_by_type=%d top_score=%.4f",
                 query[:80],
                 len(hits),
                 len(results),
+                skipped_by_extraction_type,
                 results[0][1] if results else 0.0,
             )
 
@@ -586,6 +607,13 @@ class QASearchService:
         diagnostics.sort(key=lambda x: x["rrf_score"], reverse=True)
 
         return rrf_scored[:top_k], diagnostics[:top_k]
+
+    @staticmethod
+    def _get_allowed_extraction_types() -> Tuple[str, ...]:
+        """Получить типы Q&A-пар, разрешённые для построения ответа пользователю."""
+        if ai_settings.GK_INCLUDE_LLM_INFERRED_ANSWERS:
+            return _ANSWER_ALLOWED_EXTRACTION_TYPES
+        return ("thread_reply",)
 
     @staticmethod
     def _log_rrf_diagnostics(query: str, diagnostics: List[Dict]) -> None:

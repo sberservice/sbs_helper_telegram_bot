@@ -11,7 +11,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -311,8 +311,6 @@ class MessageCollector:
         Returns:
             Число загруженных сообщений.
         """
-        from datetime import timedelta
-
         target_groups = self._groups
         if group_id is not None:
             target_groups = [g for g in self._groups if g["id"] == group_id]
@@ -693,7 +691,12 @@ class MessageCollector:
             return
 
         try:
-            result = await self._question_classifier.classify(text)
+            result = await self._question_classifier.classify(
+                text,
+                is_caption=bool((msg_obj.caption or "").strip()),
+                has_image=msg_obj.has_image,
+                image_description=msg_obj.image_description,
+            )
             msg_obj.is_question = result.is_question
             msg_obj.question_confidence = result.confidence
             msg_obj.question_reason = result.reason
@@ -706,6 +709,98 @@ class MessageCollector:
                 msg_obj.telegram_message_id,
                 exc,
             )
+
+    async def fill_missing_question_classification(
+        self,
+        group_id: Optional[int] = None,
+        days: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> int:
+        """
+        Заполнить `is_question` для уже сохранённых сообщений, где поле ещё пустое.
+
+        Args:
+            group_id: Ограничить обработку одной группой.
+            days: Обрабатывать только сообщения за последние N дней.
+            limit: Максимальное число сообщений за один запуск.
+
+        Returns:
+            Число сообщений, для которых удалось сохранить классификацию.
+        """
+        newer_than_ts = None
+        if days is not None:
+            newer_than_ts = int((datetime.now() - timedelta(days=days)).timestamp())
+
+        group_ids: Optional[List[int]]
+        if group_id is not None:
+            group_ids = [group_id]
+        elif self._group_ids:
+            group_ids = sorted(self._group_ids)
+        else:
+            group_ids = None
+
+        messages = gk_db.get_messages_missing_question_classification(
+            group_ids=group_ids,
+            newer_than_ts=newer_than_ts,
+            limit=limit,
+        )
+        if not messages:
+            logger.info("Нет сообщений без question-классификации для заполнения")
+            return 0
+
+        logger.info(
+            "Запуск заполнения missing is_question: messages=%d groups=%s days=%s limit=%s",
+            len(messages),
+            group_ids if group_ids is not None else "ALL_DB_GROUPS",
+            days,
+            limit,
+        )
+
+        updated_count = 0
+        skipped_count = 0
+        for index, msg_obj in enumerate(messages, start=1):
+            await self._classify_message_question(msg_obj)
+
+            if (
+                msg_obj.id is None
+                or msg_obj.is_question is None
+                or msg_obj.question_confidence is None
+                or msg_obj.question_detected_at is None
+            ):
+                skipped_count += 1
+                logger.warning(
+                    "Пропуск обновления question-классификации: db_id=%s group=%d msg_tg=%d",
+                    msg_obj.id,
+                    msg_obj.group_id,
+                    msg_obj.telegram_message_id,
+                )
+                continue
+
+            gk_db.update_message_question_classification(
+                message_id=msg_obj.id,
+                is_question=msg_obj.is_question,
+                confidence=msg_obj.question_confidence,
+                reason=msg_obj.question_reason or "",
+                model_used=msg_obj.question_model_used or "",
+                detected_at=msg_obj.question_detected_at,
+            )
+            updated_count += 1
+
+            if index % 100 == 0:
+                logger.info(
+                    "Заполнение missing is_question: обработано=%d обновлено=%d пропущено=%d",
+                    index,
+                    updated_count,
+                    skipped_count,
+                )
+
+        logger.info(
+            "Заполнение missing is_question завершено: обновлено=%d пропущено=%d всего=%d",
+            updated_count,
+            skipped_count,
+            len(messages),
+        )
+        return updated_count
 
     def stop(self) -> None:
         """Послать сигнал остановки."""

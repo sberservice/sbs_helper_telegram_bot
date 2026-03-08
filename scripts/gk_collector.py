@@ -11,6 +11,8 @@ gk_collector — Telethon-скрипт сбора сообщений из гру
     python scripts/gk_collector.py --test-mode             — слушатель + автоответчик в test mode
     python scripts/gk_collector.py --manage-groups         — управление группами (CLI)
     python scripts/gk_collector.py --backfill --days 7     — загрузить историю
+    python scripts/gk_collector.py --fill-missing-is-question --fill-days 30
+                                                        — заполнить is_question для уже сохранённых сообщений
 """
 
 import argparse
@@ -32,6 +34,7 @@ from src.common.constants.sync import (
     TELETHON_API_HASH,
     GK_COLLECTOR_SESSION_NAME,
 )
+from src.group_knowledge import database as gk_db
 from src.group_knowledge.collector_responder import CollectorResponderBridge
 from src.group_knowledge.image_processor import ImageProcessor
 from src.group_knowledge.message_collector import (
@@ -432,6 +435,42 @@ async def run_collector(args: argparse.Namespace) -> None:
         logger.info("Коллектор остановлен")
 
 
+async def _run_fill_missing_is_question(args: argparse.Namespace) -> None:
+    """Запустить backfill question-классификации для сообщений, где `is_question` ещё не заполнен."""
+    groups = load_groups_config()
+    if args.group_id is not None:
+        selected_groups = [
+            {
+                "id": args.group_id,
+                "title": next(
+                    (group.get("title", "") for group in groups if int(group.get("id", 0)) == args.group_id),
+                    "",
+                ),
+            }
+        ]
+    elif groups:
+        selected_groups = groups
+    else:
+        selected_groups = [
+            {
+                "id": int(group["group_id"]),
+                "title": group.get("group_title", ""),
+            }
+            for group in gk_db.get_collected_groups()
+        ]
+
+    collector = MessageCollector(
+        client=None,
+        groups=selected_groups,
+    )
+    updated = await collector.fill_missing_question_classification(
+        group_id=args.group_id,
+        days=args.fill_days,
+        limit=args.fill_limit,
+    )
+    logger.info("Заполнение missing is_question завершено: updated=%d", updated)
+
+
 def main() -> None:
     """Точка входа."""
     parser = argparse.ArgumentParser(
@@ -448,6 +487,11 @@ def main() -> None:
         help="Загрузить историю сообщений",
     )
     parser.add_argument(
+        "--fill-missing-is-question",
+        action="store_true",
+        help="Заполнить is_question для уже сохранённых сообщений, где поле ещё NULL",
+    )
+    parser.add_argument(
         "--days",
         type=int,
         default=7,
@@ -457,6 +501,21 @@ def main() -> None:
         "--force",
         action="store_true",
         help="Для backfill: принудительно обновить уже собранные сообщения, заново скачать изображения и пересоздать их описания",
+    )
+    parser.add_argument(
+        "--fill-days",
+        type=int,
+        help="Для --fill-missing-is-question: ограничить обработку последними N днями",
+    )
+    parser.add_argument(
+        "--fill-limit",
+        type=int,
+        help="Для --fill-missing-is-question: ограничить число сообщений за один запуск",
+    )
+    parser.add_argument(
+        "--group-id",
+        type=int,
+        help="Для --fill-missing-is-question: ограничить обработку одной группой",
     )
     parser.add_argument(
         "--live",
@@ -480,14 +539,32 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    selected_modes = sum(
+        bool(flag)
+        for flag in (
+            args.manage_groups,
+            args.backfill,
+            args.fill_missing_is_question,
+        )
+    )
+    if selected_modes > 1:
+        parser.error("Флаги --manage-groups, --backfill и --fill-missing-is-question взаимоисключающие")
     if args.test_mode and args.redirect_test_mode:
         parser.error("Флаги --test-mode и --redirect-test-mode нельзя использовать одновременно")
-
-    if not _validate_telethon_credentials():
-        return
+    if args.fill_missing_is_question and args.force:
+        parser.error("Флаг --force нельзя использовать вместе с --fill-missing-is-question")
 
     if args.manage_groups:
+        if not _validate_telethon_credentials():
+            return
         asyncio.run(_run_manage_groups())
+        return
+
+    if args.fill_missing_is_question:
+        asyncio.run(_run_fill_missing_is_question(args))
+        return
+
+    if not _validate_telethon_credentials():
         return
 
     asyncio.run(run_collector(args))

@@ -9,9 +9,11 @@ gk_analyze — CLI утилита запуска анализа Q&A-пар.
     python scripts/gk_analyze.py --date 2024-01-15                — один день
     python scripts/gk_analyze.py --date-range 2024-01-10 2024-01-15 — диапазон
     python scripts/gk_analyze.py --all-unprocessed                — все даты с необработанными сообщениями
+    python scripts/gk_analyze.py --all-dates                      — все даты, где есть сообщения
     python scripts/gk_analyze.py --date 2024-01-15 --group-id -100123456
     python scripts/gk_analyze.py --index                          — проиндексировать новые пары
     python scripts/gk_analyze.py --date 2024-01-15 --force-reanalyze — переанализировать все сообщения за день
+    python scripts/gk_analyze.py --all-dates --rebuild-pairs      — полностью пересобрать Q&A-пары
 """
 
 import argparse
@@ -28,6 +30,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.group_knowledge import database as gk_db
 from src.group_knowledge.message_collector import load_groups_config
 from src.group_knowledge.qa_analyzer import QAAnalyzer
+from config import ai_settings
 
 # ---------------------------------------------------------------------------
 # Логирование
@@ -59,6 +62,16 @@ def _resolve_analysis_targets(
     group_ids: list[int],
 ) -> list[tuple[int, str]]:
     """Определить пары (group_id, date_str), которые нужно проанализировать."""
+    if args.all_dates:
+        targets: list[tuple[int, str]] = []
+        for gid in group_ids:
+            message_dates = gk_db.get_message_dates(gid)
+            if not message_dates:
+                continue
+            for date_str in message_dates:
+                targets.append((gid, date_str))
+        return targets
+
     if args.all_unprocessed:
         targets: list[tuple[int, str]] = []
         for gid in group_ids:
@@ -87,6 +100,55 @@ def _resolve_analysis_targets(
     return [(gid, date_str) for date_str in dates for gid in group_ids]
 
 
+def _cleanup_vector_points(pair_ids: list[int]) -> int:
+    """Удалить векторные точки указанных Q&A-пар из Qdrant-коллекции GK."""
+    if not pair_ids:
+        return 0
+
+    try:
+        from src.core.ai.vector_search import LocalVectorIndex
+
+        vector_index = LocalVectorIndex(
+            chunk_collection_name=ai_settings.GK_QA_VECTOR_COLLECTION,
+        )
+    except Exception as exc:
+        logger.warning("Не удалось инициализировать vector cleanup для rebuild-пар: %s", exc)
+        return 0
+
+    deleted = 0
+    for pair_id in pair_ids:
+        try:
+            deleted += int(vector_index.delete_document_points(int(pair_id)) or 0)
+        except Exception as exc:
+            logger.warning("Не удалось удалить vector-точки pair_id=%s: %s", pair_id, exc)
+    return deleted
+
+
+def _rebuild_pairs_for_groups(group_ids: list[int]) -> None:
+    """Удалить существующие Q&A-пары и их vector-точки перед полным переанализом."""
+    total_pairs_deleted = 0
+    total_vector_deleted = 0
+
+    for gid in group_ids:
+        pair_ids = gk_db.get_qa_pair_ids_by_group(gid)
+        deleted_pairs = gk_db.delete_qa_pairs_by_group(gid)
+        deleted_vectors = _cleanup_vector_points(pair_ids)
+        total_pairs_deleted += deleted_pairs
+        total_vector_deleted += deleted_vectors
+        logger.info(
+            "Rebuild-подготовка: group=%d qa_pairs_deleted=%d vector_points_deleted=%d",
+            gid,
+            deleted_pairs,
+            deleted_vectors,
+        )
+
+    logger.info(
+        "Rebuild-подготовка завершена: qa_pairs_deleted=%d vector_points_deleted=%d",
+        total_pairs_deleted,
+        total_vector_deleted,
+    )
+
+
 async def run_analysis(args: argparse.Namespace) -> None:
     """
     Запустить анализ Q&A-пар.
@@ -107,17 +169,28 @@ async def run_analysis(args: argparse.Namespace) -> None:
     if not group_ids:
         return
 
+    if args.rebuild_pairs:
+        logger.info(
+            "Включён режим полного rebuild Q&A-пар: группы=%s",
+            sorted(set(group_ids)),
+        )
+        _rebuild_pairs_for_groups(group_ids)
+
     targets = _resolve_analysis_targets(args, group_ids)
     if not targets:
         logger.info("Нет необработанных сообщений для анализа по выбранным параметрам.")
         return
 
+    effective_force_reanalyze = args.force_reanalyze or args.rebuild_pairs
+
     logger.info(
-        "Анализ: целей=%d группы=%s force_reanalyze=%s all_unprocessed=%s",
+        "Анализ: целей=%d группы=%s force_reanalyze=%s all_unprocessed=%s all_dates=%s rebuild_pairs=%s",
         len(targets),
         sorted(set(group_ids)),
-        args.force_reanalyze,
+        effective_force_reanalyze,
         args.all_unprocessed,
+        args.all_dates,
+        args.rebuild_pairs,
     )
 
     # Статистика
@@ -134,7 +207,7 @@ async def run_analysis(args: argparse.Namespace) -> None:
             date_str=date_str,
             skip_thread=args.skip_thread,
             skip_llm=args.skip_llm,
-            force_reanalyze=args.force_reanalyze,
+            force_reanalyze=effective_force_reanalyze,
         )
 
         total_thread += result.thread_pairs_found
@@ -189,6 +262,11 @@ def main() -> None:
         action="store_true",
         help="Проанализировать все даты, где есть сообщения processed=0",
     )
+    date_group.add_argument(
+        "--all-dates",
+        action="store_true",
+        help="Проанализировать все даты, где у выбранных групп есть сообщения",
+    )
     parser.add_argument(
         "--group-id",
         type=int,
@@ -219,10 +297,17 @@ def main() -> None:
         action="store_true",
         help="Принудительно переанализировать все сообщения за дату, включая уже processed",
     )
+    parser.add_argument(
+        "--rebuild-pairs",
+        action="store_true",
+        help="Удалить существующие Q&A-пары выбранных групп, очистить их vector-точки и заново проанализировать все даты",
+    )
     args = parser.parse_args()
 
     if args.all_unprocessed and args.force_reanalyze:
         parser.error("--all-unprocessed нельзя использовать вместе с --force-reanalyze")
+    if args.rebuild_pairs and not args.all_dates:
+        parser.error("--rebuild-pairs можно использовать только вместе с --all-dates")
 
     asyncio.run(run_analysis(args))
 

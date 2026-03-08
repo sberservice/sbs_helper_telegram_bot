@@ -7,7 +7,7 @@ Q&A-пар, очереди обработки изображений и лого
 
 import logging
 import time
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Iterable, List, Optional, Dict, Any, Tuple
 
 from src.common.database import get_db_connection, get_cursor
 from src.group_knowledge.models import GroupMessage, QAPair
@@ -247,6 +247,93 @@ def get_unprocessed_dates(group_id: int) -> List[str]:
         return []
 
 
+def get_message_dates(group_id: int) -> List[str]:
+    """
+    Получить все даты, за которые у группы есть сообщения.
+
+    Args:
+        group_id: ID группы.
+
+    Returns:
+        Список дат в формате YYYY-MM-DD.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT DISTINCT DATE(FROM_UNIXTIME(message_date)) AS message_date
+                    FROM gk_messages
+                    WHERE group_id = %s
+                    ORDER BY message_date ASC
+                    """,
+                    (group_id,),
+                )
+                rows = cursor.fetchall()
+                return [str(row["message_date"]) for row in rows if row.get("message_date")]
+    except Exception as exc:
+        logger.error("Ошибка получения всех дат сообщений: %s", exc, exc_info=True)
+        return []
+
+
+def get_messages_missing_question_classification(
+    group_ids: Optional[Iterable[int]] = None,
+    newer_than_ts: Optional[int] = None,
+    limit: Optional[int] = None,
+) -> List[GroupMessage]:
+    """
+    Получить сообщения, у которых ещё не заполнено поле `is_question`.
+
+    Args:
+        group_ids: Ограничить выборку указанными group_id.
+        newer_than_ts: Вернуть только сообщения не старше указанного UNIX timestamp.
+        limit: Ограничить максимальное число сообщений.
+
+    Returns:
+        Список сообщений, отсортированных по времени.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                conditions = ["is_question IS NULL"]
+                params: List[Any] = []
+
+                normalized_group_ids = tuple(int(group_id) for group_id in (group_ids or []))
+                if normalized_group_ids:
+                    placeholders = ", ".join(["%s"] * len(normalized_group_ids))
+                    conditions.append(f"group_id IN ({placeholders})")
+                    params.extend(normalized_group_ids)
+
+                if newer_than_ts is not None:
+                    conditions.append("message_date >= %s")
+                    params.append(int(newer_than_ts))
+
+                where_clause = " AND ".join(conditions)
+                limit_clause = ""
+                if limit is not None:
+                    limit_clause = "LIMIT %s"
+                    params.append(int(limit))
+
+                cursor.execute(
+                    f"""
+                    SELECT * FROM gk_messages
+                    WHERE {where_clause}
+                    ORDER BY message_date ASC, id ASC
+                    {limit_clause}
+                    """,
+                    tuple(params),
+                )
+                rows = cursor.fetchall()
+                return [_row_to_message(row) for row in (rows or [])]
+    except Exception as exc:
+        logger.error(
+            "Ошибка получения сообщений без question-классификации: %s",
+            exc,
+            exc_info=True,
+        )
+        return []
+
+
 def mark_messages_processed(message_ids: List[int]) -> None:
     """
     Отметить сообщения как обработанные.
@@ -455,6 +542,29 @@ def get_qa_pair_ids_by_group(group_id: int) -> List[int]:
         return []
 
 
+def delete_qa_pairs_by_group(group_id: int) -> int:
+    """
+    Удалить все Q&A-пары указанной группы.
+
+    Args:
+        group_id: ID группы.
+
+    Returns:
+        Число удалённых строк.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    "DELETE FROM gk_qa_pairs WHERE group_id = %s",
+                    (group_id,),
+                )
+                return int(cursor.rowcount or 0)
+    except Exception as exc:
+        logger.error("Ошибка удаления Q&A-пар группы %s: %s", group_id, exc, exc_info=True)
+        raise
+
+
 def delete_group_data(group_id: int, dry_run: bool = True) -> Dict[str, int]:
     """
     Удалить данные Group Knowledge для указанной группы.
@@ -651,6 +761,7 @@ def get_qa_pairs(
     offset: int = 0,
     group_id: Optional[int] = None,
     approved_only: bool = True,
+    extraction_types: Optional[Iterable[str]] = None,
 ) -> List[QAPair]:
     """
     Получить Q&A-пары из БД.
@@ -660,6 +771,7 @@ def get_qa_pairs(
         offset: Смещение.
         group_id: Фильтр по группе (None — все группы).
         approved_only: Только одобренные пары.
+        extraction_types: Допустимые типы извлечения (`thread_reply`, `llm_inferred`).
 
     Returns:
         Список QAPair.
@@ -675,6 +787,11 @@ def get_qa_pairs(
                 if group_id is not None:
                     conditions.append("group_id = %s")
                     params.append(group_id)
+                normalized_extraction_types = _normalize_extraction_types(extraction_types)
+                if normalized_extraction_types:
+                    placeholders = ", ".join(["%s"] * len(normalized_extraction_types))
+                    conditions.append(f"extraction_type IN ({placeholders})")
+                    params.extend(normalized_extraction_types)
 
                 where_clause = ""
                 if conditions:
@@ -720,11 +837,16 @@ def get_qa_pair_by_id(pair_id: int) -> Optional[QAPair]:
         return None
 
 
-def get_all_approved_qa_pairs() -> List[QAPair]:
+def get_all_approved_qa_pairs(
+    extraction_types: Optional[Iterable[str]] = None,
+) -> List[QAPair]:
     """
     Получить все одобренные Q&A-пары из БД.
 
     Используется для построения BM25-корпуса при гибридном поиске.
+
+    Args:
+        extraction_types: Допустимые типы извлечения (`thread_reply`, `llm_inferred`).
 
     Returns:
         Список всех QAPair с approved = 1, отсортированных по id.
@@ -732,12 +854,20 @@ def get_all_approved_qa_pairs() -> List[QAPair]:
     try:
         with get_db_connection() as conn:
             with get_cursor(conn) as cursor:
+                normalized_extraction_types = _normalize_extraction_types(extraction_types)
+                where_clause = "WHERE approved = 1"
+                params: List[str] = []
+                if normalized_extraction_types:
+                    placeholders = ", ".join(["%s"] * len(normalized_extraction_types))
+                    where_clause += f" AND extraction_type IN ({placeholders})"
+                    params.extend(normalized_extraction_types)
                 cursor.execute(
-                    """
+                    f"""
                     SELECT * FROM gk_qa_pairs
-                    WHERE approved = 1
+                    {where_clause}
                     ORDER BY id
-                    """
+                    """,
+                    tuple(params),
                 )
                 rows = cursor.fetchall()
                 return [_row_to_qa_pair(row) for row in (rows or [])]
@@ -746,7 +876,9 @@ def get_all_approved_qa_pairs() -> List[QAPair]:
         return []
 
 
-def get_approved_qa_pairs_corpus_signature() -> Optional[Tuple[int, int, int]]:
+def get_approved_qa_pairs_corpus_signature(
+    extraction_types: Optional[Iterable[str]] = None,
+) -> Optional[Tuple[int, int, int]]:
     """
     Получить сигнатуру (версию) текущего approved-корпуса Q&A.
 
@@ -759,15 +891,23 @@ def get_approved_qa_pairs_corpus_signature() -> Optional[Tuple[int, int, int]]:
     try:
         with get_db_connection() as conn:
             with get_cursor(conn) as cursor:
+                normalized_extraction_types = _normalize_extraction_types(extraction_types)
+                where_clause = "WHERE approved = 1"
+                params: List[str] = []
+                if normalized_extraction_types:
+                    placeholders = ", ".join(["%s"] * len(normalized_extraction_types))
+                    where_clause += f" AND extraction_type IN ({placeholders})"
+                    params.extend(normalized_extraction_types)
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
                         COUNT(*) AS cnt,
                         COALESCE(MAX(id), 0) AS max_id,
                         COALESCE(MAX(created_at), 0) AS max_created_at
                     FROM gk_qa_pairs
-                    WHERE approved = 1
-                    """
+                    {where_clause}
+                    """,
+                    tuple(params),
                 )
                 row = cursor.fetchone() or {}
                 return (
@@ -778,6 +918,21 @@ def get_approved_qa_pairs_corpus_signature() -> Optional[Tuple[int, int, int]]:
     except Exception as exc:
         logger.error("Ошибка получения сигнатуры корпуса Q&A: %s", exc, exc_info=True)
         return None
+
+
+def _normalize_extraction_types(
+    extraction_types: Optional[Iterable[str]],
+) -> Optional[Tuple[str, ...]]:
+    """Нормализовать список типов извлечения для SQL-фильтрации."""
+    if extraction_types is None:
+        return None
+
+    normalized = tuple(
+        extraction_type.strip()
+        for extraction_type in extraction_types
+        if extraction_type and extraction_type.strip()
+    )
+    return normalized or None
 
 
 def get_unindexed_qa_pairs() -> List[QAPair]:

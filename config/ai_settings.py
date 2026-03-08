@@ -658,10 +658,19 @@ GK_QA_VECTOR_COLLECTION: Final[str] = os.getenv("GK_QA_VECTOR_COLLECTION", "gk_q
 GK_RESPONDER_TOP_K: Final[int] = int(os.getenv("GK_RESPONDER_TOP_K", "5"))
 # Максимальный размер батча сообщений, отправляемого в LLM для анализа.
 GK_ANALYSIS_BATCH_SIZE: Final[int] = int(os.getenv("GK_ANALYSIS_BATCH_SIZE", "50"))
+# Порог уверенности question-классификатора, после которого сообщение считается явным вопросом в thread-анализе.
+GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD: Final[float] = float(
+    os.getenv("GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD", "0.90")
+)
+# Разрешать ли использовать llm_inferred Q&A-пары при поиске ответов.
+GK_INCLUDE_LLM_INFERRED_ANSWERS: Final[bool] = os.getenv(
+    "GK_INCLUDE_LLM_INFERRED_ANSWERS",
+    "0",
+) == "1"
 # Промпт для описания изображений через GigaChat.
 GK_IMAGE_DESCRIPTION_PROMPT: Final[str] = os.getenv(
     "GK_IMAGE_DESCRIPTION_PROMPT",
-    "Опиши подробно что изображено на этом изображении, включая текст. Если видишь на устройстве слово Эвотор - это касса Эвотор."
+    "Опиши подробно что изображено на этом изображении, включая текст. Если видишь на устройстве надпись Эвотор - это касса Эвотор."
 #    "Если на изображении есть текст ошибки, код ошибки или сообщение об ошибке, "
 #    "обязательно укажи его дословно. Если на изображении устройство — опиши его состояние."
 )
