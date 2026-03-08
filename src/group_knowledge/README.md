@@ -162,6 +162,9 @@ python scripts/gk_analyze.py --index
 
 # Принудительный переанализ (включая уже processed сообщения)
 python scripts/gk_analyze.py --date 2024-01-15 --force-reanalyze
+
+# Полный rebuild всех Q&A-пар по всем датам выбранных групп
+python scripts/gk_analyze.py --all-dates --rebuild-pairs
 ```
 
 `gk_analyze.py` по умолчанию анализирует только сообщения с `processed = 0`.
@@ -169,13 +172,25 @@ python scripts/gk_analyze.py --date 2024-01-15 --force-reanalyze
 повторно извлекаться в новые Q&A-пары.
 Если нужен повторный разбор исторических данных, используйте флаг `--force-reanalyze`.
 Для прохода по всем накопленным необработанным сообщениям без ручного указания даты используйте `--all-unprocessed`.
+Если после изменения логики извлечения нужно полностью пересобрать Q&A-пары, используйте
+`--all-dates --rebuild-pairs`: режим удалит старые `gk_qa_pairs`, очистит их vector-точки
+и заново прогонит анализ по всем датам, где у выбранных групп есть сообщения.
 
 Новые сообщения при сборе теперь дополнительно классифицируются как вопрос/не вопрос.
 Для сообщений без символа `?` коллектор отправляет текст в LLM, сохраняет результат в `gk_messages`
 (`is_question`, `question_confidence`, `question_reason`, `question_model_used`, `question_detected_at`),
-а анализатор позже использует эти метки как подсказки `QUESTION_HINT` / `NOT_QUESTION_HINT` во время LLM-inferred анализа.
+а анализатор позже использует эти метки как подсказки `QUESTION_HINT` / `NOT_QUESTION_HINT` во время LLM-inferred анализа
+и thread-chain валидации. Если `is_question = 1` и `question_confidence >= GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD`
+(по умолчанию `0.90`), такое сообщение считается явным вопросом цепочки даже если reply-root был служебным или вводным сообщением.
+Для LLM-классификации вопроса также учитывается контекст медиа: если текст пришёл как `caption` к изображению,
+это передаётся в prompt как сильный сигнал возможного вопроса. При наличии `image_description` описание изображения
+тоже добавляется в метаданные классификатора, чтобы короткие подписи вроде `что с этим` точнее распознавались как запрос помощи.
 Сообщения от sender-id из `GK_IGNORED_SENDER_IDS` анализатор исключает до построения цепочек,
 чтобы служебные сообщения бота не попадали в Q&A-пары.
+
+Для поискового автоответчика доступен отдельный флаг `GK_INCLUDE_LLM_INFERRED_ANSWERS`.
+Если установить его в `0`, RAG-ответы будут строиться только по `thread_reply` парам,
+а `llm_inferred` пары останутся в БД и индексе, но не будут использоваться при BM25/vector поиске и в финальном LLM-контексте ответа.
 
 ### 6. Запуск автоответчика
 
@@ -251,6 +266,22 @@ python scripts/gk_collector.py --redirect-test-mode
 
 Скрипт `gk_responder.py` сохранён для отдельного legacy-запуска, но основной эксплуатационный
 сценарий теперь проходит через daemon `gk_collector.py`.
+
+Дополнительно у `gk_collector.py` есть режим заполнения question-классификации для уже собранных сообщений:
+
+```bash
+# Заполнить is_question только для сообщений, где поле ещё NULL
+python scripts/gk_collector.py --fill-missing-is-question
+
+# Только за последние 30 дней
+python scripts/gk_collector.py --fill-missing-is-question --fill-days 30
+
+# Только для одной группы и ограниченным батчем
+python scripts/gk_collector.py --fill-missing-is-question --group-id -1001234567890 --fill-limit 500
+```
+
+Этот режим не требует Telethon-подключения: он читает сообщения из БД, находит записи с `is_question IS NULL`,
+прогоняет их через ту же логику классификации, что и live/backfill-сбор, и сохраняет результат обратно в `gk_messages`.
 
 ### 7. Очистка данных по группе
 

@@ -208,6 +208,39 @@ class TestQuestionClassifierService(unittest.TestCase):
         self.assertAlmostEqual(result.confidence, 0.87, places=2)
         self.assertEqual(result.model_used, "deepseek-test")
 
+    def test_classify_includes_caption_metadata_in_prompt(self):
+        """Классификатор передаёт в prompt признак caption и контекст изображения."""
+        from src.group_knowledge.question_classifier import QuestionClassifierService
+
+        captured_prompt = {}
+        mock_provider = MagicMock()
+
+        async def _chat(**kwargs):
+            captured_prompt["prompt"] = kwargs["messages"][0]["content"]
+            return json.dumps({
+                "is_question": True,
+                "confidence": 0.92,
+                "reason": "Подпись к скриншоту с ошибкой выглядит как запрос помощи",
+            })
+
+        mock_provider.chat = _chat
+
+        service = QuestionClassifierService(model_name="deepseek-test")
+        with patch("src.group_knowledge.question_classifier.get_provider", return_value=mock_provider):
+            result = _run_async(
+                service.classify(
+                    "что с этой ошибкой",
+                    is_caption=True,
+                    has_image=True,
+                    image_description="На скриншоте текст: Ошибка 445. Нет связи с хостом.",
+                )
+            )
+
+        self.assertTrue(result.is_question)
+        self.assertIn("- is_caption: true", captured_prompt["prompt"])
+        self.assertIn("- has_image: true", captured_prompt["prompt"])
+        self.assertIn("Ошибка 445", captured_prompt["prompt"])
+
     def test_classify_short_message_without_llm(self):
         """Слишком короткое сообщение не отправляется в LLM."""
         from src.group_knowledge.question_classifier import QuestionClassifierService
@@ -873,6 +906,76 @@ class TestMessageCollectorQuestionClassification(unittest.TestCase):
         self.assertTrue(msg.is_question)
         self.assertAlmostEqual(msg.question_confidence, 0.91, places=2)
         self.assertEqual(msg.question_model_used, "deepseek-test")
+
+    def test_classify_caption_passes_caption_metadata_to_llm(self):
+        """Для caption collector передаёт в классификатор признак подписи к изображению."""
+        from src.group_knowledge.message_collector import MessageCollector
+        from src.group_knowledge.models import GroupMessage
+        from src.group_knowledge.question_classifier import QuestionClassificationResult
+
+        collector = MessageCollector(client=MagicMock(), groups=[])
+        msg = GroupMessage(
+            group_id=-1001234,
+            telegram_message_id=556,
+            message_text="",
+            caption="что с этой ошибкой",
+            has_image=True,
+            image_description="На скриншоте код 321 и текст 'Нет бумаги'.",
+        )
+
+        with patch.object(
+            collector._question_classifier,
+            "classify",
+            new=AsyncMock(return_value=QuestionClassificationResult(
+                is_question=True,
+                confidence=0.94,
+                reason="Caption к скриншоту ошибки",
+                model_used="deepseek-test",
+                detected_at=123456,
+            )),
+        ) as mock_classify:
+            _run_async(collector._classify_message_question(msg))
+
+        mock_classify.assert_awaited_once_with(
+            "что с этой ошибкой",
+            is_caption=True,
+            has_image=True,
+            image_description="На скриншоте код 321 и текст 'Нет бумаги'.",
+        )
+        self.assertTrue(msg.is_question)
+
+    def test_fill_missing_question_classification_updates_db(self):
+        """Backfill missing is_question использует сохранение классификации в БД."""
+        from src.group_knowledge.message_collector import MessageCollector
+        from src.group_knowledge.models import GroupMessage
+
+        collector = MessageCollector(client=MagicMock(), groups=[{"id": -1001, "title": "Real"}])
+        msg = GroupMessage(
+            id=10,
+            group_id=-1001,
+            telegram_message_id=500,
+            message_text="Почему терминал не печатает?",
+        )
+
+        with patch(
+            "src.group_knowledge.message_collector.gk_db.get_messages_missing_question_classification",
+            return_value=[msg],
+        ) as mock_get_messages:
+            with patch(
+                "src.group_knowledge.message_collector.gk_db.update_message_question_classification",
+            ) as mock_update:
+                updated = _run_async(collector.fill_missing_question_classification(days=30, limit=50))
+
+        self.assertEqual(updated, 1)
+        mock_get_messages.assert_called_once()
+        mock_update.assert_called_once_with(
+            message_id=10,
+            is_question=True,
+            confidence=1.0,
+            reason="Явный вопросительный знак в сообщении",
+            model_used="rule:question_mark",
+            detected_at=msg.question_detected_at,
+        )
 
 
 class TestMessageCollectorLogging(unittest.TestCase):
@@ -1638,6 +1741,39 @@ class TestQAAnalyzerThreadExtraction(unittest.TestCase):
         self.assertEqual(pairs[0].answer_message_id, 4)
         self.assertEqual(pairs[0].extraction_type, "thread_reply")
 
+    def test_extract_thread_pairs_uses_hard_question_message_from_chain(self):
+        """Thread-анализ использует сохранённый hard-question сигнал внутри цепочки."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        messages = [
+            self._make_message(1, 101, 1, "Добрый день"),
+            self._make_message(2, 102, 2, "Как исправить ошибку 1001 на терминале?", reply_to=101, date_offset=1),
+            self._make_message(3, 103, 3, "Перезагрузите терминал и обновите конфиг", reply_to=102, date_offset=2),
+        ]
+        messages[1].is_question = True
+        messages[1].question_confidence = 0.95
+
+        with patch.object(
+            analyzer,
+            "_validate_thread_chain",
+            new=AsyncMock(return_value=(
+                "Как исправить ошибку 1001 на терминале?",
+                "Перезагрузите терминал и обновите конфиг.",
+                0.94,
+                103,
+            )),
+        ) as mock_validate:
+            with patch("src.group_knowledge.qa_analyzer.gk_db.store_qa_pair", return_value=88):
+                with patch("src.group_knowledge.qa_analyzer.asyncio.sleep", new=AsyncMock()):
+                    pairs = _run_async(analyzer._extract_thread_pairs(messages))
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].question_message_id, 2)
+        self.assertEqual(pairs[0].answer_message_id, 3)
+        validate_question_message, _validate_chain = mock_validate.await_args.args
+        self.assertEqual(validate_question_message.telegram_message_id, 102)
+
     def test_extract_thread_pairs_adds_image_gist_to_stored_question(self):
         """При сохранении thread-пары gist из изображения добавляется в вопрос."""
         from src.group_knowledge.qa_analyzer import QAAnalyzer
@@ -1684,6 +1820,59 @@ class TestQAAnalyzerThreadExtraction(unittest.TestCase):
 
         self.assertEqual(pairs, [])
         mock_validate.assert_not_called()
+
+    def test_format_thread_context_includes_question_hints(self):
+        """Thread-контекст для LLM включает QUESTION_HINT / NOT_QUESTION_HINT."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        question_msg = self._make_message(1, 101, 1, "Терминал не печатает")
+        question_msg.is_question = True
+        question_msg.question_confidence = 0.95
+
+        answer_msg = self._make_message(2, 102, 2, "Проверьте бумагу", reply_to=101, date_offset=1)
+        answer_msg.is_question = False
+        answer_msg.question_confidence = 0.12
+
+        context = QAAnalyzer._format_thread_context([question_msg, answer_msg])
+
+        self.assertIn("[QUESTION_HINT conf=0.95]", context)
+        self.assertIn("[NOT_QUESTION_HINT conf=0.12]", context)
+
+    def test_extract_thread_pairs_logs_truncated_chain_preview(self):
+        """При сохранении thread-пары в лог пишется укороченный preview цепочки."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        long_text = "Очень длинное сообщение " * 20
+        messages = [
+            self._make_message(1, 101, 1, long_text),
+            self._make_message(2, 102, 2, "Решение: перезапустите терминал", reply_to=101, date_offset=1),
+        ]
+
+        with patch.object(
+            analyzer,
+            "_validate_thread_chain",
+            new=AsyncMock(return_value=(
+                "Как решить проблему?",
+                "Перезапустите терминал.",
+                0.91,
+                102,
+            )),
+        ):
+            with patch("src.group_knowledge.qa_analyzer.gk_db.store_qa_pair", return_value=79):
+                with patch("src.group_knowledge.qa_analyzer.asyncio.sleep", new=AsyncMock()):
+                    with patch("src.group_knowledge.qa_analyzer.logger.info") as mock_log_info:
+                        pairs = _run_async(analyzer._extract_thread_pairs(messages))
+
+        self.assertEqual(len(pairs), 1)
+        matching_calls = [
+            call for call in mock_log_info.call_args_list
+            if call.args and isinstance(call.args[0], str) and "Создана thread Q&A-пара" in call.args[0]
+        ]
+        self.assertEqual(len(matching_calls), 1)
+        log_call = matching_calls[0]
+        self.assertIn("[101] User 1: Очень длинное сообщение", log_call.args[7])
+        self.assertIn("…", log_call.args[7])
 
     def test_analyze_day_ignores_configured_bot_sender(self):
         """Анализатор исключает сообщения bot-user из анализа по sender_id."""
@@ -2142,6 +2331,31 @@ class TestQASearchAnswer(unittest.TestCase):
             query_vector=[0.4, 0.5, 0.6],
             limit=3,
         )
+
+    def test_vector_search_skips_llm_inferred_pairs_when_disabled(self):
+        """При выключенном флаге ответы не используют llm_inferred пары из vector-поиска."""
+        from src.group_knowledge.models import QAPair
+        from src.group_knowledge.qa_search import QASearchService
+
+        thread_pair = QAPair(id=1, question_text="Q1", answer_text="A1", extraction_type="thread_reply")
+        llm_pair = QAPair(id=2, question_text="Q2", answer_text="A2", extraction_type="llm_inferred")
+
+        hit_thread = types.SimpleNamespace(document_id=1, score=0.92)
+        hit_llm = types.SimpleNamespace(document_id=2, score=0.91)
+        mock_embedding_provider = MagicMock()
+        mock_embedding_provider.encode.return_value = [0.1, 0.2]
+        mock_vector_index = MagicMock()
+        mock_vector_index.search.return_value = [hit_thread, hit_llm]
+
+        service = QASearchService()
+
+        with patch("src.core.ai.vector_search.LocalEmbeddingProvider", return_value=mock_embedding_provider):
+            with patch("src.core.ai.vector_search.LocalVectorIndex", return_value=mock_vector_index):
+                with patch("src.group_knowledge.qa_search.gk_db.get_qa_pair_by_id", side_effect=[thread_pair, llm_pair]):
+                    with patch("src.group_knowledge.qa_search.ai_settings.GK_INCLUDE_LLM_INFERRED_ANSWERS", False):
+                        results = _run_async(service._vector_search("Как включить NFC?", 3))
+
+        self.assertEqual(results, [(thread_pair, 0.92)])
 
 
 # ===========================================================================
@@ -3254,6 +3468,28 @@ class TestGetAllApprovedQAPairs(unittest.TestCase):
         self.assertEqual(pairs[0].question_text, "Q1")
 
     @patch("src.group_knowledge.database.get_db_connection")
+    def test_filters_by_extraction_type(self, mock_conn_ctx):
+        """Фильтр по extraction_type добавляется в SQL-запрос."""
+        from src.group_knowledge.database import get_all_approved_qa_pairs
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn_ctx.return_value = mock_conn
+
+        with patch("src.group_knowledge.database.get_cursor") as mock_cur_ctx:
+            mock_cur_ctx.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+            mock_cur_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+            get_all_approved_qa_pairs(extraction_types=("thread_reply",))
+
+        execute_args = mock_cursor.execute.call_args
+        self.assertIn("extraction_type IN (%s)", execute_args.args[0])
+        self.assertEqual(execute_args.args[1], ("thread_reply",))
+
+    @patch("src.group_knowledge.database.get_db_connection")
     def test_empty_table(self, mock_conn_ctx):
         """Пустая таблица возвращает пустой список."""
         from src.group_knowledge.database import get_all_approved_qa_pairs
@@ -3296,6 +3532,25 @@ class TestGetAllApprovedQAPairs(unittest.TestCase):
             signature = get_approved_qa_pairs_corpus_signature()
 
         self.assertEqual(signature, (42, 123, 1700000000))
+
+    def test_corpus_loader_uses_extraction_type_filter_when_llm_pairs_disabled(self):
+        """BM25-корпус загружается только из thread_reply при отключённых llm_inferred ответах."""
+        from src.group_knowledge.models import QAPair
+        from src.group_knowledge.qa_search import QASearchService
+
+        service = QASearchService()
+        pairs = [
+            QAPair(id=1, question_text="Q1", answer_text="A1", extraction_type="thread_reply"),
+        ]
+
+        with patch("src.group_knowledge.qa_search.ai_settings.GK_INCLUDE_LLM_INFERRED_ANSWERS", False):
+            with patch("src.group_knowledge.qa_search.gk_db.get_approved_qa_pairs_corpus_signature", return_value=(1, 1, 100)) as mock_sig:
+                with patch("src.group_knowledge.qa_search.gk_db.get_all_approved_qa_pairs", return_value=pairs) as mock_pairs:
+                    service._ensure_corpus_loaded()
+
+        mock_sig.assert_called_once_with(extraction_types=("thread_reply",))
+        mock_pairs.assert_called_once_with(extraction_types=("thread_reply",))
+        self.assertEqual([pair.id for pair in service._corpus_pairs], [1])
 
 
 if __name__ == "__main__":

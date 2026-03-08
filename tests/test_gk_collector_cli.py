@@ -321,6 +321,42 @@ class TestGKCollectorCli(unittest.TestCase):
         mock_responder = asyncio.run(_run())
         mock_responder.preload_search_resources.assert_called_once_with(preload_vector_model=True)
 
+    def test_fill_missing_is_question_mode_does_not_start_telegram(self):
+        """Режим заполнения missing is_question работает без запуска Telethon-клиента."""
+        args = argparse.Namespace(
+            manage_groups=False,
+            backfill=False,
+            fill_missing_is_question=True,
+            days=7,
+            force=False,
+            fill_days=30,
+            fill_limit=100,
+            group_id=-1001,
+            live=False,
+            test_mode=False,
+            redirect_test_mode=False,
+            collect_only=False,
+        )
+
+        async def _run():
+            with patch.object(GK_COLLECTOR, "load_groups_config", return_value=[{"id": -1001, "title": "Real"}]):
+                with patch.object(GK_COLLECTOR, "start_telegram_client_with_logging", AsyncMock()) as mock_start:
+                    with patch.object(GK_COLLECTOR, "MessageCollector") as mock_collector_cls:
+                        mock_collector = mock_collector_cls.return_value
+                        mock_collector.fill_missing_question_classification = AsyncMock(return_value=12)
+                        await GK_COLLECTOR._run_fill_missing_is_question(args)
+            return mock_start, mock_collector_cls
+
+        mock_start, mock_collector_cls = asyncio.run(_run())
+
+        mock_start.assert_not_called()
+        mock_collector_cls.assert_called_once_with(client=None, groups=[{"id": -1001, "title": "Real"}])
+        mock_collector_cls.return_value.fill_missing_question_classification.assert_awaited_once_with(
+            group_id=-1001,
+            days=30,
+            limit=100,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

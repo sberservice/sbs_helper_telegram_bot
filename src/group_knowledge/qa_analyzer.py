@@ -11,7 +11,6 @@
 import asyncio
 import json
 import logging
-import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
@@ -28,6 +27,9 @@ logger = logging.getLogger(__name__)
 THREAD_NEARBY_WINDOW_SECONDS = 180
 THREAD_MAX_NEARBY_MESSAGES = 20
 THREAD_OVERLAP_RATIO_THRESHOLD = 0.60
+THREAD_QUESTION_HINT_CONFIDENCE_DECIMALS = 2
+THREAD_LOG_MESSAGE_TEXT_LIMIT = 160
+THREAD_LOG_CHAIN_PREVIEW_LIMIT = 2000
 
 # Промпт для валидации и очистки thread-based цепочек
 THREAD_VALIDATION_PROMPT = """Ты — эксперт по технической поддержке оборудования и ПО для полевых инженеров.
@@ -54,6 +56,8 @@ THREAD_VALIDATION_PROMPT = """Ты — эксперт по техническо�
 5. По возможности укажи ID сообщения, где содержится финальное или наиболее полезное решение.
 6. confidence - уровень уверенности модели, в том, что вопрос извлечен правильно, а не частично, общими словами без предмета обсуждения, вопрос имеет смысл и имеет полезное решение (0.0-1.0).
 7. Оставляй аббревиатуры неизменными. ГЗ означает Горячая замена.
+8. Учитывай служебные метки QUESTION_HINT / NOT_QUESTION_HINT у сообщений.
+9. Если у сообщения есть QUESTION_HINT с confidence >= {question_confidence_threshold}, считай это сильным сигналом, что именно это сообщение является техническим вопросом цепочки.
 Верни JSON:
 {{
     "is_valid_qa": true/false,
@@ -110,6 +114,7 @@ class QAAnalyzer:
         """
         self._model_name = model_name or ai_settings.GK_ANALYSIS_MODEL
         self._batch_size = ai_settings.GK_ANALYSIS_BATCH_SIZE
+        self._question_confidence_threshold = ai_settings.GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD
 
     async def analyze_day(
         self,
@@ -249,7 +254,8 @@ class QAAnalyzer:
                 children_index,
                 all_messages=messages,
             )
-            question_text = root_msg.full_text.strip()
+            question_message = self._select_chain_question_message(root_msg, thread_messages)
+            question_text = question_message.full_text.strip()
 
             if not question_text or len(thread_messages) < 2:
                 continue
@@ -273,9 +279,10 @@ class QAAnalyzer:
         for candidate in selected_candidates:
             root_msg = candidate["root"]
             thread_messages = candidate["thread_messages"]
+            question_message = self._select_chain_question_message(root_msg, thread_messages)
 
             try:
-                validated = await self._validate_thread_chain(root_msg, thread_messages)
+                validated = await self._validate_thread_chain(question_message, thread_messages)
                 if not validated:
                     continue
 
@@ -286,12 +293,12 @@ class QAAnalyzer:
                 if answer_message is None:
                     answer_message = self._find_last_meaningful_message(
                         thread_messages,
-                        question_sender_id=root_msg.sender_id,
+                        question_sender_id=question_message.sender_id,
                     )
 
                 stored_question = self._enrich_question_with_image_gist(
                     clean_question,
-                    root_msg,
+                    question_message,
                 )
                 clean_answer = (clean_answer or "").strip()
                 if not stored_question.strip() or not clean_answer:
@@ -304,9 +311,9 @@ class QAAnalyzer:
                 pair = QAPair(
                     question_text=stored_question,
                     answer_text=clean_answer,
-                    question_message_id=root_msg.id,
+                    question_message_id=question_message.id,
                     answer_message_id=answer_message.id if answer_message else None,
-                    group_id=root_msg.group_id,
+                    group_id=question_message.group_id,
                     extraction_type="thread_reply",
                     confidence=confidence,
                     llm_model_used=self._model_name,
@@ -315,10 +322,23 @@ class QAAnalyzer:
                 pair.id = pair_id
                 pairs.append(pair)
                 seen_root_ids.add(root_msg.telegram_message_id)
+                chain_preview = self._format_thread_chain_log_preview(thread_messages)
+
+                logger.info(
+                    "Создана thread Q&A-пара: pair_id=%s root_msg=%d question_msg=%d answer_msg=%s messages=%d conf=%.2f chain=%s",
+                    pair.id,
+                    root_msg.telegram_message_id,
+                    question_message.telegram_message_id,
+                    answer_message.telegram_message_id if answer_message else None,
+                    len(thread_messages),
+                    confidence,
+                    chain_preview,
+                )
 
                 logger.debug(
-                    "Thread chain pair saved: root_msg=%d messages=%d conf=%.2f",
+                    "Thread chain pair saved: root_msg=%d question_msg=%d messages=%d conf=%.2f",
                     root_msg.telegram_message_id,
+                    question_message.telegram_message_id,
                     len(thread_messages),
                     confidence,
                 )
@@ -458,6 +478,7 @@ class QAAnalyzer:
         prompt = THREAD_VALIDATION_PROMPT.format(
             question=root_message.full_text[:2000],
             thread_context=thread_context[:6000],
+            question_confidence_threshold=f"{self._question_confidence_threshold:.2f}",
         )
 
         try:
@@ -637,6 +658,45 @@ class QAAnalyzer:
 
         return collected
 
+    def _select_chain_question_message(
+        self,
+        root_message: GroupMessage,
+        thread_messages: List[GroupMessage],
+    ) -> GroupMessage:
+        """Выбрать сообщение, которое следует считать вопросом цепочки."""
+        ordered_messages = sorted(
+            thread_messages,
+            key=lambda item: (item.message_date, item.telegram_message_id),
+        )
+
+        for msg in ordered_messages:
+            if self._is_message_hard_question(msg) and msg.full_text.strip():
+                return msg
+
+        return root_message
+
+    def _is_message_hard_question(self, message: GroupMessage) -> bool:
+        """Считать ли сообщение явным вопросом по сохранённой LLM-классификации."""
+        if message.is_question is not True:
+            return False
+
+        confidence = message.question_confidence
+        if confidence is None:
+            return False
+
+        return confidence >= self._question_confidence_threshold
+
+    @staticmethod
+    def _format_question_hint(message: GroupMessage) -> str:
+        """Сформировать подсказку о question-классификации сообщения для LLM."""
+        if message.is_question is True:
+            confidence = message.question_confidence if message.question_confidence is not None else 0.0
+            return f" [QUESTION_HINT conf={confidence:.{THREAD_QUESTION_HINT_CONFIDENCE_DECIMALS}f}]"
+        if message.is_question is False:
+            confidence = message.question_confidence if message.question_confidence is not None else 0.0
+            return f" [NOT_QUESTION_HINT conf={confidence:.{THREAD_QUESTION_HINT_CONFIDENCE_DECIMALS}f}]"
+        return ""
+
     @staticmethod
     def _format_thread_context(thread_messages: List[GroupMessage]) -> str:
         """Подготовить цепочку сообщений в компактный текстовый контекст для LLM."""
@@ -652,10 +712,38 @@ class QAAnalyzer:
                 if msg.reply_to_message_id
                 else ""
             )
+            question_hint = QAAnalyzer._format_question_hint(msg)
             lines.append(
-                f"[{msg.telegram_message_id} @ {timestamp}{reply_hint}] {sender}: {text[:700]}"
+                f"[{msg.telegram_message_id} @ {timestamp}{reply_hint}]{question_hint} {sender}: {text[:700]}"
             )
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_thread_chain_log_preview(thread_messages: List[GroupMessage]) -> str:
+        """Подготовить укороченный preview цепочки сообщений для логов."""
+        parts = []
+        for msg in thread_messages:
+            text = QAAnalyzer._normalize_message_for_log(msg.full_text)
+            if not text:
+                continue
+
+            sender = msg.sender_name or f"User_{msg.sender_id}"
+            truncated_text = text[:THREAD_LOG_MESSAGE_TEXT_LIMIT]
+            if len(text) > THREAD_LOG_MESSAGE_TEXT_LIMIT:
+                truncated_text += "…"
+            parts.append(
+                f"[{msg.telegram_message_id}] {sender}: {truncated_text}"
+            )
+
+        preview = " | ".join(parts)
+        if len(preview) > THREAD_LOG_CHAIN_PREVIEW_LIMIT:
+            return preview[: THREAD_LOG_CHAIN_PREVIEW_LIMIT - 1] + "…"
+        return preview
+
+    @staticmethod
+    def _normalize_message_for_log(text: str) -> str:
+        """Нормализовать переносы и лишние пробелы перед выводом в лог."""
+        return " ".join((text or "").split())
 
     @staticmethod
     def _format_message_timestamp(message_date: int) -> str:
@@ -771,7 +859,7 @@ class QAAnalyzer:
         self,
         batch: List[GroupMessage],
         group_id: int,
-        all_messages: List[GroupMessage],
+        _all_messages: List[GroupMessage],
     ) -> List[QAPair]:
         """
         Проанализировать батч сообщений для поиска Q&A пар через LLM.
@@ -792,13 +880,7 @@ class QAAnalyzer:
             text = msg.full_text.strip()
             if text:
                 sender = msg.sender_name or f"User_{msg.sender_id}"
-                question_hint = ""
-                if msg.is_question is True:
-                    confidence = msg.question_confidence if msg.question_confidence is not None else 0.0
-                    question_hint = f" [QUESTION_HINT conf={confidence:.2f}]"
-                elif msg.is_question is False:
-                    confidence = msg.question_confidence if msg.question_confidence is not None else 0.0
-                    question_hint = f" [NOT_QUESTION_HINT conf={confidence:.2f}]"
+                question_hint = self._format_question_hint(msg)
 
                 msg_lines.append(
                     f"[{msg.telegram_message_id}]{question_hint} {sender}: {text[:500]}"

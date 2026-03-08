@@ -5,6 +5,32 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.5.43] - 2026-03-07
+
+### Changed
+- LLM-классификатор вопросов Group Knowledge теперь учитывает контекст медиа: подпись к изображению (`caption`) передаётся как сильный сигнал вопроса, а доступное `image_description` добавляется в метаданные prompt для более точной классификации коротких подписей к скриншотам ошибок.
+
+## [0.5.42] - 2026-03-07
+
+### Added
+- В `scripts/gk_collector.py` добавлен режим `--fill-missing-is-question`, который заполняет question-классификацию для уже сохранённых сообщений с `is_question IS NULL` без запуска Telethon listener.
+- В `scripts/gk_analyze.py` добавлен режим полного rebuild Q&A-пар: `--all-dates --rebuild-pairs` удаляет старые пары и их vector-точки, а затем заново анализирует всю историю сообщений выбранных групп.
+
+### Changed
+- В документации Group Knowledge добавлены отдельные инструкции для массового заполнения `is_question` и полного переанализа всех Q&A-пар после изменений логики thread-анализа.
+
+## [0.5.41] - 2026-03-07
+
+### Added
+- В настройки Group Knowledge добавлены `GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD` и `GK_INCLUDE_LLM_INFERRED_ANSWERS`, чтобы отдельно управлять жёстким распознаванием вопросов в thread-анализе и использованием `llm_inferred` пар в автоответчике.
+
+### Changed
+- `qa_analyzer.py` теперь учитывает сохранённые `is_question` и `question_confidence` не только в `llm_inferred`, но и в thread-chain анализе: сообщение с confidence выше порога считается вопросом цепочки и передаётся в LLM-валидацию как основной вопрос.
+- Thread-контекст для LLM-валидации теперь тоже содержит `QUESTION_HINT` / `NOT_QUESTION_HINT`, чтобы модель видела сохранённую классификацию всех сообщений цепочки.
+
+### Fixed
+- Поиск ответов Group Knowledge теперь умеет глобально исключать `llm_inferred` пары из BM25, vector и финального LLM-контекста, если это отключено через настройки.
+
 ## [0.5.40] - 2026-03-07
 
 ### Changed
