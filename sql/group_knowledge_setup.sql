@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS `gk_qa_pairs` (
   `extraction_type` enum('thread_reply','llm_inferred') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'thread_reply' COMMENT 'Метод извлечения',
   `confidence` float DEFAULT NULL COMMENT 'Уверенность LLM (0.0–1.0)',
   `llm_model_used` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT 'Модель LLM',
+  `llm_request_payload` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'JSON запроса, отправленного в LLM для отладки',
   `created_at` bigint(20) NOT NULL COMMENT 'Время создания (UNIX timestamp)',
   `approved` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1=одобрено, 0=отклонено',
   `vector_indexed` tinyint(1) NOT NULL DEFAULT 0 COMMENT '1=проиндексировано в Qdrant',

@@ -122,6 +122,7 @@ class TestQAPair(unittest.TestCase):
         self.assertEqual(pair.extraction_type, "thread_reply")
         self.assertEqual(pair.confidence, 0.85)
         self.assertTrue(pair.approved)
+        self.assertIsNone(pair.llm_request_payload)
 
     def test_default_approved(self):
         """По умолчанию approved=True."""
@@ -423,10 +424,11 @@ class TestQAAnalyzerAnalyzeDay(unittest.TestCase):
             "src.group_knowledge.qa_analyzer.gk_db.get_unprocessed_messages",
             return_value=messages,
         ) as mock_get_unprocessed:
-            with patch.object(analyzer, "_extract_thread_pairs", new=AsyncMock(return_value=[])) as mock_thread:
-                with patch.object(analyzer, "_extract_llm_inferred_pairs", new=AsyncMock(return_value=[])) as mock_llm:
-                    with patch("src.group_knowledge.qa_analyzer.gk_db.mark_messages_processed") as mock_mark:
-                        result = _run_async(analyzer.analyze_day(-1001234, "2026-03-06"))
+            with patch("src.group_knowledge.qa_analyzer.ai_settings.GK_GENERATE_LLM_INFERRED_QA_PAIRS", True):
+                with patch.object(analyzer, "_extract_thread_pairs", new=AsyncMock(return_value=[])) as mock_thread:
+                    with patch.object(analyzer, "_extract_llm_inferred_pairs", new=AsyncMock(return_value=[])) as mock_llm:
+                        with patch("src.group_knowledge.qa_analyzer.gk_db.mark_messages_processed") as mock_mark:
+                            result = _run_async(analyzer.analyze_day(-1001234, "2026-03-06"))
 
         self.assertEqual(result.total_messages, 2)
         mock_get_unprocessed.assert_called_once_with(-1001234, "2026-03-06")
@@ -436,23 +438,33 @@ class TestQAAnalyzerAnalyzeDay(unittest.TestCase):
 
     def test_analyze_day_skips_when_no_unprocessed_messages(self):
         """Если новых сообщений нет, пары повторно не генерируются."""
+        from src.group_knowledge.models import GroupMessage
         from src.group_knowledge.qa_analyzer import QAAnalyzer
 
         analyzer = QAAnalyzer()
+        all_messages_for_date = [
+            GroupMessage(id=101, telegram_message_id=1001, group_id=-1001234, sender_id=1, message_text="old", message_date=10),
+            GroupMessage(id=102, telegram_message_id=1002, group_id=-1001234, sender_id=2, message_text="old2", message_date=11),
+        ]
 
         with patch(
             "src.group_knowledge.qa_analyzer.gk_db.get_unprocessed_messages",
             return_value=[],
         ) as mock_get_unprocessed:
-            with patch.object(analyzer, "_extract_thread_pairs", new=AsyncMock()) as mock_thread:
-                with patch.object(analyzer, "_extract_llm_inferred_pairs", new=AsyncMock()) as mock_llm:
-                    with patch("src.group_knowledge.qa_analyzer.gk_db.mark_messages_processed") as mock_mark:
-                        result = _run_async(analyzer.analyze_day(-1001234, "2026-03-06"))
+            with patch(
+                "src.group_knowledge.qa_analyzer.gk_db.get_messages_for_date",
+                return_value=all_messages_for_date,
+            ) as mock_get_all:
+                with patch.object(analyzer, "_extract_thread_pairs", new=AsyncMock()) as mock_thread:
+                    with patch.object(analyzer, "_extract_llm_inferred_pairs", new=AsyncMock()) as mock_llm:
+                        with patch("src.group_knowledge.qa_analyzer.gk_db.mark_messages_processed") as mock_mark:
+                            result = _run_async(analyzer.analyze_day(-1001234, "2026-03-06"))
 
-        self.assertEqual(result.total_messages, 0)
+        self.assertEqual(result.total_messages, 2)
         self.assertEqual(result.thread_pairs_found, 0)
         self.assertEqual(result.llm_pairs_found, 0)
         mock_get_unprocessed.assert_called_once_with(-1001234, "2026-03-06")
+        mock_get_all.assert_called_once_with(-1001234, "2026-03-06")
         mock_thread.assert_not_awaited()
         mock_llm.assert_not_awaited()
         mock_mark.assert_not_called()
@@ -481,16 +493,17 @@ class TestQAAnalyzerAnalyzeDay(unittest.TestCase):
             return_value=messages,
         ) as mock_get_all:
             with patch("src.group_knowledge.qa_analyzer.gk_db.get_unprocessed_messages") as mock_get_unprocessed:
-                with patch.object(analyzer, "_extract_thread_pairs", new=AsyncMock(return_value=[])) as mock_thread:
-                    with patch.object(analyzer, "_extract_llm_inferred_pairs", new=AsyncMock(return_value=[])) as mock_llm:
-                        with patch("src.group_knowledge.qa_analyzer.gk_db.mark_messages_processed") as mock_mark:
-                            result = _run_async(
-                                analyzer.analyze_day(
-                                    -1001234,
-                                    "2026-03-06",
-                                    force_reanalyze=True,
+                with patch("src.group_knowledge.qa_analyzer.ai_settings.GK_GENERATE_LLM_INFERRED_QA_PAIRS", True):
+                    with patch.object(analyzer, "_extract_thread_pairs", new=AsyncMock(return_value=[])) as mock_thread:
+                        with patch.object(analyzer, "_extract_llm_inferred_pairs", new=AsyncMock(return_value=[])) as mock_llm:
+                            with patch("src.group_knowledge.qa_analyzer.gk_db.mark_messages_processed") as mock_mark:
+                                result = _run_async(
+                                    analyzer.analyze_day(
+                                        -1001234,
+                                        "2026-03-06",
+                                        force_reanalyze=True,
+                                    )
                                 )
-                            )
 
         self.assertEqual(result.total_messages, 1)
         mock_get_all.assert_called_once_with(-1001234, "2026-03-06")
@@ -498,6 +511,56 @@ class TestQAAnalyzerAnalyzeDay(unittest.TestCase):
         mock_thread.assert_awaited_once()
         mock_llm.assert_awaited_once()
         mock_mark.assert_called_once_with([10])
+
+    def test_analyze_day_disables_llm_inferred_by_setting(self):
+        """При отключённой настройке генерация llm_inferred не запускается."""
+        from src.group_knowledge.models import GroupMessage
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer()
+        messages = [
+            GroupMessage(
+                id=30,
+                telegram_message_id=301,
+                group_id=-1001234,
+                sender_id=501,
+                sender_name="User 501",
+                message_text="Почему касса не печатает чек?",
+                message_date=3000,
+                processed=0,
+            ),
+            GroupMessage(
+                id=31,
+                telegram_message_id=302,
+                group_id=-1001234,
+                sender_id=502,
+                sender_name="User 502",
+                message_text="Проверьте бумагу и статус ФН",
+                message_date=3001,
+                processed=0,
+            ),
+        ]
+
+        with patch(
+            "src.group_knowledge.qa_analyzer.ai_settings.GK_GENERATE_LLM_INFERRED_QA_PAIRS",
+            False,
+        ):
+            with patch(
+                "src.group_knowledge.qa_analyzer.gk_db.get_unprocessed_messages",
+                return_value=messages,
+            ) as mock_get_unprocessed:
+                with patch.object(analyzer, "_extract_thread_pairs", new=AsyncMock(return_value=[])) as mock_thread:
+                    with patch.object(analyzer, "_extract_llm_inferred_pairs", new=AsyncMock(return_value=[])) as mock_llm:
+                        with patch("src.group_knowledge.qa_analyzer.gk_db.mark_messages_processed") as mock_mark:
+                            result = _run_async(analyzer.analyze_day(-1001234, "2026-03-06"))
+
+        self.assertEqual(result.total_messages, 2)
+        self.assertEqual(result.thread_pairs_found, 0)
+        self.assertEqual(result.llm_pairs_found, 0)
+        mock_get_unprocessed.assert_called_once_with(-1001234, "2026-03-06")
+        mock_thread.assert_awaited_once()
+        mock_llm.assert_not_awaited()
+        mock_mark.assert_called_once_with([30, 31])
 
 
 # ===========================================================================
@@ -526,6 +589,29 @@ class TestQASearchJsonParsing(unittest.TestCase):
 
 class TestDatabaseLayer(unittest.TestCase):
     """Тесты для database.py с моками MySQL."""
+
+    @patch("src.group_knowledge.database.get_db_connection")
+    def test_get_qa_pairs_count_with_group_and_date(self, mock_conn_ctx):
+        """Подсчёт Q&A-пар учитывает фильтры group_id и date_str."""
+        from src.group_knowledge.database import get_qa_pairs_count
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+
+        mock_conn_ctx.return_value.__enter__.return_value = mock_conn
+        with patch("src.group_knowledge.database.get_cursor") as mock_get_cursor:
+            mock_get_cursor.return_value.__enter__.return_value = mock_cursor
+            mock_cursor.fetchone.return_value = {"cnt": 7}
+
+            count = get_qa_pairs_count(group_id=-1001234, date_str="2026-03-09")
+
+        self.assertEqual(count, 7)
+        executed_query, executed_params = mock_cursor.execute.call_args[0]
+        self.assertIn("FROM gk_qa_pairs qp", executed_query)
+        self.assertIn("LEFT JOIN gk_messages qm", executed_query)
+        self.assertIn("DATE(FROM_UNIXTIME(qm.message_date)) = %s", executed_query)
+        self.assertIn("qp.group_id = %s", executed_query)
+        self.assertEqual(executed_params, ("2026-03-09", -1001234))
 
     @patch("src.group_knowledge.database.get_db_connection")
     def test_store_message(self, mock_conn_ctx):
@@ -581,10 +667,14 @@ class TestDatabaseLayer(unittest.TestCase):
                 extraction_type="thread_reply",
                 confidence=0.9,
                 llm_model_used="deepseek-chat",
+                llm_request_payload='{"messages": [{"role": "user", "content": "debug"}]}',
             )
 
             result = store_qa_pair(pair)
             self.assertEqual(result, 7)
+            insert_sql, insert_params = mock_cursor.execute.call_args_list[0][0]
+            self.assertIn("llm_request_payload", insert_sql)
+            self.assertIn(pair.llm_request_payload, insert_params)
 
     @patch("src.group_knowledge.database.get_db_connection")
     def test_store_qa_pair_updates_existing_by_question_message_id(self, mock_conn_ctx):
@@ -613,6 +703,7 @@ class TestDatabaseLayer(unittest.TestCase):
                 extraction_type="thread_reply",
                 confidence=0.95,
                 llm_model_used="deepseek-chat",
+                llm_request_payload='{"purpose": "gk_validation"}',
             )
 
             result = store_qa_pair(pair)
@@ -621,6 +712,7 @@ class TestDatabaseLayer(unittest.TestCase):
             self.assertEqual(mock_cursor.execute.call_count, 2)
             self.assertIn("SELECT id", mock_cursor.execute.call_args_list[0][0][0])
             self.assertIn("UPDATE gk_qa_pairs", mock_cursor.execute.call_args_list[1][0][0])
+            self.assertIn("llm_request_payload", mock_cursor.execute.call_args_list[1][0][0])
 
     @patch("src.group_knowledge.database.get_db_connection")
     def test_get_messages_for_date(self, mock_conn_ctx):
@@ -1741,6 +1833,36 @@ class TestQAAnalyzerThreadExtraction(unittest.TestCase):
         self.assertEqual(pairs[0].answer_message_id, 4)
         self.assertEqual(pairs[0].extraction_type, "thread_reply")
 
+    def test_validate_thread_chain_returns_debug_request_payload(self):
+        """LLM-валидация возвращает JSON запроса для последующего сохранения."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer(model_name="deepseek-test")
+        root_message = self._make_message(1, 101, 1, "Ошибка 1001 на терминале")
+        answer_message = self._make_message(2, 102, 2, "Перезагрузите терминал", reply_to=101, date_offset=1)
+
+        mock_provider = MagicMock()
+        mock_provider.chat = AsyncMock(return_value=json.dumps({
+            "is_valid_qa": True,
+            "confidence": 0.91,
+            "clean_question": "Как исправить ошибку 1001?",
+            "clean_answer": "Перезагрузите терминал",
+            "answer_message_id": 102,
+        }))
+
+        with patch("src.group_knowledge.qa_analyzer.get_provider", return_value=mock_provider):
+            result = _run_async(analyzer._validate_thread_chain(root_message, [root_message, answer_message]))
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 5)
+        payload = result[4]
+        self.assertIsInstance(payload, str)
+        parsed = json.loads(payload)
+        self.assertEqual(parsed["purpose"], "gk_validation")
+        self.assertEqual(parsed["model_override"], "deepseek-test")
+        self.assertEqual(parsed["messages"][0]["role"], "user")
+        self.assertIn("Ошибка 1001", parsed["messages"][0]["content"])
+
     def test_extract_thread_pairs_uses_hard_question_message_from_chain(self):
         """Thread-анализ использует сохранённый hard-question сигнал внутри цепочки."""
         from src.group_knowledge.qa_analyzer import QAAnalyzer
@@ -1774,8 +1896,8 @@ class TestQAAnalyzerThreadExtraction(unittest.TestCase):
         validate_question_message, _validate_chain = mock_validate.await_args.args
         self.assertEqual(validate_question_message.telegram_message_id, 102)
 
-    def test_extract_thread_pairs_adds_image_gist_to_stored_question(self):
-        """При сохранении thread-пары gist из изображения добавляется в вопрос."""
+    def test_extract_thread_pairs_does_not_add_image_gist_to_stored_question(self):
+        """Thread-пара сохраняет чистый вопрос без gist изображения в БД."""
         from src.group_knowledge.qa_analyzer import QAAnalyzer
 
         analyzer = QAAnalyzer()
@@ -1801,9 +1923,7 @@ class TestQAAnalyzerThreadExtraction(unittest.TestCase):
                     pairs = _run_async(analyzer._extract_thread_pairs(messages))
 
         self.assertEqual(len(pairs), 1)
-        self.assertIn("Как исправить ошибку связи на терминале?", pairs[0].question_text)
-        self.assertIn("Суть по изображению", pairs[0].question_text)
-        self.assertIn("Нет связи с хостом", pairs[0].question_text)
+        self.assertEqual(pairs[0].question_text, "Как исправить ошибку связи на терминале?")
 
     def test_extract_thread_pairs_skips_single_sender_chain(self):
         """Цепочка одного отправителя не считается Q&A."""
@@ -1886,10 +2006,11 @@ class TestQAAnalyzerThreadExtraction(unittest.TestCase):
         ]
 
         with patch("src.group_knowledge.qa_analyzer.gk_db.get_unprocessed_messages", return_value=messages):
-            with patch.object(analyzer, "_extract_thread_pairs", new=AsyncMock(return_value=[])) as mock_thread:
-                with patch.object(analyzer, "_extract_llm_inferred_pairs", new=AsyncMock(return_value=[])) as mock_llm:
-                    with patch("src.group_knowledge.qa_analyzer.gk_db.mark_messages_processed"):
-                        result = _run_async(analyzer.analyze_day(-1001, "2026-03-06"))
+            with patch("src.group_knowledge.qa_analyzer.ai_settings.GK_GENERATE_LLM_INFERRED_QA_PAIRS", True):
+                with patch.object(analyzer, "_extract_thread_pairs", new=AsyncMock(return_value=[])) as mock_thread:
+                    with patch.object(analyzer, "_extract_llm_inferred_pairs", new=AsyncMock(return_value=[])) as mock_llm:
+                        with patch("src.group_knowledge.qa_analyzer.gk_db.mark_messages_processed"):
+                            result = _run_async(analyzer.analyze_day(-1001, "2026-03-06"))
 
         self.assertEqual(result.total_messages, 1)
         self.assertEqual(len(mock_thread.await_args.args[0]), 1)
@@ -2046,8 +2167,8 @@ class TestQAAnalyzerIndexing(unittest.TestCase):
         )
         mock_mark.assert_called_once_with(42)
 
-    def test_llm_inferred_pair_adds_image_gist_to_question(self):
-        """LLM-inferred пара сохраняет gist изображения внутри вопроса."""
+    def test_llm_inferred_pair_stores_clean_question_without_image_gist(self):
+        """LLM-inferred пара сохраняет в БД только clean question без gist."""
         from src.group_knowledge.models import GroupMessage
         from src.group_knowledge.qa_analyzer import QAAnalyzer
 
@@ -2100,9 +2221,52 @@ class TestQAAnalyzerIndexing(unittest.TestCase):
 
         self.assertEqual(len(pairs), 1)
         self.assertEqual(len(stored_pairs), 1)
-        self.assertIn("Что означает ошибка 445?", stored_pairs[0].question_text)
-        self.assertIn("Суть по изображению", stored_pairs[0].question_text)
-        self.assertIn("Касса не отвечает", stored_pairs[0].question_text)
+        self.assertEqual(stored_pairs[0].question_text, "Что означает ошибка 445?")
+
+    def test_index_new_pairs_adds_image_gist_for_rag_when_enabled(self):
+        """Индексация добавляет gist изображения только в RAG-текст при включённом флаге."""
+        from src.group_knowledge.models import GroupMessage, QAPair
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        pair = QAPair(
+            id=43,
+            question_text="Что означает ошибка 445?",
+            answer_text="Перезапустите кассовый сервис.",
+            question_message_id=501,
+            group_id=-100123,
+            extraction_type="thread_reply",
+            confidence=0.88,
+        )
+        source_message = GroupMessage(
+            id=501,
+            telegram_message_id=9001,
+            group_id=-100123,
+            sender_id=111,
+            message_text="Что означает ошибка?",
+            image_description="Касса не отвечает, код ошибки 445 на экране.",
+            message_date=1000,
+        )
+
+        mock_embedding_provider = MagicMock()
+        mock_embedding_provider.encode.return_value = [0.2, 0.3, 0.4]
+        mock_vector_index = MagicMock()
+        mock_vector_index.upsert_chunks.return_value = 1
+
+        analyzer = QAAnalyzer()
+
+        with patch("src.group_knowledge.qa_analyzer.gk_db.get_unindexed_qa_pairs", return_value=[pair]):
+            with patch("src.group_knowledge.qa_analyzer.gk_db.get_messages_by_ids", return_value={501: source_message}):
+                with patch("src.group_knowledge.qa_analyzer.gk_db.mark_qa_pair_indexed"):
+                    with patch("src.core.ai.vector_search.LocalEmbeddingProvider", return_value=mock_embedding_provider):
+                        with patch("src.core.ai.vector_search.LocalVectorIndex", return_value=mock_vector_index):
+                            with patch("src.group_knowledge.qa_analyzer.ai_settings.GK_RAG_IMAGE_GIST_ENABLED", True):
+                                indexed = _run_async(analyzer.index_new_pairs())
+
+        self.assertEqual(indexed, 1)
+        chunk_text = mock_vector_index.upsert_chunks.call_args.kwargs["chunks"][0]["chunk_text"]
+        self.assertIn("Что означает ошибка 445?", chunk_text)
+        self.assertIn("Суть по изображению", chunk_text)
+        self.assertIn("код ошибки 445", chunk_text)
 
     def test_llm_inferred_skips_empty_pairs_from_model(self):
         """LLM-inferred не сохраняет пары с пустыми question/answer."""
@@ -2150,6 +2314,64 @@ class TestQAAnalyzerIndexing(unittest.TestCase):
 
         self.assertEqual(pairs, [])
         mock_store.assert_not_called()
+
+    def test_llm_inferred_saves_debug_request_payload(self):
+        """LLM-inferred пара сохраняет JSON исходного запроса для отладки."""
+        from src.group_knowledge.models import GroupMessage
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        analyzer = QAAnalyzer(model_name="deepseek-debug")
+        question_msg = GroupMessage(
+            id=1,
+            telegram_message_id=201,
+            group_id=-1001234,
+            sender_id=1,
+            sender_name="User 1",
+            message_text="Как исправить ошибку 123?",
+            message_date=1000,
+        )
+        answer_msg = GroupMessage(
+            id=2,
+            telegram_message_id=202,
+            group_id=-1001234,
+            sender_id=2,
+            sender_name="User 2",
+            message_text="Перезапустите сервис.",
+            message_date=1001,
+        )
+
+        mock_provider = MagicMock()
+        mock_provider.chat = AsyncMock(return_value=json.dumps({
+            "pairs": [
+                {
+                    "question_msg_id": 201,
+                    "answer_msg_id": 202,
+                    "question": "Как исправить ошибку 123?",
+                    "answer": "Перезапустите сервис.",
+                    "confidence": 0.87,
+                }
+            ]
+        }))
+
+        stored_pairs = []
+
+        def _store_pair(pair):
+            stored_pairs.append(pair)
+            return 901
+
+        with patch("src.group_knowledge.qa_analyzer.get_provider", return_value=mock_provider):
+            with patch("src.group_knowledge.qa_analyzer.gk_db.store_qa_pair", side_effect=_store_pair):
+                pairs = _run_async(
+                    analyzer._analyze_batch_for_pairs([question_msg, answer_msg], -1001234, [question_msg, answer_msg])
+                )
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(len(stored_pairs), 1)
+        self.assertIsNotNone(stored_pairs[0].llm_request_payload)
+        parsed = json.loads(stored_pairs[0].llm_request_payload)
+        self.assertEqual(parsed["purpose"], "gk_inference")
+        self.assertEqual(parsed["model_override"], "deepseek-debug")
+        self.assertIn("Как исправить ошибку 123?", parsed["messages"][0]["content"])
 
 
 # ===========================================================================
@@ -2268,6 +2490,31 @@ class TestQASearchAnswer(unittest.TestCase):
             ["https://t.me/c/1234567890/555"],
         )
 
+    def test_format_answer_for_user_with_source_link(self):
+        """Итоговый текст для пользователя совпадает с форматом автоответчика."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        formatted = QASearchService.format_answer_for_user({
+            "answer": "Перезагрузите терминал и обновите конфиг.",
+            "primary_source_link": "https://t.me/c/1234567890/555",
+        })
+
+        self.assertEqual(
+            formatted,
+            "**Отвечает робот Арчи**: Перезагрузите терминал и обновите конфиг.\n\n"
+            "Похожий случай в группе, ссылка на ответ: https://t.me/c/1234567890/555",
+        )
+
+    def test_format_answer_for_user_without_source_link(self):
+        """Без ссылки пользователю возвращается только текст ответа."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        formatted = QASearchService.format_answer_for_user({
+            "answer": "Перезагрузите терминал.",
+        })
+
+        self.assertEqual(formatted, "Перезагрузите терминал.")
+
     def test_answer_not_relevant(self):
         """LLM считает пары нерелевантными."""
         from src.group_knowledge.qa_search import QASearchService
@@ -2356,6 +2603,76 @@ class TestQASearchAnswer(unittest.TestCase):
                         results = _run_async(service._vector_search("Как включить NFC?", 3))
 
         self.assertEqual(results, [(thread_pair, 0.92)])
+
+    def test_bm25_corpus_adds_image_gist_when_rag_flag_enabled(self):
+        """BM25-корпус включает gist изображения при включённом RAG-флаге."""
+        from src.group_knowledge.models import GroupMessage, QAPair
+        from src.group_knowledge.qa_search import QASearchService
+
+        pair = QAPair(
+            id=77,
+            question_text="Что означает ошибка 445?",
+            answer_text="Перезапустите сервис.",
+            question_message_id=701,
+            extraction_type="thread_reply",
+        )
+        source_message = GroupMessage(
+            id=701,
+            telegram_message_id=1701,
+            group_id=-100123,
+            sender_id=1,
+            message_text="Что означает ошибка?",
+            image_description="Касса не отвечает, код 445.",
+            message_date=100,
+        )
+
+        service = QASearchService()
+
+        with patch("src.group_knowledge.qa_search.gk_db.get_approved_qa_pairs_corpus_signature", return_value=(1, 77, 1000)):
+            with patch("src.group_knowledge.qa_search.gk_db.get_all_approved_qa_pairs", return_value=[pair]):
+                with patch("src.group_knowledge.qa_search.gk_db.get_messages_by_ids", return_value={701: source_message}):
+                    with patch.object(service, "_tokenize", side_effect=lambda text: text.split()):
+                        with patch("src.group_knowledge.qa_search.ai_settings.GK_RAG_IMAGE_GIST_ENABLED", True):
+                            service._ensure_corpus_loaded()
+
+        corpus_row = " ".join(service._corpus_tokens[0])
+        self.assertIn("Суть", corpus_row)
+        self.assertIn("Касса", corpus_row)
+
+    def test_bm25_corpus_skips_image_gist_when_rag_flag_disabled(self):
+        """BM25-корпус не добавляет gist изображения при выключенном RAG-флаге."""
+        from src.group_knowledge.models import GroupMessage, QAPair
+        from src.group_knowledge.qa_search import QASearchService
+
+        pair = QAPair(
+            id=78,
+            question_text="Что означает ошибка 445?",
+            answer_text="Перезапустите сервис.",
+            question_message_id=702,
+            extraction_type="thread_reply",
+        )
+        source_message = GroupMessage(
+            id=702,
+            telegram_message_id=1702,
+            group_id=-100123,
+            sender_id=1,
+            message_text="Что означает ошибка?",
+            image_description="Касса не отвечает, код 445.",
+            message_date=100,
+        )
+
+        service = QASearchService()
+
+        with patch("src.group_knowledge.qa_search.gk_db.get_approved_qa_pairs_corpus_signature", return_value=(1, 78, 1000)):
+            with patch("src.group_knowledge.qa_search.gk_db.get_all_approved_qa_pairs", return_value=[pair]):
+                with patch("src.group_knowledge.qa_search.gk_db.get_messages_by_ids", return_value={702: source_message}):
+                    with patch.object(service, "_tokenize", side_effect=lambda text: text.split()):
+                        with patch("src.group_knowledge.qa_search.ai_settings.GK_RAG_IMAGE_GIST_ENABLED", False):
+                            service._ensure_corpus_loaded()
+
+        corpus_row = " ".join(service._corpus_tokens[0])
+        self.assertNotIn("Суть", corpus_row)
+        self.assertNotIn("Касса", corpus_row)
 
 
 # ===========================================================================

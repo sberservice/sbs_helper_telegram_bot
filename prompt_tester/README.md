@@ -52,6 +52,9 @@ python -m prompt_tester
 
 Откройте http://localhost:8080
 
+Если Prompt Tester смонтирован внутри Admin Web как sub-application, используйте путь `/prompt-tester/` (например, `http://localhost:8090/prompt-tester/`).
+В этом режиме в верхней панели доступна кнопка «← Админ-панель» для возврата на главную страницу админки.
+
 ### Разработка (с hot\-reload)
 
 Терминал 1 — бэкенд:

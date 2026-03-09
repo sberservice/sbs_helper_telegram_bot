@@ -287,16 +287,20 @@ class GroupResponder:
             )
             return None
 
-        answer_text = answer_result["answer"]
+        format_answer = getattr(self._qa_service, "format_answer_for_user", None)
+        answer_text = ""
+        if callable(format_answer):
+            answer_text = format_answer(answer_result)
+        if not isinstance(answer_text, str) or not answer_text.strip():
+            answer_text = answer_result.get("answer", "")
+            primary_source_link = answer_result.get("primary_source_link")
+            if primary_source_link:
+                answer_text = (
+                    f"**Отвечает робот Арчи**: {answer_text}\n\n"
+                    f"Похожий случай в группе, ссылка на ответ: {primary_source_link}"
+                )
         confidence = answer_result["confidence"]
         source_ids = answer_result.get("source_pair_ids", [])
-        primary_source_link = answer_result.get("primary_source_link")
-
-        if primary_source_link:
-            answer_text = (
-                f"**Отвечает робот Арчи**: {answer_text}\n\n"
-                f"Похожий случай в группе, ссылка на ответ: {primary_source_link}"
-            )
 
         # Проверить порог уверенности
         if confidence < self._confidence_threshold:

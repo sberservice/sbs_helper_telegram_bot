@@ -105,16 +105,18 @@ class TestGKAnalyzeCliHelpers(unittest.TestCase):
                 with patch.object(GK_ANALYZE.gk_db, "get_message_dates", return_value=["2026-03-01"]) as mock_dates:
                     with patch.object(GK_ANALYZE.gk_db, "get_qa_pair_ids_by_group", return_value=[1, 2]) as mock_pair_ids:
                         with patch.object(GK_ANALYZE.gk_db, "delete_qa_pairs_by_group", return_value=2) as mock_delete_pairs:
-                            with patch.object(GK_ANALYZE, "_cleanup_vector_points", return_value=2) as mock_cleanup:
-                                await GK_ANALYZE.run_analysis(args)
-            return mock_dates, mock_pair_ids, mock_delete_pairs, mock_cleanup
+                            with patch.object(GK_ANALYZE.gk_db, "get_qa_pairs_count", return_value=0) as mock_count_pairs:
+                                with patch.object(GK_ANALYZE, "_cleanup_vector_points", return_value=2) as mock_cleanup:
+                                    await GK_ANALYZE.run_analysis(args)
+            return mock_dates, mock_pair_ids, mock_delete_pairs, mock_cleanup, mock_count_pairs
 
-        mock_dates, mock_pair_ids, mock_delete_pairs, mock_cleanup = asyncio.run(_run())
+        mock_dates, mock_pair_ids, mock_delete_pairs, mock_cleanup, mock_count_pairs = asyncio.run(_run())
 
         mock_dates.assert_called_once_with(-1001)
         mock_pair_ids.assert_called_once_with(-1001)
         mock_delete_pairs.assert_called_once_with(-1001)
         mock_cleanup.assert_called_once_with([1, 2])
+        mock_count_pairs.assert_called_once_with(group_id=-1001, date_str="2026-03-01")
         analyzer.analyze_day.assert_awaited_once_with(
             group_id=-1001,
             date_str="2026-03-01",

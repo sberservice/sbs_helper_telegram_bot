@@ -120,8 +120,48 @@ def _select_item_from_menu(items, prompt: str, formatter) -> dict | None:
         print("Некорректный номер. Повторите ввод.")
 
 
-async def _select_test_mode_mapping(client, configured_groups: list[dict]) -> dict | None:
-    """Интерактивно выбрать реальную и тестовую группу для test mode."""
+async def _select_test_mode_mapping(client, configured_groups: list[dict], *, test_real_group_id: int | None = None, test_group_id: int | None = None) -> dict | None:
+    """Выбрать реальную и тестовую группу для test mode.
+
+    Если test_real_group_id и test_group_id заданы — интерактивный выбор
+    не производится (неинтерактивный режим для Process Manager).
+    """
+    # --- Неинтерактивный режим ---
+    if test_real_group_id is not None and test_group_id is not None:
+        real_group = next(
+            (g for g in configured_groups if int(g["id"]) == test_real_group_id),
+            None,
+        )
+        if real_group is None:
+            logger.error(
+                "Реальная группа %d не найдена в настроенных группах.",
+                test_real_group_id,
+            )
+            return None
+
+        test_group = {"id": test_group_id, "title": f"Group {test_group_id}"}
+        # Попытаться получить название из Telegram
+        try:
+            available = await _get_available_groups(client)
+            found = next((g for g in available if int(g["id"]) == test_group_id), None)
+            if found:
+                test_group = found
+        except Exception:
+            pass
+
+        logger.info(
+            "Test mode (non-interactive): real=%s (%d), test=%s (%d)",
+            real_group.get("title", ""), test_real_group_id,
+            test_group.get("title", ""), test_group_id,
+        )
+        return {
+            "listen_groups": [test_group],
+            "group_mapping": {test_group_id: test_real_group_id},
+            "real_group": real_group,
+            "test_group": test_group,
+        }
+
+    # --- Интерактивный режим ---
     available_groups = await _get_available_groups(client)
     if not configured_groups:
         logger.error("Нет настроенных реальных групп для test mode.")
@@ -209,7 +249,11 @@ async def run_responder(args: argparse.Namespace) -> None:
     logger.info("Telethon-клиент подключен (session=%s)", session_name)
 
     if args.test_mode:
-        test_mode_config = await _select_test_mode_mapping(client, groups)
+        test_mode_config = await _select_test_mode_mapping(
+            client, groups,
+            test_real_group_id=args.test_real_group_id,
+            test_group_id=args.test_group_id,
+        )
         if not test_mode_config:
             logger.info("Test mode отменён пользователем.")
             await disconnect_client_quietly(client)
@@ -317,7 +361,25 @@ def main() -> None:
         action="store_true",
         help="Интерактивно выбрать test group и real group для ответов в тестовой группе с логикой реальной",
     )
+    parser.add_argument(
+        "--test-real-group-id",
+        type=int,
+        default=None,
+        help="ID реальной группы для --test-mode (неинтерактивный режим, для Process Manager)",
+    )
+    parser.add_argument(
+        "--test-group-id",
+        type=int,
+        default=None,
+        help="ID тестовой группы для --test-mode (неинтерактивный режим, для Process Manager)",
+    )
     args = parser.parse_args()
+
+    # Валидация неинтерактивных флагов для test-mode
+    if (args.test_real_group_id is not None) != (args.test_group_id is not None):
+        parser.error("Флаги --test-real-group-id и --test-group-id должны использоваться вместе")
+    if args.test_real_group_id is not None and not args.test_mode:
+        parser.error("Флаги --test-real-group-id / --test-group-id требуют --test-mode")
 
     if not _validate_telethon_credentials():
         return

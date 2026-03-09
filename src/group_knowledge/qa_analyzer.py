@@ -12,12 +12,13 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from config import ai_settings
 from src.core.ai.llm_provider import get_provider
 from src.group_knowledge import database as gk_db
 from src.group_knowledge.models import AnalysisResult, GroupMessage, QAPair
+from src.group_knowledge.rag_text import enrich_question_for_rag
 from src.group_knowledge.settings import GK_IGNORED_SENDER_IDS
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,8 @@ THREAD_OVERLAP_RATIO_THRESHOLD = 0.60
 THREAD_QUESTION_HINT_CONFIDENCE_DECIMALS = 2
 THREAD_LOG_MESSAGE_TEXT_LIMIT = 160
 THREAD_LOG_CHAIN_PREVIEW_LIMIT = 2000
+# Максимальное число кросс-дневных сообщений, для которых выводятся детальные логи.
+THREAD_CROSS_DAY_LOG_LIMIT = 10
 
 # Промпт для валидации и очистки thread-based цепочек
 THREAD_VALIDATION_PROMPT = """Ты — эксперт по технической поддержке оборудования и ПО для полевых инженеров.
@@ -52,17 +55,17 @@ THREAD_VALIDATION_PROMPT = """Ты — эксперт по техническо�
 1. Найди в цепочке полезный технический вопрос с решением.
 2. Если все хорошо — is_valid_qa=true.
 3. Игнорируй благодарности, приветствия, шутки и служебные реплики.
-4. Если решение собрано из нескольких сообщений, объедини их в один качественный ответ.
+4. Если решение собрано из нескольких сообщений, объедини их в один качественный ответ, предпочитай информацию не от человека, который задал вопрос, а от других пользователей. Не включай в решение серийные и заводские номера, только общую информацию. Если в ответе есть ссылка, дай её.
 5. По возможности укажи ID сообщения, где содержится финальное или наиболее полезное решение.
-6. confidence - уровень уверенности модели, в том, что вопрос извлечен правильно, а не частично, общими словами без предмета обсуждения, вопрос имеет смысл и имеет полезное решение (0.0-1.0).
-7. Оставляй аббревиатуры неизменными. ГЗ означает Горячая замена.
+6. confidence - уровень уверенности модели, в том, что вопрос извлечен правильно, а не частично, с явным предметом обсуждения, что вопрос имеет смысл и имеет полезное решение, которое пригодится другим людям в будущем (0.0-1.0).
+7. НЕ РАСШИФРОВЫВАЙ АББРЕВИАТУРЫ КРОМЕ ЭТИХ: ГЗ означает Горячая замена. Техобнул означает технологическое обнуление. ЧЗ означает Честный Знак. УЗ означает удаленная загрузка. ЦА - Центральный Аппарат. ЦК - Центр Компетенций. СБС - СберСервис. РМ - Региональный Менеджер. ТСТ - торгово-сервисная точка. УТП - удаленная техническая поддержка Сбербанка.
 8. Учитывай служебные метки QUESTION_HINT / NOT_QUESTION_HINT у сообщений.
 9. Если у сообщения есть QUESTION_HINT с confidence >= {question_confidence_threshold}, считай это сильным сигналом, что именно это сообщение является техническим вопросом цепочки.
 Верни JSON:
 {{
     "is_valid_qa": true/false,
     "confidence": 0.0-1.0,
-    "clean_question": "переформулированный вопрос. Если есть изображение, включи в вопрос суть проблемы из блока Изображение, добавь отдельный блок в начале [ИЗОБРАЖЕНИЕ].",
+    "clean_question": "переформулированный вопрос, создай блок [ВОПРОС]. Если есть изображение, включи в вопрос суть проблемы из блока Изображение, добавь отдельный блок в начале [ИЗОБРАЖЕНИЕ], перед блоком [ВОПРОС].",
     "clean_answer": "итоговый ответ/решение",
     "answer_message_id": 123
 }}
@@ -165,17 +168,24 @@ class QAAnalyzer:
         result.total_messages = len(messages)
 
         if not messages:
+            total_messages_for_day = 0
+            if not force_reanalyze:
+                total_messages_for_day = len(gk_db.get_messages_for_date(group_id, date_str))
+                result.total_messages = total_messages_for_day
+
             if force_reanalyze:
                 logger.info(
-                    "Нет сообщений для переанализа: group=%d date=%s",
+                    "Нет сообщений для переанализа: group=%d date=%s total_messages=%d",
                     group_id,
                     date_str,
+                    result.total_messages,
                 )
             else:
                 logger.info(
-                    "Нет новых необработанных сообщений для анализа: group=%d date=%s",
+                    "Нет новых необработанных сообщений для анализа: group=%d date=%s total_messages=%d",
                     group_id,
                     date_str,
+                    total_messages_for_day,
                 )
             return result
 
@@ -199,7 +209,8 @@ class QAAnalyzer:
                 logger.error(error_msg, exc_info=True)
 
         # Фаза 2: LLM-inferred
-        if not skip_llm:
+        llm_generation_enabled = ai_settings.GK_GENERATE_LLM_INFERRED_QA_PAIRS
+        if not skip_llm and llm_generation_enabled:
             try:
                 llm_pairs = await self._extract_llm_inferred_pairs(messages, group_id)
                 result.llm_pairs_found = len(llm_pairs)
@@ -211,6 +222,18 @@ class QAAnalyzer:
                 error_msg = f"Ошибка LLM-inferred анализа: {exc}"
                 result.errors.append(error_msg)
                 logger.error(error_msg, exc_info=True)
+        elif skip_llm:
+            logger.info(
+                "LLM-inferred фаза пропущена флагом --skip-llm: group=%d date=%s",
+                group_id,
+                date_str,
+            )
+        else:
+            logger.info(
+                "LLM-inferred генерация отключена настройкой GK_GENERATE_LLM_INFERRED_QA_PAIRS: group=%d date=%s",
+                group_id,
+                date_str,
+            )
 
         # Отметить сообщения как обработанные
         msg_ids = [m.id for m in messages if m.id is not None]
@@ -227,6 +250,112 @@ class QAAnalyzer:
 
         return result
 
+    def _enrich_with_cross_day_context(
+        self,
+        messages: List[GroupMessage],
+    ) -> List[GroupMessage]:
+        """
+        Обогатить набор сообщений кросс-дневным контекстом.
+
+        Итеративно загружает из БД:
+        - родительские сообщения (reply_to_message_id → parent), отсутствующие в наборе;
+        - ответы (reply_to) на сообщения набора, отправленные в другие дни.
+
+        Это позволяет строить полные цепочки обсуждений, пересекающие границы
+        календарных дней (вопрос в день N, ответ в день N+k).
+
+        Args:
+            messages: Исходные сообщения текущего дня.
+
+        Returns:
+            Расширенный список сообщений (исходные + кросс-дневные).
+        """
+        if not messages:
+            return messages
+
+        group_ids = {msg.group_id for msg in messages if msg.group_id}
+        if len(group_ids) != 1:
+            logger.warning(
+                "Кросс-дневное обогащение: ожидается 1 группа, получено %d — пропуск",
+                len(group_ids),
+            )
+            return messages
+        group_id = group_ids.pop()
+
+        max_depth = ai_settings.GK_ANALYSIS_CROSS_DAY_MAX_DEPTH
+        max_days = ai_settings.GK_ANALYSIS_CROSS_DAY_MAX_DAYS
+
+        # Минимальный timestamp для ограничения глубины поиска.
+        min_ts = min(msg.message_date for msg in messages)
+        min_allowed_ts = min_ts - max_days * 86400
+
+        # Рабочее множество: telegram_message_id → GroupMessage.
+        working: Dict[int, GroupMessage] = {
+            msg.telegram_message_id: msg for msg in messages
+        }
+        cross_day_total = 0
+
+        for depth in range(max_depth):
+            new_messages: List[GroupMessage] = []
+
+            # --- Вверх: загрузить родительские сообщения, отсутствующие в наборе ---
+            missing_parent_ids = [
+                msg.reply_to_message_id
+                for msg in working.values()
+                if msg.reply_to_message_id and msg.reply_to_message_id not in working
+            ]
+            if missing_parent_ids:
+                parents = gk_db.get_messages_by_telegram_ids(group_id, missing_parent_ids)
+                for parent in parents:
+                    if parent.telegram_message_id not in working:
+                        new_messages.append(parent)
+
+            # --- Вниз: загрузить ответы на сообщения набора из других дней ---
+            current_tg_ids = list(working.keys())
+            if current_tg_ids:
+                replies = gk_db.get_replies_to_telegram_messages(
+                    group_id, current_tg_ids, min_timestamp=min_allowed_ts,
+                )
+                for reply in replies:
+                    if reply.telegram_message_id not in working:
+                        new_messages.append(reply)
+
+            if not new_messages:
+                logger.debug(
+                    "Кросс-дневное обогащение: depth=%d — новых сообщений не найдено, остановка",
+                    depth,
+                )
+                break
+
+            for msg in new_messages:
+                working[msg.telegram_message_id] = msg
+            cross_day_total += len(new_messages)
+
+            log_details = "; ".join(
+                f"tg_id={m.telegram_message_id} reply_to={m.reply_to_message_id}"
+                for m in new_messages[:THREAD_CROSS_DAY_LOG_LIMIT]
+            )
+            suffix = (
+                f" (и ещё {len(new_messages) - THREAD_CROSS_DAY_LOG_LIMIT})"
+                if len(new_messages) > THREAD_CROSS_DAY_LOG_LIMIT
+                else ""
+            )
+            logger.info(
+                "Кросс-дневное обогащение: depth=%d found=%d group=%d [%s%s]",
+                depth, len(new_messages), group_id, log_details, suffix,
+            )
+
+        if cross_day_total > 0:
+            logger.info(
+                "Кросс-дневное обогащение завершено: group=%d total_added=%d working_set=%d",
+                group_id, cross_day_total, len(working),
+            )
+
+        # Вернуть в том же порядке: сначала исходные, затем новые.
+        enriched = list(working.values())
+        enriched.sort(key=lambda m: (m.message_date, m.telegram_message_id))
+        return enriched
+
     async def _extract_thread_pairs(
         self,
         messages: List[GroupMessage],
@@ -237,6 +366,10 @@ class QAAnalyzer:
         Строит reply-деревья и пытается получить итоговую Q&A-пару
         из всей цепочки обсуждения, а не только из одного прямого ответа.
         """
+        # Кросс-дневное обогащение: подгрузить ответы/родителей из других дней.
+        if ai_settings.GK_ANALYSIS_CROSS_DAY_ENRICHMENT:
+            messages = self._enrich_with_cross_day_context(messages)
+
         msg_index = {msg.telegram_message_id: msg for msg in messages}
         children_index = self._build_reply_children_index(messages)
         thread_roots = self._find_thread_roots(messages, msg_index, children_index)
@@ -286,7 +419,11 @@ class QAAnalyzer:
                 if not validated:
                     continue
 
-                clean_question, clean_answer, confidence, answer_message_tg_id = validated
+                llm_request_payload = None
+                if len(validated) >= 5:
+                    clean_question, clean_answer, confidence, answer_message_tg_id, llm_request_payload = validated
+                else:
+                    clean_question, clean_answer, confidence, answer_message_tg_id = validated
                 answer_message = None
                 if answer_message_tg_id is not None:
                     answer_message = msg_index.get(answer_message_tg_id)
@@ -296,10 +433,7 @@ class QAAnalyzer:
                         question_sender_id=question_message.sender_id,
                     )
 
-                stored_question = self._enrich_question_with_image_gist(
-                    clean_question,
-                    question_message,
-                )
+                stored_question = (clean_question or "").strip()
                 clean_answer = (clean_answer or "").strip()
                 if not stored_question.strip() or not clean_answer:
                     logger.debug(
@@ -317,6 +451,7 @@ class QAAnalyzer:
                     extraction_type="thread_reply",
                     confidence=confidence,
                     llm_model_used=self._model_name,
+                    llm_request_payload=llm_request_payload,
                 )
                 pair_id = gk_db.store_qa_pair(pair)
                 pair.id = pair_id
@@ -466,7 +601,7 @@ class QAAnalyzer:
         self,
         root_message: GroupMessage,
         thread_messages: List[GroupMessage],
-    ) -> Optional[Tuple[str, str, float, Optional[int]]]:
+    ) -> Optional[Tuple[str, str, float, Optional[int], Optional[str]]]:
         """
         Валидировать и очистить цепочку Q&A через LLM.
 
@@ -480,11 +615,17 @@ class QAAnalyzer:
             thread_context=thread_context[:6000],
             question_confidence_threshold=f"{self._question_confidence_threshold:.2f}",
         )
+        system_prompt = "Ты — помощник для анализа пар вопрос-ответ."
+        request_payload = self._build_llm_request_payload(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            purpose="gk_validation",
+        )
 
         try:
             raw = await provider.chat(
                 messages=[{"role": "user", "content": prompt}],
-                system_prompt="Ты — помощник для анализа пар вопрос-ответ.",
+                system_prompt=system_prompt,
                 purpose="gk_validation",
                 model_override=self._model_name,
                 response_format={"type": "json_object"},
@@ -508,7 +649,7 @@ class QAAnalyzer:
             if not clean_q or not clean_a:
                 return None
 
-            return clean_q, clean_a, confidence, answer_message_id
+            return clean_q, clean_a, confidence, answer_message_id, request_payload
         except Exception as exc:
             logger.warning("Ошибка LLM-валидации thread-цепочки: %s", exc)
             return None
@@ -524,8 +665,28 @@ class QAAnalyzer:
         validated = await self._validate_thread_chain(root_message, [root_message, answer_message])
         if not validated:
             return None
-        clean_q, clean_a, confidence, _answer_message_id = validated
+        if len(validated) >= 5:
+            clean_q, clean_a, confidence, _answer_message_id, _llm_request_payload = validated
+        else:
+            clean_q, clean_a, confidence, _answer_message_id = validated
         return clean_q, clean_a, confidence
+
+    def _build_llm_request_payload(
+        self,
+        *,
+        prompt: str,
+        system_prompt: str,
+        purpose: str,
+    ) -> str:
+        """Собрать JSON-представление запроса к LLM для отладки."""
+        payload: Dict[str, Any] = {
+            "system_prompt": system_prompt,
+            "messages": [{"role": "user", "content": prompt}],
+            "purpose": purpose,
+            "model_override": self._model_name,
+            "response_format": {"type": "json_object"},
+        }
+        return json.dumps(payload, ensure_ascii=False)
 
     @staticmethod
     def _build_reply_children_index(
@@ -598,6 +759,7 @@ class QAAnalyzer:
                 collected=collected,
                 all_messages=all_messages,
                 visited_ids=visited,
+                question_confidence_threshold=self._question_confidence_threshold,
             )
             added_count = len(collected) - base_count
             if added_count > 0:
@@ -616,8 +778,17 @@ class QAAnalyzer:
         collected: List[GroupMessage],
         all_messages: List[GroupMessage],
         visited_ids: set,
+        question_confidence_threshold: float = 0.90,
     ) -> List[GroupMessage]:
-        """Добавить соседние по времени сообщения участников цепочки без reply-связи."""
+        """
+        Добавить соседние по времени сообщения участников цепочки без reply-связи.
+
+        Фильтры:
+        - Пропускать сообщения, классифицированные как самостоятельные вопросы
+          (is_question=True, confidence >= порог) — они являются корнями своих обсуждений.
+        - Пропускать сообщения, у которых reply_to указывает на сообщение, не входящее
+          в текущую цепочку — они принадлежат другим обсуждениям.
+        """
         participant_ids = {msg.sender_id for msg in collected if msg.sender_id}
         if not participant_ids:
             return collected
@@ -631,6 +802,8 @@ class QAAnalyzer:
         max_ts = max((msg.message_date for msg in collected), default=0)
 
         nearby_added = 0
+        skipped_questions = 0
+        skipped_foreign_replies = 0
         changed = True
         while changed and nearby_added < THREAD_MAX_NEARBY_MESSAGES:
             changed = False
@@ -649,12 +822,37 @@ class QAAnalyzer:
                 if not msg.full_text.strip():
                     continue
 
+                # Пропустить сообщения, классифицированные как самостоятельные вопросы:
+                # такие сообщения — корни собственных обсуждений.
+                if (
+                    msg.is_question is True
+                    and msg.question_confidence is not None
+                    and msg.question_confidence >= question_confidence_threshold
+                ):
+                    skipped_questions += 1
+                    continue
+
+                # Пропустить сообщения, являющиеся ответами на сообщения из другой цепочки.
+                if (
+                    msg.reply_to_message_id is not None
+                    and msg.reply_to_message_id not in visited_ids
+                ):
+                    skipped_foreign_replies += 1
+                    continue
+
                 collected.append(msg)
                 visited_ids.add(msg.telegram_message_id)
                 nearby_added += 1
                 min_ts = min(min_ts, msg.message_date)
                 max_ts = max(max_ts, msg.message_date)
                 changed = True
+
+        if skipped_questions or skipped_foreign_replies:
+            logger.debug(
+                "Фильтрация nearby-сообщений: skipped_questions=%d skipped_foreign_replies=%d",
+                skipped_questions,
+                skipped_foreign_replies,
+            )
 
         return collected
 
@@ -760,20 +958,11 @@ class QAAnalyzer:
     @staticmethod
     def _enrich_question_with_image_gist(question_text: str, source_message: GroupMessage) -> str:
         """Добавить в вопрос краткую суть проблемы с изображения, если она ещё не отражена."""
-        base_question = (question_text or source_message.full_text or "").strip()
-        if not base_question:
-            return ""
-
-        image_gist = (source_message.image_description or "").strip()
-        if not image_gist:
-            return base_question
-
-        normalized_question = " ".join(base_question.lower().split())
-        normalized_gist = " ".join(image_gist.lower().split())
-        if normalized_gist and normalized_gist in normalized_question:
-            return base_question
-
-        return f"{base_question}\n[Суть по изображению: {image_gist[:1200]}]"
+        return enrich_question_for_rag(
+            question_text=question_text,
+            source_message=source_message,
+            enabled=True,
+        )
 
     @staticmethod
     def _is_gratitude_message(text: str) -> bool:
@@ -822,6 +1011,13 @@ class QAAnalyzer:
         Отправляет батчи сообщений в LLM для обнаружения пар,
         не связанных через reply-to.
         """
+        if not ai_settings.GK_GENERATE_LLM_INFERRED_QA_PAIRS:
+            logger.info(
+                "Пропуск LLM-inferred extraction: настройка GK_GENERATE_LLM_INFERRED_QA_PAIRS=0 (group=%d)",
+                group_id,
+            )
+            return []
+
         # Собрать ID сообщений, которые уже являются thread-парами
         thread_msg_ids = set()
         for msg in messages:
@@ -893,11 +1089,17 @@ class QAAnalyzer:
         prompt = LLM_INFERENCE_PROMPT.format(messages=messages_text)
 
         provider = get_provider("deepseek")
+        system_prompt = "Ты — аналитик технической поддержки."
+        request_payload = self._build_llm_request_payload(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            purpose="gk_inference",
+        )
 
         try:
             raw = await provider.chat(
                 messages=[{"role": "user", "content": prompt}],
-                system_prompt="Ты — аналитик технической поддержки.",
+                system_prompt=system_prompt,
                 purpose="gk_inference",
                 model_override=self._model_name,
                 response_format={"type": "json_object"},
@@ -927,17 +1129,12 @@ class QAAnalyzer:
                     # Найти DB-ID для сообщений
                     q_db_id = None
                     a_db_id = None
-                    q_msg = None
                     if q_msg_id and q_msg_id in msg_index:
-                        q_msg = msg_index[q_msg_id]
                         q_db_id = msg_index[q_msg_id].id
                     if a_msg_id and a_msg_id in msg_index:
                         a_db_id = msg_index[a_msg_id].id
 
-                    stored_question = self._enrich_question_with_image_gist(
-                        q_text,
-                        q_msg if q_msg is not None else GroupMessage(message_text=q_text),
-                    )
+                    stored_question = (q_text or "").strip()
                     if not stored_question.strip() or not a_text:
                         continue
 
@@ -950,6 +1147,7 @@ class QAAnalyzer:
                         extraction_type="llm_inferred",
                         confidence=max(0.0, min(1.0, confidence)),
                         llm_model_used=self._model_name,
+                        llm_request_payload=request_payload,
                     )
                     pair_id = gk_db.store_qa_pair(pair)
                     pair.id = pair_id
@@ -983,13 +1181,34 @@ class QAAnalyzer:
             collection_name = ai_settings.GK_QA_VECTOR_COLLECTION
             vector_index = LocalVectorIndex(chunk_collection_name=collection_name)
 
+            question_message_ids = [
+                int(pair.question_message_id)
+                for pair in pairs
+                if pair.question_message_id is not None
+            ]
+            question_messages_by_id: Dict[int, GroupMessage] = {}
+            if question_message_ids:
+                question_messages_by_id = gk_db.get_messages_by_ids(question_message_ids)
+
             indexed_count = 0
             for pair in pairs:
                 if not pair.id:
                     continue
 
+                source_message = None
+                if pair.question_message_id is not None:
+                    source_message = question_messages_by_id.get(int(pair.question_message_id))
+
+                rag_question_text = enrich_question_for_rag(
+                    question_text=pair.question_text,
+                    source_message=source_message,
+                    enabled=ai_settings.GK_RAG_IMAGE_GIST_ENABLED,
+                )
+                if not rag_question_text:
+                    rag_question_text = (pair.question_text or "").strip()
+
                 # Текст для эмбеддинга: вопрос + ответ
-                embed_text = f"Вопрос: {pair.question_text}\nОтвет: {pair.answer_text}"
+                embed_text = f"Вопрос: {rag_question_text}\nОтвет: {pair.answer_text}"
 
                 try:
                     embedding = embedding_provider.encode(embed_text)

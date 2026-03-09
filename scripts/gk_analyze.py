@@ -213,12 +213,16 @@ async def run_analysis(args: argparse.Namespace) -> None:
         total_thread += result.thread_pairs_found
         total_llm += result.llm_pairs_found
         total_errors += len(result.errors)
+        generated_qa_pairs = result.thread_pairs_found + result.llm_pairs_found
+        existing_qa_pairs = gk_db.get_qa_pairs_count(group_id=gid, date_str=date_str)
 
         logger.info(
-            "Результат: messages=%d thread=%d llm=%d errors=%d",
+            "Результат: messages=%d thread=%d llm=%d generated_qa=%d existing_qa=%d errors=%d",
             result.total_messages,
             result.thread_pairs_found,
             result.llm_pairs_found,
+            generated_qa_pairs,
+            existing_qa_pairs,
             len(result.errors),
         )
 

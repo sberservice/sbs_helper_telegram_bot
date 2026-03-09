@@ -1,0 +1,568 @@
+/**
+ * Вкладка «Тестер промптов» — слепое A/B-сравнение промптов извлечения Q&A.
+ *
+ * Workflow: управление промптами → создание сессии → голосование → результаты.
+ */
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  api,
+  type GKPrompt,
+  type GKPromptSession,
+  type GKComparison,
+  type GKSessionResults,
+  type GKGroup,
+} from '../../api'
+import { useAuth } from '../../auth'
+
+type SubView = 'sessions' | 'prompts' | 'compare' | 'results'
+
+export default function PromptTesterTab() {
+  const { hasPermission } = useAuth()
+  const canEdit = hasPermission('gk_knowledge', 'edit')
+
+  const [subView, setSubView] = useState<SubView>('sessions')
+  const [error, setError] = useState('')
+
+  // --- Промпты ---
+  const [prompts, setPrompts] = useState<GKPrompt[]>([])
+  const [promptsLoading, setPromptsLoading] = useState(false)
+  const [showPromptForm, setShowPromptForm] = useState(false)
+  const [editPrompt, setEditPrompt] = useState<GKPrompt | null>(null)
+  const [promptForm, setPromptForm] = useState({ label: '', user_prompt: '', extraction_type: 'llm_inferred', model_name: '', temperature: '0.3' })
+  const [supportedModels, setSupportedModels] = useState<string[]>([])
+  const [defaultModelName, setDefaultModelName] = useState<string | null>(null)
+
+  // --- Сессии ---
+  const [sessions, setSessions] = useState<GKPromptSession[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [showSessionForm, setShowSessionForm] = useState(false)
+  const [sessionForm, setSessionForm] = useState({ name: '', prompt_ids: [] as number[], chains_count: '20', source_group_id: '' as string, source_date_from: '', source_date_to: '' })
+  const [groups, setGroups] = useState<GKGroup[]>([])
+
+  // --- Сравнение ---
+  const [activeSessionId, setActiveSessionId] = useState<number | null>(null)
+  const [comparison, setComparison] = useState<GKComparison | null>(null)
+  const [compareLoading, setCompareLoading] = useState(false)
+  const [voteLoading, setVoteLoading] = useState(false)
+  const [votedCount, setVotedCount] = useState(0)
+
+  // --- Результаты ---
+  const [results, setResults] = useState<GKSessionResults | null>(null)
+
+  // Загрузка промптов
+  const loadPrompts = useCallback(async () => {
+    setPromptsLoading(true)
+    try {
+      const data = await api.gkPrompts(false)
+      setPrompts(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка загрузки промптов')
+    } finally {
+      setPromptsLoading(false)
+    }
+  }, [])
+
+  // Загрузка сессий
+  const loadSessions = useCallback(async () => {
+    setSessionsLoading(true)
+    try {
+      const data = await api.gkSessions()
+      setSessions(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка загрузки сессий')
+    } finally {
+      setSessionsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSessions()
+    loadPrompts()
+    api.gkGroups().then(setGroups).catch(() => {})
+    api.gkPromptTesterSupportedModels()
+      .then(data => {
+        setSupportedModels(data.models || [])
+        setDefaultModelName(data.default_model || null)
+      })
+      .catch(() => {})
+  }, [loadSessions, loadPrompts])
+
+  const modelOptions = useMemo(() => {
+    const currentModel = promptForm.model_name.trim()
+    if (!currentModel || supportedModels.includes(currentModel)) {
+      return supportedModels
+    }
+    return [...supportedModels, currentModel]
+  }, [supportedModels, promptForm.model_name])
+
+  useEffect(() => {
+    const hasGenerating = sessions.some(s => s.status === 'generating')
+    if (!hasGenerating) {
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      loadSessions().catch(() => {})
+    }, 2500)
+
+    return () => window.clearInterval(timer)
+  }, [sessions, loadSessions])
+
+  // Создание / редактирование промпта
+  const handlePromptSubmit = async () => {
+    setError('')
+    try {
+      const data = {
+        label: promptForm.label,
+        user_prompt: promptForm.user_prompt,
+        extraction_type: promptForm.extraction_type,
+        model_name: promptForm.model_name || undefined,
+        temperature: parseFloat(promptForm.temperature) || 0.3,
+      }
+      if (editPrompt) {
+        await api.gkUpdatePrompt(editPrompt.id, data)
+      } else {
+        await api.gkCreatePrompt(data)
+      }
+      setShowPromptForm(false)
+      setEditPrompt(null)
+      setPromptForm({ label: '', user_prompt: '', extraction_type: 'llm_inferred', model_name: '', temperature: '0.3' })
+      loadPrompts()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка')
+    }
+  }
+
+  const startEditPrompt = (p: GKPrompt) => {
+    setEditPrompt(p)
+    setPromptForm({
+      label: p.label,
+      user_prompt: p.user_prompt || p.system_prompt || '',
+      extraction_type: p.extraction_type,
+      model_name: p.model_name || '',
+      temperature: String(p.temperature),
+    })
+    setShowPromptForm(true)
+  }
+
+  // Создание сессии
+  const handleCreateSession = async () => {
+    setError('')
+    if (sessionForm.prompt_ids.length < 2) {
+      setError('Выберите минимум 2 промпта')
+      return
+    }
+    try {
+      await api.gkCreateSession({
+        name: sessionForm.name,
+        prompt_ids: sessionForm.prompt_ids,
+        chains_count: Number(sessionForm.chains_count) || 20,
+        source_group_id: sessionForm.source_group_id ? Number(sessionForm.source_group_id) : undefined,
+        source_date_from: sessionForm.source_date_from || undefined,
+        source_date_to: sessionForm.source_date_to || undefined,
+      })
+      setShowSessionForm(false)
+      setSessionForm({ name: '', prompt_ids: [], chains_count: '20', source_group_id: '', source_date_from: '', source_date_to: '' })
+      loadSessions()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка создания сессии')
+    }
+  }
+
+  // Голосование
+  const startComparing = async (sessionId: number) => {
+    setActiveSessionId(sessionId)
+    setSubView('compare')
+    setVotedCount(0)
+    await loadNextComparison(sessionId)
+  }
+
+  const loadNextComparison = async (sessionId: number) => {
+    setCompareLoading(true)
+    try {
+      const comp = await api.gkGetNextComparison(sessionId)
+      setComparison(comp)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка')
+    } finally {
+      setCompareLoading(false)
+    }
+  }
+
+  const vote = async (winner: string) => {
+    if (!comparison?.comparison_id || !activeSessionId) return
+    setVoteLoading(true)
+    try {
+      await api.gkVote(activeSessionId, { comparison_id: comparison.comparison_id, winner })
+      setVotedCount(c => c + 1)
+      await loadNextComparison(activeSessionId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка голосования')
+    } finally {
+      setVoteLoading(false)
+    }
+  }
+
+  // Результаты
+  const showResults = async (sessionId: number) => {
+    setActiveSessionId(sessionId)
+    setSubView('results')
+    try {
+      const res = await api.gkSessionResults(sessionId)
+      setResults(res)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка')
+    }
+  }
+
+  const abandonSession = async (sessionId: number) => {
+    try {
+      await api.gkAbandonSession(sessionId)
+      loadSessions()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка')
+    }
+  }
+
+  // ---- Sub-navigation ----
+  const renderSubNav = () => (
+    <div className="pt-sub-nav" style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <button className={`btn btn-sm ${subView === 'sessions' ? 'btn-primary' : ''}`} onClick={() => setSubView('sessions')}>Сессии</button>
+      <button className={`btn btn-sm ${subView === 'prompts' ? 'btn-primary' : ''}`} onClick={() => setSubView('prompts')}>Промпты</button>
+    </div>
+  )
+
+  // ---- Prompts view ----
+  if (subView === 'prompts') {
+    return (
+      <div className="gk-prompt-tester-tab">
+        {renderSubNav()}
+        {error && <div className="alert alert-danger">{error}</div>}
+
+        {canEdit && (
+          <button className="btn btn-primary" style={{ marginBottom: 12 }} onClick={() => { setEditPrompt(null); setPromptForm({ label: '', user_prompt: '', extraction_type: 'llm_inferred', model_name: '', temperature: '0.3' }); setShowPromptForm(true) }}>
+            + Новый промпт
+          </button>
+        )}
+
+        {showPromptForm && (
+          <div className="card" style={{ marginBottom: 16, padding: 16 }}>
+            <h3 style={{ marginBottom: 12 }}>{editPrompt ? 'Редактирование промпта' : 'Новый промпт'}</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <input className="input" placeholder="Название" value={promptForm.label} onChange={e => setPromptForm({ ...promptForm, label: e.target.value })} />
+              <textarea className="input" placeholder="User prompt (инструкция для извлечения Q&A)" rows={6} value={promptForm.user_prompt} onChange={e => setPromptForm({ ...promptForm, user_prompt: e.target.value })} style={{ resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 13 }} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <select className="input input-sm" value={promptForm.extraction_type} onChange={e => setPromptForm({ ...promptForm, extraction_type: e.target.value })}>
+                  <option value="llm_inferred">LLM Inferred</option>
+                  <option value="thread_reply">Thread Reply</option>
+                </select>
+                <select
+                  className="input input-sm"
+                  value={promptForm.model_name}
+                  onChange={e => setPromptForm({ ...promptForm, model_name: e.target.value })}
+                >
+                  <option value="">
+                    {defaultModelName ? `По умолчанию (${defaultModelName})` : 'По умолчанию'}
+                  </option>
+                  {modelOptions.map(modelName => (
+                    <option key={modelName} value={modelName}>{modelName}</option>
+                  ))}
+                </select>
+                <input className="input input-sm" type="number" step="0.1" min="0" max="2" placeholder="Температура" value={promptForm.temperature} onChange={e => setPromptForm({ ...promptForm, temperature: e.target.value })} style={{ width: 100 }} />
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-primary" onClick={handlePromptSubmit}>Сохранить</button>
+                <button className="btn" onClick={() => { setShowPromptForm(false); setEditPrompt(null) }}>Отмена</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {promptsLoading ? (
+          <div className="loading-text">Загрузка...</div>
+        ) : prompts.length === 0 ? (
+          <div className="card empty-state"><p>Нет промптов</p></div>
+        ) : (
+          <div className="prompts-list">
+            {prompts.map(p => (
+              <div key={p.id} className={`card ${!p.is_active ? 'card-inactive' : ''}`} style={{ marginBottom: 8, padding: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <strong>{p.label}</strong>
+                    <span className={`badge ${p.is_active ? 'badge-success' : 'badge-dim'}`} style={{ marginLeft: 8 }}>
+                      {p.is_active ? 'активен' : 'неактивен'}
+                    </span>
+                    <span className="badge badge-dim" style={{ marginLeft: 4 }}>{p.extraction_type}</span>
+                    {p.model_name && <span className="text-dim" style={{ marginLeft: 8 }}>{p.model_name}</span>}
+                    <span className="text-dim" style={{ marginLeft: 8 }}>t={p.temperature}</span>
+                  </div>
+                  {canEdit && (
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn btn-sm" onClick={() => startEditPrompt(p)}>✏️</button>
+                      {p.is_active && <button className="btn btn-sm" onClick={() => { api.gkDeletePrompt(p.id).then(loadPrompts) }}>🗑</button>}
+                    </div>
+                  )}
+                </div>
+                <div className="text-dim" style={{ marginTop: 6, fontSize: 12, whiteSpace: 'pre-wrap', maxHeight: 100, overflow: 'hidden' }}>
+                  {(p.user_prompt || p.system_prompt || '').slice(0, 300)}{(p.user_prompt || p.system_prompt || '').length > 300 ? '...' : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ---- Compare view ----
+  if (subView === 'compare' && activeSessionId) {
+    return (
+      <div className="gk-prompt-tester-tab">
+        <button className="btn btn-sm" onClick={() => setSubView('sessions')} style={{ marginBottom: 12 }}>
+          ← К сессиям
+        </button>
+        {error && <div className="alert alert-danger">{error}</div>}
+
+        <div className="text-dim" style={{ marginBottom: 8 }}>
+          Сессия #{activeSessionId} · Проголосовано: {votedCount}
+        </div>
+
+        {compareLoading ? (
+          <div className="loading-text">Загрузка сравнения...</div>
+        ) : !comparison?.has_more ? (
+          <div className="card" style={{ textAlign: 'center', padding: 24 }}>
+            <h3>Все сравнения пройдены!</h3>
+            <p className="text-dim">Голосов отдано: {votedCount}</p>
+            <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => showResults(activeSessionId)}>
+              Посмотреть результаты
+            </button>
+          </div>
+        ) : (
+          <div className="compare-layout">
+            {comparison.source_context && (
+              <div className="card" style={{ marginBottom: 12, padding: 12 }}>
+                <div className="text-dim" style={{ fontSize: 12, marginBottom: 4 }}>Исходный контекст:</div>
+                <div style={{ whiteSpace: 'pre-wrap' }}>{comparison.source_context}</div>
+              </div>
+            )}
+            <div className="compare-grid">
+              <div className="card compare-option" style={{ padding: 16 }}>
+                <h3 style={{ marginBottom: 8 }}>Вариант A</h3>
+                <div className="qa-text" style={{ whiteSpace: 'pre-wrap' }}>{comparison.generation_a_text}</div>
+              </div>
+              <div className="card compare-option" style={{ padding: 16 }}>
+                <h3 style={{ marginBottom: 8 }}>Вариант B</h3>
+                <div className="qa-text" style={{ whiteSpace: 'pre-wrap' }}>{comparison.generation_b_text}</div>
+              </div>
+            </div>
+            <div className="compare-buttons" style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
+              <button className="btn btn-primary" onClick={() => vote('a')} disabled={voteLoading}>👈 A лучше</button>
+              <button className="btn" onClick={() => vote('tie')} disabled={voteLoading}>🤝 Равны</button>
+              <button className="btn btn-primary" onClick={() => vote('b')} disabled={voteLoading}>B лучше 👉</button>
+              <button className="btn btn-sm" onClick={() => vote('skip')} disabled={voteLoading}>Пропустить</button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ---- Results view ----
+  if (subView === 'results' && results) {
+    return (
+      <div className="gk-prompt-tester-tab">
+        <button className="btn btn-sm" onClick={() => setSubView('sessions')} style={{ marginBottom: 12 }}>
+          ← К сессиям
+        </button>
+        {error && <div className="alert alert-danger">{error}</div>}
+
+        <h3 style={{ marginBottom: 12 }}>Результаты сессии #{results.session_id}</h3>
+        <div className="text-dim" style={{ marginBottom: 16 }}>
+          Всего сравнений: {results.total_comparisons} · Проголосовано: {results.voted_comparisons}
+        </div>
+
+        <div className="results-table">
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Промпт</th>
+                <th style={thStyle}>Elo</th>
+                <th style={thStyle}>Win Rate</th>
+                <th style={thStyle}>W</th>
+                <th style={thStyle}>L</th>
+                <th style={thStyle}>T</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.prompts
+                .sort((a, b) => b.elo - a.elo)
+                .map((p, i) => (
+                  <tr key={p.prompt_id} style={{ background: i === 0 ? 'var(--success-dim)' : 'transparent' }}>
+                    <td style={tdStyle}><strong>{p.label}</strong></td>
+                    <td style={tdStyle}>{p.elo.toFixed(0)}</td>
+                    <td style={tdStyle}>{(p.win_rate * 100).toFixed(1)}%</td>
+                    <td style={{ ...tdStyle, color: 'var(--success)' }}>{p.wins}</td>
+                    <td style={{ ...tdStyle, color: 'var(--danger)' }}>{p.losses}</td>
+                    <td style={tdStyle}>{p.ties}</td>
+                  </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+
+  // ---- Sessions view (default) ----
+  return (
+    <div className="gk-prompt-tester-tab">
+      {renderSubNav()}
+      {error && <div className="alert alert-danger">{error}</div>}
+
+      {canEdit && (
+        <button className="btn btn-primary" style={{ marginBottom: 12 }} onClick={() => { setShowSessionForm(true); loadPrompts() }}>
+          + Новая сессия
+        </button>
+      )}
+
+      {showSessionForm && (
+        <div className="card" style={{ marginBottom: 16, padding: 16 }}>
+          <h3 style={{ marginBottom: 12 }}>Новая сессия сравнения</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input className="input" placeholder="Название сессии" value={sessionForm.name} onChange={e => setSessionForm({ ...sessionForm, name: e.target.value })} />
+
+            <div>
+              <div className="text-dim" style={{ marginBottom: 4 }}>Промпты для сравнения (мин. 2):</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {prompts.filter(p => p.is_active).map(p => (
+                  <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={sessionForm.prompt_ids.includes(p.id)}
+                      onChange={e => {
+                        setSessionForm(prev => ({
+                          ...prev,
+                          prompt_ids: e.target.checked
+                            ? [...prev.prompt_ids, p.id]
+                            : prev.prompt_ids.filter(id => id !== p.id),
+                        }))
+                      }}
+                    />
+                    {p.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label className="text-dim">Количество цепочек для применения промптов:</label>
+              <input
+                type="number"
+                min={2}
+                max={1000}
+                className="input input-sm"
+                value={sessionForm.chains_count}
+                onChange={e => setSessionForm({ ...sessionForm, chains_count: e.target.value })}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select className="input input-sm" value={sessionForm.source_group_id} onChange={e => setSessionForm({ ...sessionForm, source_group_id: e.target.value })}>
+                <option value="">Все группы</option>
+                {groups.map(g => (
+                  <option key={g.group_id} value={g.group_id}>{g.group_title || `Группа ${g.group_id}`}</option>
+                ))}
+              </select>
+              <input type="date" className="input input-sm" value={sessionForm.source_date_from} onChange={e => setSessionForm({ ...sessionForm, source_date_from: e.target.value })} placeholder="Дата от" />
+              <input type="date" className="input input-sm" value={sessionForm.source_date_to} onChange={e => setSessionForm({ ...sessionForm, source_date_to: e.target.value })} placeholder="Дата до" />
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-primary" onClick={handleCreateSession}>Создать</button>
+              <button className="btn" onClick={() => setShowSessionForm(false)}>Отмена</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sessionsLoading ? (
+        <div className="loading-text">Загрузка...</div>
+      ) : sessions.length === 0 ? (
+        <div className="card empty-state"><p>Нет сессий тестирования</p></div>
+      ) : (
+        <div className="sessions-list">
+          {sessions.map(s => (
+            (() => {
+              const promptCountFallback = s.prompt_count ?? (Array.isArray(s.prompt_ids) ? s.prompt_ids.length : 0)
+              const chainsCountFallback = s.chains_count ?? s.message_count ?? 0
+              const expectedGenerations = s.expected_generations ?? (promptCountFallback * chainsCountFallback)
+              const generationCount = s.generation_count ?? 0
+              const generationProgressPct = expectedGenerations > 0
+                ? Math.min(100, (generationCount / expectedGenerations) * 100)
+                : (s.generation_progress_pct ?? 0)
+
+              return (
+            <div key={s.id} className="card" style={{ marginBottom: 8, padding: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <strong>{s.name || `Сессия #${s.id}`}</strong>
+                  <span className={`badge ${s.status === 'completed' ? 'badge-success' : s.status === 'abandoned' ? 'badge-danger' : 'badge-info'}`} style={{ marginLeft: 8 }}>
+                    {s.status}
+                  </span>
+                  <span className="text-dim" style={{ marginLeft: 8 }}>
+                    цепочек: {chainsCountFallback}
+                  </span>
+                  <span className="text-dim" style={{ marginLeft: 8 }}>{s.created_at}</span>
+                  {s.status === 'generating' && (
+                    <div style={{ marginTop: 8, maxWidth: 420 }}>
+                      <div className="text-dim" style={{ fontSize: 12, marginBottom: 4 }}>
+                        Генерация тестовых Q&A: {generationCount} / {expectedGenerations}
+                        {' '}({generationProgressPct.toFixed(1)}%)
+                      </div>
+                      <div style={{ height: 8, borderRadius: 999, background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
+                        <div
+                          style={{
+                            height: '100%',
+                            width: `${Math.max(0, Math.min(100, generationProgressPct))}%`,
+                            background: 'var(--accent)',
+                            transition: 'width 0.3s ease',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {s.status === 'judging' && canEdit && (
+                    <button className="btn btn-sm btn-primary" onClick={() => startComparing(s.id)}>▶ Голосовать</button>
+                  )}
+                  <button className="btn btn-sm" onClick={() => showResults(s.id)}>📊 Результаты</button>
+                  {s.status !== 'completed' && s.status !== 'abandoned' && canEdit && (
+                    <button className="btn btn-sm" onClick={() => abandonSession(s.id)}>✗ Отменить</button>
+                  )}
+                </div>
+              </div>
+            </div>
+              )
+            })()
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const thStyle: React.CSSProperties = {
+  textAlign: 'left',
+  padding: '8px 12px',
+  borderBottom: '1px solid var(--border)',
+  color: 'var(--text-dim)',
+  fontSize: 12,
+  fontWeight: 600,
+}
+
+const tdStyle: React.CSSProperties = {
+  padding: '8px 12px',
+  borderBottom: '1px solid var(--border)',
+}

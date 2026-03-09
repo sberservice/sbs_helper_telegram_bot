@@ -5,7 +5,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Dict, Optional, List
 
 
 @dataclass
@@ -116,6 +116,9 @@ class QAPair:
     llm_model_used: str = ""
     """Модель LLM, использованная для извлечения/валидации."""
 
+    llm_request_payload: Optional[str] = None
+    """JSON-представление запроса, отправленного в LLM для отладки."""
+
     created_at: int = 0
     """Время создания записи (UNIX timestamp)."""
 
@@ -124,6 +127,20 @@ class QAPair:
 
     vector_indexed: int = 0
     """Флаг индексации в векторном хранилище: 0 — нет, 1 — да."""
+
+    expert_status: Optional[str] = None
+    """Сводный статус экспертной валидации: None, 'approved' или 'rejected'."""
+
+    # --- Транзиентные поля (заполняются при поиске, не сохраняются в БД) ---
+
+    search_bm25_score: Optional[float] = None
+    """Нормализованная оценка BM25 [0, 1] для данного результата (транзиентное)."""
+
+    search_vector_score: Optional[float] = None
+    """Нормализованная оценка векторного поиска [0, 1] для данного результата (транзиентное)."""
+
+    search_relevance_tier: Optional[str] = None
+    """Уровень релевантности: 'высокая', 'средняя', 'низкая' (транзиентное)."""
 
 
 @dataclass
@@ -193,3 +210,6 @@ class ResponderResult:
 
     responded: bool = False
     """Был ли ответ фактически отправлен пользователю."""
+
+    score_diagnostics: Optional[List[Dict]] = None
+    """Диагностика поисковых оценок по каждой использованной паре (опционально)."""

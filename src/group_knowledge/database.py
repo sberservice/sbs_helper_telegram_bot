@@ -126,6 +126,124 @@ def get_message_by_telegram_id(
         return None
 
 
+def get_messages_by_ids(message_ids: Iterable[int]) -> Dict[int, GroupMessage]:
+    """
+    Получить сообщения по внутренним ID таблицы gk_messages.
+
+    Args:
+        message_ids: Идентификаторы записей gk_messages.id.
+
+    Returns:
+        Словарь {message_id: GroupMessage} для найденных записей.
+    """
+    normalized_ids = sorted({int(message_id) for message_id in (message_ids or []) if message_id is not None})
+    if not normalized_ids:
+        return {}
+
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                placeholders = ", ".join(["%s"] * len(normalized_ids))
+                cursor.execute(
+                    f"SELECT * FROM gk_messages WHERE id IN ({placeholders})",
+                    tuple(normalized_ids),
+                )
+                rows = cursor.fetchall() or []
+    except Exception as exc:
+        logger.error("Ошибка получения сообщений по ID: %s", exc, exc_info=True)
+        return {}
+
+    messages_by_id: Dict[int, GroupMessage] = {}
+    for row in rows:
+        message = _row_to_message(row)
+        if message.id is None:
+            continue
+        messages_by_id[int(message.id)] = message
+    return messages_by_id
+
+
+def get_messages_by_telegram_ids(
+    group_id: int,
+    telegram_message_ids: List[int],
+) -> List[GroupMessage]:
+    """
+    Получить сообщения по списку Telegram message ID для одной группы.
+
+    Используется для кросс-дневного обогащения цепочек: загрузка
+    родительских сообщений, на которые ссылаются reply_to_message_id.
+
+    Args:
+        group_id: ID группы.
+        telegram_message_ids: Список Telegram message ID для поиска.
+
+    Returns:
+        Список найденных GroupMessage.
+    """
+    if not telegram_message_ids:
+        return []
+    normalized = sorted({int(mid) for mid in telegram_message_ids})
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                placeholders = ", ".join(["%s"] * len(normalized))
+                cursor.execute(
+                    f"SELECT * FROM gk_messages WHERE group_id = %s AND telegram_message_id IN ({placeholders})",
+                    (group_id, *normalized),
+                )
+                rows = cursor.fetchall() or []
+                return [_row_to_message(r) for r in rows]
+    except Exception as exc:
+        logger.error(
+            "Ошибка получения сообщений по telegram_message_ids: %s", exc, exc_info=True,
+        )
+        return []
+
+
+def get_replies_to_telegram_messages(
+    group_id: int,
+    telegram_message_ids: List[int],
+    min_timestamp: int = 0,
+) -> List[GroupMessage]:
+    """
+    Получить все ответы (reply_to) на указанные Telegram message ID.
+
+    Используется для кросс-дневного обогащения цепочек: поиск ответов,
+    которые были отправлены позже (в другие дни) в ответ на вопросы текущего дня.
+
+    Args:
+        group_id: ID группы.
+        telegram_message_ids: Список Telegram message ID, ответы на которые ищем.
+        min_timestamp: Минимальный UNIX timestamp сообщения (для ограничения глубины).
+
+    Returns:
+        Список найденных GroupMessage (ответы на указанные сообщения).
+    """
+    if not telegram_message_ids:
+        return []
+    normalized = sorted({int(mid) for mid in telegram_message_ids})
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                placeholders = ", ".join(["%s"] * len(normalized))
+                query = (
+                    f"SELECT * FROM gk_messages WHERE group_id = %s "
+                    f"AND reply_to_message_id IN ({placeholders})"
+                )
+                params: list = [group_id, *normalized]
+                if min_timestamp > 0:
+                    query += " AND message_date >= %s"
+                    params.append(min_timestamp)
+                query += " ORDER BY message_date ASC"
+                cursor.execute(query, tuple(params))
+                rows = cursor.fetchall() or []
+                return [_row_to_message(r) for r in rows]
+    except Exception as exc:
+        logger.error(
+            "Ошибка получения ответов на telegram_message_ids: %s", exc, exc_info=True,
+        )
+        return []
+
+
 def get_latest_telegram_message_id(group_id: int) -> Optional[int]:
     """
     Получить максимальный Telegram message ID, уже собранный для группы.
@@ -709,6 +827,7 @@ def store_qa_pair(pair: QAPair) -> int:
                             extraction_type = %s,
                             confidence = %s,
                             llm_model_used = %s,
+                            llm_request_payload = %s,
                             approved = %s,
                             vector_indexed = 0
                         WHERE id = %s
@@ -721,6 +840,7 @@ def store_qa_pair(pair: QAPair) -> int:
                             pair.extraction_type,
                             pair.confidence,
                             pair.llm_model_used[:128] if pair.llm_model_used else "",
+                            pair.llm_request_payload,
                             pair.approved,
                             existing_id,
                         ),
@@ -733,8 +853,9 @@ def store_qa_pair(pair: QAPair) -> int:
                         question_text, answer_text,
                         question_message_id, answer_message_id,
                         group_id, extraction_type, confidence,
-                        llm_model_used, created_at, approved, vector_indexed
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        llm_model_used, llm_request_payload,
+                        created_at, approved, vector_indexed
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         pair.question_text,
@@ -745,6 +866,7 @@ def store_qa_pair(pair: QAPair) -> int:
                         pair.extraction_type,
                         pair.confidence,
                         pair.llm_model_used[:128] if pair.llm_model_used else "",
+                        pair.llm_request_payload,
                         now,
                         pair.approved,
                         0,
@@ -855,7 +977,10 @@ def get_all_approved_qa_pairs(
         with get_db_connection() as conn:
             with get_cursor(conn) as cursor:
                 normalized_extraction_types = _normalize_extraction_types(extraction_types)
-                where_clause = "WHERE approved = 1"
+                where_clause = (
+                    "WHERE approved = 1"
+                    " AND (expert_status IS NULL OR expert_status != 'rejected')"
+                )
                 params: List[str] = []
                 if normalized_extraction_types:
                     placeholders = ", ".join(["%s"] * len(normalized_extraction_types))
@@ -892,7 +1017,10 @@ def get_approved_qa_pairs_corpus_signature(
         with get_db_connection() as conn:
             with get_cursor(conn) as cursor:
                 normalized_extraction_types = _normalize_extraction_types(extraction_types)
-                where_clause = "WHERE approved = 1"
+                where_clause = (
+                    "WHERE approved = 1"
+                    " AND (expert_status IS NULL OR expert_status != 'rejected')"
+                )
                 params: List[str] = []
                 if normalized_extraction_types:
                     placeholders = ", ".join(["%s"] * len(normalized_extraction_types))
@@ -949,6 +1077,7 @@ def get_unindexed_qa_pairs() -> List[QAPair]:
                     """
                     SELECT * FROM gk_qa_pairs
                     WHERE vector_indexed = 0 AND approved = 1
+                      AND (expert_status IS NULL OR expert_status != 'rejected')
                     ORDER BY created_at ASC
                     """
                 )
@@ -980,6 +1109,7 @@ def mark_qa_pair_indexed(pair_id: int) -> None:
 def get_qa_pairs_count(
     group_id: Optional[int] = None,
     approved_only: bool = True,
+    date_str: Optional[str] = None,
 ) -> int:
     """
     Получить общее число Q&A-пар.
@@ -987,6 +1117,7 @@ def get_qa_pairs_count(
     Args:
         group_id: Фильтр по группе.
         approved_only: Только одобренные.
+        date_str: Дата в формате YYYY-MM-DD для фильтрации по дате question_message.
 
     Returns:
         Количество записей.
@@ -994,13 +1125,19 @@ def get_qa_pairs_count(
     try:
         with get_db_connection() as conn:
             with get_cursor(conn) as cursor:
-                conditions = []
-                params: list = []
+                conditions: List[str] = []
+                params: List = []
+
+                join_clause = ""
+                if date_str:
+                    join_clause = " LEFT JOIN gk_messages qm ON qm.id = qp.question_message_id "
+                    conditions.append("DATE(FROM_UNIXTIME(qm.message_date)) = %s")
+                    params.append(date_str)
 
                 if approved_only:
-                    conditions.append("approved = 1")
+                    conditions.append("qp.approved = 1")
                 if group_id is not None:
-                    conditions.append("group_id = %s")
+                    conditions.append("qp.group_id = %s")
                     params.append(group_id)
 
                 where_clause = ""
@@ -1008,7 +1145,7 @@ def get_qa_pairs_count(
                     where_clause = "WHERE " + " AND ".join(conditions)
 
                 cursor.execute(
-                    f"SELECT COUNT(*) as cnt FROM gk_qa_pairs {where_clause}",
+                    f"SELECT COUNT(*) as cnt FROM gk_qa_pairs qp {join_clause} {where_clause}",
                     tuple(params),
                 )
                 row = cursor.fetchone()
@@ -1205,7 +1342,9 @@ def _row_to_qa_pair(row: Dict[str, Any]) -> QAPair:
         extraction_type=row.get("extraction_type", "thread_reply"),
         confidence=row.get("confidence"),
         llm_model_used=row.get("llm_model_used", ""),
+        llm_request_payload=row.get("llm_request_payload"),
         created_at=row.get("created_at", 0),
         approved=row.get("approved", 1),
         vector_indexed=row.get("vector_indexed", 0),
+        expert_status=row.get("expert_status"),
     )
