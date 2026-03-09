@@ -128,8 +128,48 @@ def _select_item_from_menu(items, prompt: str, formatter) -> dict | None:
         print("Некорректный номер. Повторите ввод.")
 
 
-async def _select_test_mode_mapping(client, configured_groups: list[dict]) -> dict | None:
-    """Интерактивно выбрать реальную и тестовую группу для daemon test mode."""
+async def _select_test_mode_mapping(client, configured_groups: list[dict], *, test_real_group_id: int | None = None, test_group_id: int | None = None) -> dict | None:
+    """Выбрать реальную и тестовую группу для daemon test mode.
+
+    Если test_real_group_id и test_group_id заданы — интерактивный выбор
+    не производится (неинтерактивный режим для Process Manager).
+    """
+    # --- Неинтерактивный режим ---
+    if test_real_group_id is not None and test_group_id is not None:
+        real_group = next(
+            (g for g in configured_groups if int(g["id"]) == test_real_group_id),
+            None,
+        )
+        if real_group is None:
+            logger.error(
+                "Реальная группа %d не найдена в настроенных группах.",
+                test_real_group_id,
+            )
+            return None
+
+        test_group = {"id": test_group_id, "title": f"Group {test_group_id}"}
+        # Попытаться получить название из Telegram
+        try:
+            available = await _get_available_groups(client)
+            found = next((g for g in available if int(g["id"]) == test_group_id), None)
+            if found:
+                test_group = found
+        except Exception:
+            pass
+
+        logger.info(
+            "Test mode (non-interactive): real=%s (%d), test=%s (%d)",
+            real_group.get("title", ""), test_real_group_id,
+            test_group.get("title", ""), test_group_id,
+        )
+        return {
+            "listen_groups": [test_group],
+            "group_mapping": {test_group_id: test_real_group_id},
+            "real_group": real_group,
+            "test_group": test_group,
+        }
+
+    # --- Интерактивный режим ---
     available_groups = await _get_available_groups(client)
     if not configured_groups:
         logger.error("Нет настроенных реальных групп для test mode.")
@@ -170,9 +210,40 @@ async def _select_test_mode_mapping(client, configured_groups: list[dict]) -> di
     }
 
 
-async def _resolve_redirect_test_group(client, configured_groups: list[dict]) -> dict | None:
-    """Получить или интерактивно выбрать глобальную тестовую группу для redirect mode."""
+async def _resolve_redirect_test_group(client, configured_groups: list[dict], *, redirect_group_id: int | None = None) -> dict | None:
+    """Получить или интерактивно выбрать глобальную тестовую группу для redirect mode.
+
+    Если redirect_group_id задан — пропускает сохранённую конфигурацию и
+    интерактивный выбор (неинтерактивный режим для Process Manager).
+    """
     configured_group_ids = {int(group["id"]) for group in configured_groups}
+
+    # --- Неинтерактивный режим ---
+    if redirect_group_id is not None:
+        if redirect_group_id in configured_group_ids:
+            logger.error(
+                "Указанная группа (%d) совпадает с боевой отслеживаемой группой.",
+                redirect_group_id,
+            )
+            return None
+
+        group = {"id": redirect_group_id, "title": f"Group {redirect_group_id}"}
+        try:
+            available = await _get_available_groups(client)
+            found = next((g for g in available if int(g["id"]) == redirect_group_id), None)
+            if found:
+                group = found
+        except Exception:
+            pass
+
+        logger.info(
+            "Redirect test mode (non-interactive): target=%s (%d)",
+            group.get("title", ""), redirect_group_id,
+        )
+        save_test_target_group_config(group)
+        return group
+
+    # --- Стандартный режим: проверить сохранённую конфигурацию ---
     saved_group = load_test_target_group_config()
     if saved_group is not None:
         saved_group_id = int(saved_group["id"])
@@ -253,7 +324,11 @@ async def run_collector(args: argparse.Namespace) -> None:
     logger.info("Telethon-клиент подключен (session=%s)", session_name)
 
     if args.test_mode:
-        test_mode_config = await _select_test_mode_mapping(client, groups)
+        test_mode_config = await _select_test_mode_mapping(
+            client, groups,
+            test_real_group_id=args.test_real_group_id,
+            test_group_id=args.test_group_id,
+        )
         if not test_mode_config:
             logger.info("Test mode отменён пользователем.")
             await disconnect_client_quietly(client)
@@ -268,7 +343,10 @@ async def run_collector(args: argparse.Namespace) -> None:
             test_mode_config["real_group"]["id"],
         )
     elif args.redirect_test_mode:
-        redirect_test_group = await _resolve_redirect_test_group(client, groups)
+        redirect_test_group = await _resolve_redirect_test_group(
+            client, groups,
+            redirect_group_id=args.redirect_group_id,
+        )
         if not redirect_test_group:
             logger.info("Redirect test mode отменён пользователем.")
             await disconnect_client_quietly(client)
@@ -533,6 +611,24 @@ def main() -> None:
         help="Слушать боевые группы, но отправлять ответы в отдельную глобическую тестовую группу",
     )
     parser.add_argument(
+        "--test-real-group-id",
+        type=int,
+        default=None,
+        help="ID реальной группы для --test-mode (неинтерактивный режим, для Process Manager)",
+    )
+    parser.add_argument(
+        "--test-group-id",
+        type=int,
+        default=None,
+        help="ID тестовой группы для --test-mode (неинтерактивный режим, для Process Manager)",
+    )
+    parser.add_argument(
+        "--redirect-group-id",
+        type=int,
+        default=None,
+        help="ID тестовой группы для --redirect-test-mode (неинтерактивный режим, для Process Manager)",
+    )
+    parser.add_argument(
         "--collect-only",
         action="store_true",
         help="Запустить только сборщик без встроенного автоответчика",
@@ -553,6 +649,14 @@ def main() -> None:
         parser.error("Флаги --test-mode и --redirect-test-mode нельзя использовать одновременно")
     if args.fill_missing_is_question and args.force:
         parser.error("Флаг --force нельзя использовать вместе с --fill-missing-is-question")
+
+    # Валидация неинтерактивных флагов для test-mode
+    if (args.test_real_group_id is not None) != (args.test_group_id is not None):
+        parser.error("Флаги --test-real-group-id и --test-group-id должны использоваться вместе")
+    if args.test_real_group_id is not None and not args.test_mode:
+        parser.error("Флаги --test-real-group-id / --test-group-id требуют --test-mode")
+    if args.redirect_group_id is not None and not args.redirect_test_mode:
+        parser.error("Флаг --redirect-group-id требует --redirect-test-mode")
 
     if args.manage_groups:
         if not _validate_telethon_credentials():

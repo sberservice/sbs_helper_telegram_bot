@@ -6,6 +6,8 @@ import ResultsPage from './pages/ResultsPage'
 import SessionsPage from './pages/SessionsPage'
 
 export default function App() {
+  const isMountedInAdmin = window.location.pathname.startsWith('/prompt-tester')
+
   return (
     <>
       <nav className="nav">
@@ -24,6 +26,11 @@ export default function App() {
             Агрегат
           </NavLink>
         </div>
+        {isMountedInAdmin && (
+          <a className="nav-link nav-exit" href="/">
+            ← Админ-панель
+          </a>
+        )}
       </nav>
       <div className="container">
         <Routes>

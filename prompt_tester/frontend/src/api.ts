@@ -1,6 +1,7 @@
 /** API-клиент для тестера промптов. */
 
-const BASE = '';
+const APP_PREFIX = window.location.pathname.startsWith('/prompt-tester') ? '/prompt-tester' : '';
+const BASE = APP_PREFIX;
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, {

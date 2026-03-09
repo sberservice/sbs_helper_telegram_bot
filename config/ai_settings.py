@@ -662,11 +662,39 @@ GK_ANALYSIS_BATCH_SIZE: Final[int] = int(os.getenv("GK_ANALYSIS_BATCH_SIZE", "50
 GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD: Final[float] = float(
     os.getenv("GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD", "0.90")
 )
+# Добавлять ли gist изображения в текст вопроса только для RAG-слоя (индексация/поиск),
+# не изменяя сохраняемый question_text в БД.
+GK_RAG_IMAGE_GIST_ENABLED: Final[bool] = os.getenv(
+    "GK_RAG_IMAGE_GIST_ENABLED",
+    "1",
+) == "1"
 # Разрешать ли использовать llm_inferred Q&A-пары при поиске ответов.
 GK_INCLUDE_LLM_INFERRED_ANSWERS: Final[bool] = os.getenv(
     "GK_INCLUDE_LLM_INFERRED_ANSWERS",
     "0",
 ) == "1"
+# Разрешать ли генерировать llm_inferred Q&A-пары в анализаторе.
+# Если выключено, фаза LLM-inferred extraction полностью пропускается,
+# и новые llm_inferred пары не сохраняются в БД.
+GK_GENERATE_LLM_INFERRED_QA_PAIRS: Final[bool] = os.getenv(
+    "GK_GENERATE_LLM_INFERRED_QA_PAIRS",
+    "0",
+) == "1"
+# Включить кросс-дневное обогащение цепочек: при анализе дня загружать
+# ответы из других дней, ссылающиеся reply_to на сообщения текущего дня,
+# и родительские сообщения, на которые ссылаются сообщения текущего дня.
+GK_ANALYSIS_CROSS_DAY_ENRICHMENT: Final[bool] = os.getenv(
+    "GK_ANALYSIS_CROSS_DAY_ENRICHMENT",
+    "1",
+) == "1"
+# Максимальное число дней назад/вперёд для поиска кросс-дневных ответов.
+GK_ANALYSIS_CROSS_DAY_MAX_DAYS: Final[int] = int(
+    os.getenv("GK_ANALYSIS_CROSS_DAY_MAX_DAYS", "30")
+)
+# Максимальная глубина итеративного обогащения (уровни транзитивного разрешения reply-цепочек).
+GK_ANALYSIS_CROSS_DAY_MAX_DEPTH: Final[int] = int(
+    os.getenv("GK_ANALYSIS_CROSS_DAY_MAX_DEPTH", "2")
+)
 # Промпт для описания изображений через GigaChat.
 GK_IMAGE_DESCRIPTION_PROMPT: Final[str] = os.getenv(
     "GK_IMAGE_DESCRIPTION_PROMPT",
@@ -693,3 +721,25 @@ GK_RU_NORMALIZATION_ENABLED: Final[bool] = os.getenv("GK_RU_NORMALIZATION_ENABLE
 GK_SEARCH_CANDIDATES_PER_METHOD: Final[int] = int(os.getenv("GK_SEARCH_CANDIDATES_PER_METHOD", "20"))
 # TTL кэша BM25-корпуса в секундах (перезагружает Q&A-пары из БД).
 GK_BM25_CORPUS_TTL_SECONDS: Final[int] = int(os.getenv("GK_BM25_CORPUS_TTL_SECONDS", "300"))
+# Мастер-переключатель передачи подсказок релевантности в промпт LLM.
+GK_RELEVANCE_HINTS_ENABLED: Final[bool] = os.getenv("GK_RELEVANCE_HINTS_ENABLED", "1") == "1"
+# Порог относительного падения combined-score для обнаружения «обрыва» качества.
+GK_SCORE_CLIFF_THRESHOLD: Final[float] = float(os.getenv("GK_SCORE_CLIFF_THRESHOLD", "0.3"))
+
+# ---------------------------------------------------------------------------
+# GK Spell-check (корпусная коррекция опечаток SymSpellPy + LLM fallback)
+# ---------------------------------------------------------------------------
+# Мастер-переключатель корпусной коррекции опечаток в GK-запросах.
+GK_SPELLCHECK_ENABLED: Final[bool] = os.getenv("GK_SPELLCHECK_ENABLED", "1") == "1"
+# Максимальное edit distance для SymSpell lookup.
+GK_SPELLCHECK_MAX_EDIT_DISTANCE: Final[int] = int(os.getenv("GK_SPELLCHECK_MAX_EDIT_DISTANCE", "1"))
+# Минимальная длина токена, при которой он подвергается проверке.
+GK_SPELLCHECK_MIN_TOKEN_LENGTH: Final[int] = int(os.getenv("GK_SPELLCHECK_MIN_TOKEN_LENGTH", "4"))
+# Включить LLM-fallback при высоком проценте подозрительных неисправленных токенов.
+GK_SPELLCHECK_LLM_FALLBACK_ENABLED: Final[bool] = os.getenv("GK_SPELLCHECK_LLM_FALLBACK_ENABLED", "0") == "1"
+# Доля подозрительных неисправленных токенов, при которой вызывается LLM fallback (0.0–1.0).
+GK_SPELLCHECK_LLM_FALLBACK_THRESHOLD: Final[float] = float(os.getenv("GK_SPELLCHECK_LLM_FALLBACK_THRESHOLD", "0.5"))
+# Максимальная длина текста запроса для LLM-fallback (символы).
+GK_SPELLCHECK_LLM_MAX_CHARS: Final[int] = int(os.getenv("GK_SPELLCHECK_LLM_MAX_CHARS", "500"))
+# TTL кэша LLM-fallback коррекции (секунды).
+GK_SPELLCHECK_LLM_CACHE_TTL_SECONDS: Final[int] = int(os.getenv("GK_SPELLCHECK_LLM_CACHE_TTL_SECONDS", "300"))

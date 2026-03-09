@@ -83,7 +83,7 @@ class QuestionClassifierService:
             message_metadata=self._format_message_metadata(
                 is_caption=is_caption,
                 has_image=has_image,
-                image_description="",
+                image_description=image_description,
             ),
             message=normalized[:4000],
         )

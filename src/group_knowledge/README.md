@@ -188,9 +188,20 @@ python scripts/gk_analyze.py --all-dates --rebuild-pairs
 Сообщения от sender-id из `GK_IGNORED_SENDER_IDS` анализатор исключает до построения цепочек,
 чтобы служебные сообщения бота не попадали в Q&A-пары.
 
-Для поискового автоответчика доступен отдельный флаг `GK_INCLUDE_LLM_INFERRED_ANSWERS`.
-Если установить его в `0`, RAG-ответы будут строиться только по `thread_reply` парам,
-а `llm_inferred` пары останутся в БД и индексе, но не будут использоваться при BM25/vector поиске и в финальном LLM-контексте ответа.
+Для `llm_inferred` есть два независимых флага:
+- `GK_GENERATE_LLM_INFERRED_QA_PAIRS` — управляет самой генерацией таких пар в `gk_analyze`.
+  При значении `0` фаза LLM-inferred extraction полностью пропускается, и новые `llm_inferred`
+  пары не создаются в БД.
+- `GK_INCLUDE_LLM_INFERRED_ANSWERS` — управляет использованием уже существующих `llm_inferred`
+  пар в поисковом автоответчике.
+
+Если `GK_INCLUDE_LLM_INFERRED_ANSWERS=0`, RAG-ответы строятся только по `thread_reply` парам,
+а `llm_inferred` пары (если они уже были созданы ранее) не используются в BM25/vector поиске
+и в финальном LLM-контексте ответа.
+
+Флаг `GK_RAG_IMAGE_GIST_ENABLED` управляет добавлением `image_description` в текст вопроса **только для RAG-слоя**
+(BM25-корпус и векторная индексация). При этом в `gk_qa_pairs.question_text` сохраняется чистый вопрос без добавленного gist,
+что упрощает хранение и ручную валидацию пар в БД.
 
 ### 6. Запуск автоответчика
 
@@ -443,7 +454,7 @@ python scripts/gk_delete_group_data.py --group-id -1001234567890 --yes --no-vect
 
 #### Шаг 1 — BM25 (лексический)
 
-1. Загрузить все одобренные Q&A-пары из MySQL (`gk_qa_pairs WHERE approved = 1`).
+1. Загрузить все одобренные Q&A-пары из MySQL (`gk_qa_pairs WHERE approved = 1 AND expert_status != 'rejected'`).
 2. Токенизировать каждую пару (`question_text + answer_text`) с Russian-нормализацией:
    - Regex-извлечение слов, фильтрация коротких (< 3 символов, кроме защищённых терминов: `nfc`, `pos`, `ккт` и т.д.)
    - Удаление стоп-слов (`что`, `как`, `это`, `для` и т.п.)

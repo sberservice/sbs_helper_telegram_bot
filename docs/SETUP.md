@@ -51,6 +51,12 @@ python run_bot.py
 | **RAG** | `AI_RAG_ENABLED`, `AI_RAG_CHUNK_SIZE`, `AI_RAG_TOP_K`, `AI_RAG_PREFILTER_TOP_DOCS`, `AI_RAG_VECTOR_ENABLED`, ... | База знаний документов |
 | **Сеть** | `TELEGRAM_HTTP_MAX_RETRIES`, `TELEGRAM_SEND_MSG_READ_TIMEOUT_SECONDS` | Сетевые профили |
 
+Для Admin Web дополнительно доступны переменные password-аутентификации:
+`ADMIN_WEB_TELEGRAM_BOT_USERNAME`, `ADMIN_WEB_PASSWORD_AUTH_ENABLED`,
+`ADMIN_WEB_PASSWORD_MIN_LENGTH`, `ADMIN_WEB_PASSWORD_RATE_LIMIT_WINDOW_SECONDS`,
+`ADMIN_WEB_PASSWORD_RATE_LIMIT_MAX_ATTEMPTS`, `ADMIN_WEB_PASSWORD_LOCKOUT_THRESHOLD`,
+`ADMIN_WEB_PASSWORD_LOCKOUT_MINUTES`.
+
 Полный список переменных — в `.env.example`. AI-модели переключаются в runtime через админ-панель (`🧠 AI модель`).
 
 ### Логирование AI
