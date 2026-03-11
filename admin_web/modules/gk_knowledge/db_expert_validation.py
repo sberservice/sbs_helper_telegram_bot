@@ -9,12 +9,49 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.common import database
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Кэш названий групп из config/gk_groups.json
+# ---------------------------------------------------------------------------
+
+_GK_GROUPS_JSON = Path(__file__).resolve().parents[3] / "config" / "gk_groups.json"
+_EV_GROUPS_CACHE: Dict[str, Any] = {"data": None, "ts": 0.0}
+_EV_GROUPS_CACHE_TTL = 60  # секунд
+
+
+def _load_group_titles_map() -> Dict[int, str]:
+    """Загрузить маппинг group_id → title из config/gk_groups.json."""
+    titles: Dict[int, str] = {0: "Глобальные (legacy)"}
+    try:
+        if _GK_GROUPS_JSON.exists():
+            data = json.loads(_GK_GROUPS_JSON.read_text(encoding="utf-8"))
+            for g in data.get("groups", []):
+                gid = g.get("id")
+                gtitle = g.get("title")
+                if gid is not None and gtitle:
+                    titles[int(gid)] = gtitle
+    except Exception as exc:
+        logger.warning("Не удалось загрузить gk_groups.json: %s", exc)
+    return titles
+
+
+def invalidate_ev_groups_cache() -> None:
+    """Сбросить кэш групп EV."""
+    _EV_GROUPS_CACHE["data"] = None
+    _EV_GROUPS_CACHE["ts"] = 0.0
+
+_CHAIN_QUESTION_FRAGMENT_WINDOW_SECONDS = 180
+_CHAIN_QUESTION_FRAGMENT_MAX_GAP_SECONDS = 120
+_CHAIN_QUESTION_FRAGMENT_MAX_MESSAGES = 3
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +327,52 @@ def get_chain_messages(pair_id: int) -> List[Dict[str, Any]]:
                             chain_tg_ids.add(child_tg_id)
                             queue.append(child_tg_id)
 
+                # Добрать предшествующие фрагменты вопроса от того же автора,
+                # если вопрос был разбит на несколько подряд идущих сообщений.
+                question_sender_id = question_msg.get("sender_id")
+                question_date = question_msg.get("message_date")
+                if question_sender_id is not None and question_date is not None:
+                    cursor.execute(
+                        """
+                        SELECT *
+                        FROM gk_messages
+                        WHERE group_id = %s
+                          AND sender_id = %s
+                          AND message_date BETWEEN %s AND %s
+                          AND telegram_message_id <> %s
+                        ORDER BY message_date DESC, telegram_message_id DESC
+                        """,
+                        (
+                            group_id,
+                            question_sender_id,
+                            question_date - _CHAIN_QUESTION_FRAGMENT_WINDOW_SECONDS,
+                            question_date,
+                            question_tg_id,
+                        ),
+                    )
+                    preceding_rows = cursor.fetchall() or []
+
+                    previous_ts = question_date
+                    added_fragments = 0
+                    for row in preceding_rows:
+                        if added_fragments >= _CHAIN_QUESTION_FRAGMENT_MAX_MESSAGES:
+                            break
+
+                        row_tg_id = row["telegram_message_id"]
+                        if row_tg_id in chain_tg_ids:
+                            continue
+
+                        if previous_ts - row["message_date"] > _CHAIN_QUESTION_FRAGMENT_MAX_GAP_SECONDS:
+                            break
+
+                        reply_to = row.get("reply_to_message_id")
+                        if reply_to is not None and reply_to not in chain_tg_ids:
+                            continue
+
+                        chain_tg_ids.add(row_tg_id)
+                        previous_ts = row["message_date"]
+                        added_fragments += 1
+
                 # Добавить answer_message если известен
                 answer_tg_id: Optional[int] = None
                 if answer_msg_id:
@@ -376,22 +459,9 @@ def get_chain_messages(pair_id: int) -> List[Dict[str, Any]]:
 
 
 def get_group_title(group_id: int) -> Optional[str]:
-    """Получить название группы из последнего собранного сообщения."""
-    query = """
-        SELECT group_title
-        FROM gk_messages
-        WHERE group_id = %s AND group_title IS NOT NULL AND group_title != ''
-        ORDER BY message_date DESC
-        LIMIT 1
-    """
-    try:
-        with database.get_db_connection() as conn:
-            with database.get_cursor(conn) as cursor:
-                cursor.execute(query, (group_id,))
-                row = cursor.fetchone()
-                return row["group_title"] if row else None
-    except Exception:
-        return None
+    """Получить название группы из config/gk_groups.json (без обращения к БД)."""
+    titles = _load_group_titles_map()
+    return titles.get(group_id)
 
 
 # ---------------------------------------------------------------------------
@@ -605,26 +675,42 @@ def get_validation_stats(
 
 
 def get_collected_groups() -> List[Dict[str, Any]]:
-    """Получить список групп с количеством Q&A-пар."""
+    """Получить список групп с количеством Q&A-пар.
+
+    Результат кэшируется на 60 секунд. Названия групп берутся из
+    config/gk_groups.json вместо дорогого JOIN к gk_messages.
+    """
+    now = time.monotonic()
+    if _EV_GROUPS_CACHE["data"] is not None and (now - _EV_GROUPS_CACHE["ts"]) < _EV_GROUPS_CACHE_TTL:
+        return _EV_GROUPS_CACHE["data"]  # type: ignore[return-value]
+
     query = """
         SELECT
             qp.group_id,
-            MAX(gm.group_title) AS group_title,
-            COUNT(*) AS pair_count,
-            SUM(CASE WHEN qp.expert_status IS NOT NULL THEN 1 ELSE 0 END) AS validated_count
+            COUNT(*)                                                       AS pair_count,
+            SUM(CASE WHEN qp.expert_status IS NOT NULL THEN 1 ELSE 0 END)  AS validated_count
         FROM gk_qa_pairs qp
-        LEFT JOIN gk_messages gm
-            ON gm.group_id = qp.group_id
-            AND gm.group_title IS NOT NULL
-            AND gm.group_title != ''
         GROUP BY qp.group_id
         ORDER BY pair_count DESC
     """
     try:
+        titles = _load_group_titles_map()
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
                 cursor.execute(query)
-                return cursor.fetchall() or []
+                rows = cursor.fetchall() or []
+                result = [
+                    {
+                        "group_id": r["group_id"],
+                        "group_title": titles.get(r["group_id"], str(r["group_id"])),
+                        "pair_count": r["pair_count"],
+                        "validated_count": r["validated_count"] or 0,
+                    }
+                    for r in rows
+                ]
+                _EV_GROUPS_CACHE["data"] = result
+                _EV_GROUPS_CACHE["ts"] = now
+                return result
     except Exception as exc:
         logger.error("Ошибка получения списка групп: %s", exc, exc_info=True)
         return []

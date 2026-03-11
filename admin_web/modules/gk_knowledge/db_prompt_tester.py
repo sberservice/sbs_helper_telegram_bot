@@ -10,7 +10,7 @@ import json
 import logging
 import math
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.common import database
 
@@ -19,6 +19,27 @@ logger = logging.getLogger(__name__)
 # Elo-параметры
 _ELO_K = 32
 _ELO_DEFAULT = 1500
+
+
+def _expected_score(rating_a: float, rating_b: float) -> float:
+    """Рассчитать ожидаемый результат A по формуле Elo."""
+    return 1.0 / (1.0 + math.pow(10, (rating_b - rating_a) / 400.0))
+
+
+def _apply_elo_update(
+    ratings: Dict[int, float],
+    prompt_a_id: int,
+    prompt_b_id: int,
+    score_a: float,
+    score_b: float,
+) -> None:
+    """Обновить Elo для двух промптов по результату матча."""
+    rating_a = ratings.get(prompt_a_id, float(_ELO_DEFAULT))
+    rating_b = ratings.get(prompt_b_id, float(_ELO_DEFAULT))
+    expected_a = _expected_score(rating_a, rating_b)
+    expected_b = 1.0 - expected_a
+    ratings[prompt_a_id] = rating_a + _ELO_K * (score_a - expected_a)
+    ratings[prompt_b_id] = rating_b + _ELO_K * (score_b - expected_b)
 
 
 def _normalize_prompt_ids(raw_value: Any) -> List[int]:
@@ -52,6 +73,35 @@ def _normalize_prompt_ids(raw_value: Any) -> List[int]:
         except (TypeError, ValueError):
             continue
     return normalized
+
+
+def estimate_comparisons(prompt_count: int, chains_count: int) -> int:
+    """Рассчитать ожидаемое количество A/B-сравнений."""
+    if prompt_count < 2 or chains_count <= 0:
+        return 0
+    return (prompt_count * (prompt_count - 1) // 2) * chains_count
+
+
+def _build_shuffled_comparison_pairs(by_prompt: Dict[int, List[int]]) -> List[Tuple[int, int]]:
+    """Собрать и перемешать blind-пары генераций между промптами."""
+    prompt_ids = sorted(by_prompt.keys())
+    if len(prompt_ids) < 2:
+        return []
+
+    pairs_to_insert: List[Tuple[int, int]] = []
+    for i in range(len(prompt_ids)):
+        for j in range(i + 1, len(prompt_ids)):
+            gens_a = by_prompt[prompt_ids[i]]
+            gens_b = by_prompt[prompt_ids[j]]
+            prompt_pairs = list(zip(gens_a, gens_b))
+            random.shuffle(prompt_pairs)
+            for gen_a_id, gen_b_id in prompt_pairs:
+                if random.random() > 0.5:
+                    gen_a_id, gen_b_id = gen_b_id, gen_a_id
+                pairs_to_insert.append((gen_a_id, gen_b_id))
+
+    random.shuffle(pairs_to_insert)
+    return pairs_to_insert
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +295,7 @@ def get_source_pairs_for_session(
                            group_id, extraction_type, confidence, created_at
                     FROM gk_qa_pairs
                     {where_clause}
-                    ORDER BY created_at DESC
+                    ORDER BY RAND()
                     LIMIT %s
                     """,
                     tuple(params + [remaining]),
@@ -302,11 +352,12 @@ def get_sessions() -> List[Dict[str, Any]]:
                     else:
                         r["generation_progress_pct"] = 0.0
 
-                    if prompt_count >= 2 and chains_count > 0:
-                        expected_comparisons = (prompt_count * (prompt_count - 1) // 2) * chains_count
-                    else:
-                        expected_comparisons = 0
-                    r["expected_comparisons"] = expected_comparisons
+                    r["expected_comparisons"] = estimate_comparisons(prompt_count, chains_count)
+
+                    total_comparisons = int(r.get("total_comparisons") or 0)
+                    voted_count = int(r.get("voted_count") or 0)
+                    if total_comparisons > 0 and voted_count >= total_comparisons and r.get("status") == "judging":
+                        r["status"] = "completed"
                 return rows
     except Exception as exc:
         logger.error("Ошибка получения сессий: %s", exc, exc_info=True)
@@ -329,8 +380,8 @@ def create_session(
 ) -> int:
     """Создать новую сессию тестирования. Возвращает ID."""
     resolved_chains_count = int(message_count) if message_count is not None else int(chains_count)
-    if resolved_chains_count < 2:
-        resolved_chains_count = 2
+    if resolved_chains_count < 1:
+        resolved_chains_count = 1
 
     try:
         with database.get_db_connection() as conn:
@@ -402,11 +453,11 @@ def get_session_by_id(session_id: int) -> Optional[Dict[str, Any]]:
                     else:
                         row["generation_progress_pct"] = 0.0
 
-                    if prompt_count >= 2 and chains_count > 0:
-                        expected_comparisons = (prompt_count * (prompt_count - 1) // 2) * chains_count
-                    else:
-                        expected_comparisons = 0
-                    row["expected_comparisons"] = expected_comparisons
+                    row["expected_comparisons"] = estimate_comparisons(prompt_count, chains_count)
+                    total_comparisons = int(row.get("total_comparisons") or 0)
+                    voted_count = int(row.get("voted_count") or 0)
+                    if total_comparisons > 0 and voted_count >= total_comparisons and row.get("status") == "judging":
+                        row["status"] = "completed"
                 return row
     except Exception as exc:
         logger.error("Ошибка получения сессии %d: %s", session_id, exc, exc_info=True)
@@ -521,26 +572,18 @@ def create_comparisons_for_session(session_id: int) -> int:
                 if len(prompt_ids) < 2:
                     return 0
 
-                # Создать пары: каждая генерация промпта A vs промпта B
+                # Создать и перемешать blind-пары между промптами
                 count = 0
-                for i in range(len(prompt_ids)):
-                    for j in range(i + 1, len(prompt_ids)):
-                        gens_a = by_prompt[prompt_ids[i]]
-                        gens_b = by_prompt[prompt_ids[j]]
-                        pairs = list(zip(gens_a, gens_b))
-                        for gen_a_id, gen_b_id in pairs:
-                            # Случайный порядок для слепого показа
-                            if random.random() > 0.5:
-                                gen_a_id, gen_b_id = gen_b_id, gen_a_id
-                            cursor.execute(
-                                """
-                                INSERT INTO gk_prompt_tester_comparisons
-                                    (session_id, generation_a_id, generation_b_id)
-                                VALUES (%s, %s, %s)
-                                """,
-                                (session_id, gen_a_id, gen_b_id),
-                            )
-                            count += 1
+                for gen_a_id, gen_b_id in _build_shuffled_comparison_pairs(by_prompt):
+                    cursor.execute(
+                        """
+                        INSERT INTO gk_prompt_tester_comparisons
+                            (session_id, generation_a_id, generation_b_id)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (session_id, gen_a_id, gen_b_id),
+                    )
+                    count += 1
 
                 return count
 
@@ -562,15 +605,17 @@ def get_next_comparison(
                     SELECT
                         c.id AS comparison_id,
                         c.generation_a_id, c.generation_b_id,
+                        ga.prompt_id AS prompt_a_id,
                         ga.question_text AS question_a, ga.answer_text AS answer_a,
                         ga.confidence AS confidence_a,
+                        gb.prompt_id AS prompt_b_id,
                         gb.question_text AS question_b, gb.answer_text AS answer_b,
                         gb.confidence AS confidence_b
                     FROM gk_prompt_tester_comparisons c
                     JOIN gk_prompt_tester_generations ga ON ga.id = c.generation_a_id
                     JOIN gk_prompt_tester_generations gb ON gb.id = c.generation_b_id
                     WHERE c.session_id = %s AND c.winner IS NULL
-                    ORDER BY c.id
+                    ORDER BY RAND()
                     LIMIT 1
                     """,
                     (session_id,),
@@ -578,6 +623,67 @@ def get_next_comparison(
                 row = cursor.fetchone()
                 if not row:
                     return None
+
+                source_pair_id: Optional[int] = None
+                try:
+                    cursor.execute(
+                        """
+                        SELECT source_messages_snapshot
+                        FROM gk_prompt_tester_sessions
+                        WHERE id = %s
+                        """,
+                        (session_id,),
+                    )
+                    session_row = cursor.fetchone() or {}
+                    source_snapshot = _normalize_prompt_ids(session_row.get("source_messages_snapshot"))
+
+                    cursor.execute(
+                        """
+                        SELECT id, prompt_id
+                        FROM gk_prompt_tester_generations
+                        WHERE session_id = %s
+                        ORDER BY prompt_id, id
+                        """,
+                        (session_id,),
+                    )
+                    generation_rows = cursor.fetchall() or []
+
+                    by_prompt: Dict[int, List[int]] = {}
+                    for generation_row in generation_rows:
+                        prompt_id = int(generation_row.get("prompt_id") or 0)
+                        generation_id = int(generation_row.get("id") or 0)
+                        if prompt_id <= 0 or generation_id <= 0:
+                            continue
+                        by_prompt.setdefault(prompt_id, []).append(generation_id)
+
+                    prompt_a_id = int(row.get("prompt_a_id") or 0)
+                    prompt_b_id = int(row.get("prompt_b_id") or 0)
+                    generation_a_id = int(row.get("generation_a_id") or 0)
+                    generation_b_id = int(row.get("generation_b_id") or 0)
+
+                    slot_a: Optional[int] = None
+                    slot_b: Optional[int] = None
+                    if prompt_a_id in by_prompt:
+                        try:
+                            slot_a = by_prompt[prompt_a_id].index(generation_a_id)
+                        except ValueError:
+                            slot_a = None
+                    if prompt_b_id in by_prompt:
+                        try:
+                            slot_b = by_prompt[prompt_b_id].index(generation_b_id)
+                        except ValueError:
+                            slot_b = None
+
+                    slot_index = slot_a if slot_a is not None and slot_a == slot_b else slot_a
+                    if slot_index is not None and 0 <= slot_index < len(source_snapshot):
+                        source_pair_id = int(source_snapshot[slot_index])
+                except Exception as exc:
+                    logger.debug(
+                        "Не удалось определить source_pair_id для сравнения: session=%d comparison=%s error=%s",
+                        session_id,
+                        row.get("comparison_id"),
+                        exc,
+                    )
 
                 # Подсчёт прогресса
                 cursor.execute(
@@ -594,6 +700,7 @@ def get_next_comparison(
 
                 return {
                     **row,
+                    "source_pair_id": source_pair_id,
                     "progress_total": progress.get("total", 0),
                     "progress_voted": progress.get("voted", 0),
                 }
@@ -606,6 +713,7 @@ def get_next_comparison(
 def submit_vote(
     comparison_id: int,
     winner: str,
+    expected_session_id: Optional[int] = None,
     voter_telegram_id: Optional[int] = None,
     voter_type: str = "human",
 ) -> bool:
@@ -618,13 +726,57 @@ def submit_vote(
             with database.get_cursor(conn) as cursor:
                 cursor.execute(
                     """
+                    SELECT session_id
+                    FROM gk_prompt_tester_comparisons
+                    WHERE id = %s
+                    """,
+                    (comparison_id,),
+                )
+                comparison_row = cursor.fetchone() or {}
+                session_id = comparison_row.get("session_id")
+                if expected_session_id is not None and session_id != expected_session_id:
+                    return False
+
+                cursor.execute(
+                    """
                     UPDATE gk_prompt_tester_comparisons
                     SET winner = %s, voter_telegram_id = %s, voter_type = %s, voted_at = NOW()
                     WHERE id = %s AND winner IS NULL
                     """,
                     (winner, voter_telegram_id, voter_type, comparison_id),
                 )
-                return cursor.rowcount > 0
+                updated = cursor.rowcount > 0
+                if not updated or not session_id:
+                    return updated
+
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS remaining
+                    FROM gk_prompt_tester_comparisons
+                    WHERE session_id = %s AND winner IS NULL
+                    """,
+                    (session_id,),
+                )
+                remaining = int((cursor.fetchone() or {}).get("remaining") or 0)
+                if remaining == 0:
+                    cursor.execute(
+                        """
+                        UPDATE gk_prompt_tester_sessions
+                        SET status = 'completed'
+                        WHERE id = %s AND status <> 'abandoned'
+                        """,
+                        (session_id,),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        UPDATE gk_prompt_tester_sessions
+                        SET status = 'judging'
+                        WHERE id = %s AND status = 'generating'
+                        """,
+                        (session_id,),
+                    )
+                return updated
 
     except Exception as exc:
         logger.error("Ошибка голосования по сравнению %d: %s", comparison_id, exc, exc_info=True)
@@ -651,7 +803,7 @@ def get_session_results(session_id: int) -> Dict[str, Any]:
                     FROM gk_prompt_tester_comparisons c
                     JOIN gk_prompt_tester_generations ga ON ga.id = c.generation_a_id
                     JOIN gk_prompt_tester_generations gb ON gb.id = c.generation_b_id
-                    WHERE c.session_id = %s AND c.winner IS NOT NULL AND c.winner != 'skip'
+                    WHERE c.session_id = %s AND c.winner IS NOT NULL
                     """,
                     (session_id,),
                 )
@@ -675,11 +827,17 @@ def get_session_results(session_id: int) -> Dict[str, Any]:
                 wins: Dict[int, int] = {pid: 0 for pid in prompt_ids}
                 losses: Dict[int, int] = {pid: 0 for pid in prompt_ids}
                 ties: Dict[int, int] = {pid: 0 for pid in prompt_ids}
+                skips: Dict[int, int] = {pid: 0 for pid in prompt_ids}
 
                 for vote in votes:
                     pa = vote["prompt_a_id"]
                     pb = vote["prompt_b_id"]
                     w = vote["winner"]
+
+                    if w == "skip":
+                        skips[pa] = skips.get(pa, 0) + 1
+                        skips[pb] = skips.get(pb, 0) + 1
+                        continue
 
                     if w == "a":
                         wins[pa] = wins.get(pa, 0) + 1
@@ -694,25 +852,27 @@ def get_session_results(session_id: int) -> Dict[str, Any]:
                         ties[pb] = ties.get(pb, 0) + 1
                         sa, sb = 0.5, 0.5
 
-                    # Elo update
-                    ea = 1.0 / (1.0 + math.pow(10, (elo.get(pb, _ELO_DEFAULT) - elo.get(pa, _ELO_DEFAULT)) / 400))
-                    eb = 1.0 - ea
-                    elo[pa] = elo.get(pa, _ELO_DEFAULT) + _ELO_K * (sa - ea)
-                    elo[pb] = elo.get(pb, _ELO_DEFAULT) + _ELO_K * (sb - eb)
+                    _apply_elo_update(elo, pa, pb, sa, sb)
 
                 results = []
                 for pid in prompt_ids:
                     total_matches = wins[pid] + losses[pid] + ties[pid]
-                    win_rate = (wins[pid] / total_matches * 100) if total_matches > 0 else 0
+                    win_rate = ((wins[pid] + ties[pid] * 0.5) / total_matches * 100) if total_matches > 0 else 0
+                    score = wins[pid] + ties[pid] * 0.5
+                    loss_rate = (losses[pid] / total_matches * 100) if total_matches > 0 else 0
                     results.append({
                         "prompt_id": pid,
                         "prompt_label": prompt_labels.get(pid, f"Промпт #{pid}"),
                         "elo": round(elo[pid]),
+                        "elo_delta": round(elo[pid] - _ELO_DEFAULT),
                         "wins": wins[pid],
                         "losses": losses[pid],
                         "ties": ties[pid],
+                        "skips": skips[pid],
                         "matches": total_matches,
+                        "score": round(score, 2),
                         "win_rate": round(win_rate, 1),
+                        "loss_rate": round(loss_rate, 1),
                     })
 
                 results.sort(key=lambda x: x["elo"], reverse=True)
@@ -725,3 +885,160 @@ def get_session_results(session_id: int) -> Dict[str, Any]:
     except Exception as exc:
         logger.error("Ошибка расчёта результатов сессии %d: %s", session_id, exc, exc_info=True)
         return {"prompt_results": [], "total_votes": 0}
+
+
+def get_global_prompt_stats() -> Dict[str, Any]:
+    """Вернуть агрегированную статистику Prompt Tester по всем сессиям."""
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        c.winner,
+                        ga.prompt_id AS prompt_a_id,
+                        gb.prompt_id AS prompt_b_id
+                    FROM gk_prompt_tester_comparisons c
+                    JOIN gk_prompt_tester_generations ga ON ga.id = c.generation_a_id
+                    JOIN gk_prompt_tester_generations gb ON gb.id = c.generation_b_id
+                    JOIN gk_prompt_tester_sessions s ON s.id = c.session_id
+                    WHERE c.winner IS NOT NULL
+                      AND s.status <> 'abandoned'
+                    """
+                )
+                votes = cursor.fetchall() or []
+
+                cursor.execute(
+                    """
+                    SELECT
+                        p.id AS prompt_id,
+                        p.label,
+                        p.is_active,
+                        COUNT(DISTINCT g.session_id) AS sessions_count
+                    FROM gk_prompt_tester_prompts p
+                    LEFT JOIN gk_prompt_tester_generations g ON g.prompt_id = p.id
+                    GROUP BY p.id, p.label, p.is_active
+                    ORDER BY p.id
+                    """
+                )
+                prompt_rows = cursor.fetchall() or []
+
+                cursor.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS sessions_total,
+                        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS sessions_completed,
+                        SUM(CASE WHEN status = 'judging' THEN 1 ELSE 0 END) AS sessions_judging,
+                        SUM(CASE WHEN status = 'generating' THEN 1 ELSE 0 END) AS sessions_generating
+                    FROM gk_prompt_tester_sessions
+                    WHERE status <> 'abandoned'
+                    """
+                )
+                summary_row = cursor.fetchone() or {}
+
+                all_prompt_ids = sorted({
+                    int(row.get("prompt_id") or 0)
+                    for row in prompt_rows
+                    if int(row.get("prompt_id") or 0) > 0
+                })
+
+                elo: Dict[int, float] = {pid: float(_ELO_DEFAULT) for pid in all_prompt_ids}
+                wins: Dict[int, int] = {pid: 0 for pid in all_prompt_ids}
+                losses: Dict[int, int] = {pid: 0 for pid in all_prompt_ids}
+                ties: Dict[int, int] = {pid: 0 for pid in all_prompt_ids}
+                skips: Dict[int, int] = {pid: 0 for pid in all_prompt_ids}
+
+                voted_matches = 0
+                skipped_matches = 0
+
+                for vote in votes:
+                    winner = vote.get("winner")
+                    prompt_a_id = int(vote.get("prompt_a_id") or 0)
+                    prompt_b_id = int(vote.get("prompt_b_id") or 0)
+                    if prompt_a_id <= 0 or prompt_b_id <= 0:
+                        continue
+
+                    for pid in (prompt_a_id, prompt_b_id):
+                        if pid not in elo:
+                            elo[pid] = float(_ELO_DEFAULT)
+                            wins[pid] = 0
+                            losses[pid] = 0
+                            ties[pid] = 0
+                            skips[pid] = 0
+
+                    if winner == "skip":
+                        skips[prompt_a_id] += 1
+                        skips[prompt_b_id] += 1
+                        skipped_matches += 1
+                        continue
+
+                    voted_matches += 1
+                    if winner == "a":
+                        wins[prompt_a_id] += 1
+                        losses[prompt_b_id] += 1
+                        _apply_elo_update(elo, prompt_a_id, prompt_b_id, 1.0, 0.0)
+                    elif winner == "b":
+                        wins[prompt_b_id] += 1
+                        losses[prompt_a_id] += 1
+                        _apply_elo_update(elo, prompt_a_id, prompt_b_id, 0.0, 1.0)
+                    else:
+                        ties[prompt_a_id] += 1
+                        ties[prompt_b_id] += 1
+                        _apply_elo_update(elo, prompt_a_id, prompt_b_id, 0.5, 0.5)
+
+                row_by_prompt_id = {
+                    int(row.get("prompt_id") or 0): row
+                    for row in prompt_rows
+                }
+
+                prompt_stats: List[Dict[str, Any]] = []
+                for prompt_id in sorted(elo.keys()):
+                    row = row_by_prompt_id.get(prompt_id, {})
+                    total_matches = wins[prompt_id] + losses[prompt_id] + ties[prompt_id]
+                    win_rate = (wins[prompt_id] + ties[prompt_id] * 0.5) / total_matches if total_matches > 0 else 0.0
+                    prompt_stats.append(
+                        {
+                            "prompt_id": prompt_id,
+                            "label": row.get("label") or f"Промпт #{prompt_id}",
+                            "is_active": bool(row.get("is_active", 1)),
+                            "sessions_count": int(row.get("sessions_count") or 0),
+                            "elo": round(float(elo[prompt_id]), 2),
+                            "elo_delta": round(float(elo[prompt_id]) - _ELO_DEFAULT, 2),
+                            "wins": int(wins[prompt_id]),
+                            "losses": int(losses[prompt_id]),
+                            "ties": int(ties[prompt_id]),
+                            "skips": int(skips[prompt_id]),
+                            "matches": int(total_matches),
+                            "win_rate": round(win_rate, 4),
+                        }
+                    )
+
+                prompt_stats.sort(key=lambda item: float(item.get("elo") or 0.0), reverse=True)
+
+                return {
+                    "summary": {
+                        "sessions_total": int(summary_row.get("sessions_total") or 0),
+                        "sessions_completed": int(summary_row.get("sessions_completed") or 0),
+                        "sessions_judging": int(summary_row.get("sessions_judging") or 0),
+                        "sessions_generating": int(summary_row.get("sessions_generating") or 0),
+                        "voted_matches": voted_matches,
+                        "skipped_matches": skipped_matches,
+                        "prompts_total": len(prompt_stats),
+                    },
+                    "prompts": prompt_stats,
+                }
+
+    except Exception as exc:
+        logger.error("Ошибка получения агрегированной статистики промптов: %s", exc, exc_info=True)
+        return {
+            "summary": {
+                "sessions_total": 0,
+                "sessions_completed": 0,
+                "sessions_judging": 0,
+                "sessions_generating": 0,
+                "voted_matches": 0,
+                "skipped_matches": 0,
+                "prompts_total": 0,
+            },
+            "prompts": [],
+        }

@@ -182,11 +182,8 @@ class GroupResponder:
         if not message or message.action:
             return None
 
-        # Извлечь chat_id
-        chat = event.chat
-        if not chat:
-            return None
-        chat_id = self._resolve_chat_id(chat)
+        # Извлечь chat_id (event.chat_id всегда доступен из raw-обновления)
+        chat_id = self._resolve_chat_id(event)
 
         if chat_id not in group_ids:
             return None
@@ -296,7 +293,7 @@ class GroupResponder:
             primary_source_link = answer_result.get("primary_source_link")
             if primary_source_link:
                 answer_text = (
-                    f"**Отвечает робот Арчи**: {answer_text}\n\n"
+                    f"**Отвечает Арчи**: {answer_text}\n\n"
                     f"Похожий случай в группе, ссылка на ответ: {primary_source_link}"
                 )
         confidence = answer_result["confidence"]
@@ -347,7 +344,7 @@ class GroupResponder:
         else:
             # Отправить ответ
             try:
-                source_group_title = self._resolve_chat_title(chat)
+                source_group_title = self._resolve_chat_title(event.chat)
                 sender_label = self._format_sender_label(sender, sender_id)
                 await self._send_answer(
                     event=event,
@@ -475,33 +472,43 @@ class GroupResponder:
     ) -> None:
         """Отправить ответ либо reply в исходную группу, либо в тестовую группу."""
         if self._redirect_output_group_id is None:
-            await event.reply(answer_text)
+            await event.reply(self._truncate_for_telegram(answer_text, 3500), parse_mode=None)
             return
 
         client = getattr(event, "client", None)
         if client is None or not hasattr(client, "send_message"):
             raise RuntimeError("У события отсутствует Telethon client для send_message")
 
-        redirect_message = self._build_redirect_message(
-            answer_text=answer_text,
+        question_message = self._build_redirect_question_message(
             question_text=question_text,
             source_group_id=source_group_id,
             source_group_title=source_group_title,
             sender_label=sender_label,
             source_message_id=source_message_id,
         )
-        await client.send_message(self._redirect_output_group_id, redirect_message)
+        question_post = await client.send_message(
+            self._redirect_output_group_id,
+            question_message,
+            parse_mode=None,
+        )
 
-    def _build_redirect_message(
+        answer_message = self._build_redirect_answer_message(answer_text=answer_text)
+        await client.send_message(
+            self._redirect_output_group_id,
+            answer_message,
+            parse_mode=None,
+            reply_to=getattr(question_post, "id", None),
+        )
+
+    def _build_redirect_question_message(
         self,
-        answer_text: str,
         question_text: str,
         source_group_id: int,
         source_group_title: str,
         sender_label: str,
         source_message_id: int,
     ) -> str:
-        """Сформировать сообщение для перенаправленного test mode."""
+        """Сформировать сообщение-вопрос для перенаправленного test mode."""
         source_link = self._build_group_message_link(source_group_id, source_message_id)
         source_group_title = source_group_title or "Без названия"
         sender_label = sender_label or "Неизвестный отправитель"
@@ -515,11 +522,15 @@ class GroupResponder:
             "",
             "Вопрос:",
             self._truncate_for_telegram(question_text, 1200),
-            "",
-            "Ответ:",
-            self._truncate_for_telegram(answer_text, 2400),
         ]
         return "\n".join(header)
+
+    def _build_redirect_answer_message(self, answer_text: str) -> str:
+        """Сформировать сообщение-ответ для перенаправленного test mode."""
+        return "\n".join([
+            "Ответ:",
+            self._truncate_for_telegram(answer_text, 3000),
+        ])
 
     @staticmethod
     def _truncate_for_telegram(text: str, max_length: int) -> str:
@@ -585,11 +596,11 @@ class GroupResponder:
             return None
 
     @staticmethod
-    def _resolve_chat_id(chat) -> int:
-        """Извлечь chat_id, учитывая формат для супергрупп."""
-        chat_id = getattr(chat, "id", 0)
-        if chat_id > 0:
-            if getattr(chat, "megagroup", False) or getattr(chat, "broadcast", False):
-                return -int(f"100{chat_id}")
-            return -chat_id
-        return chat_id
+    def _resolve_chat_id(event) -> int:
+        """Извлечь chat_id из события Telethon.
+
+        Использует event.chat_id — свойство, всегда доступное из raw-обновления
+        Telegram (корректно обрабатывает все типы групп: обычные, супергруппы,
+        каналы). В отличие от event.chat, event.chat_id никогда не равен None.
+        """
+        return getattr(event, "chat_id", 0) or 0

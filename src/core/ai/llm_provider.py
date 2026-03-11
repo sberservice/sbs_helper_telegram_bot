@@ -102,6 +102,8 @@ class LLMProvider(ABC):
         user_id: Optional[int] = None,
         purpose: str = "response",
         model_override: Optional[str] = None,
+        temperature_override: Optional[float] = None,
+        allow_model_fallback: bool = True,
         response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
@@ -243,19 +245,35 @@ class DeepSeekProvider(LLMProvider):
         user_id: Optional[int] = None,
         purpose: str = "response",
         model_override: Optional[str] = None,
+        temperature_override: Optional[float] = None,
+        allow_model_fallback: bool = True,
         response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Получить свободный текстовый ответ через DeepSeek API."""
         full_messages = [{"role": "system", "content": system_prompt}] + messages
 
+        temperature = ai_settings.LLM_CHAT_TEMPERATURE
+        if temperature_override is not None:
+            try:
+                temperature = float(temperature_override)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Некорректный temperature_override=%r, используется дефолт %.3f",
+                    temperature_override,
+                    ai_settings.LLM_CHAT_TEMPERATURE,
+                )
+
         try:
+            retry_attempts = 4 if model_override and purpose in {"gk_inference", "gk_prompt_tester"} else 2
             raw = await self._call_api(
                 full_messages,
-                temperature=ai_settings.LLM_CHAT_TEMPERATURE,
+                temperature=temperature,
                 max_tokens=ai_settings.LLM_CHAT_MAX_TOKENS,
                 purpose=purpose,
                 user_id=user_id,
                 force_model=model_override,
+                allow_empty_content_retry=allow_model_fallback and model_override is None,
+                max_attempts=retry_attempts,
                 response_format=response_format,
             )
         except LLMProviderTemporaryError as exc:
@@ -301,6 +319,7 @@ class DeepSeekProvider(LLMProvider):
         user_id: Optional[int] = None,
         force_model: Optional[str] = None,
         allow_empty_content_retry: bool = True,
+        max_attempts: int = 2,
         response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
@@ -346,7 +365,7 @@ class DeepSeekProvider(LLMProvider):
             "Content-Type": "application/json",
         }
 
-        max_attempts = 2
+        max_attempts = max(1, int(max_attempts))
         response: Optional[httpx.Response] = None
         for attempt in range(1, max_attempts + 1):
             try:
@@ -462,9 +481,36 @@ class DeepSeekProvider(LLMProvider):
             )
             raise ValueError(f"Некорректная структура ответа API: {exc}") from exc
 
+        is_empty_content = not str(content or "").strip()
+
+        if is_empty_content:
+            diagnostics = self._build_empty_content_diagnostics(
+                response_data=data,
+                message=message,
+                content=content,
+                response=response,
+            )
+            diagnostics_json = self._serialize_empty_content_diagnostics(diagnostics)
+            logger.warning(
+                "DeepSeek returned empty content: purpose=%s model=%s diagnostics=%s",
+                purpose,
+                model_name,
+                self._truncate_for_log(diagnostics_json),
+            )
+            self._log_model_io_to_db(
+                user_id=user_id,
+                purpose=purpose,
+                model_name=str(payload.get("model") or ""),
+                request_text=request_payload_text,
+                response_text=json.dumps(data, ensure_ascii=False),
+                status="empty_content",
+                response_time_ms=self._extract_response_time_ms(response),
+                error_text=diagnostics_json,
+            )
+
         if (
             allow_empty_content_retry
-            and not str(content or "").strip()
+            and is_empty_content
             and model_name == ai_settings.DEEPSEEK_MODEL_REASONER
             and purpose != "classification"
         ):
@@ -483,24 +529,27 @@ class DeepSeekProvider(LLMProvider):
                 user_id=user_id,
                 force_model=fallback_model,
                 allow_empty_content_retry=False,
+                max_attempts=max_attempts,
+                response_format=response_format,
             )
 
-        self._log_model_response(
-            purpose=purpose,
-            model_name=str(payload.get("model") or ""),
-            raw_content=str(content or ""),
-        )
+        if not is_empty_content:
+            self._log_model_response(
+                purpose=purpose,
+                model_name=str(payload.get("model") or ""),
+                raw_content=str(content or ""),
+            )
 
-        self._log_model_io_to_db(
-            user_id=user_id,
-            purpose=purpose,
-            model_name=str(payload.get("model") or ""),
-            request_text=request_payload_text,
-            response_text=str(content or ""),
-            status="ok",
-            response_time_ms=self._extract_response_time_ms(response),
-            error_text="",
-        )
+            self._log_model_io_to_db(
+                user_id=user_id,
+                purpose=purpose,
+                model_name=str(payload.get("model") or ""),
+                request_text=request_payload_text,
+                response_text=str(content or ""),
+                status="ok",
+                response_time_ms=self._extract_response_time_ms(response),
+                error_text="",
+            )
 
         return content
 
@@ -526,6 +575,56 @@ class DeepSeekProvider(LLMProvider):
             return "\n".join(parts).strip()
 
         return str(content or "")
+
+    @staticmethod
+    def _build_empty_content_diagnostics(
+        response_data: Any,
+        message: Any,
+        content: Any,
+        response: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Собрать диагностические поля для случая пустого content в ответе модели."""
+        choice: Dict[str, Any] = {}
+        if isinstance(response_data, dict):
+            choices = response_data.get("choices")
+            if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                choice = choices[0]
+
+        message_dict = message if isinstance(message, dict) else {}
+
+        content_type = type(content).__name__
+        if isinstance(content, str):
+            content_length = len(content)
+        elif content is None:
+            content_length = 0
+        else:
+            content_length = len(str(content))
+
+        has_reasoning = bool(message_dict.get("reasoning_content") or message_dict.get("reasoning"))
+        has_refusal = bool(message_dict.get("refusal"))
+        has_tool_calls = bool(message_dict.get("tool_calls"))
+
+        diagnostics: Dict[str, Any] = {
+            "response_id": response_data.get("id") if isinstance(response_data, dict) else None,
+            "finish_reason": choice.get("finish_reason"),
+            "usage": response_data.get("usage") if isinstance(response_data, dict) else None,
+            "http_status": getattr(response, "status_code", None),
+            "message_keys": sorted(message_dict.keys()),
+            "content_type": content_type,
+            "content_length": content_length,
+            "has_reasoning": has_reasoning,
+            "has_refusal": has_refusal,
+            "has_tool_calls": has_tool_calls,
+        }
+        return diagnostics
+
+    @staticmethod
+    def _serialize_empty_content_diagnostics(diagnostics: Dict[str, Any]) -> str:
+        """Сериализовать диагностику пустого ответа в JSON для логов и БД."""
+        try:
+            return json.dumps(diagnostics, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            return json.dumps({"serialization_error": "diagnostics_not_serializable"}, ensure_ascii=False)
 
     @staticmethod
     def _extract_response_time_ms(response: Any) -> Optional[int]:
@@ -1022,15 +1121,28 @@ class GigaChatProvider(LLMProvider):
         user_id: Optional[int] = None,
         purpose: str = "response",
         model_override: Optional[str] = None,
+        temperature_override: Optional[float] = None,
+        allow_model_fallback: bool = True,
         response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Получить свободный текстовый ответ через GigaChat API."""
         full_messages = [{"role": "system", "content": system_prompt}] + messages
 
+        temperature = 0.7
+        if temperature_override is not None:
+            try:
+                temperature = float(temperature_override)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Некорректный temperature_override=%r, используется дефолт %.3f",
+                    temperature_override,
+                    0.7,
+                )
+
         try:
             raw = await self._call_gigachat(
                 full_messages,
-                temperature=0.7,
+                temperature=temperature,
                 model_override=model_override,
                 user_id=user_id,
             )

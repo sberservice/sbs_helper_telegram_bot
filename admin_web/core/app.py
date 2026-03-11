@@ -28,6 +28,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from admin_web.core import db as web_db
 from admin_web.core.auth import (
@@ -77,6 +78,56 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Middleware: профилирование API-запросов
+# ---------------------------------------------------------------------------
+
+_SLOW_REQUEST_THRESHOLD_MS = float(os.getenv("ADMIN_WEB_SLOW_REQUEST_MS", "500"))
+_api_logger = logging.getLogger("admin_web.profiling")
+
+
+class APIProfilingMiddleware(BaseHTTPMiddleware):
+    """Логирует время выполнения API-запросов.
+
+    Медленные запросы (> ADMIN_WEB_SLOW_REQUEST_MS, по умолчанию 500 мс)
+    логируются на уровне WARNING с пометкой SLOW. Остальные — DEBUG.
+    Время передаётся клиенту в заголовке X-Response-Time-Ms.
+    """
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        """Обработать запрос и замерить время."""
+        if not request.url.path.startswith("/api/"):
+            return await call_next(request)
+
+        import time as _time
+        start = _time.monotonic()
+        response = await call_next(request)
+        elapsed_ms = (_time.monotonic() - start) * 1000
+
+        response.headers["X-Response-Time-Ms"] = f"{elapsed_ms:.1f}"
+
+        method = request.method
+        path = request.url.path
+        qs = str(request.query_params) if request.query_params else ""
+        status = response.status_code
+
+        if elapsed_ms >= _SLOW_REQUEST_THRESHOLD_MS:
+            _api_logger.warning(
+                "SLOW %s %s%s → %d (%.1f ms)",
+                method, path, f"?{qs}" if qs else "", status, elapsed_ms,
+            )
+        else:
+            _api_logger.debug(
+                "%s %s%s → %d (%.1f ms)",
+                method, path, f"?{qs}" if qs else "", status, elapsed_ms,
+            )
+
+        return response
+
+
+app.add_middleware(APIProfilingMiddleware)
 
 
 # ---------------------------------------------------------------------------

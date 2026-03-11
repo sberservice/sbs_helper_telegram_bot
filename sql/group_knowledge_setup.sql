@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS `gk_qa_pairs` (
   `group_id` bigint(20) NOT NULL COMMENT 'ID группы',
   `extraction_type` enum('thread_reply','llm_inferred') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'thread_reply' COMMENT 'Метод извлечения',
   `confidence` float DEFAULT NULL COMMENT 'Уверенность LLM (0.0–1.0)',
+  `confidence_reason` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Причина выставленного confidence',
+  `fullness` float DEFAULT NULL COMMENT 'Полнота/подробность ответа (0.0–1.0)',
   `llm_model_used` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT 'Модель LLM',
   `llm_request_payload` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'JSON запроса, отправленного в LLM для отладки',
   `created_at` bigint(20) NOT NULL COMMENT 'Время создания (UNIX timestamp)',

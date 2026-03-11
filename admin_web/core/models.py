@@ -226,3 +226,85 @@ class QAPairListResponse(BaseModel):
     page: int
     page_size: int
     stats: ExpertValidationStats
+
+
+# ---------------------------------------------------------------------------
+# Термины и аббревиатуры
+# ---------------------------------------------------------------------------
+
+class TermVerdict(str, Enum):
+    """Вердикт эксперта по термину."""
+
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EDITED = "edited"
+
+
+class TermValidationRequest(BaseModel):
+    """Запрос на валидацию термина экспертом."""
+
+    term_id: int
+    verdict: TermVerdict
+    comment: Optional[str] = Field(None, max_length=2000)
+    edited_term: Optional[str] = Field(None, max_length=100)
+    edited_definition: Optional[str] = Field(None, max_length=2000)
+
+
+class TermDetail(BaseModel):
+    """Детальные данные термина."""
+
+    id: int
+    group_id: int = 0
+    group_title: Optional[str] = None
+    term: str
+    term_type: str
+    definition: Optional[str] = None
+    source: str = "llm_discovered"
+    status: str = "pending"
+    confidence: Optional[float] = None
+    llm_model_used: Optional[str] = None
+    scan_batch_id: Optional[str] = None
+    expert_status: Optional[str] = None
+    expert_validated_at: Optional[Any] = None
+    created_at: Optional[Any] = None
+    updated_at: Optional[Any] = None
+    existing_verdict: Optional[str] = None
+    existing_comment: Optional[str] = None
+
+
+class TermValidationStats(BaseModel):
+    """Статистика терминов."""
+
+    total: int = 0
+    pending: int = 0
+    approved: int = 0
+    rejected: int = 0
+    fixed_terms: int = 0
+    acronyms: int = 0
+
+
+class TermListResponse(BaseModel):
+    """Ответ со списком терминов."""
+
+    terms: List[TermDetail]
+    total: int
+    page: int
+    page_size: int
+    stats: TermValidationStats
+
+
+class AddTermRequest(BaseModel):
+    """Запрос на ручное добавление термина."""
+
+    group_id: int = 0
+    term: str = Field(..., min_length=1, max_length=100)
+    term_type: str = Field("fixed_term", pattern=r"^(fixed_term|acronym)$")
+    definition: Optional[str] = Field(None, max_length=2000)
+
+
+class TermScanRequest(BaseModel):
+    """Запрос на сканирование терминов."""
+
+    group_id: int
+    date_from: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    date_to: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")

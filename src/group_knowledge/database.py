@@ -683,6 +683,39 @@ def delete_qa_pairs_by_group(group_id: int) -> int:
         raise
 
 
+def delete_expert_validations_by_group(group_id: int) -> int:
+    """
+    Удалить все экспертные валидации Q&A-пар указанной группы.
+
+    Args:
+        group_id: ID группы.
+
+    Returns:
+        Число удалённых строк.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    DELETE ev
+                    FROM gk_expert_validations ev
+                    INNER JOIN gk_qa_pairs qp ON qp.id = ev.qa_pair_id
+                    WHERE qp.group_id = %s
+                    """,
+                    (group_id,),
+                )
+                return int(cursor.rowcount or 0)
+    except Exception as exc:
+        logger.error(
+            "Ошибка удаления экспертных валидаций группы %s: %s",
+            group_id,
+            exc,
+            exc_info=True,
+        )
+        raise
+
+
 def delete_group_data(group_id: int, dry_run: bool = True) -> Dict[str, int]:
     """
     Удалить данные Group Knowledge для указанной группы.
@@ -826,6 +859,8 @@ def store_qa_pair(pair: QAPair) -> int:
                             group_id = %s,
                             extraction_type = %s,
                             confidence = %s,
+                            confidence_reason = %s,
+                            fullness = %s,
                             llm_model_used = %s,
                             llm_request_payload = %s,
                             approved = %s,
@@ -839,6 +874,8 @@ def store_qa_pair(pair: QAPair) -> int:
                             pair.group_id,
                             pair.extraction_type,
                             pair.confidence,
+                            pair.confidence_reason,
+                            pair.fullness,
                             pair.llm_model_used[:128] if pair.llm_model_used else "",
                             pair.llm_request_payload,
                             pair.approved,
@@ -853,9 +890,10 @@ def store_qa_pair(pair: QAPair) -> int:
                         question_text, answer_text,
                         question_message_id, answer_message_id,
                         group_id, extraction_type, confidence,
+                        confidence_reason, fullness,
                         llm_model_used, llm_request_payload,
                         created_at, approved, vector_indexed
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         pair.question_text,
@@ -865,6 +903,8 @@ def store_qa_pair(pair: QAPair) -> int:
                         pair.group_id,
                         pair.extraction_type,
                         pair.confidence,
+                        pair.confidence_reason,
+                        pair.fullness,
                         pair.llm_model_used[:128] if pair.llm_model_used else "",
                         pair.llm_request_payload,
                         now,
@@ -1341,6 +1381,8 @@ def _row_to_qa_pair(row: Dict[str, Any]) -> QAPair:
         group_id=row.get("group_id", 0),
         extraction_type=row.get("extraction_type", "thread_reply"),
         confidence=row.get("confidence"),
+        confidence_reason=row.get("confidence_reason"),
+        fullness=row.get("fullness"),
         llm_model_used=row.get("llm_model_used", ""),
         llm_request_payload=row.get("llm_request_payload"),
         created_at=row.get("created_at", 0),
@@ -1348,3 +1390,296 @@ def _row_to_qa_pair(row: Dict[str, Any]) -> QAPair:
         vector_indexed=row.get("vector_indexed", 0),
         expert_status=row.get("expert_status"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Термины и аббревиатуры (gk_terms)
+# ---------------------------------------------------------------------------
+
+def store_term(term_data: Dict[str, Any]) -> Optional[int]:
+    """
+    Сохранить термин/аббревиатуру в БД (upsert по group_id + term + term_type).
+
+    Args:
+        term_data: Словарь с полями: group_id, term, term_type, definition,
+                   source, status, confidence, llm_model_used,
+                   llm_request_payload, scan_batch_id.
+
+    Returns:
+        ID записи или None при ошибке.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO gk_terms
+                        (group_id, term, term_type, definition, source, status,
+                         confidence, llm_model_used, llm_request_payload, scan_batch_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        definition = COALESCE(VALUES(definition), definition),
+                        confidence = COALESCE(VALUES(confidence), confidence),
+                        llm_model_used = COALESCE(VALUES(llm_model_used), llm_model_used),
+                        llm_request_payload = COALESCE(VALUES(llm_request_payload), llm_request_payload),
+                        scan_batch_id = COALESCE(VALUES(scan_batch_id), scan_batch_id),
+                        updated_at = NOW()
+                    """,
+                    (
+                        term_data.get("group_id", 0),
+                        (term_data.get("term") or "").strip().lower(),
+                        term_data.get("term_type", "fixed_term"),
+                        term_data.get("definition"),
+                        term_data.get("source", "llm_discovered"),
+                        term_data.get("status", "pending"),
+                        term_data.get("confidence"),
+                        term_data.get("llm_model_used"),
+                        term_data.get("llm_request_payload"),
+                        term_data.get("scan_batch_id"),
+                    ),
+                )
+                return cursor.lastrowid or None
+    except Exception as exc:
+        logger.error(
+            "Ошибка сохранения термина '%s': %s",
+            term_data.get("term"), exc, exc_info=True,
+        )
+        return None
+
+
+def store_terms_batch(terms: List[Dict[str, Any]]) -> int:
+    """
+    Сохранить пакет терминов в БД (upsert).
+
+    Args:
+        terms: Список словарей с данными терминов.
+
+    Returns:
+        Количество успешно сохранённых записей.
+    """
+    if not terms:
+        return 0
+
+    stored = 0
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                for term_data in terms:
+                    try:
+                        cursor.execute(
+                            """
+                            INSERT INTO gk_terms
+                                (group_id, term, term_type, definition, source, status,
+                                 confidence, llm_model_used, llm_request_payload, scan_batch_id)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ON DUPLICATE KEY UPDATE
+                                definition = COALESCE(VALUES(definition), definition),
+                                confidence = COALESCE(VALUES(confidence), confidence),
+                                llm_model_used = COALESCE(VALUES(llm_model_used), llm_model_used),
+                                llm_request_payload = COALESCE(VALUES(llm_request_payload), llm_request_payload),
+                                scan_batch_id = COALESCE(VALUES(scan_batch_id), scan_batch_id),
+                                updated_at = NOW()
+                            """,
+                            (
+                                term_data.get("group_id", 0),
+                                (term_data.get("term") or "").strip().lower(),
+                                term_data.get("term_type", "fixed_term"),
+                                term_data.get("definition"),
+                                term_data.get("source", "llm_discovered"),
+                                term_data.get("status", "pending"),
+                                term_data.get("confidence"),
+                                term_data.get("llm_model_used"),
+                                term_data.get("llm_request_payload"),
+                                term_data.get("scan_batch_id"),
+                            ),
+                        )
+                        stored += 1
+                    except Exception as row_exc:
+                        logger.warning(
+                            "Ошибка сохранения термина '%s': %s",
+                            term_data.get("term"), row_exc,
+                        )
+        logger.info("Сохранено терминов: %d из %d", stored, len(terms))
+    except Exception as exc:
+        logger.error("Ошибка пакетного сохранения терминов: %s", exc, exc_info=True)
+    return stored
+
+
+def get_approved_fixed_terms(group_id: Optional[int] = None) -> set:
+    """
+    Получить множество одобренных protected-терминов.
+
+    Всегда включает глобальные термины (group_id=0).
+    Если указан group_id — добавляет термины конкретной группы.
+
+    Args:
+        group_id: ID группы (None = только глобальные).
+
+    Returns:
+        Множество строк (термины в нижнем регистре).
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                if group_id is not None and group_id != 0:
+                    cursor.execute(
+                        """
+                        SELECT term FROM gk_terms
+                        WHERE term_type = 'fixed_term'
+                          AND status = 'approved'
+                          AND group_id IN (0, %s)
+                        """,
+                        (group_id,),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT term FROM gk_terms
+                        WHERE term_type = 'fixed_term'
+                          AND status = 'approved'
+                          AND group_id = 0
+                        """
+                    )
+                rows = cursor.fetchall() or []
+                return {row["term"].strip().lower() for row in rows if row.get("term")}
+    except Exception as exc:
+        logger.error("Ошибка загрузки fixed terms: %s", exc, exc_info=True)
+        return set()
+
+
+def get_approved_acronyms(group_id: Optional[int] = None) -> List[Dict[str, str]]:
+    """
+    Получить одобренные аббревиатуры с расшифровками.
+
+    Всегда включает глобальные аббревиатуры (group_id=0).
+    Если указан group_id — добавляет аббревиатуры конкретной группы.
+
+    Args:
+        group_id: ID группы (None = только глобальные).
+
+    Returns:
+        Список словарей: [{"term": "гз", "definition": "Горячая замена"}, ...].
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                if group_id is not None and group_id != 0:
+                    cursor.execute(
+                        """
+                        SELECT term, definition FROM gk_terms
+                        WHERE term_type = 'acronym'
+                          AND status = 'approved'
+                          AND definition IS NOT NULL
+                          AND group_id IN (0, %s)
+                        ORDER BY term
+                        """,
+                        (group_id,),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT term, definition FROM gk_terms
+                        WHERE term_type = 'acronym'
+                          AND status = 'approved'
+                          AND definition IS NOT NULL
+                          AND group_id = 0
+                        ORDER BY term
+                        """
+                    )
+                rows = cursor.fetchall() or []
+                return [
+                    {"term": row["term"], "definition": row["definition"]}
+                    for row in rows
+                    if row.get("term") and row.get("definition")
+                ]
+    except Exception as exc:
+        logger.error("Ошибка загрузки аббревиатур: %s", exc, exc_info=True)
+        return []
+
+
+def get_terms_for_group(
+    group_id: int,
+    *,
+    status: Optional[str] = None,
+    term_type: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Получить все термины для группы (включая глобальные).
+
+    Args:
+        group_id: ID группы.
+        status: Фильтр по статусу (pending/approved/rejected).
+        term_type: Фильтр по типу (fixed_term/acronym).
+
+    Returns:
+        Список словарей с данными терминов.
+    """
+    conditions = ["group_id IN (0, %s)"]
+    params: List[Any] = [group_id]
+
+    if status:
+        conditions.append("status = %s")
+        params.append(status)
+    if term_type:
+        conditions.append("term_type = %s")
+        params.append(term_type)
+
+    where_clause = " AND ".join(conditions)
+
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT * FROM gk_terms
+                    WHERE {where_clause}
+                    ORDER BY term, term_type
+                    """,
+                    tuple(params),
+                )
+                return cursor.fetchall() or []
+    except Exception as exc:
+        logger.error("Ошибка получения терминов group=%d: %s", group_id, exc, exc_info=True)
+        return []
+
+
+def update_term_status(
+    term_id: int,
+    status: str,
+    *,
+    expert_status: Optional[str] = None,
+) -> bool:
+    """
+    Обновить статус термина.
+
+    Args:
+        term_id: ID записи термина.
+        status: Новый статус (pending/approved/rejected).
+        expert_status: Денормализованный статус экспертной валидации.
+
+    Returns:
+        True если обновление прошло успешно.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                if expert_status:
+                    cursor.execute(
+                        """
+                        UPDATE gk_terms
+                        SET status = %s,
+                            expert_status = %s,
+                            expert_validated_at = NOW()
+                        WHERE id = %s
+                        """,
+                        (status, expert_status, term_id),
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE gk_terms SET status = %s WHERE id = %s",
+                        (status, term_id),
+                    )
+                return cursor.rowcount > 0
+    except Exception as exc:
+        logger.error("Ошибка обновления статуса термина %d: %s", term_id, exc, exc_info=True)
+        return False

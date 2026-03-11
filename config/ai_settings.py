@@ -289,6 +289,12 @@ AI_RAG_VECTOR_EMBEDDING_FP16: Final[bool] = os.getenv("AI_RAG_VECTOR_EMBEDDING_F
 AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE: Final[int] = int(os.getenv("AI_RAG_VECTOR_EMBEDDING_BATCH_SIZE", "8"))
 # Максимальная длина текста для одного embedding-запроса (символов).
 AI_RAG_VECTOR_EMBEDDING_MAX_CHARS: Final[int] = int(os.getenv("AI_RAG_VECTOR_EMBEDDING_MAX_CHARS", "6000"))
+# Директория кэша sentence-transformers (если пусто — используется стандартный кэш библиотеки).
+AI_RAG_VECTOR_EMBEDDING_CACHE_DIR: Final[str] = os.getenv("AI_RAG_VECTOR_EMBEDDING_CACHE_DIR", "").strip()
+# Работать только с локальным кэшем эмбеддинг-модели без обращения в сеть.
+AI_RAG_VECTOR_EMBEDDING_OFFLINE: Final[bool] = os.getenv("AI_RAG_VECTOR_EMBEDDING_OFFLINE", "0") == "1"
+# Завершать старт процесса с ошибкой, если эмбеддинг-модель недоступна.
+AI_RAG_VECTOR_EMBEDDING_FAIL_FAST: Final[bool] = os.getenv("AI_RAG_VECTOR_EMBEDDING_FAIL_FAST", "0") == "1"
 # Вес lexical-score в гибридной формуле ранжирования.
 AI_RAG_VECTOR_LEXICAL_WEIGHT: Final[float] = float(os.getenv("AI_RAG_VECTOR_LEXICAL_WEIGHT", "0.45"))
 # Вес semantic-score в гибридной формуле ранжирования.
@@ -645,17 +651,28 @@ GK_IMAGE_DESCRIPTION_MODEL: Final[str] = os.getenv("GK_IMAGE_DESCRIPTION_MODEL",
 # Модель для анализа Q&A пар (DeepSeek).
 GK_ANALYSIS_MODEL: Final[str] = os.getenv("GK_ANALYSIS_MODEL", "deepseek-chat")
 # Модель для автоответчика (DeepSeek).
-GK_RESPONDER_MODEL: Final[str] = os.getenv("GK_RESPONDER_MODEL", "deepseek-chat")
+GK_RESPONDER_MODEL: Final[str] = os.getenv("GK_RESPONDER_MODEL", "deepseek-reasoner")
+# Модель для purpose=gk_question_detection (классификация question/non-question).
+# По умолчанию наследует модель автоответчика для обратной совместимости.
+GK_QUESTION_DETECTION_MODEL: Final[str] = os.getenv(
+    "GK_QUESTION_DETECTION_MODEL",
+    "deepseek-chat"
+)
 # Режим dry-run автоответчика (по умолчанию включён — не отправляет реальные ответы).
 GK_DRY_RUN: Final[bool] = os.getenv("GK_DRY_RUN", "1") == "1"
 # Минимальный порог уверенности для автоматического ответа.
 GK_RESPONDER_CONFIDENCE_THRESHOLD: Final[float] = float(
-    os.getenv("GK_RESPONDER_CONFIDENCE_THRESHOLD", "0.9")
+    os.getenv("GK_RESPONDER_CONFIDENCE_THRESHOLD", "0.7") #was 0.9
+)
+# Минимальный confidence термина-аббревиатуры для включения в acronyms_section
+# в GK-поиске и QAAnalyzer (если термин не имеет статуса approved).
+GK_ACRONYMS_MIN_CONFIDENCE: Final[float] = float(
+    os.getenv("GK_ACRONYMS_MIN_CONFIDENCE", "0.90")
 )
 # Имя Qdrant-коллекции для Q&A пар.
 GK_QA_VECTOR_COLLECTION: Final[str] = os.getenv("GK_QA_VECTOR_COLLECTION", "gk_qa_pairs_v1")
 # Максимальное число Q&A пар в контексте для генерации ответа.
-GK_RESPONDER_TOP_K: Final[int] = int(os.getenv("GK_RESPONDER_TOP_K", "5"))
+GK_RESPONDER_TOP_K: Final[int] = int(os.getenv("GK_RESPONDER_TOP_K", "10"))
 # Максимальный размер батча сообщений, отправляемого в LLM для анализа.
 GK_ANALYSIS_BATCH_SIZE: Final[int] = int(os.getenv("GK_ANALYSIS_BATCH_SIZE", "50"))
 # Порог уверенности question-классификатора, после которого сообщение считается явным вопросом в thread-анализе.
@@ -743,3 +760,14 @@ GK_SPELLCHECK_LLM_FALLBACK_THRESHOLD: Final[float] = float(os.getenv("GK_SPELLCH
 GK_SPELLCHECK_LLM_MAX_CHARS: Final[int] = int(os.getenv("GK_SPELLCHECK_LLM_MAX_CHARS", "500"))
 # TTL кэша LLM-fallback коррекции (секунды).
 GK_SPELLCHECK_LLM_CACHE_TTL_SECONDS: Final[int] = int(os.getenv("GK_SPELLCHECK_LLM_CACHE_TTL_SECONDS", "300"))
+
+# ---------------------------------------------------------------------------
+# GK Term Mining (сканирование терминов и аббревиатур)
+# ---------------------------------------------------------------------------
+# TTL кэша загруженных терминов из БД (секунды).
+GK_TERMS_CACHE_TTL_SECONDS: Final[int] = int(os.getenv("GK_TERMS_CACHE_TTL_SECONDS", "300"))
+# Количество сообщений в одном LLM-батче при сканировании терминов.
+GK_TERMS_SCAN_BATCH_SIZE: Final[int] = int(os.getenv("GK_TERMS_SCAN_BATCH_SIZE", "100"))
+# Модель для сканирования терминов (по умолчанию = GK_ANALYSIS_MODEL).
+GK_TERMS_SCAN_MODEL: Final[str] = os.getenv("GK_TERMS_SCAN_MODEL", GK_ANALYSIS_MODEL)
+

@@ -485,6 +485,98 @@ class TestAppendNearbySequentialMessages(unittest.TestCase):
         self.assertIn(565335, tg_ids)
         self.assertIn(565842, tg_ids)
 
+    def test_include_same_sender_hard_question_fragment(self):
+        """Предшествующий hard-question от того же автора добавляется как фрагмент вопроса."""
+        first_question_part = _make_msg(
+            565146,
+            message_date=1_706_511_040,
+            sender_id=1,
+            message_text="Добрый вечер. А как так получается при замене ФН...",
+            is_question=True,
+            question_confidence=0.90,
+        )
+        second_question_part = _make_msg(
+            565147,
+            message_date=1_706_511_064,
+            sender_id=1,
+            message_text="Получается сейчас не нужно заявление в налоговой отправлять?",
+            is_question=True,
+            question_confidence=1.0,
+        )
+        answer = _make_msg(
+            565148,
+            message_date=1_706_511_090,
+            sender_id=2,
+            reply_to_message_id=565147,
+            message_text="Нет если автоматом прошло",
+        )
+
+        collected = [second_question_part, answer]
+        visited = {565147, 565148}
+        all_messages = [first_question_part, second_question_part, answer]
+
+        result = QAAnalyzer._append_nearby_sequential_messages(
+            collected=collected,
+            all_messages=all_messages,
+            visited_ids=visited,
+            question_confidence_threshold=0.90,
+        )
+
+        tg_ids = {m.telegram_message_id for m in result}
+        self.assertIn(
+            565146,
+            tg_ids,
+            "Первый фрагмент вопроса должен быть добавлен в цепочку",
+        )
+
+
+class TestThreadCollectionRegressions(unittest.TestCase):
+    """Регрессионные тесты сборки thread-цепочек."""
+
+    def setUp(self):
+        self.analyzer = QAAnalyzer.__new__(QAAnalyzer)
+        self.analyzer._question_confidence_threshold = 0.90
+
+    def test_collect_thread_messages_adds_descendants_for_nearby_question_part(self):
+        """После добавления nearby-фрагмента вопроса подтягиваются его reply-потомки."""
+        first_question_part = _make_msg(
+            565146,
+            message_date=1_706_511_040,
+            sender_id=1,
+            message_text="Добрый вечер. А как так получается при замене ФН...",
+            is_question=True,
+            question_confidence=0.90,
+        )
+        second_question_part = _make_msg(
+            565147,
+            message_date=1_706_511_064,
+            sender_id=1,
+            message_text="Получается сейчас не нужно заявление в налоговой отправлять?",
+            is_question=True,
+            question_confidence=1.0,
+        )
+        answer = _make_msg(
+            565148,
+            message_date=1_706_511_090,
+            sender_id=2,
+            reply_to_message_id=565147,
+            message_text="Нет если автоматом прошло",
+        )
+
+        all_messages = [first_question_part, second_question_part, answer]
+        children_index = QAAnalyzer._build_reply_children_index(all_messages)
+
+        thread = self.analyzer._collect_thread_messages(
+            root_message=first_question_part,
+            children_index=children_index,
+            all_messages=all_messages,
+        )
+
+        tg_ids = {m.telegram_message_id for m in thread}
+        self.assertIn(565146, tg_ids)
+        self.assertIn(565147, tg_ids)
+        self.assertIn(565148, tg_ids)
+
 
 if __name__ == "__main__":
     unittest.main()

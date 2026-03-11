@@ -5150,7 +5150,9 @@ def preload_rag_runtime_dependencies() -> Dict[str, bool]:
     ru_normalization_enabled = bool(ai_settings.is_rag_ru_normalization_enabled())
     ru_normalization_mode = ai_settings.get_rag_ru_normalization_mode()
     spellcheck_enabled = bool(ai_settings.is_rag_spellcheck_enabled())
+    fail_fast = bool(ai_settings.AI_RAG_VECTOR_EMBEDDING_FAIL_FAST)
     status = "ok"
+    preload_error: Optional[Exception] = None
 
     try:
         rag_service = get_rag_service()
@@ -5168,8 +5170,9 @@ def preload_rag_runtime_dependencies() -> Dict[str, bool]:
 
         if spellcheck_enabled:
             preload_result["spellcheck_vocab_ready"] = rag_service._build_spellcheck_vocabulary()
-    except Exception:
+    except Exception as exc:
         status = "failed"
+        preload_error = exc
         logger.exception("RAG preload: failed")
     finally:
         duration_ms = int((time.perf_counter() - started_at) * 1000)
@@ -5189,6 +5192,19 @@ def preload_rag_runtime_dependencies() -> Dict[str, bool]:
             spellcheck_enabled,
             preload_result["spellcheck_vocab_ready"],
         )
+
+    if (
+        fail_fast
+        and vector_enabled
+        and (not preload_result["vector_provider_ready"] or not preload_result["vector_index_ready"])
+    ):
+        if preload_error is None:
+            preload_error = RuntimeError(
+                "RAG preload fail-fast: embedding/vector зависимости недоступны "
+                f"(provider_ready={preload_result['vector_provider_ready']}, "
+                f"index_ready={preload_result['vector_index_ready']})"
+            )
+        raise preload_error
 
     return preload_result
 

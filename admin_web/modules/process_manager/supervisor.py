@@ -568,22 +568,39 @@ class ProcessSupervisor:
             )
 
             if managed.run_id:
+                definition = registry.get(key)
+                one_shot_completed = bool(
+                    definition
+                    and definition.process_type == ProcessType.ONE_SHOT
+                    and exit_code == 0
+                )
+
                 pm_db.finish_run_record(
                     managed.run_id,
                     exit_code=exit_code,
-                    status="crashed",
-                    stop_reason="crash",
+                    status="stopped" if one_shot_completed else "crashed",
+                    stop_reason="completed" if one_shot_completed else "crash",
                 )
 
             managed.exit_code = exit_code
             managed.process = None
-            managed.add_output_line(
-                f"[PM] Процесс упал: exit_code={exit_code}",
+            definition = registry.get(key)
+            one_shot_completed = bool(
+                definition
+                and definition.process_type == ProcessType.ONE_SHOT
+                and exit_code == 0
             )
+            if one_shot_completed:
+                managed.add_output_line(
+                    f"[PM] Процесс завершён: exit_code={exit_code}",
+                )
+            else:
+                managed.add_output_line(
+                    f"[PM] Процесс упал: exit_code={exit_code}",
+                )
             _remove_pid_file(key)
 
             # Авто-рестарт для daemon-процессов
-            definition = registry.get(key)
             if (
                 definition
                 and definition.auto_restart
@@ -609,7 +626,7 @@ class ProcessSupervisor:
                     managed.started_by,
                 )
             else:
-                managed.status = ProcessStatus.CRASHED
+                managed.status = ProcessStatus.STOPPED if one_shot_completed else ProcessStatus.CRASHED
                 if definition and managed.restart_count >= definition.max_restart_attempts:
                     managed.add_output_line(
                         f"[PM] Достигнут лимит авто-рестартов ({definition.max_restart_attempts})",

@@ -293,6 +293,12 @@ PROCESS_DEFINITIONS: List[ProcessDefinition] = [
                 mutually_exclusive_group="date_selector",
             ),
             FlagDefinition(
+                name="--all-unprocessed-except-today",
+                flag_type=FlagType.BOOL,
+                description="Все необработанные даты, кроме сегодняшней",
+                mutually_exclusive_group="date_selector",
+            ),
+            FlagDefinition(
                 name="--all-dates",
                 flag_type=FlagType.BOOL,
                 description="Все даты",
@@ -342,6 +348,12 @@ PROCESS_DEFINITIONS: List[ProcessDefinition] = [
                 icon="📋",
             ),
             PresetDefinition(
+                name="Необработанные (без сегодня)",
+                description="Запустить анализ всех необработанных дат, кроме текущего дня",
+                flags=["--all-unprocessed-except-today"],
+                icon="🗓️",
+            ),
+            PresetDefinition(
                 name="Все даты",
                 description="Полный анализ всех дат",
                 flags=["--all-dates"],
@@ -358,6 +370,12 @@ PROCESS_DEFINITIONS: List[ProcessDefinition] = [
                 description="Принудительный переанализ всех дат",
                 flags=["--all-dates", "--force-reanalyze"],
                 icon="🔄",
+            ),
+            PresetDefinition(
+                name="Rebuild (без сегодня)",
+                description="Полностью пересобрать Q&A-пары по всем датам, кроме текущей",
+                flags=["--all-dates", "--rebuild-pairs"],
+                icon="🧱",
             ),
         ],
     ),

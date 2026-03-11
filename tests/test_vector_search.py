@@ -366,6 +366,49 @@ class TestLocalEmbeddingProvider(unittest.TestCase):
         self.assertEqual(captured["device"], "cpu")
         self.assertEqual(captured["half_calls"], 0)
 
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_EMBEDDING_OFFLINE", True)
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_EMBEDDING_CACHE_DIR", "/tmp/sbs-archie-st-cache")
+    @mock.patch("src.core.ai.vector_search.LocalEmbeddingProvider._resolve_device", return_value="cpu")
+    def test_ensure_model_loaded_passes_offline_and_cache_kwargs(self, _mock_resolve_device):
+        """В offline-режиме передаются local_files_only и cache_folder в SentenceTransformer."""
+        captured = {}
+
+        class _FakeSentenceTransformer:
+            def __init__(self, model_name, **kwargs):
+                captured["model_name"] = model_name
+                captured["kwargs"] = dict(kwargs)
+
+        fake_module = types.SimpleNamespace(SentenceTransformer=_FakeSentenceTransformer)
+        provider = LocalEmbeddingProvider()
+
+        with mock.patch.dict("sys.modules", {"sentence_transformers": fake_module}):
+            is_ready = provider.is_ready()
+
+        self.assertTrue(is_ready)
+        self.assertEqual(captured["model_name"], "BAAI/bge-m3")
+        self.assertEqual(captured["kwargs"].get("device"), "cpu")
+        self.assertEqual(captured["kwargs"].get("local_files_only"), True)
+        self.assertEqual(captured["kwargs"].get("cache_folder"), "/tmp/sbs-archie-st-cache")
+
+    @mock.patch("src.core.ai.vector_search.ai_settings.AI_RAG_VECTOR_EMBEDDING_OFFLINE", True)
+    @mock.patch("src.core.ai.vector_search.LocalEmbeddingProvider._resolve_device", return_value="cpu")
+    def test_offline_cache_miss_sets_local_cache_miss_error_code(self, _mock_resolve_device):
+        """Если в offline-режиме модели нет в кэше, проставляется код local_cache_miss."""
+
+        class _FailingSentenceTransformer:
+            def __init__(self, _model_name, **_kwargs):
+                raise RuntimeError("LocalEntryNotFoundError: model not found in local cache")
+
+        fake_module = types.SimpleNamespace(SentenceTransformer=_FailingSentenceTransformer)
+        provider = LocalEmbeddingProvider()
+
+        with mock.patch.dict("sys.modules", {"sentence_transformers": fake_module}):
+            is_ready = provider.is_ready()
+
+        self.assertFalse(is_ready)
+        self.assertEqual(provider.last_error_code(), "local_cache_miss")
+        self.assertIn("not found", provider.last_error_message() or "")
+
 
 if __name__ == "__main__":
     unittest.main()

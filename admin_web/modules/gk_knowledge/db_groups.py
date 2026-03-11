@@ -3,15 +3,33 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from src.common import database
 
 logger = logging.getLogger(__name__)
 
+# Кэш списка групп (TTL = 120 с) — запрос делает full scan gk_messages
+_GROUPS_LIST_CACHE: Dict[str, Any] = {"data": None, "ts": 0.0}
+_GROUPS_LIST_CACHE_TTL = 120  # секунд
+
+
+def invalidate_groups_list_cache() -> None:
+    """Сбросить кэш списка групп."""
+    _GROUPS_LIST_CACHE["data"] = None
+    _GROUPS_LIST_CACHE["ts"] = 0.0
+
 
 def get_groups_list() -> List[Dict[str, Any]]:
-    """Получить список собранных групп с расширенной статистикой."""
+    """Получить список собранных групп с расширенной статистикой.
+
+    Результат кэшируется на 120 секунд (запрос делает full scan gk_messages).
+    """
+    now = time.monotonic()
+    if _GROUPS_LIST_CACHE["data"] is not None and (now - _GROUPS_LIST_CACHE["ts"]) < _GROUPS_LIST_CACHE_TTL:
+        return _GROUPS_LIST_CACHE["data"]  # type: ignore[return-value]
+
     query = """
         SELECT
             m.group_id,
@@ -58,6 +76,8 @@ def get_groups_list() -> List[Dict[str, Any]]:
                         "pair_count": r["pair_count"],
                         "validated_count": r["validated_count"],
                     })
+                _GROUPS_LIST_CACHE["data"] = result
+                _GROUPS_LIST_CACHE["ts"] = now
                 return result
 
     except Exception as exc:
@@ -109,6 +129,16 @@ def get_group_detail_stats(group_id: int) -> Optional[Dict[str, Any]]:
                 )
                 qa_row = cursor.fetchone() or {}
 
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS responder_count
+                    FROM gk_responder_log
+                    WHERE group_id = %s
+                    """,
+                    (group_id,),
+                )
+                responder_row = cursor.fetchone() or {}
+
                 msg_total = msg_row["message_count"] or 0
                 q_count = msg_row["question_count"] or 0
 
@@ -123,6 +153,11 @@ def get_group_detail_stats(group_id: int) -> Optional[Dict[str, Any]]:
                     "unprocessed_count": msg_row["unprocessed_count"] or 0,
                     "first_message_ts": msg_row["first_message_ts"],
                     "last_message_ts": msg_row["last_message_ts"],
+                    "pair_count": qa_row.get("total_pairs", 0) or 0,
+                    "validated_count": (qa_row.get("expert_approved", 0) or 0) + (qa_row.get("expert_rejected", 0) or 0),
+                    "qa_thread_reply": qa_row.get("thread_pairs", 0) or 0,
+                    "qa_llm_inferred": qa_row.get("llm_pairs", 0) or 0,
+                    "responder_count": responder_row.get("responder_count", 0) or 0,
                     "qa_pairs": {
                         "total": qa_row.get("total_pairs", 0) or 0,
                         "thread_reply": qa_row.get("thread_pairs", 0) or 0,

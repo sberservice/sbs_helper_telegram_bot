@@ -371,22 +371,11 @@ def get_chain_messages(pair_id: int) -> List[Dict[str, Any]]:
 
 
 def get_group_title(group_id: int) -> Optional[str]:
-    """Получить название группы из последнего собранного сообщения."""
-    query = """
-        SELECT group_title
-        FROM gk_messages
-        WHERE group_id = %s AND group_title IS NOT NULL AND group_title != ''
-        ORDER BY message_date DESC
-        LIMIT 1
-    """
-    try:
-        with database.get_db_connection() as conn:
-            with database.get_cursor(conn) as cursor:
-                cursor.execute(query, (group_id,))
-                row = cursor.fetchone()
-                return row["group_title"] if row else None
-    except Exception:
-        return None
+    """Получить название группы (делегация в gk_knowledge)."""
+    from admin_web.modules.gk_knowledge.db_expert_validation import (
+        get_group_title as _get_title,
+    )
+    return _get_title(group_id)
 
 
 # ---------------------------------------------------------------------------
@@ -601,26 +590,8 @@ def get_validation_stats(
 
 
 def get_collected_groups() -> List[Dict[str, Any]]:
-    """Получить список групп с количеством Q&A-пар."""
-    query = """
-        SELECT
-            qp.group_id,
-            MAX(gm.group_title) AS group_title,
-            COUNT(*) AS pair_count,
-            SUM(CASE WHEN qp.expert_status IS NOT NULL THEN 1 ELSE 0 END) AS validated_count
-        FROM gk_qa_pairs qp
-        LEFT JOIN gk_messages gm
-            ON gm.group_id = qp.group_id
-            AND gm.group_title IS NOT NULL
-            AND gm.group_title != ''
-        GROUP BY qp.group_id
-        ORDER BY pair_count DESC
-    """
-    try:
-        with database.get_db_connection() as conn:
-            with database.get_cursor(conn) as cursor:
-                cursor.execute(query)
-                return cursor.fetchall() or []
-    except Exception as exc:
-        logger.error("Ошибка получения списка групп: %s", exc, exc_info=True)
-        return []
+    """Получить список групп с количеством Q&A-пар (делегация в gk_knowledge)."""
+    from admin_web.modules.gk_knowledge.db_expert_validation import (
+        get_collected_groups as _get_groups,
+    )
+    return _get_groups()

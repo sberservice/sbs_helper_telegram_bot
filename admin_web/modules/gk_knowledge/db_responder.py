@@ -2,12 +2,32 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.common import database
 
 logger = logging.getLogger(__name__)
+
+_GK_GROUPS_JSON = Path(__file__).resolve().parents[3] / "config" / "gk_groups.json"
+
+
+def _load_group_titles() -> Dict[int, str]:
+    """Загрузить маппинг group_id → title из config/gk_groups.json."""
+    titles: Dict[int, str] = {0: "Глобальные (legacy)"}
+    try:
+        if _GK_GROUPS_JSON.exists():
+            data = json.loads(_GK_GROUPS_JSON.read_text(encoding="utf-8"))
+            for g in data.get("groups", []):
+                gid = g.get("id")
+                gtitle = g.get("title")
+                if gid is not None and gtitle:
+                    titles[int(gid)] = gtitle
+    except Exception as exc:
+        logger.warning("Не удалось загрузить gk_groups.json: %s", exc)
+    return titles
 
 
 def get_responder_log(
@@ -64,7 +84,8 @@ def get_responder_log(
                     SELECT
                         rl.id, rl.group_id, rl.question_message_id,
                         rl.question_text, rl.answer_text,
-                        rl.qa_pair_id, rl.confidence,
+                        rl.qa_pair_id AS matched_qa_pair_id,
+                        rl.confidence,
                         rl.dry_run, rl.responded_at
                     FROM gk_responder_log rl
                     {where_clause}
@@ -74,6 +95,12 @@ def get_responder_log(
                     (*params, page_size, offset),
                 )
                 rows = cursor.fetchall() or []
+
+                # Разрешить названия групп из config без JOIN к gk_messages
+                titles = _load_group_titles()
+                for row in rows:
+                    row["group_title"] = titles.get(row["group_id"], str(row["group_id"]))
+
                 return rows, total
 
     except Exception as exc:
@@ -105,6 +132,7 @@ def get_responder_summary(group_id: Optional[int] = None) -> Dict[str, Any]:
                 )
                 row = cursor.fetchone() or {}
                 return {
+                    "total_entries": row.get("total", 0) or 0,
                     "total": row.get("total", 0) or 0,
                     "live_count": row.get("live_count", 0) or 0,
                     "dry_run_count": row.get("dry_run_count", 0) or 0,

@@ -6,9 +6,14 @@
 const BASE = '';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const isFormDataBody = typeof FormData !== 'undefined' && options?.body instanceof FormData;
+  const mergedHeaders: HeadersInit = isFormDataBody
+    ? { ...(options?.headers || {}) }
+    : { 'Content-Type': 'application/json', ...(options?.headers || {}) };
+
   const resp = await fetch(`${BASE}${path}`, {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: mergedHeaders,
     ...options,
   });
   if (!resp.ok) {
@@ -153,6 +158,100 @@ export interface GroupInfo {
   validated_count: number;
 }
 
+// ---------------------------------------------------------------------------
+// GK Terms & Acronyms
+// ---------------------------------------------------------------------------
+
+export interface TermDetail {
+  id: number;
+  group_id: number;
+  term: string;
+  term_type: 'fixed_term' | 'acronym';
+  definition: string | null;
+  source: string;
+  status: string;
+  confidence: number | null;
+  expert_status: string | null;
+  scan_batch_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  group_title: string | null;
+  existing_verdict: string | null;
+  existing_comment: string | null;
+}
+
+export interface TermValidationStats {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  fixed_terms: number;
+  acronyms: number;
+}
+
+export interface TermListResponse {
+  terms: TermDetail[];
+  total: number;
+  page: number;
+  page_size: number;
+  stats: TermValidationStats;
+}
+
+export interface TermGroupInfo {
+  group_id: number;
+  group_title: string | null;
+  term_count: number;
+  pending_count: number;
+}
+
+export interface TermValidationHistoryEntry {
+  expert_telegram_id: number;
+  verdict: string;
+  edited_term: string | null;
+  edited_definition: string | null;
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TermScanStatus {
+  status: string;
+  batch_id: string;
+  result?: {
+    scan_batch_id: string;
+    terms_found: number;
+    terms_stored: number;
+    terms_new?: number;
+    batches_processed: number;
+    errors: string[];
+  };
+  progress?: {
+    stage?: string;
+    message?: string;
+    percent?: number;
+    updated_at?: string;
+    batches_processed?: number;
+    total_batches?: number;
+    terms_found_so_far?: number;
+    terms_found?: number;
+    terms_new?: number;
+    errors_count?: number;
+  };
+  progress_log?: Array<{
+    stage?: string;
+    message?: string;
+    percent?: number;
+    updated_at?: string;
+    batches_processed?: number;
+    total_batches?: number;
+    terms_found_so_far?: number;
+    terms_found?: number;
+    terms_new?: number;
+    errors_count?: number;
+  }>;
+  error?: string;
+}
+
 export interface ModuleInfo {
   key: string;
   name: string;
@@ -260,10 +359,86 @@ export interface GKImageQueueItem {
   message_id: number;
   status: number;
   status_label: string;
+  image_path?: string | null;
   file_path: string | null;
   image_description: string | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface GKImagePrompt {
+  id: number;
+  label: string;
+  prompt_text: string;
+  model_name: string | null;
+  temperature: number;
+  is_active: boolean;
+  created_at: string | null;
+}
+
+export interface GKImagePromptSession {
+  id: number;
+  name: string;
+  status: string;
+  prompt_ids: number[];
+  prompt_count?: number;
+  source_group_id: number | null;
+  source_date_from: string | null;
+  source_date_to: string | null;
+  image_count?: number;
+  generation_count?: number;
+  expected_generations?: number;
+  generation_progress_pct?: number;
+  total_comparisons?: number;
+  expected_comparisons?: number;
+  voted_count?: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface GKImageComparison {
+  has_more: boolean;
+  comparison_id?: number;
+  image_queue_id?: number;
+  image_preview_url?: string | null;
+  generation_a_text?: string;
+  generation_b_text?: string;
+  progress_total?: number;
+  progress_voted?: number;
+}
+
+export interface GKImageSessionEstimate {
+  prompt_count: number;
+  requested_image_count: number;
+  effective_image_count: number;
+  expected_comparisons: number;
+  can_create: boolean;
+}
+
+export interface GKImagePromptTesterStats {
+  summary: {
+    sessions_total: number;
+    sessions_completed: number;
+    sessions_judging: number;
+    sessions_generating: number;
+    voted_matches: number;
+    skipped_matches: number;
+    prompts_total: number;
+  };
+  prompts: Array<{
+    prompt_id: number;
+    label: string;
+    is_active: boolean;
+    sessions_count: number;
+    elo: number;
+    elo_delta: number;
+    wins: number;
+    losses: number;
+    ties: number;
+    skips: number;
+    matches: number;
+    win_rate: number;
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +485,23 @@ export interface GKComparison {
   generation_a_text?: string;
   generation_b_text?: string;
   source_context?: string;
+  progress_total?: number;
+  progress_voted?: number;
+}
+
+export interface GKPromptSessionEstimate {
+  prompt_count: number;
+  requested_chains_count: number;
+  effective_chains_count: number;
+  expected_comparisons: number;
+  can_create: boolean;
+}
+
+export interface GKSearchProgressStage {
+  key: string;
+  label: string;
+  status: 'pending' | 'running' | 'done' | 'error' | 'skipped';
+  duration_ms?: number;
 }
 
 export interface GKSessionResults {
@@ -320,9 +512,40 @@ export interface GKSessionResults {
     prompt_id: number;
     label: string;
     elo: number;
+    elo_delta?: number;
     wins: number;
     losses: number;
     ties: number;
+    skips?: number;
+    matches?: number;
+    score?: number;
+    win_rate: number;
+    loss_rate?: number;
+  }>;
+}
+
+export interface GKPromptTesterStats {
+  summary: {
+    sessions_total: number;
+    sessions_completed: number;
+    sessions_judging: number;
+    sessions_generating: number;
+    voted_matches: number;
+    skipped_matches: number;
+    prompts_total: number;
+  };
+  prompts: Array<{
+    prompt_id: number;
+    label: string;
+    is_active: boolean;
+    sessions_count: number;
+    elo: number;
+    elo_delta: number;
+    wins: number;
+    losses: number;
+    ties: number;
+    skips: number;
+    matches: number;
     win_rate: number;
   }>;
 }
@@ -343,6 +566,8 @@ export interface GKSearchResult {
   answer: string;
   score?: number;
   confidence: number;
+  confidence_reason?: string;
+  fullness?: number | null;
   bm25_score: number;
   vector_score: number;
   rrf_score: number;
@@ -365,6 +590,58 @@ export interface GKSearchResponse {
   results: GKSearchResult[];
   result_count: number;
   answer_preview: GKSearchAnswerPreview;
+  progress_stages?: GKSearchProgressStage[];
+  duration_ms?: number;
+}
+
+// ---------------------------------------------------------------------------
+// GK Knowledge — QA Analyzer Sandbox
+// ---------------------------------------------------------------------------
+
+export interface QAAnalyzerSearchMessage {
+  id: number;
+  telegram_message_id: number;
+  group_id: number;
+  group_title: string | null;
+  sender_id: number | null;
+  sender_name: string | null;
+  message_text: string | null;
+  caption: string | null;
+  has_image: boolean;
+  image_description: string | null;
+  reply_to_message_id: number | null;
+  message_date: number;
+  is_question: boolean | null;
+  question_confidence: number | null;
+}
+
+export interface QAAnalyzerDefaultPrompt {
+  prompt_template: string;
+  system_prompt: string;
+  question_confidence_threshold: number;
+}
+
+export interface QAAnalyzerRunRequest {
+  group_id: number;
+  telegram_message_id: number;
+  prompt_template: string;
+  system_prompt: string;
+  model?: string;
+  temperature?: number;
+  question_confidence_threshold?: number;
+}
+
+export interface QAAnalyzerRunResult {
+  raw_response: string;
+  parsed: Record<string, any> | null;
+  rendered_prompt: string;
+  system_prompt: string;
+  thread_context: string;
+  chain: ChainMessage[];
+  question_message_id: number;
+  model: string;
+  temperature: number | null;
+  duration_ms: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -570,9 +847,83 @@ export const api = {
     );
   },
 
+  gkImageUpload: (formData: FormData) =>
+    request<{ message: string; queue_id: number; message_id: number; image_path: string }>(
+      '/api/gk-knowledge/images/upload',
+      {
+        method: 'POST',
+        body: formData,
+      },
+    ),
+
+  // GK Knowledge — Image Prompt Tester
+  gkImagePromptTesterSupportedModels: () =>
+    request<GKSupportedModelsResponse>('/api/gk-knowledge/image-prompt-tester/supported-models'),
+
+  gkImagePromptTesterStats: () =>
+    request<GKImagePromptTesterStats>('/api/gk-knowledge/image-prompt-tester/stats'),
+
+  gkImagePrompts: (activeOnly: boolean = true) =>
+    request<GKImagePrompt[]>(`/api/gk-knowledge/image-prompt-tester/prompts?active_only=${activeOnly}`),
+
+  gkCreateImagePrompt: (data: { label: string; prompt_text: string; model_name?: string; temperature?: number }) =>
+    request<{ id: number; message: string }>('/api/gk-knowledge/image-prompt-tester/prompts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  gkUpdateImagePrompt: (promptId: number, data: Partial<{ label: string; prompt_text: string; model_name: string; temperature: number }>) =>
+    request<{ message: string }>(`/api/gk-knowledge/image-prompt-tester/prompts/${promptId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  gkDeleteImagePrompt: (promptId: number) =>
+    request<{ message: string }>(`/api/gk-knowledge/image-prompt-tester/prompts/${promptId}`, {
+      method: 'DELETE',
+    }),
+
+  gkImageSessions: () =>
+    request<GKImagePromptSession[]>('/api/gk-knowledge/image-prompt-tester/sessions'),
+
+  gkCreateImageSession: (data: { name: string; prompt_ids: number[]; image_count?: number; source_group_id?: number; source_date_from?: string; source_date_to?: string }) =>
+    request<{ id: number; message: string }>('/api/gk-knowledge/image-prompt-tester/sessions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  gkEstimateImageSession: (data: { prompt_ids: number[]; image_count?: number; source_group_id?: number; source_date_from?: string; source_date_to?: string }) =>
+    request<GKImageSessionEstimate>('/api/gk-knowledge/image-prompt-tester/sessions/estimate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  gkGetImageSession: (sessionId: number) =>
+    request<GKImagePromptSession>(`/api/gk-knowledge/image-prompt-tester/sessions/${sessionId}`),
+
+  gkGetNextImageComparison: (sessionId: number) =>
+    request<GKImageComparison>(`/api/gk-knowledge/image-prompt-tester/sessions/${sessionId}/compare`),
+
+  gkImageVote: (sessionId: number, data: { comparison_id: number; winner: string }) =>
+    request<{ message: string }>(`/api/gk-knowledge/image-prompt-tester/sessions/${sessionId}/vote`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  gkImageSessionResults: (sessionId: number) =>
+    request<GKSessionResults>(`/api/gk-knowledge/image-prompt-tester/sessions/${sessionId}/results`),
+
+  gkAbandonImageSession: (sessionId: number) =>
+    request<{ message: string }>(`/api/gk-knowledge/image-prompt-tester/sessions/${sessionId}/abandon`, {
+      method: 'POST',
+    }),
+
   // GK Knowledge — Prompt Tester
   gkPromptTesterSupportedModels: () =>
     request<GKSupportedModelsResponse>('/api/gk-knowledge/prompt-tester/supported-models'),
+
+  gkPromptTesterStats: () =>
+    request<GKPromptTesterStats>('/api/gk-knowledge/prompt-tester/stats'),
 
   gkPrompts: (activeOnly: boolean = true) =>
     request<GKPrompt[]>(`/api/gk-knowledge/prompt-tester/prompts?active_only=${activeOnly}`),
@@ -599,6 +950,12 @@ export const api = {
 
   gkCreateSession: (data: { name: string; prompt_ids: number[]; chains_count?: number; judge_mode?: string; source_group_id?: number; source_date_from?: string; source_date_to?: string }) =>
     request<{ id: number; message: string }>('/api/gk-knowledge/prompt-tester/sessions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  gkEstimateSession: (data: { prompt_ids: number[]; chains_count?: number; source_group_id?: number; source_date_from?: string; source_date_to?: string }) =>
+    request<GKPromptSessionEstimate>('/api/gk-knowledge/prompt-tester/sessions/estimate', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -632,6 +989,30 @@ export const api = {
       '/api/gk-knowledge/search/query',
       { method: 'POST', body: JSON.stringify({ query, top_k: topK }) },
     ),
+
+  // GK Knowledge — QA Analyzer Sandbox
+  gkQAAnalyzerSearch: (query: string, groupId?: number, limit: number = 50) => {
+    const params = new URLSearchParams({ q: query, limit: String(limit) });
+    if (groupId != null) params.set('group_id', String(groupId));
+    return request<QAAnalyzerSearchMessage[]>(`/api/gk-knowledge/qa-analyzer-sandbox/search?${params}`);
+  },
+
+  gkQAAnalyzerChain: (groupId: number, telegramMessageId: number) =>
+    request<ChainMessage[]>(
+      `/api/gk-knowledge/qa-analyzer-sandbox/chain?group_id=${groupId}&telegram_message_id=${telegramMessageId}`,
+    ),
+
+  gkQAAnalyzerSupportedModels: () =>
+    request<GKSupportedModelsResponse>('/api/gk-knowledge/qa-analyzer-sandbox/supported-models'),
+
+  gkQAAnalyzerDefaultPrompt: () =>
+    request<QAAnalyzerDefaultPrompt>('/api/gk-knowledge/qa-analyzer-sandbox/default-prompt'),
+
+  gkQAAnalyzerRun: (data: QAAnalyzerRunRequest) =>
+    request<QAAnalyzerRunResult>('/api/gk-knowledge/qa-analyzer-sandbox/run', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   // Admin: Roles
   listRoles: () =>
@@ -732,6 +1113,80 @@ export const api = {
     request<{ lines: Array<{ timestamp: string; line: string }>; total_lines: number }>(
       `/api/process-manager/processes/${key}/output?last_n=${lastN}`,
     ),
+
+  // -----------------------------------------------------------------------
+  // GK Terms & Acronyms
+  // -----------------------------------------------------------------------
+
+  listTerms: (params: {
+    page?: number;
+    page_size?: number;
+    group_id?: number | null;
+    term_type?: string | null;
+    status?: string | null;
+    min_confidence?: number | null;
+    search_text?: string | null;
+    expert_status?: string | null;
+    sort_by?: string;
+    sort_order?: string;
+  }) => {
+    const sp = new URLSearchParams();
+    if (params.page) sp.set('page', String(params.page));
+    if (params.page_size) sp.set('page_size', String(params.page_size));
+    if (params.group_id != null) sp.set('group_id', String(params.group_id));
+    if (params.term_type) sp.set('term_type', params.term_type);
+    if (params.status) sp.set('status', params.status);
+    if (params.min_confidence != null) sp.set('min_confidence', String(params.min_confidence));
+    if (params.search_text) sp.set('search_text', params.search_text);
+    if (params.expert_status) sp.set('expert_status', params.expert_status);
+    if (params.sort_by) sp.set('sort_by', params.sort_by);
+    if (params.sort_order) sp.set('sort_order', params.sort_order);
+    return request<TermListResponse>(`/api/gk-knowledge/terms/list?${sp}`);
+  },
+
+  getTermDetail: (termId: number) =>
+    request<TermDetail>(`/api/gk-knowledge/terms/${termId}`),
+
+  getTermStats: (groupId?: number) => {
+    const p = groupId != null ? `?group_id=${groupId}` : '';
+    return request<TermValidationStats>(`/api/gk-knowledge/terms/stats${p}`);
+  },
+
+  getTermGroups: () =>
+    request<TermGroupInfo[]>('/api/gk-knowledge/terms/groups'),
+
+  validateTerm: (data: {
+    term_id: number;
+    verdict: string;
+    comment?: string;
+    edited_term?: string;
+    edited_definition?: string;
+  }) =>
+    request<{ message: string }>('/api/gk-knowledge/terms/validate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getTermHistory: (termId: number) =>
+    request<TermValidationHistoryEntry[]>(`/api/gk-knowledge/terms/${termId}/history`),
+
+  triggerTermScan: (data: { group_id: number; date_from: string; date_to: string }) =>
+    request<{ batch_id: string; message: string }>('/api/gk-knowledge/terms/scan', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getTermScanStatus: (batchId: string) =>
+    request<TermScanStatus>(`/api/gk-knowledge/terms/scan/${batchId}/status`),
+
+  addTermManually: (data: { group_id: number; term: string; term_type: string; definition?: string }) =>
+    request<{ message: string; term_id: number }>('/api/gk-knowledge/terms/add', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  deleteTerm: (termId: number) =>
+    request<{ message: string }>(`/api/gk-knowledge/terms/${termId}`, { method: 'DELETE' }),
 };
 
 // ---------------------------------------------------------------------------
@@ -864,6 +1319,7 @@ export interface ProcessHistoryResponse {
 export interface GroupEntry {
   id: number;
   title: string;
+  disabled?: boolean;
 }
 
 export interface TestTargetGroup {
@@ -875,6 +1331,7 @@ export interface TestTargetGroup {
 export interface GKGroupsConfig {
   groups: GroupEntry[];
   test_target_group: TestTargetGroup | null;
+  test_target_groups: TestTargetGroup[];
 }
 
 export interface HelperGroupsConfig {
@@ -914,11 +1371,31 @@ export const groupsApi = {
       method: 'DELETE',
     }),
 
+  /** GK-группы: переключить disabled-статус. */
+  toggleGKGroup: (groupId: number, disabled: boolean) =>
+    request<{ groups: GroupEntry[] }>(`/api/process-manager/groups/gk/${groupId}/toggle`, {
+      method: 'PATCH',
+      body: JSON.stringify({ disabled }),
+    }),
+
   /** GK test target group: установить. */
   setGKTestTarget: (group: TestTargetGroup) =>
-    request<{ test_target_group: TestTargetGroup }>('/api/process-manager/groups/gk/test-target', {
+    request<{ test_target_group: TestTargetGroup; test_target_groups: TestTargetGroup[] }>('/api/process-manager/groups/gk/test-target', {
       method: 'PUT',
       body: JSON.stringify(group),
+    }),
+
+  /** GK test target group: добавить в список выбора. */
+  addGKTestTargetOption: (group: TestTargetGroup) =>
+    request<{ test_target_groups: TestTargetGroup[] }>('/api/process-manager/groups/gk/test-targets', {
+      method: 'POST',
+      body: JSON.stringify(group),
+    }),
+
+  /** GK test target group: удалить из списка выбора. */
+  removeGKTestTargetOption: (groupId: number) =>
+    request<{ test_target_groups: TestTargetGroup[]; test_target_group: TestTargetGroup | null }>(`/api/process-manager/groups/gk/test-targets/${groupId}`, {
+      method: 'DELETE',
     }),
 
   /** GK test target group: очистить. */
@@ -951,7 +1428,88 @@ export const groupsApi = {
       method: 'DELETE',
     }),
 
+  /** Helper-группы: переключить disabled-статус. */
+  toggleHelperGroup: (groupId: number, disabled: boolean) =>
+    request<{ groups: GroupEntry[] }>(`/api/process-manager/groups/helper/${groupId}/toggle`, {
+      method: 'PATCH',
+      body: JSON.stringify({ disabled }),
+    }),
+
   /** Собранные группы из БД. */
   getCollectedGroups: () =>
     request<CollectedGroupInfo[]>('/api/process-manager/groups/collected'),
+
+  // -----------------------------------------------------------------------
+  // GK Terms & Acronyms
+  // -----------------------------------------------------------------------
+
+  listTerms: (params: {
+    page?: number;
+    page_size?: number;
+    group_id?: number | null;
+    term_type?: string | null;
+    status?: string | null;
+    min_confidence?: number | null;
+    search_text?: string | null;
+    expert_status?: string | null;
+    sort_by?: string;
+    sort_order?: string;
+  }) => {
+    const sp = new URLSearchParams();
+    if (params.page) sp.set('page', String(params.page));
+    if (params.page_size) sp.set('page_size', String(params.page_size));
+    if (params.group_id != null) sp.set('group_id', String(params.group_id));
+    if (params.term_type) sp.set('term_type', params.term_type);
+    if (params.status) sp.set('status', params.status);
+    if (params.min_confidence != null) sp.set('min_confidence', String(params.min_confidence));
+    if (params.search_text) sp.set('search_text', params.search_text);
+    if (params.expert_status) sp.set('expert_status', params.expert_status);
+    if (params.sort_by) sp.set('sort_by', params.sort_by);
+    if (params.sort_order) sp.set('sort_order', params.sort_order);
+    return request<TermListResponse>(`/api/gk-knowledge/terms/list?${sp}`);
+  },
+
+  getTermDetail: (termId: number) =>
+    request<TermDetail>(`/api/gk-knowledge/terms/${termId}`),
+
+  getTermStats: (groupId?: number) => {
+    const p = groupId != null ? `?group_id=${groupId}` : '';
+    return request<TermValidationStats>(`/api/gk-knowledge/terms/stats${p}`);
+  },
+
+  getTermGroups: () =>
+    request<TermGroupInfo[]>('/api/gk-knowledge/terms/groups'),
+
+  validateTerm: (data: {
+    term_id: number;
+    verdict: string;
+    comment?: string;
+    edited_term?: string;
+    edited_definition?: string;
+  }) =>
+    request<{ message: string }>('/api/gk-knowledge/terms/validate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getTermHistory: (termId: number) =>
+    request<TermValidationHistoryEntry[]>(`/api/gk-knowledge/terms/${termId}/history`),
+
+  triggerTermScan: (data: { group_id: number; date_from: string; date_to: string }) =>
+    request<{ batch_id: string; message: string }>('/api/gk-knowledge/terms/scan', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getTermScanStatus: (batchId: string) =>
+    request<TermScanStatus>(`/api/gk-knowledge/terms/scan/${batchId}/status`),
+
+  addTermManually: (data: { group_id: number; term: string; term_type: string; definition?: string }) =>
+    request<{ message: string; term_id: number }>('/api/gk-knowledge/terms/add', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  deleteTerm: (termId: number) =>
+    request<{ message: string }>(`/api/gk-knowledge/terms/${termId}`, { method: 'DELETE' }),
 };

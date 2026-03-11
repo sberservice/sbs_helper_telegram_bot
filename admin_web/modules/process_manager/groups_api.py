@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
@@ -39,6 +40,7 @@ class GroupEntry(BaseModel):
     """Одна группа в конфигурации."""
     id: int = Field(..., description="Telegram ID группы")
     title: str = Field("", description="Название группы")
+    disabled: bool = Field(False, description="Группа временно отключена")
 
 
 class TestTargetGroup(BaseModel):
@@ -52,6 +54,7 @@ class GKGroupsConfig(BaseModel):
     """Полная конфигурация GK-групп."""
     groups: List[GroupEntry] = Field(default_factory=list)
     test_target_group: Optional[TestTargetGroup] = None
+    test_target_groups: List[TestTargetGroup] = Field(default_factory=list)
 
 
 class HelperGroupsConfig(BaseModel):
@@ -63,6 +66,11 @@ class GroupAddRequest(BaseModel):
     """Запрос на добавление группы."""
     id: int = Field(..., description="Telegram ID группы")
     title: str = Field("", description="Название группы")
+
+
+class GroupToggleRequest(BaseModel):
+    """Запрос на переключение статуса группы."""
+    disabled: bool = Field(..., description="True = отключить, False = включить")
 
 
 class CollectedGroupInfo(BaseModel):
@@ -103,6 +111,82 @@ def _save_json_config(path: Path, data: Dict[str, Any]) -> None:
     logger.info("Конфигурация сохранена: %s", path)
 
 
+def _to_iso_datetime(value: Any) -> Optional[str]:
+    """Преобразовать значение даты/времени из БД в ISO-строку."""
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        return value.isoformat()
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        timestamp = float(value)
+        if abs(timestamp) > 1_000_000_000_000:
+            timestamp /= 1000.0
+        try:
+            return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+        except (OverflowError, OSError, ValueError):
+            logger.warning("Некорректный timestamp в collected groups: %r", value)
+            return str(value)
+
+    if isinstance(value, str):
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        if trimmed.lstrip("-").isdigit():
+            return _to_iso_datetime(int(trimmed))
+        return trimmed
+
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        try:
+            return isoformat()
+        except (TypeError, ValueError):
+            logger.warning("Не удалось сериализовать дату через isoformat: %r", value)
+
+    return str(value)
+
+
+def _normalize_test_target_groups(data: Dict[str, Any]) -> tuple[List[TestTargetGroup], Optional[TestTargetGroup]]:
+    """Нормализовать test target группы из конфига с обратной совместимостью.
+
+    Поддерживает оба формата:
+    - новый: test_target_groups: [ ... ]
+    - legacy: test_target_group: { ... }
+    """
+    result: List[TestTargetGroup] = []
+    seen_ids: set[int] = set()
+
+    raw_list = data.get("test_target_groups", [])
+    if isinstance(raw_list, list):
+        for item in raw_list:
+            if not isinstance(item, dict):
+                continue
+            try:
+                normalized = TestTargetGroup(**item)
+            except (TypeError, ValueError):
+                logger.warning("Пропущена некорректная запись test_target_groups: %r", item)
+                continue
+            if normalized.id in seen_ids:
+                continue
+            seen_ids.add(normalized.id)
+            result.append(normalized)
+
+    active_target: Optional[TestTargetGroup] = None
+    raw_active = data.get("test_target_group")
+    if isinstance(raw_active, dict):
+        try:
+            active_target = TestTargetGroup(**raw_active)
+        except (TypeError, ValueError):
+            logger.warning("Пропущено некорректное поле test_target_group: %r", raw_active)
+            active_target = None
+
+    if active_target and active_target.id not in seen_ids:
+        result.append(active_target)
+
+    return result, active_target
+
+
 # ---------------------------------------------------------------------------
 # Роутер
 # ---------------------------------------------------------------------------
@@ -120,13 +204,11 @@ def build_groups_router() -> APIRouter:
     ) -> Dict[str, Any]:
         """Получить конфигурацию GK-групп."""
         data = _load_json_config(GK_GROUPS_CONFIG_PATH)
+        test_target_groups, active_target = _normalize_test_target_groups(data)
         config = GKGroupsConfig(
             groups=[GroupEntry(**g) for g in data.get("groups", [])],
-            test_target_group=(
-                TestTargetGroup(**data["test_target_group"])
-                if data.get("test_target_group")
-                else None
-            ),
+            test_target_group=active_target,
+            test_target_groups=test_target_groups,
         )
         return config.model_dump()
 
@@ -136,8 +218,20 @@ def build_groups_router() -> APIRouter:
         user: WebUser = Depends(require_permission("process_manager", "edit")),
     ) -> Dict[str, Any]:
         """Полностью обновить конфигурацию GK-групп."""
+        normalized_targets: List[TestTargetGroup] = []
+        seen_ids: set[int] = set()
+        for target in config.test_target_groups:
+            if target.id in seen_ids:
+                continue
+            seen_ids.add(target.id)
+            normalized_targets.append(target)
+
+        if config.test_target_group and config.test_target_group.id not in seen_ids:
+            normalized_targets.append(config.test_target_group)
+
         data: Dict[str, Any] = {
             "groups": [g.model_dump() for g in config.groups],
+            "test_target_groups": [g.model_dump(exclude_none=True) for g in normalized_targets],
         }
         if config.test_target_group:
             data["test_target_group"] = config.test_target_group.model_dump(
@@ -175,7 +269,111 @@ def build_groups_router() -> APIRouter:
         )
         return {"groups": groups}
 
-    @router.delete("/gk/{group_id}")
+    @router.post("/gk/test-targets")
+    async def add_gk_test_target_option(
+        group: TestTargetGroup,
+        user: WebUser = Depends(require_permission("process_manager", "edit")),
+    ) -> Dict[str, Any]:
+        """Добавить группу в список доступных test target для redirect test mode."""
+        data = _load_json_config(GK_GROUPS_CONFIG_PATH)
+
+        configured_ids = {int(g["id"]) for g in data.get("groups", [])}
+        if group.id in configured_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Нельзя использовать боевую группу как test target",
+            )
+
+        test_target_groups, _ = _normalize_test_target_groups(data)
+        if any(g.id == group.id for g in test_target_groups):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Группа {group.id} уже есть в списке test target",
+            )
+
+        test_target_groups.append(group)
+        data["test_target_groups"] = [g.model_dump(exclude_none=True) for g in test_target_groups]
+        _save_json_config(GK_GROUPS_CONFIG_PATH, data)
+        logger.info(
+            "GK test target option добавлена: id=%d title=%s user=%d",
+            group.id, group.title, user.telegram_id,
+        )
+        return {"test_target_groups": data["test_target_groups"]}
+
+    @router.delete("/gk/test-targets/{group_id:int}")
+    async def remove_gk_test_target_option(
+        group_id: int,
+        user: WebUser = Depends(require_permission("process_manager", "edit")),
+    ) -> Dict[str, Any]:
+        """Удалить группу из списка доступных test target."""
+        data = _load_json_config(GK_GROUPS_CONFIG_PATH)
+        test_target_groups, active_target = _normalize_test_target_groups(data)
+        filtered_targets = [g for g in test_target_groups if g.id != group_id]
+
+        if len(filtered_targets) == len(test_target_groups):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Группа {group_id} не найдена в списке test target",
+            )
+
+        data["test_target_groups"] = [g.model_dump(exclude_none=True) for g in filtered_targets]
+        if active_target and active_target.id == group_id:
+            data.pop("test_target_group", None)
+
+        _save_json_config(GK_GROUPS_CONFIG_PATH, data)
+        logger.info(
+            "GK test target option удалена: id=%d user=%d",
+            group_id, user.telegram_id,
+        )
+        return {
+            "test_target_groups": data["test_target_groups"],
+            "test_target_group": data.get("test_target_group"),
+        }
+
+    @router.put("/gk/test-target")
+    async def set_gk_test_target(
+        group: TestTargetGroup,
+        user: WebUser = Depends(require_permission("process_manager", "edit")),
+    ) -> Dict[str, Any]:
+        """Установить активную test target group для GK redirect test mode."""
+        data = _load_json_config(GK_GROUPS_CONFIG_PATH)
+
+        # Проверить, не боевая ли это группа
+        configured_ids = {int(g["id"]) for g in data.get("groups", [])}
+        if group.id in configured_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Нельзя использовать боевую группу как test target",
+            )
+
+        test_target_groups, _ = _normalize_test_target_groups(data)
+        if not any(g.id == group.id for g in test_target_groups):
+            test_target_groups.append(group)
+
+        data["test_target_groups"] = [g.model_dump(exclude_none=True) for g in test_target_groups]
+        data["test_target_group"] = group.model_dump(exclude_none=True)
+        _save_json_config(GK_GROUPS_CONFIG_PATH, data)
+        logger.info(
+            "GK test target group установлена: id=%d title=%s user=%d",
+            group.id, group.title, user.telegram_id,
+        )
+        return {
+            "test_target_group": data["test_target_group"],
+            "test_target_groups": data["test_target_groups"],
+        }
+
+    @router.delete("/gk/test-target")
+    async def clear_gk_test_target(
+        user: WebUser = Depends(require_permission("process_manager", "edit")),
+    ) -> Dict[str, Any]:
+        """Очистить активную test target group для GK."""
+        data = _load_json_config(GK_GROUPS_CONFIG_PATH)
+        data.pop("test_target_group", None)
+        _save_json_config(GK_GROUPS_CONFIG_PATH, data)
+        logger.info("GK test target group очищена: user=%d", user.telegram_id)
+        return {"test_target_group": None}
+
+    @router.delete("/gk/{group_id:int}")
     async def remove_gk_group(
         group_id: int,
         user: WebUser = Depends(require_permission("process_manager", "edit")),
@@ -200,40 +398,37 @@ def build_groups_router() -> APIRouter:
         )
         return {"groups": groups}
 
-    @router.put("/gk/test-target")
-    async def set_gk_test_target(
-        group: TestTargetGroup,
+    @router.patch("/gk/{group_id:int}/toggle")
+    async def toggle_gk_group(
+        group_id: int,
+        body: GroupToggleRequest,
         user: WebUser = Depends(require_permission("process_manager", "edit")),
     ) -> Dict[str, Any]:
-        """Установить test target group для GK redirect test mode."""
+        """Включить или отключить группу в GK-конфигурации."""
         data = _load_json_config(GK_GROUPS_CONFIG_PATH)
+        groups = data.get("groups", [])
 
-        # Проверить, не боевая ли это группа
-        configured_ids = {int(g["id"]) for g in data.get("groups", [])}
-        if group.id in configured_ids:
+        found = False
+        for g in groups:
+            if int(g.get("id", 0)) == group_id:
+                g["disabled"] = body.disabled
+                found = True
+                break
+
+        if not found:
             raise HTTPException(
-                status_code=400,
-                detail="Нельзя использовать боевую группу как test target",
+                status_code=404,
+                detail=f"Группа {group_id} не найдена в конфигурации",
             )
 
-        data["test_target_group"] = group.model_dump(exclude_none=True)
+        data["groups"] = groups
         _save_json_config(GK_GROUPS_CONFIG_PATH, data)
+        status_label = "отключена" if body.disabled else "включена"
         logger.info(
-            "GK test target group установлена: id=%d title=%s user=%d",
-            group.id, group.title, user.telegram_id,
+            "GK group %s: id=%d user=%d",
+            status_label, group_id, user.telegram_id,
         )
-        return {"test_target_group": data["test_target_group"]}
-
-    @router.delete("/gk/test-target")
-    async def clear_gk_test_target(
-        user: WebUser = Depends(require_permission("process_manager", "edit")),
-    ) -> Dict[str, Any]:
-        """Очистить test target group для GK."""
-        data = _load_json_config(GK_GROUPS_CONFIG_PATH)
-        data.pop("test_target_group", None)
-        _save_json_config(GK_GROUPS_CONFIG_PATH, data)
-        logger.info("GK test target group очищена: user=%d", user.telegram_id)
-        return {"test_target_group": None}
+        return {"groups": groups}
 
     # ===== Helper Groups =====
 
@@ -288,7 +483,7 @@ def build_groups_router() -> APIRouter:
         )
         return {"groups": groups}
 
-    @router.delete("/helper/{group_id}")
+    @router.delete("/helper/{group_id:int}")
     async def remove_helper_group(
         group_id: int,
         user: WebUser = Depends(require_permission("process_manager", "edit")),
@@ -313,6 +508,38 @@ def build_groups_router() -> APIRouter:
         )
         return {"groups": groups}
 
+    @router.patch("/helper/{group_id:int}/toggle")
+    async def toggle_helper_group(
+        group_id: int,
+        body: GroupToggleRequest,
+        user: WebUser = Depends(require_permission("process_manager", "edit")),
+    ) -> Dict[str, Any]:
+        """Включить или отключить группу в Helper-конфигурации."""
+        data = _load_json_config(HELPER_GROUPS_CONFIG_PATH)
+        groups = data.get("groups", [])
+
+        found = False
+        for g in groups:
+            if int(g.get("id", 0)) == group_id:
+                g["disabled"] = body.disabled
+                found = True
+                break
+
+        if not found:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Группа {group_id} не найдена в конфигурации",
+            )
+
+        data["groups"] = groups
+        _save_json_config(HELPER_GROUPS_CONFIG_PATH, data)
+        status_label = "отключена" if body.disabled else "включена"
+        logger.info(
+            "Helper group %s: id=%d user=%d",
+            status_label, group_id, user.telegram_id,
+        )
+        return {"groups": groups}
+
     # ===== Collected Groups (из БД) =====
 
     @router.get("/collected")
@@ -329,14 +556,8 @@ def build_groups_router() -> APIRouter:
                     "group_id": row.get("group_id"),
                     "group_title": row.get("group_title"),
                     "message_count": row.get("message_count", 0),
-                    "first_message": (
-                        row["first_message"].isoformat()
-                        if row.get("first_message") else None
-                    ),
-                    "last_message": (
-                        row["last_message"].isoformat()
-                        if row.get("last_message") else None
-                    ),
+                    "first_message": _to_iso_datetime(row.get("first_message")),
+                    "last_message": _to_iso_datetime(row.get("last_message")),
                 })
             return result
         except Exception as exc:

@@ -168,6 +168,23 @@ python scripts/rag_ops.py update cert --upsert-vectors
 python scripts/rag_ops.py update vectors --target both --batch-size 100
 ```
 
+#### Шаг 4.1 — Предзагрузка embedding-модели для offline-старта
+
+```bash
+# При доступной сети: скачать/прогреть модель в локальный кэш
+python scripts/rag_ops.py preload-embeddings
+
+# Проверить, что модель доступна только из локального кэша (без сети)
+python scripts/rag_ops.py preload-embeddings --offline-check
+```
+
+Рекомендуется задать постоянную директорию кэша через `AI_RAG_VECTOR_EMBEDDING_CACHE_DIR` (например, volume в контейнере), чтобы модель не перекачивалась после рестартов.
+Для strict-режима офлайн-запуска используйте:
+- `AI_RAG_VECTOR_EMBEDDING_OFFLINE=1`
+- `AI_RAG_VECTOR_EMBEDDING_FAIL_FAST=1`
+
+В таком режиме процесс завершится с ошибкой на старте, если модель отсутствует в локальном кэше.
+
 На первом запуске embedding-модель загружается локально (модели `BAAI/bge-m3` ~2.5GB). Для Windows с NVIDIA T400 рекомендуется профиль `intfloat/multilingual-e5-small` (быстрее, меньше памяти).
 
 #### Шаг 5 — Проверка
