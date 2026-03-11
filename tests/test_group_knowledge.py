@@ -123,6 +123,8 @@ class TestQAPair(unittest.TestCase):
         self.assertEqual(pair.confidence, 0.85)
         self.assertTrue(pair.approved)
         self.assertIsNone(pair.llm_request_payload)
+        self.assertIsNone(pair.confidence_reason)
+        self.assertIsNone(pair.fullness)
 
     def test_default_approved(self):
         """По умолчанию approved=True."""
@@ -189,6 +191,18 @@ class TestSettings(unittest.TestCase):
 
 class TestQuestionClassifierService(unittest.TestCase):
     """Тесты общего LLM-классификатора вопросов."""
+
+    def test_default_model_uses_gk_question_detection_setting(self):
+        """По умолчанию используется отдельная модель GK question-detection из настроек."""
+        from src.group_knowledge.question_classifier import QuestionClassifierService
+
+        with patch(
+            "src.group_knowledge.question_classifier.ai_settings.GK_QUESTION_DETECTION_MODEL",
+            "deepseek-chat",
+        ):
+            service = QuestionClassifierService()
+
+        self.assertEqual(service._model_name, "deepseek-chat")
 
     def test_classify_message_as_question(self):
         """Классификатор возвращает parsed JSON как объект результата."""
@@ -666,6 +680,8 @@ class TestDatabaseLayer(unittest.TestCase):
                 group_id=-100,
                 extraction_type="thread_reply",
                 confidence=0.9,
+                confidence_reason="Есть явная проблема и корректное решение",
+                fullness=0.8,
                 llm_model_used="deepseek-chat",
                 llm_request_payload='{"messages": [{"role": "user", "content": "debug"}]}',
             )
@@ -674,7 +690,11 @@ class TestDatabaseLayer(unittest.TestCase):
             self.assertEqual(result, 7)
             insert_sql, insert_params = mock_cursor.execute.call_args_list[0][0]
             self.assertIn("llm_request_payload", insert_sql)
+            self.assertIn("confidence_reason", insert_sql)
+            self.assertIn("fullness", insert_sql)
             self.assertIn(pair.llm_request_payload, insert_params)
+            self.assertIn(pair.confidence_reason, insert_params)
+            self.assertIn(pair.fullness, insert_params)
 
     @patch("src.group_knowledge.database.get_db_connection")
     def test_store_qa_pair_updates_existing_by_question_message_id(self, mock_conn_ctx):
@@ -702,6 +722,8 @@ class TestDatabaseLayer(unittest.TestCase):
                 group_id=-100,
                 extraction_type="thread_reply",
                 confidence=0.95,
+                confidence_reason="Ответ содержит конкретные шаги",
+                fullness=0.9,
                 llm_model_used="deepseek-chat",
                 llm_request_payload='{"purpose": "gk_validation"}',
             )
@@ -713,6 +735,8 @@ class TestDatabaseLayer(unittest.TestCase):
             self.assertIn("SELECT id", mock_cursor.execute.call_args_list[0][0][0])
             self.assertIn("UPDATE gk_qa_pairs", mock_cursor.execute.call_args_list[1][0][0])
             self.assertIn("llm_request_payload", mock_cursor.execute.call_args_list[1][0][0])
+            self.assertIn("confidence_reason", mock_cursor.execute.call_args_list[1][0][0])
+            self.assertIn("fullness", mock_cursor.execute.call_args_list[1][0][0])
 
     @patch("src.group_knowledge.database.get_db_connection")
     def test_get_messages_for_date(self, mock_conn_ctx):
@@ -1070,6 +1094,147 @@ class TestMessageCollectorQuestionClassification(unittest.TestCase):
         )
 
 
+class TestGetChatId(unittest.TestCase):
+    """Тесты извлечения chat_id из Telethon event."""
+
+    def test_supergroup_event(self):
+        """Для супергруппы event.chat_id возвращает корректный отрицательный ID."""
+        from src.group_knowledge.message_collector import MessageCollector
+
+        event = types.SimpleNamespace(chat_id=-1001260907121)
+        self.assertEqual(MessageCollector._get_chat_id(event), -1001260907121)
+
+    def test_basic_group_event(self):
+        """Для обычной (basic) группы event.chat_id корректно используется."""
+        from src.group_knowledge.message_collector import MessageCollector
+
+        event = types.SimpleNamespace(chat_id=-5197204255)
+        self.assertEqual(MessageCollector._get_chat_id(event), -5197204255)
+
+    def test_event_without_chat_id_returns_zero(self):
+        """Если event не содержит chat_id — возвращается 0."""
+        from src.group_knowledge.message_collector import MessageCollector
+
+        event = types.SimpleNamespace()
+        self.assertEqual(MessageCollector._get_chat_id(event), 0)
+
+    def test_basic_group_message_collected(self):
+        """Сообщение из обычной (basic) группы корректно собирается коллектором."""
+        from src.group_knowledge.message_collector import MessageCollector
+
+        basic_group_id = -5197204255
+        fixed_ts = int(time.time())
+        message = types.SimpleNamespace(
+            id=8001,
+            text="Тест из обычной группы",
+            message="Тест из обычной группы",
+            media=None,
+            action=None,
+            reply_to=None,
+            date=datetime.fromtimestamp(fixed_ts),
+        )
+        event = types.SimpleNamespace(
+            message=message,
+            chat_id=basic_group_id,
+            chat=None,
+            get_sender=AsyncMock(return_value=types.SimpleNamespace(
+                id=456, bot=False, first_name="Тест", last_name="",
+            )),
+        )
+
+        collector = MessageCollector(
+            client=MagicMock(),
+            groups=[{"id": basic_group_id, "title": "Тестовая группа"}],
+        )
+
+        with patch("src.group_knowledge.message_collector.gk_db.store_message", return_value=77), \
+             patch.object(collector, "_classify_message_question", new=AsyncMock()), \
+             patch.object(collector, "_message_has_image", return_value=False), \
+             patch("src.group_knowledge.message_collector.time.time", return_value=fixed_ts):
+            result = _run_async(collector.handle_new_message(event))
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.group_id, basic_group_id)
+        self.assertEqual(result.telegram_message_id, 8001)
+
+    def test_resolve_group_ids_corrects_mismatch(self):
+        """resolve_group_ids корректирует ID, если get_peer_id возвращает другое значение."""
+        from src.group_knowledge.message_collector import MessageCollector
+
+        # Имитация: конфиг содержит -5197204255, но реально это Channel с peer_id=-1005197204255
+        mock_client = MagicMock()
+        mock_entity = MagicMock()
+        mock_client.get_entity = AsyncMock(return_value=mock_entity)
+
+        collector = MessageCollector(
+            client=mock_client,
+            groups=[{"id": -5197204255, "title": "Тестовая группа"}],
+        )
+        self.assertEqual(collector.group_ids, {-5197204255})
+
+        with patch("src.group_knowledge.message_collector.get_peer_id", return_value=-1005197204255):
+            _run_async(collector.resolve_group_ids())
+
+        self.assertEqual(collector.group_ids, {-1005197204255})
+
+    def test_resolve_group_ids_keeps_correct_id(self):
+        """resolve_group_ids не меняет ID, если get_peer_id совпадает с конфигом."""
+        from src.group_knowledge.message_collector import MessageCollector
+
+        mock_client = MagicMock()
+        mock_entity = MagicMock()
+        mock_client.get_entity = AsyncMock(return_value=mock_entity)
+
+        collector = MessageCollector(
+            client=mock_client,
+            groups=[{"id": -1001260907121, "title": "ККМ СБС"}],
+        )
+
+        with patch("src.group_knowledge.message_collector.get_peer_id", return_value=-1001260907121):
+            _run_async(collector.resolve_group_ids())
+
+        self.assertEqual(collector.group_ids, {-1001260907121})
+
+    def test_resolve_group_ids_without_client(self):
+        """resolve_group_ids не падает, если client=None."""
+        from src.group_knowledge.message_collector import MessageCollector
+
+        collector = MessageCollector(
+            client=None,
+            groups=[{"id": -5197204255, "title": "Тестовая группа"}],
+        )
+        _run_async(collector.resolve_group_ids())
+        # ID не должен измениться
+        self.assertEqual(collector.group_ids, {-5197204255})
+
+    def test_handle_chat_migration_updates_group_ids(self):
+        """handle_chat_migration обновляет _group_ids при миграции."""
+        from src.group_knowledge.message_collector import MessageCollector
+
+        collector = MessageCollector(
+            client=MagicMock(),
+            groups=[{"id": -5197204255, "title": "Тестовая группа"}],
+        )
+        self.assertEqual(collector.group_ids, {-5197204255})
+
+        result = collector.handle_chat_migration(-5197204255, -1003849210429)
+        self.assertTrue(result)
+        self.assertEqual(collector.group_ids, {-1003849210429})
+        self.assertNotIn(-5197204255, collector.group_ids)
+
+    def test_handle_chat_migration_ignores_unknown_group(self):
+        """handle_chat_migration не делает ничего для неотслеживаемой группы."""
+        from src.group_knowledge.message_collector import MessageCollector
+
+        collector = MessageCollector(
+            client=MagicMock(),
+            groups=[{"id": -1001260907121, "title": "ККМ СБС"}],
+        )
+        result = collector.handle_chat_migration(-9999999, -1009999999)
+        self.assertFalse(result)
+        self.assertEqual(collector.group_ids, {-1001260907121})
+
+
 class TestMessageCollectorLogging(unittest.TestCase):
     """Тесты логирования collector."""
 
@@ -1089,6 +1254,7 @@ class TestMessageCollectorLogging(unittest.TestCase):
         )
         event = types.SimpleNamespace(
             message=message,
+            chat_id=-1001234,
             chat=types.SimpleNamespace(id=-1001234),
             get_sender=AsyncMock(return_value=types.SimpleNamespace(id=123, bot=False, first_name="Иван", last_name="")),
         )
@@ -1576,6 +1742,7 @@ class TestMessageCollectorBackfill(unittest.TestCase):
         )
         event = types.SimpleNamespace(
             message=message,
+            chat_id=-1001234,
             chat=types.SimpleNamespace(id=-1001234),
             get_sender=AsyncMock(return_value=types.SimpleNamespace(id=123, bot=False, first_name="Иван", last_name="")),
         )
@@ -1848,15 +2015,24 @@ class TestQAAnalyzerThreadExtraction(unittest.TestCase):
             "clean_question": "Как исправить ошибку 1001?",
             "clean_answer": "Перезагрузите терминал",
             "answer_message_id": 102,
+            "confidence_reason": "Есть чёткая причинно-следственная связь и рабочее решение",
+            "fullness": 0.76,
         }))
 
         with patch("src.group_knowledge.qa_analyzer.get_provider", return_value=mock_provider):
             result = _run_async(analyzer._validate_thread_chain(root_message, [root_message, answer_message]))
 
         self.assertIsNotNone(result)
-        self.assertEqual(len(result), 5)
+        self.assertEqual(len(result), 7)
         payload = result[4]
+        confidence_reason = result[5]
+        fullness = result[6]
         self.assertIsInstance(payload, str)
+        self.assertEqual(
+            confidence_reason,
+            "Есть чёткая причинно-следственная связь и рабочее решение",
+        )
+        self.assertAlmostEqual(fullness, 0.76, places=2)
         parsed = json.loads(payload)
         self.assertEqual(parsed["purpose"], "gk_validation")
         self.assertEqual(parsed["model_override"], "deepseek-test")
@@ -1956,7 +2132,8 @@ class TestQAAnalyzerThreadExtraction(unittest.TestCase):
         context = QAAnalyzer._format_thread_context([question_msg, answer_msg])
 
         self.assertIn("[QUESTION_HINT conf=0.95]", context)
-        self.assertIn("[NOT_QUESTION_HINT conf=0.12]", context)
+        # NOT_QUESTION_HINT закомментирован в _format_question_hint — не-вопросы без хинта
+        self.assertNotIn("[NOT_QUESTION_HINT", context)
 
     def test_extract_thread_pairs_logs_truncated_chain_preview(self):
         """При сохранении thread-пары в лог пишется укороченный preview цепочки."""
@@ -2431,6 +2608,42 @@ class TestQASearchAnswer(unittest.TestCase):
         self.assertAlmostEqual(result["confidence"], 0.88)
         self.assertTrue(result["is_relevant"])
 
+    def test_answer_prompt_includes_pair_confidence_and_fullness(self):
+        """Промпт генерации ответа содержит confidence/fullness и confidence_reason пары."""
+        from src.group_knowledge.qa_search import QASearchService
+        from src.group_knowledge.models import QAPair
+
+        mock_pairs = [
+            QAPair(
+                id=7,
+                question_text="Как исправить ошибку 1001?",
+                answer_text="Перезапустите терминал и проверьте сетевое подключение.",
+                group_id=-100,
+                extraction_type="thread_reply",
+                confidence=0.93,
+                confidence_reason="В цепочке есть явный вопрос и конкретное решение от другого участника",
+                fullness=0.81,
+            )
+        ]
+
+        mock_provider = MagicMock()
+        mock_provider.chat = AsyncMock(return_value=json.dumps({
+            "answer": "Перезапустите терминал.",
+            "is_relevant": True,
+            "confidence": 0.86,
+            "used_pair_ids": [1],
+        }))
+
+        service = QASearchService()
+        with patch("src.group_knowledge.qa_search.get_provider", return_value=mock_provider):
+            result = _run_async(service.answer_question_from_pairs("Ошибка 1001", mock_pairs))
+
+        self.assertIsNotNone(result)
+        system_prompt = mock_provider.chat.await_args.kwargs["system_prompt"]
+        self.assertIn("QA Confidence: 0.93", system_prompt)
+        self.assertIn("Fullness: 0.81", system_prompt)
+        self.assertIn("Confidence reason:", system_prompt)
+
     def test_answer_generated_with_source_link(self):
         """В ответ возвращается ссылка на похожий кейс из группы."""
         from src.group_knowledge.qa_search import QASearchService
@@ -2501,7 +2714,7 @@ class TestQASearchAnswer(unittest.TestCase):
 
         self.assertEqual(
             formatted,
-            "**Отвечает робот Арчи**: Перезагрузите терминал и обновите конфиг.\n\n"
+            "**Отвечает Арчи**: Перезагрузите терминал и обновите конфиг.\n\n"
             "Похожий случай в группе, ссылка на ответ: https://t.me/c/1234567890/555",
         )
 
@@ -2707,6 +2920,11 @@ class TestGroupResponderHandleMessage(unittest.TestCase):
         chat.megagroup = True
         chat.broadcast = False
         event.chat = chat
+        # Telethon peer_id: для каналов/супергрупп = -100 + id
+        if chat.megagroup or chat.broadcast:
+            event.chat_id = -int(f"100{abs(chat_id)}")
+        else:
+            event.chat_id = chat_id
 
         sender = MagicMock()
         sender.id = sender_id
@@ -2979,13 +3197,14 @@ class TestGroupResponderHandleMessage(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertTrue(result.responded)
         event.reply.assert_not_awaited()
-        event.client.send_message.assert_awaited_once()
-        send_args = event.client.send_message.await_args.args
-        self.assertEqual(send_args[0], -1003004005)
-        self.assertIn("Источник: Боевая группа (-1001001234)", send_args[1])
-        self.assertIn("Отправитель: Иван Петров (@ivanpetrov, id=555)", send_args[1])
-        self.assertIn("Вопрос:", send_args[1])
-        self.assertIn("Ответ:", send_args[1])
+        # redirect mode отправляет 2 сообщения: вопрос + ответ (reply к вопросу)
+        self.assertEqual(event.client.send_message.await_count, 2)
+        # Первый вызов — сообщение с вопросом и метаданными
+        first_call_args = event.client.send_message.await_args_list[0].args
+        self.assertEqual(first_call_args[0], -1003004005)
+        self.assertIn("Источник: Боевая группа (-1001001234)", first_call_args[1])
+        self.assertIn("Отправитель: Иван Петров (@ivanpetrov, id=555)", first_call_args[1])
+        self.assertIn("Вопрос:", first_call_args[1])
 
     def test_logs_rag_start_and_no_answer(self):
         """При отсутствии ответа в логах видно запуск RAG и отрицательный результат."""
@@ -3076,6 +3295,101 @@ class TestGroupConfig(unittest.TestCase):
             mode="w", suffix=".json", delete=False
         ) as f:
             json.dump({"groups": [{"id": -100, "title": "Test"}]}, f)
+            tmp_path = f.name
+
+        try:
+            with patch(
+                "src.group_knowledge.message_collector.GK_GROUPS_CONFIG_PATH",
+                Path(tmp_path),
+            ):
+                result = load_groups_config()
+                self.assertEqual(len(result), 1)
+                self.assertEqual(result[0]["id"], -100)
+        finally:
+            import os
+            os.unlink(tmp_path)
+
+    def test_load_filters_disabled_groups(self):
+        """Загрузка конфига исключает группы с disabled=true по умолчанию."""
+        import tempfile
+        from src.group_knowledge.message_collector import load_groups_config
+
+        config = {
+            "groups": [
+                {"id": -100, "title": "Active"},
+                {"id": -200, "title": "Disabled", "disabled": True},
+                {"id": -300, "title": "Also active"},
+            ]
+        }
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as f:
+            json.dump(config, f)
+            tmp_path = f.name
+
+        try:
+            with patch(
+                "src.group_knowledge.message_collector.GK_GROUPS_CONFIG_PATH",
+                Path(tmp_path),
+            ):
+                result = load_groups_config()
+                self.assertEqual(len(result), 2)
+                ids = [g["id"] for g in result]
+                self.assertIn(-100, ids)
+                self.assertIn(-300, ids)
+                self.assertNotIn(-200, ids)
+        finally:
+            import os
+            os.unlink(tmp_path)
+
+    def test_load_include_disabled_groups(self):
+        """Загрузка конфига с include_disabled=True возвращает все группы."""
+        import tempfile
+        from src.group_knowledge.message_collector import load_groups_config
+
+        config = {
+            "groups": [
+                {"id": -100, "title": "Active"},
+                {"id": -200, "title": "Disabled", "disabled": True},
+                {"id": -300, "title": "Also active"},
+            ]
+        }
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as f:
+            json.dump(config, f)
+            tmp_path = f.name
+
+        try:
+            with patch(
+                "src.group_knowledge.message_collector.GK_GROUPS_CONFIG_PATH",
+                Path(tmp_path),
+            ):
+                result = load_groups_config(include_disabled=True)
+                self.assertEqual(len(result), 3)
+                ids = [g["id"] for g in result]
+                self.assertIn(-200, ids)
+        finally:
+            import os
+            os.unlink(tmp_path)
+
+    def test_load_disabled_false_treated_as_enabled(self):
+        """Группа с disabled=false считается активной."""
+        import tempfile
+        from src.group_knowledge.message_collector import load_groups_config
+
+        config = {
+            "groups": [
+                {"id": -100, "title": "Explicit enabled", "disabled": False},
+            ]
+        }
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as f:
+            json.dump(config, f)
             tmp_path = f.name
 
         try:
@@ -3286,6 +3600,23 @@ class TestGKTokenize(unittest.TestCase):
         lower_tokens = [t.lower() for t in tokens]
         self.assertIn("ккт", lower_tokens)
         self.assertIn("nfc", lower_tokens)
+
+    def test_multiword_fixed_term_preserved_as_single_token(self):
+        """Multi-word protected term сохраняется как единый токен."""
+        tokens = self.service._tokenize("можно ли исправить эвотор 6 или эво6?")
+        lower_tokens = [t.lower() for t in tokens]
+
+        self.assertIn("эвотор_6", lower_tokens)
+        self.assertIn("эво6", lower_tokens)
+        self.assertNotIn("эвотор", lower_tokens)
+
+    def test_tokenize_with_diagnostics_multiword_fixed_term(self):
+        """Диагностика не теряет protected phrase с пробелом."""
+        diag = self.service._tokenize_with_diagnostics("можно ли исправить эвотор 6 или эво6?")
+
+        self.assertIn("tokens", diag)
+        self.assertIn("эвотор_6", diag["tokens"])
+        self.assertIn("эво6", diag["tokens"])
 
     def test_short_tokens_filtered(self):
         """Токены короче 3 символов фильтруются (кроме защищённых)."""

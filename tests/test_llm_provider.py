@@ -388,6 +388,44 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call_kwargs["temperature"], 0.55)
         self.assertEqual(call_kwargs["max_tokens"], 1536)
 
+    async def test_chat_uses_temperature_override_when_provided(self):
+        """chat использует temperature_override для конкретного вызова."""
+        provider = DeepSeekProvider(api_key="test_key")
+        provider._call_api = AsyncMock(return_value="ok")
+
+        with patch(
+            "src.core.ai.llm_provider.ai_settings.LLM_CHAT_TEMPERATURE",
+            0.55,
+        ):
+            result = await provider.chat(
+                messages=[{"role": "user", "content": "hi"}],
+                system_prompt="system",
+                purpose="response",
+                temperature_override=0.23,
+            )
+
+        self.assertEqual(result, "ok")
+        call_kwargs = provider._call_api.await_args.kwargs
+        self.assertEqual(call_kwargs["temperature"], 0.23)
+
+    async def test_chat_prompt_tester_with_model_override_disables_fallback_and_uses_extra_retries(self):
+        """Prompt tester с model_override не включает fallback и увеличивает число retry."""
+        provider = DeepSeekProvider(api_key="test_key")
+        provider._call_api = AsyncMock(return_value="ok")
+
+        result = await provider.chat(
+            messages=[{"role": "user", "content": "hi"}],
+            system_prompt="system",
+            purpose="gk_prompt_tester",
+            model_override="deepseek-reasoner",
+            allow_model_fallback=False,
+        )
+
+        self.assertEqual(result, "ok")
+        call_kwargs = provider._call_api.await_args.kwargs
+        self.assertEqual(call_kwargs["allow_empty_content_retry"], False)
+        self.assertEqual(call_kwargs["max_attempts"], 4)
+
     @patch("config.ai_settings.get_active_deepseek_model_for_response", return_value="deepseek-reasoner")
     @patch("src.core.ai.llm_provider.httpx.AsyncClient")
     async def test_call_api_retries_with_chat_model_on_empty_reasoner_content(
@@ -490,6 +528,73 @@ class TestDeepSeekProviderModelResolution(unittest.IsolatedAsyncioTestCase):
         result = await provider._call_api(messages=[{"role": "user", "content": "hi"}], purpose="chat")
 
         self.assertEqual(result, "Первая строка\nВторая строка")
+
+    @patch("src.core.ai.llm_provider.logger.warning")
+    @patch("src.core.ai.llm_provider.ai_settings.AI_MODEL_IO_DB_LOG_ENABLED", True)
+    @patch("src.core.ai.llm_provider.database.get_cursor")
+    @patch("src.core.ai.llm_provider.database.get_db_connection")
+    @patch("src.core.ai.llm_provider.httpx.AsyncClient")
+    async def test_call_api_logs_and_persists_empty_content_diagnostics_without_retry(
+        self,
+        mock_async_client,
+        mock_get_db_connection,
+        mock_get_cursor,
+        mock_logger_warning,
+    ):
+        """Пустой content логируется с диагностикой и пишется в БД как empty_content без fallback."""
+        import asyncio
+
+        provider = DeepSeekProvider(api_key="test_key", model="deepseek-chat")
+
+        mock_client = mock_async_client.return_value.__aenter__.return_value
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "resp-empty-1",
+            "usage": {"prompt_tokens": 11, "completion_tokens": 0, "total_tokens": 11},
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {
+                        "content": "   ",
+                        "reasoning_content": "some reasoning",
+                        "refusal": None,
+                        "tool_calls": [{"id": "tool-1"}],
+                    },
+                }
+            ],
+        }
+        mock_response.raise_for_status.return_value = None
+        mock_response.elapsed.total_seconds.return_value = 0.12
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        mock_conn = mock_get_db_connection.return_value.__enter__.return_value
+        self.assertIsNotNone(mock_conn)
+        mock_cursor = mock_get_cursor.return_value.__enter__.return_value
+
+        result = await provider._call_api(
+            messages=[{"role": "user", "content": "hi"}],
+            purpose="chat",
+            allow_empty_content_retry=False,
+        )
+
+        self.assertEqual(result, "   ")
+
+        await asyncio.sleep(0.1)
+
+        self.assertTrue(mock_cursor.execute.called)
+        sql_params = mock_cursor.execute.call_args.args[1]
+        self.assertEqual(sql_params[7], "empty_content")
+        self.assertIn('"finish_reason": "length"', sql_params[6])
+        self.assertIn('"response_id": "resp-empty-1"', sql_params[6])
+
+        empty_warnings = [
+            call for call in mock_logger_warning.call_args_list
+            if call.args and "DeepSeek returned empty content" in call.args[0]
+        ]
+        self.assertTrue(empty_warnings)
+        diagnostics_payload = empty_warnings[0].args[3]
+        self.assertIn('"finish_reason": "length"', diagnostics_payload)
 
     @patch("src.core.ai.llm_provider.ai_settings.AI_MODEL_IO_DB_LOG_ENABLED", True)
     @patch("src.core.ai.llm_provider.database.get_cursor")

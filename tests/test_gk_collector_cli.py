@@ -17,8 +17,24 @@ GK_COLLECTOR = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 
 fake_telethon = types.ModuleType("telethon")
-fake_telethon.events = types.SimpleNamespace(NewMessage=lambda *args, **kwargs: None)
-with patch.dict(sys.modules, {"telethon": fake_telethon}):
+fake_telethon.events = types.SimpleNamespace(
+    NewMessage=lambda *args, **kwargs: None,
+    ChatAction=lambda *args, **kwargs: None,
+)
+fake_tl = types.ModuleType("telethon.tl")
+fake_tl_types = types.ModuleType("telethon.tl.types")
+fake_tl_types.MessageActionChatMigrateTo = type("MessageActionChatMigrateTo", (), {})
+fake_tl.types = fake_tl_types
+fake_telethon.tl = fake_tl
+fake_utils = types.ModuleType("telethon.utils")
+fake_utils.get_peer_id = lambda entity: getattr(entity, "id", 0)
+fake_telethon.utils = fake_utils
+with patch.dict(sys.modules, {
+    "telethon": fake_telethon,
+    "telethon.tl": fake_tl,
+    "telethon.tl.types": fake_tl_types,
+    "telethon.utils": fake_utils,
+}):
     SPEC.loader.exec_module(GK_COLLECTOR)
 
 
@@ -56,6 +72,7 @@ class TestGKCollectorCli(unittest.TestCase):
                         with patch.object(GK_COLLECTOR, "MessageCollector") as mock_collector_cls:
                             mock_collector = mock_collector_cls.return_value
                             mock_collector.group_ids = {-1001}
+                            mock_collector.resolve_group_ids = AsyncMock()
                             mock_collector.sync_missed_messages = AsyncMock(return_value=0)
                             mock_collector.handle_new_message = AsyncMock(return_value=None)
                             with patch.object(GK_COLLECTOR, "GroupResponder") as mock_responder_cls:
@@ -97,6 +114,7 @@ class TestGKCollectorCli(unittest.TestCase):
                         with patch.object(GK_COLLECTOR, "MessageCollector") as mock_collector_cls:
                             mock_collector = mock_collector_cls.return_value
                             mock_collector.group_ids = {-1001}
+                            mock_collector.resolve_group_ids = AsyncMock()
                             mock_collector.sync_missed_messages = AsyncMock(return_value=3)
                             mock_collector.handle_new_message = AsyncMock(return_value=None)
                             with patch.object(GK_COLLECTOR, "GroupResponder"):
@@ -148,6 +166,7 @@ class TestGKCollectorCli(unittest.TestCase):
                             with patch.object(GK_COLLECTOR, "MessageCollector") as mock_collector_cls:
                                 mock_collector = mock_collector_cls.return_value
                                 mock_collector.group_ids = {-2002}
+                                mock_collector.resolve_group_ids = AsyncMock()
                                 mock_collector.sync_missed_messages = AsyncMock(return_value=0)
                                 mock_collector.handle_new_message = AsyncMock(return_value=None)
                                 with patch.object(GK_COLLECTOR, "GroupResponder") as mock_responder_cls:
@@ -203,6 +222,7 @@ class TestGKCollectorCli(unittest.TestCase):
                             with patch.object(GK_COLLECTOR, "MessageCollector") as mock_collector_cls:
                                 mock_collector = mock_collector_cls.return_value
                                 mock_collector.group_ids = {-1001}
+                                mock_collector.resolve_group_ids = AsyncMock()
                                 mock_collector.sync_missed_messages = AsyncMock(return_value=0)
                                 mock_collector.handle_new_message = AsyncMock(return_value=None)
                                 with patch.object(GK_COLLECTOR, "GroupResponder") as mock_responder_cls:
@@ -259,6 +279,7 @@ class TestGKCollectorCli(unittest.TestCase):
                             with patch.object(GK_COLLECTOR, "MessageCollector") as mock_collector_cls:
                                 mock_collector = mock_collector_cls.return_value
                                 mock_collector.group_ids = {-1001}
+                                mock_collector.resolve_group_ids = AsyncMock()
 
                                 async def backfill_side_effect(*_args, **_kwargs):
                                     signal_handlers[signal.SIGINT](signal.SIGINT, None)
@@ -299,6 +320,7 @@ class TestGKCollectorCli(unittest.TestCase):
                         with patch.object(GK_COLLECTOR, "MessageCollector") as mock_collector_cls:
                             mock_collector = mock_collector_cls.return_value
                             mock_collector.group_ids = {-1001}
+                            mock_collector.resolve_group_ids = AsyncMock()
                             mock_collector.sync_missed_messages = AsyncMock(return_value=0)
                             mock_collector.handle_new_message = AsyncMock(return_value=None)
                             with patch.object(GK_COLLECTOR, "GroupResponder") as mock_responder_cls:

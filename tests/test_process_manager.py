@@ -13,6 +13,7 @@ import os
 import unittest
 from collections import deque
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from admin_web.modules.process_manager.models import (
@@ -606,6 +607,69 @@ class TestRegistryFormPresets(unittest.TestCase):
         self.assertIsNotNone(subcmd_flag)
         self.assertNotIn("wizard", subcmd_flag.choices)
 
+    def test_gk_analyzer_has_unprocessed_except_today(self):
+        """У GK Analyzer есть нужные флаги и пресеты, включая rebuild без сегодня."""
+        from admin_web.modules.process_manager.registry import get_process_definition
+
+        defn = get_process_definition("gk_analyzer")
+        self.assertIsNotNone(defn)
+
+        flag_names = {f.name for f in defn.flags}
+        self.assertIn("--all-unprocessed-except-today", flag_names)
+
+        preset_names = {p.name for p in defn.presets}
+        self.assertIn("Необработанные (без сегодня)", preset_names)
+        self.assertIn("Rebuild (без сегодня)", preset_names)
+
+
+class TestSupervisorOneShotCompletion(unittest.TestCase):
+    """Тесты корректного завершения one-shot процессов."""
+
+    def test_one_shot_exit_zero_marked_stopped_not_crashed(self):
+        """One-shot процесс с exit_code=0 не должен помечаться как crashed."""
+        from admin_web.modules.process_manager.models import ProcessType
+        from admin_web.modules.process_manager.supervisor import ManagedProcess, ProcessSupervisor
+
+        supervisor = ProcessSupervisor.__new__(ProcessSupervisor)
+        supervisor._processes = {}
+        supervisor._lock = __import__("threading").Lock()
+        supervisor._shutdown_event = __import__("threading").Event()
+        supervisor._monitor_thread = None
+
+        process = MagicMock()
+        process.poll.return_value = 0
+        process.returncode = 0
+
+        managed = ManagedProcess(key="gk_analyzer")
+        managed.status = ProcessStatus.RUNNING
+        managed.process = process
+        managed.pid = 1234
+        managed.run_id = 77
+        supervisor._processes["gk_analyzer"] = managed
+
+        with patch("admin_web.modules.process_manager.supervisor.pm_db") as mock_db, \
+             patch("admin_web.modules.process_manager.supervisor._remove_pid_file") as mock_remove_pid, \
+             patch("admin_web.modules.process_manager.supervisor.get_process_registry") as mock_registry:
+            mock_registry.return_value = {
+                "gk_analyzer": SimpleNamespace(
+                    process_type=ProcessType.ONE_SHOT,
+                    auto_restart=False,
+                    max_restart_attempts=0,
+                    restart_delay_seconds=0,
+                ),
+            }
+
+            supervisor._check_processes()
+
+        mock_db.finish_run_record.assert_called_once_with(
+            77,
+            exit_code=0,
+            status="stopped",
+            stop_reason="completed",
+        )
+        mock_remove_pid.assert_called_once_with("gk_analyzer")
+        self.assertEqual(managed.status, ProcessStatus.STOPPED)
+
 
 # ===================================================================
 # Тесты groups_api — утилиты JSON
@@ -666,6 +730,40 @@ class TestGroupsApiUtils(unittest.TestCase):
             f.write("[1, 2, 3]")
         result = _load_json_config(path)
         self.assertEqual(result, {})
+
+    def test_normalize_test_targets_supports_legacy_single_group(self):
+        """Legacy test_target_group попадает в нормализованный список."""
+        from admin_web.modules.process_manager.groups_api import _normalize_test_target_groups
+
+        data = {
+            "test_target_group": {
+                "id": -1001,
+                "title": "Legacy target",
+            },
+        }
+        targets, active = _normalize_test_target_groups(data)
+
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].id, -1001)
+        self.assertIsNotNone(active)
+        self.assertEqual(active.id, -1001)
+
+    def test_normalize_test_targets_deduplicates_list_and_active(self):
+        """Нормализация убирает дубликат активной группы в списке."""
+        from admin_web.modules.process_manager.groups_api import _normalize_test_target_groups
+
+        data = {
+            "test_target_groups": [
+                {"id": -1001, "title": "Target 1"},
+                {"id": -1002, "title": "Target 2"},
+            ],
+            "test_target_group": {"id": -1002, "title": "Target 2"},
+        }
+        targets, active = _normalize_test_target_groups(data)
+
+        self.assertEqual([t.id for t in targets], [-1001, -1002])
+        self.assertIsNotNone(active)
+        self.assertEqual(active.id, -1002)
 
 
 # ===================================================================
@@ -789,6 +887,44 @@ class TestRestoreDesiredStateFlags(unittest.TestCase):
 
         mock_start.assert_called_once_with("gk_collector", ["--live"], "Live сбор", 123)
         self.assertEqual(managed.flags, ["--live"])
+
+
+class TestGroupsApiDatetimeSerialization(unittest.TestCase):
+    """Тесты сериализации дат для collected groups API."""
+
+    def test_to_iso_datetime_supports_datetime(self):
+        """datetime сериализуется через isoformat без изменений."""
+        from admin_web.modules.process_manager.groups_api import _to_iso_datetime
+
+        value = datetime(2026, 3, 10, 9, 19, 15, tzinfo=timezone.utc)
+        self.assertEqual(_to_iso_datetime(value), value.isoformat())
+
+    def test_to_iso_datetime_supports_unix_timestamp_int(self):
+        """Целочисленный unix timestamp корректно преобразуется в ISO UTC."""
+        from admin_web.modules.process_manager.groups_api import _to_iso_datetime
+
+        result = _to_iso_datetime(1741598355)
+        self.assertEqual(result, "2025-03-10T09:19:15+00:00")
+
+    def test_to_iso_datetime_supports_unix_timestamp_ms_int(self):
+        """Unix timestamp в миллисекундах корректно нормализуется."""
+        from admin_web.modules.process_manager.groups_api import _to_iso_datetime
+
+        result = _to_iso_datetime(1741598355000)
+        self.assertEqual(result, "2025-03-10T09:19:15+00:00")
+
+    def test_to_iso_datetime_supports_numeric_string_timestamp(self):
+        """Строковый timestamp из БД также обрабатывается корректно."""
+        from admin_web.modules.process_manager.groups_api import _to_iso_datetime
+
+        result = _to_iso_datetime("1741598355")
+        self.assertEqual(result, "2025-03-10T09:19:15+00:00")
+
+    def test_to_iso_datetime_returns_plain_string(self):
+        """Нечисловые строки возвращаются как есть (после trim)."""
+        from admin_web.modules.process_manager.groups_api import _to_iso_datetime
+
+        self.assertEqual(_to_iso_datetime("  2026-03-10 09:19:15  "), "2026-03-10 09:19:15")
 
 
 if __name__ == "__main__":

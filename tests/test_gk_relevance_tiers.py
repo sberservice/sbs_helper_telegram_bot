@@ -10,9 +10,23 @@ from src.group_knowledge.qa_search import (
     QASearchService,
     _ANSWER_PROMPT_BASE,
     _GK_FIXED_TERMS,
+    _GK_FIXED_PHRASES,
+    _GK_FIXED_TERM_TOKEN_MAP,
+    _GK_FIXED_TOKEN_TO_TERM_MAP,
+    _GK_FIXED_TOKENS,
     _RELEVANCE_RULE,
     _TOKEN_RE,
 )
+
+
+def _patch_fixed_terms(service: QASearchService) -> None:
+    """Установить instance-level атрибуты защищённых терминов (для тестов через __new__)."""
+    service._fixed_terms = _GK_FIXED_TERMS
+    service._fixed_phrases = _GK_FIXED_PHRASES
+    service._fixed_term_token_map = dict(_GK_FIXED_TERM_TOKEN_MAP)
+    service._fixed_token_term_map = dict(_GK_FIXED_TOKEN_TO_TERM_MAP)
+    service._fixed_tokens = _GK_FIXED_TOKENS
+    service._fixed_terms_loaded_at = 1e12  # Никогда не протухнет
 
 
 def _make_pair(
@@ -216,16 +230,21 @@ class TestPromptFormatting(unittest.TestCase):
             bm25_score=0.85, vector_score=0.72,
         )
         pair.search_relevance_tier = "высокая"
+        pair.confidence = 0.91
+        pair.fullness = 0.77
 
         # Эмулируем логику форматирования из answer_question_from_pairs
         header = (
             f"Пара 1 (ID={pair.id}, "
             f"Релевантность: {pair.search_relevance_tier}, "
-            f"BM25: {pair.search_bm25_score:.2f}, Вектор: {pair.search_vector_score:.2f}):"
+            f"BM25: {pair.search_bm25_score:.2f}, Вектор: {pair.search_vector_score:.2f}, "
+            f"QA Confidence: {pair.confidence:.2f}, Fullness: {pair.fullness:.2f}):"
         )
         self.assertIn("Релевантность: высокая", header)
         self.assertIn("BM25: 0.85", header)
         self.assertIn("Вектор: 0.72", header)
+        self.assertIn("QA Confidence: 0.91", header)
+        self.assertIn("Fullness: 0.77", header)
 
     def test_prompt_without_hints_no_tier(self):
         """Без hints пара форматируется без метки релевантности."""
@@ -401,6 +420,7 @@ class TestBuildSpellcheckVocabulary(unittest.TestCase):
     def test_no_symspell_returns_false(self):
         """Если symspellpy не установлен, _build_spellcheck_vocabulary → False."""
         service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
         service._corpus_pairs = []
         service._spellcheck_sym = None
         service._spellcheck_vocab_size = 0
@@ -419,6 +439,7 @@ class TestBuildSpellcheckVocabulary(unittest.TestCase):
         mock_symspell_cls.return_value = mock_sym
 
         service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
         service._spellcheck_sym = None
         service._spellcheck_vocab_size = 0
         service._spellcheck_vocab_ready = False
@@ -445,6 +466,7 @@ class TestBuildSpellcheckVocabulary(unittest.TestCase):
         mock_symspell_cls.return_value = mock_sym
 
         service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
         service._spellcheck_sym = None
         service._spellcheck_vocab_size = 0
         service._spellcheck_vocab_ready = False
@@ -463,6 +485,7 @@ class TestSpellcheckTokens(unittest.TestCase):
     def test_rare_exact_typo_replaced_by_frequent_neighbor(self):
         """Редкая «точная» опечатка заменяется на частотный соседний термин."""
         service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
         service._spellcheck_vocab_ready = True
 
         mock_sym = MagicMock()
@@ -506,6 +529,7 @@ class TestSpellcheckTokens(unittest.TestCase):
     def test_skips_protected_terms(self):
         """Защищённые термины не корректируются."""
         service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
         service._spellcheck_vocab_ready = True
 
         mock_sym = MagicMock()
@@ -524,9 +548,31 @@ class TestSpellcheckTokens(unittest.TestCase):
         # lookup не вызывался для protected terms
         mock_sym.lookup.assert_not_called()
 
+    def test_skips_multiword_protected_terms(self):
+        """Multi-word protected term пропускается после канонизации."""
+        service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
+        service._spellcheck_vocab_ready = True
+
+        mock_sym = MagicMock()
+        service._spellcheck_sym = mock_sym
+
+        tokens = ["эвотор 6", "эво6"]
+
+        with patch("src.group_knowledge.qa_search.ai_settings") as mock_s:
+            mock_s.GK_SPELLCHECK_MIN_TOKEN_LENGTH = 4
+            mock_s.GK_SPELLCHECK_MAX_EDIT_DISTANCE = 1
+            with patch("src.group_knowledge.qa_search._SymSpellVerbosity", MagicMock()):
+                corrected, changes = service._spellcheck_tokens(tokens)
+
+        self.assertEqual(corrected, ["эвотор_6", "эво6"])
+        self.assertEqual(changes, [])
+        mock_sym.lookup.assert_not_called()
+
     def test_skips_short_tokens(self):
         """Токены короче min_length пропускаются."""
         service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
         service._spellcheck_vocab_ready = True
 
         mock_sym = MagicMock()
@@ -546,6 +592,7 @@ class TestSpellcheckTokens(unittest.TestCase):
     def test_skips_non_cyrillic_tokens(self):
         """Латинские и числовые токены пропускаются."""
         service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
         service._spellcheck_vocab_ready = True
 
         mock_sym = MagicMock()
@@ -565,6 +612,7 @@ class TestSpellcheckTokens(unittest.TestCase):
     def test_not_ready_returns_unchanged(self):
         """Если vocabulary не готов — возвращает токены без изменений."""
         service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
         service._spellcheck_vocab_ready = False
         service._spellcheck_sym = None
 
@@ -584,6 +632,7 @@ class TestApplySpellcheckToQuery(unittest.TestCase):
         mock_settings.GK_SPELLCHECK_ENABLED = False
 
         service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
         service._spellcheck_vocab_ready = False
         service._spellcheck_sym = None
 
@@ -598,12 +647,34 @@ class TestApplySpellcheckToQuery(unittest.TestCase):
         mock_settings.GK_SPELLCHECK_ENABLED = True
 
         service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
         service._spellcheck_vocab_ready = False
         service._spellcheck_sym = None
 
         result, changes, source = service._apply_spellcheck_to_query("тест")
         self.assertEqual(result, "тест")
         self.assertEqual(source, "vocab_not_ready")
+
+    @patch("src.group_knowledge.qa_search.ai_settings")
+    def test_preserves_multiword_protected_spacing(self, mock_settings):
+        """После pipeline protected phrase остаётся с пробелом в исходном виде."""
+        mock_settings.GK_SPELLCHECK_ENABLED = True
+
+        service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
+        service._spellcheck_vocab_ready = True
+        service._spellcheck_sym = MagicMock()
+
+        service._spellcheck_tokens = MagicMock(return_value=(
+            ["эвотор_6", "эво6"],
+            [("эвотор_6", "эвотор_6")],
+        ))
+
+        result, _changes, source = service._apply_spellcheck_to_query(
+            "можно ли исправить эвотор 6 или эво6?",
+        )
+        self.assertEqual(result, "можно ли исправить эвотор 6 или эво6?")
+        self.assertEqual(source, "corpus")
 
 
 class TestInvalidateCorpusCacheResetsSpellcheck(unittest.TestCase):
@@ -612,6 +683,7 @@ class TestInvalidateCorpusCacheResetsSpellcheck(unittest.TestCase):
     def test_spellcheck_state_reset(self):
         """После invalidate_corpus_cache spellcheck состояние сброшено."""
         service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
         service._corpus_loaded_at = 100.0
         service._corpus_pairs = [QAPair(id=1, question_text="q", answer_text="a")]
         service._corpus_tokens = [["q"]]
@@ -639,8 +711,10 @@ class TestSearchSpellcheckInitializationOrder(unittest.TestCase):
         mock_settings.GK_SEARCH_CANDIDATES_PER_METHOD = 5
         mock_settings.GK_HYBRID_ENABLED = False
         mock_settings.GK_RELEVANCE_HINTS_ENABLED = False
+        mock_settings.GK_TERMS_CACHE_TTL_SECONDS = 99999
 
         service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
         service._top_k = 3
 
         service._ensure_corpus_loaded = MagicMock()

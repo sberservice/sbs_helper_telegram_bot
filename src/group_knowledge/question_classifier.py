@@ -56,7 +56,7 @@ class QuestionClassifierService:
 
     def __init__(self, model_name: Optional[str] = None):
         """Инициализация классификатора."""
-        self._model_name = model_name or ai_settings.GK_RESPONDER_MODEL
+        self._model_name = model_name or ai_settings.GK_QUESTION_DETECTION_MODEL
 
     async def classify(
         self,

@@ -101,6 +101,7 @@ def get_image_queue_list(
                         "id": r["id"],
                         "message_id": r["message_id"],
                         "image_path": r["image_path"],
+                        "file_path": r["image_path"],
                         "status": r["status"],
                         "status_label": IMAGE_STATUS_LABELS.get(r["status"], "unknown"),
                         "error_message": r["error_message"],
@@ -116,3 +117,47 @@ def get_image_queue_list(
     except Exception as exc:
         logger.error("Ошибка получения очереди изображений: %s", exc, exc_info=True)
         return [], 0
+
+
+def get_image_queue_item(queue_id: int) -> Optional[Dict[str, Any]]:
+    """Получить один элемент очереди изображений по ID."""
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        iq.id, iq.message_id, iq.image_path,
+                        iq.status, iq.error_message,
+                        iq.created_at, iq.updated_at,
+                        gm.image_description,
+                        gm.group_id, gm.sender_name
+                    FROM gk_image_queue iq
+                    LEFT JOIN gk_messages gm ON gm.id = iq.message_id
+                    WHERE iq.id = %s
+                    LIMIT 1
+                    """,
+                    (queue_id,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return None
+
+                return {
+                    "id": row["id"],
+                    "message_id": row["message_id"],
+                    "image_path": row["image_path"],
+                    "file_path": row["image_path"],
+                    "status": row["status"],
+                    "status_label": IMAGE_STATUS_LABELS.get(row["status"], "unknown"),
+                    "error_message": row["error_message"],
+                    "created_at": str(row["created_at"]) if row["created_at"] else None,
+                    "updated_at": str(row["updated_at"]) if row["updated_at"] else None,
+                    "image_description": row.get("image_description"),
+                    "group_id": row.get("group_id"),
+                    "sender_name": row.get("sender_name"),
+                }
+
+    except Exception as exc:
+        logger.error("Ошибка получения элемента очереди изображений %d: %s", queue_id, exc, exc_info=True)
+        return None

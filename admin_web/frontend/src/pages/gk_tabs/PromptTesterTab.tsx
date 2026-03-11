@@ -9,13 +9,15 @@ import {
   api,
   type GKPrompt,
   type GKPromptSession,
+  type GKPromptSessionEstimate,
   type GKComparison,
   type GKSessionResults,
+  type GKPromptTesterStats,
   type GKGroup,
 } from '../../api'
 import { useAuth } from '../../auth'
 
-type SubView = 'sessions' | 'prompts' | 'compare' | 'results'
+type SubView = 'sessions' | 'prompts' | 'stats' | 'compare' | 'results'
 
 export default function PromptTesterTab() {
   const { hasPermission } = useAuth()
@@ -38,6 +40,8 @@ export default function PromptTesterTab() {
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [showSessionForm, setShowSessionForm] = useState(false)
   const [sessionForm, setSessionForm] = useState({ name: '', prompt_ids: [] as number[], chains_count: '20', source_group_id: '' as string, source_date_from: '', source_date_to: '' })
+  const [sessionEstimate, setSessionEstimate] = useState<GKPromptSessionEstimate | null>(null)
+  const [estimateLoading, setEstimateLoading] = useState(false)
   const [groups, setGroups] = useState<GKGroup[]>([])
 
   // --- Сравнение ---
@@ -49,6 +53,7 @@ export default function PromptTesterTab() {
 
   // --- Результаты ---
   const [results, setResults] = useState<GKSessionResults | null>(null)
+  const [aggregateStats, setAggregateStats] = useState<GKPromptTesterStats | null>(null)
 
   // Загрузка промптов
   const loadPrompts = useCallback(async () => {
@@ -76,9 +81,19 @@ export default function PromptTesterTab() {
     }
   }, [])
 
+  const loadAggregateStats = useCallback(async () => {
+    try {
+      const data = await api.gkPromptTesterStats()
+      setAggregateStats(data)
+    } catch {
+      setAggregateStats(null)
+    }
+  }, [])
+
   useEffect(() => {
     loadSessions()
     loadPrompts()
+    loadAggregateStats()
     api.gkGroups().then(setGroups).catch(() => {})
     api.gkPromptTesterSupportedModels()
       .then(data => {
@@ -86,7 +101,7 @@ export default function PromptTesterTab() {
         setDefaultModelName(data.default_model || null)
       })
       .catch(() => {})
-  }, [loadSessions, loadPrompts])
+  }, [loadSessions, loadPrompts, loadAggregateStats])
 
   const modelOptions = useMemo(() => {
     const currentModel = promptForm.model_name.trim()
@@ -109,6 +124,54 @@ export default function PromptTesterTab() {
     return () => window.clearInterval(timer)
   }, [sessions, loadSessions])
 
+  useEffect(() => {
+    if (!showSessionForm) {
+      setSessionEstimate(null)
+      setEstimateLoading(false)
+      return
+    }
+
+    const chainsCount = Number(sessionForm.chains_count) || 0
+    if (sessionForm.prompt_ids.length < 2 || chainsCount < 1 || chainsCount > 1000) {
+      setSessionEstimate(null)
+      setEstimateLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setEstimateLoading(true)
+
+    const timer = window.setTimeout(() => {
+      api.gkEstimateSession({
+        prompt_ids: sessionForm.prompt_ids,
+        chains_count: chainsCount,
+        source_group_id: sessionForm.source_group_id ? Number(sessionForm.source_group_id) : undefined,
+        source_date_from: sessionForm.source_date_from || undefined,
+        source_date_to: sessionForm.source_date_to || undefined,
+      })
+        .then((estimate) => {
+          if (!cancelled) {
+            setSessionEstimate(estimate)
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSessionEstimate(null)
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setEstimateLoading(false)
+          }
+        })
+    }, 250)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [showSessionForm, sessionForm.prompt_ids, sessionForm.chains_count, sessionForm.source_group_id, sessionForm.source_date_from, sessionForm.source_date_to])
+
   // Создание / редактирование промпта
   const handlePromptSubmit = async () => {
     setError('')
@@ -129,6 +192,7 @@ export default function PromptTesterTab() {
       setEditPrompt(null)
       setPromptForm({ label: '', user_prompt: '', extraction_type: 'llm_inferred', model_name: '', temperature: '0.3' })
       loadPrompts()
+      loadAggregateStats()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка')
     }
@@ -164,7 +228,9 @@ export default function PromptTesterTab() {
       })
       setShowSessionForm(false)
       setSessionForm({ name: '', prompt_ids: [], chains_count: '20', source_group_id: '', source_date_from: '', source_date_to: '' })
+      setSessionEstimate(null)
       loadSessions()
+      loadAggregateStats()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка создания сессии')
     }
@@ -183,6 +249,9 @@ export default function PromptTesterTab() {
     try {
       const comp = await api.gkGetNextComparison(sessionId)
       setComparison(comp)
+      if (typeof comp.progress_voted === 'number') {
+        setVotedCount(comp.progress_voted)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка')
     } finally {
@@ -197,6 +266,7 @@ export default function PromptTesterTab() {
       await api.gkVote(activeSessionId, { comparison_id: comparison.comparison_id, winner })
       setVotedCount(c => c + 1)
       await loadNextComparison(activeSessionId)
+      loadAggregateStats()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка голосования')
     } finally {
@@ -220,6 +290,7 @@ export default function PromptTesterTab() {
     try {
       await api.gkAbandonSession(sessionId)
       loadSessions()
+      loadAggregateStats()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка')
     }
@@ -230,8 +301,82 @@ export default function PromptTesterTab() {
     <div className="pt-sub-nav" style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
       <button className={`btn btn-sm ${subView === 'sessions' ? 'btn-primary' : ''}`} onClick={() => setSubView('sessions')}>Сессии</button>
       <button className={`btn btn-sm ${subView === 'prompts' ? 'btn-primary' : ''}`} onClick={() => setSubView('prompts')}>Промпты</button>
+      <button className={`btn btn-sm ${subView === 'stats' ? 'btn-primary' : ''}`} onClick={() => setSubView('stats')}>Статистика</button>
     </div>
   )
+
+  if (subView === 'stats') {
+    const summary = aggregateStats?.summary
+    const promptsStats = aggregateStats?.prompts || []
+
+    return (
+      <div className="gk-prompt-tester-tab">
+        {renderSubNav()}
+        {error && <div className="alert alert-danger">{error}</div>}
+
+        {summary && (
+          <div className="stats-bar" style={{ marginBottom: 12 }}>
+            <div className="stat">
+              <span className="stat-value">{summary.sessions_total}</span>
+              <span className="stat-label">Сессии</span>
+            </div>
+            <div className="stat stat-success">
+              <span className="stat-value">{summary.sessions_completed}</span>
+              <span className="stat-label">Завершены</span>
+            </div>
+            <div className="stat stat-accent">
+              <span className="stat-value">{summary.voted_matches}</span>
+              <span className="stat-label">Голоса</span>
+            </div>
+            <div className="stat stat-danger">
+              <span className="stat-value">{summary.skipped_matches}</span>
+              <span className="stat-label">Skip</span>
+            </div>
+          </div>
+        )}
+
+        {promptsStats.length === 0 ? (
+          <div className="card empty-state"><p>Пока нет данных для рейтинга</p></div>
+        ) : (
+          <div className="results-table">
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>#</th>
+                  <th style={thStyle}>Промпт</th>
+                  <th style={thStyle}>Elo</th>
+                  <th style={thStyle}>ΔElo</th>
+                  <th style={thStyle}>Win Rate</th>
+                  <th style={thStyle}>Матчи</th>
+                  <th style={thStyle}>W/L/T</th>
+                  <th style={thStyle}>Сессии</th>
+                </tr>
+              </thead>
+              <tbody>
+                {promptsStats.map((p, index) => (
+                  <tr key={p.prompt_id} style={{ background: index === 0 ? 'var(--success-dim)' : 'transparent' }}>
+                    <td style={tdStyle}>{index + 1}</td>
+                    <td style={tdStyle}>
+                      <strong>{p.label}</strong>
+                      {!p.is_active && <span className="badge badge-dim" style={{ marginLeft: 8 }}>неактивен</span>}
+                    </td>
+                    <td style={tdStyle}>{p.elo.toFixed(1)}</td>
+                    <td style={{ ...tdStyle, color: p.elo_delta >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                      {p.elo_delta >= 0 ? '+' : ''}{p.elo_delta.toFixed(1)}
+                    </td>
+                    <td style={tdStyle}>{(p.win_rate * 100).toFixed(1)}%</td>
+                    <td style={tdStyle}>{p.matches}</td>
+                    <td style={tdStyle}>{p.wins}/{p.losses}/{p.ties}</td>
+                    <td style={tdStyle}>{p.sessions_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   // ---- Prompts view ----
   if (subView === 'prompts') {
@@ -388,10 +533,12 @@ export default function PromptTesterTab() {
               <tr>
                 <th style={thStyle}>Промпт</th>
                 <th style={thStyle}>Elo</th>
+                <th style={thStyle}>ΔElo</th>
                 <th style={thStyle}>Win Rate</th>
                 <th style={thStyle}>W</th>
                 <th style={thStyle}>L</th>
                 <th style={thStyle}>T</th>
+                <th style={thStyle}>Матчи</th>
               </tr>
             </thead>
             <tbody>
@@ -401,10 +548,14 @@ export default function PromptTesterTab() {
                   <tr key={p.prompt_id} style={{ background: i === 0 ? 'var(--success-dim)' : 'transparent' }}>
                     <td style={tdStyle}><strong>{p.label}</strong></td>
                     <td style={tdStyle}>{p.elo.toFixed(0)}</td>
+                    <td style={{ ...tdStyle, color: (p.elo_delta || 0) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                      {(p.elo_delta || 0) >= 0 ? '+' : ''}{(p.elo_delta || 0).toFixed(0)}
+                    </td>
                     <td style={tdStyle}>{(p.win_rate * 100).toFixed(1)}%</td>
                     <td style={{ ...tdStyle, color: 'var(--success)' }}>{p.wins}</td>
                     <td style={{ ...tdStyle, color: 'var(--danger)' }}>{p.losses}</td>
                     <td style={tdStyle}>{p.ties}</td>
+                    <td style={tdStyle}>{p.matches || (p.wins + p.losses + p.ties)}</td>
                   </tr>
               ))}
             </tbody>
@@ -459,7 +610,7 @@ export default function PromptTesterTab() {
               <label className="text-dim">Количество цепочек для применения промптов:</label>
               <input
                 type="number"
-                min={2}
+                  min={1}
                 max={1000}
                 className="input input-sm"
                 value={sessionForm.chains_count}
@@ -482,6 +633,16 @@ export default function PromptTesterTab() {
               <button className="btn btn-primary" onClick={handleCreateSession}>Создать</button>
               <button className="btn" onClick={() => setShowSessionForm(false)}>Отмена</button>
             </div>
+
+            {(estimateLoading || sessionEstimate) && (
+              <div className="text-dim" style={{ fontSize: 12 }}>
+                {estimateLoading ? (
+                  'Расчёт ожидаемого числа сравнений...'
+                ) : sessionEstimate ? (
+                  `Ожидается ${sessionEstimate.expected_comparisons} сравнений (${sessionEstimate.prompt_count} промптов × ${sessionEstimate.effective_chains_count} цепочек).`
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       )}

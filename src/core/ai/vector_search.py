@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import time
 from contextlib import nullcontext
 import logging
@@ -39,15 +40,41 @@ class VectorSummaryCandidate:
 class LocalEmbeddingProvider:
     """Локальный провайдер эмбеддингов на базе sentence-transformers."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        model_name: Optional[str] = None,
+        cache_dir: Optional[str] = None,
+        offline: Optional[bool] = None,
+        fail_fast: Optional[bool] = None,
+    ) -> None:
         self._model = None
-        self._model_name = ai_settings.AI_RAG_VECTOR_EMBEDDING_MODEL
+        self._model_name = str(model_name or ai_settings.AI_RAG_VECTOR_EMBEDDING_MODEL)
         self._device = "cpu"
         self._fp16_enabled = bool(ai_settings.AI_RAG_VECTOR_EMBEDDING_FP16)
+        self._cache_dir = str(
+            ai_settings.AI_RAG_VECTOR_EMBEDDING_CACHE_DIR if cache_dir is None else cache_dir
+        ).strip()
+        self._offline = bool(
+            ai_settings.AI_RAG_VECTOR_EMBEDDING_OFFLINE if offline is None else offline
+        )
+        self._fail_fast = bool(
+            ai_settings.AI_RAG_VECTOR_EMBEDDING_FAIL_FAST if fail_fast is None else fail_fast
+        )
+        self._last_error_code: Optional[str] = None
+        self._last_error_message: Optional[str] = None
 
     def is_ready(self) -> bool:
         """Проверить, что модель эмбеддингов доступна для инференса."""
         return self._ensure_model_loaded()
+
+    def last_error_code(self) -> Optional[str]:
+        """Вернуть код последней ошибки загрузки embedding-модели."""
+        return self._last_error_code
+
+    def last_error_message(self) -> Optional[str]:
+        """Вернуть текст последней ошибки загрузки embedding-модели."""
+        return self._last_error_message
 
     def encode_texts(self, texts: List[str]) -> List[List[float]]:
         """Преобразовать список текстов в dense-вектора."""
@@ -89,21 +116,70 @@ class LocalEmbeddingProvider:
             return True
 
         try:
+            self._last_error_code = None
+            self._last_error_message = None
             self._device = self._resolve_device()
             from sentence_transformers import SentenceTransformer
 
-            self._model = SentenceTransformer(self._model_name, device=self._device)
+            sentence_transformer_kwargs = {"device": self._device}
+            if self._cache_dir:
+                cache_path = Path(self._cache_dir)
+                cache_path.mkdir(parents=True, exist_ok=True)
+                sentence_transformer_kwargs["cache_folder"] = str(cache_path)
+
+            if self._offline:
+                sentence_transformer_kwargs["local_files_only"] = True
+                os.environ.setdefault("HF_HUB_OFFLINE", "1")
+                os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
+            self._model = SentenceTransformer(self._model_name, **sentence_transformer_kwargs)
             self._try_enable_fp16()
             logger.info(
-                "Локальная embedding-модель загружена: model=%s device=%s fp16=%s",
+                "Локальная embedding-модель загружена: model=%s device=%s fp16=%s offline=%s cache_dir=%s",
                 self._model_name,
                 self._device,
                 self._fp16_enabled,
+                self._offline,
+                self._cache_dir or "<default>",
             )
             return True
         except Exception as exc:
-            logger.warning("Не удалось загрузить embedding-модель %s: %s", self._model_name, exc)
+            self._last_error_code = self._classify_model_load_error(exc)
+            self._last_error_message = str(exc)
+            logger.warning(
+                "Не удалось загрузить embedding-модель %s: code=%s offline=%s cache_dir=%s error=%s",
+                self._model_name,
+                self._last_error_code,
+                self._offline,
+                self._cache_dir or "<default>",
+                exc,
+            )
             return False
+
+    def _classify_model_load_error(self, exc: Exception) -> str:
+        """Классифицировать причину ошибки загрузки embedding-модели."""
+        text = f"{type(exc).__name__}: {exc}".lower()
+        if self._offline and (
+            "localentrynotfounderror" in text
+            or "couldn't connect" in text
+            or "cannot find" in text
+            or "not found in local cache" in text
+            or "revision not found" in text
+            or "repo id" in text
+        ):
+            return "local_cache_miss"
+
+        if (
+            "network" in text
+            or "connection" in text
+            or "timeout" in text
+            or "name resolution" in text
+            or "temporary failure" in text
+            or "dns" in text
+        ):
+            return "network_error"
+
+        return "load_error"
 
     def _try_enable_fp16(self) -> None:
         """Включить FP16 для embedding-модели при запуске на CUDA."""
@@ -128,8 +204,7 @@ class LocalEmbeddingProvider:
             return
 
         try:
-            half_callable = half_method
-            half_callable()
+            half_method()
         except Exception as exc:
             logger.warning(
                 "Не удалось включить FP16 для embedding-модели %s: %s. Используется FP32",

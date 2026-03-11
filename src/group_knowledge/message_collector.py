@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from telethon.utils import get_peer_id
+
 from src.group_knowledge import database as gk_db
 from src.group_knowledge.image_processor import ImageProcessor
 from src.group_knowledge.models import GroupMessage
@@ -63,19 +65,33 @@ def _save_groups_config_data(data: Dict[str, Any]) -> None:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 
-def load_groups_config() -> List[Dict[str, Any]]:
+def load_groups_config(include_disabled: bool = False) -> List[Dict[str, Any]]:
     """
     Загрузить конфигурацию отслеживаемых групп из JSON.
 
+    Args:
+        include_disabled: Если True, включить группы с ``disabled: true``.
+            По умолчанию False — возвращаются только активные группы.
+
     Returns:
-        Список групп [{id, title}, ...].
+        Список групп [{id, title, ...}, ...].
     """
     data = _load_groups_config_data()
     groups = data.get("groups", [])
-    if isinstance(groups, list):
+    if not isinstance(groups, list):
+        logger.error("Некорректный формат поля groups в %s", GK_GROUPS_CONFIG_PATH)
+        return []
+    if include_disabled:
         return groups
-    logger.error("Некорректный формат поля groups в %s", GK_GROUPS_CONFIG_PATH)
-    return []
+    enabled = [g for g in groups if not g.get("disabled", False)]
+    if len(enabled) < len(groups):
+        disabled_count = len(groups) - len(enabled)
+        logger.info(
+            "Отфильтровано %d отключённых групп из %d",
+            disabled_count,
+            len(groups),
+        )
+    return enabled
 
 
 def load_test_target_group_config() -> Optional[Dict[str, Any]]:
@@ -165,6 +181,102 @@ class MessageCollector:
         """Множество отслеживаемых group_id."""
         return self._group_ids
 
+    async def resolve_group_ids(self) -> None:
+        """Верифицировать group_id из конфига через Telegram API.
+
+        Для каждой настроенной группы выполняет get_entity() и сравнивает
+        канонический peer_id (из telethon.utils.get_peer_id) с сохранённым
+        в конфиге. Если ID отличается (например, обычная группа была
+        мигрирована в супергруппу), обновляет _group_ids и _group_titles
+        in-memory и логирует предупреждение.
+
+        Это позволяет обнаружить ситуацию, когда Telegram автоматически
+        изменил ID группы при миграции Chat → Channel/Supergroup.
+        """
+        if not self._client:
+            logger.debug("resolve_group_ids: пропуск — client=None")
+            return
+
+        updated_group_ids: set = set()
+        updated_group_titles: dict = {}
+
+        for group in self._groups:
+            config_id = group["id"]
+            title = group.get("title", "")
+            try:
+                entity = await self._client.get_entity(config_id)
+                resolved_id = get_peer_id(entity)
+                resolved_title = getattr(entity, "title", title) or title
+
+                entity_type = "Channel" if getattr(entity, "megagroup", False) or getattr(entity, "broadcast", False) else "Chat"
+
+                if resolved_id != config_id:
+                    logger.warning(
+                        "Группа мигрирована: config_id=%d -> resolved_id=%d "
+                        "title='%s' entity_type=%s. "
+                        "Обновите config/gk_groups.json!",
+                        config_id, resolved_id, resolved_title, entity_type,
+                    )
+                    group["id"] = resolved_id
+                    group["title"] = resolved_title
+                else:
+                    logger.info(
+                        "Группа валидна: id=%d entity_type=%s title=%s",
+                        config_id, entity_type, resolved_title,
+                    )
+
+                updated_group_ids.add(resolved_id)
+                updated_group_titles[resolved_id] = resolved_title
+            except Exception as exc:
+                logger.warning(
+                    "Не удалось верифицировать группу %d ('%s'): %s. "
+                    "Используется ID из конфига.",
+                    config_id, title, exc,
+                )
+                updated_group_ids.add(config_id)
+                updated_group_titles[config_id] = title
+
+        self._group_ids = updated_group_ids
+        self._group_titles = updated_group_titles
+
+    def handle_chat_migration(self, old_chat_id: int, new_chat_id: int) -> bool:
+        """Обработать миграцию группы Chat → Channel/Supergroup.
+
+        Telegram автоматически меняет ID группы при апгрейде до
+        суперкруппы. Если old_chat_id был в отслеживаемых —
+        заменяем его на new_chat_id в _group_ids и _group_titles.
+
+        Args:
+            old_chat_id: Предыдущий ID группы (формат Chat).
+            new_chat_id: Новый ID (формат Channel/Supergroup с -100 префиксом).
+
+        Returns:
+            True если миграция была применена, False если old_chat_id
+            не отслеживался.
+        """
+        if old_chat_id not in self._group_ids:
+            return False
+
+        old_title = self._group_titles.get(old_chat_id, "")
+        self._group_ids.discard(old_chat_id)
+        self._group_ids.add(new_chat_id)
+        if old_chat_id in self._group_titles:
+            del self._group_titles[old_chat_id]
+        self._group_titles[new_chat_id] = old_title
+
+        # Обновить запись в _groups
+        for group in self._groups:
+            if group.get("id") == old_chat_id:
+                group["id"] = new_chat_id
+                break
+
+        logger.warning(
+            "Миграция группы применена в runtime: old_id=%d -> new_id=%d title='%s'. "
+            "Обновите config/gk_groups.json!",
+            old_chat_id, new_chat_id, old_title,
+        )
+        return True
+
     async def handle_new_message(self, event) -> Optional[GroupMessage]:
         """
         Обработать новое сообщение из группы.
@@ -181,6 +293,11 @@ class MessageCollector:
         # Извлечь chat_id
         chat_id = self._get_chat_id(event)
         if chat_id not in self._group_ids:
+            if chat_id:
+                logger.debug(
+                    "Сообщение из неотслеживаемой группы: chat_id=%d msg=%d tracked=%s",
+                    chat_id, message.id, self._group_ids,
+                )
             return None
 
         # Пропустить слишком старые сообщения (при реконнекте)
@@ -847,18 +964,15 @@ class MessageCollector:
 
     @staticmethod
     def _get_chat_id(event) -> int:
-        """Извлечь chat_id из события Telethon."""
-        chat = event.chat
-        if chat:
-            chat_id = getattr(chat, "id", 0)
-            # Для супергрупп/каналов Telethon возвращает положительный ID,
-            # но в config мы храним отрицательный — конвертируем
-            if chat_id > 0:
-                # Проверим, есть ли атрибут megagroup (супергруппа)
-                if getattr(chat, "megagroup", False) or getattr(chat, "broadcast", False):
-                    return -int(f"100{chat_id}")
-            return -chat_id if chat_id > 0 else chat_id
-        return 0
+        """Извлечь chat_id из события Telethon.
+
+        Использует event.chat_id — свойство, всегда доступное из raw-обновления
+        Telegram (корректно обрабатывает все типы групп: обычные, супергруппы,
+        каналы). В отличие от event.chat (синхронное свойство, может вернуть None
+        для обычных групп, если сущность отсутствует в кэше сессии),
+        event.chat_id вычисляется из peer_id обновления и никогда не равен None.
+        """
+        return getattr(event, "chat_id", 0) or 0
 
     @staticmethod
     def _get_sender_name(sender) -> str:
@@ -908,14 +1022,15 @@ async def manage_groups_interactive(client) -> None:
     print("\n=== Управление группами Group Knowledge ===\n")
 
     while True:
-        groups = load_groups_config()
+        groups = load_groups_config(include_disabled=True)
         available_groups = await _get_available_groups(client)
         configured_ids = {g["id"] for g in groups}
 
         if groups:
             print("Текущие отслеживаемые группы:")
             for i, g in enumerate(groups, 1):
-                print(f"  {i}. {g.get('title', 'Без названия')} (ID: {g['id']})")
+                disabled_mark = " [ОТКЛЮЧЕНА]" if g.get("disabled") else ""
+                print(f"  {i}. {g.get('title', 'Без названия')} (ID: {g['id']}){disabled_mark}")
         else:
             print("Список групп пуст.")
 
@@ -960,9 +1075,6 @@ async def _get_available_groups(client) -> List[Dict[str, Any]]:
                 and not getattr(entity, "broadcast", False)
             )
             if is_group:
-                # Для Telethon: получить «правильный» ID
-                from telethon.utils import get_peer_id
-
                 peer_id = get_peer_id(entity)
                 title = getattr(entity, "title", "Без названия")
                 participants = getattr(entity, "participants_count", "?")

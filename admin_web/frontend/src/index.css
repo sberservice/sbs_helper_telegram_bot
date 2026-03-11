@@ -827,16 +827,22 @@ kbd {
 
 .gk-page {
   max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.pm-page {
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .gk-tab-bar {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   border-bottom: 2px solid var(--border);
   margin-bottom: 20px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
 }
 
 .gk-tab {
@@ -1016,6 +1022,11 @@ kbd {
   color: var(--text-dim);
 }
 
+.group-card-disabled {
+  opacity: 0.6;
+  border-left: 3px solid var(--warning, #e6a817);
+}
+
 /* ========================= GK Responder & Images ========================= */
 
 .responder-list,
@@ -1073,6 +1084,24 @@ kbd {
   transition: border-color 0.15s;
 }
 
+.search-form-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.search-form-row .input {
+  flex: 1 1 320px;
+  min-width: 220px;
+}
+
+.search-topk-select {
+  width: 92px;
+  min-width: 92px;
+  flex: 0 0 auto;
+}
+
 .search-result-card:hover {
   border-color: var(--accent);
 }
@@ -1094,7 +1123,7 @@ kbd {
 .pm-overview {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 16px;
 }
 
 .pm-category-title {
@@ -1106,15 +1135,15 @@ kbd {
 
 .pm-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
 }
 
 .pm-process-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px;
+  padding: 10px 12px;
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -1129,19 +1158,19 @@ kbd {
 
 .pm-card-header {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 6px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
 }
-.pm-card-icon { font-size: 22px; }
+.pm-card-icon { font-size: 18px; }
 .pm-card-title-area {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 .pm-card-name {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -1158,8 +1187,24 @@ kbd {
 .pm-card-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  font-size: 12px;
+  gap: 5px;
+  font-size: 11px;
+}
+
+.pm-card-meta-compact {
+  margin-left: auto;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.pm-card-meta-secondary {
+  color: var(--text-dim);
+  min-height: 18px;
+}
+
+.pm-status-badge-compact {
+  font-size: 11px;
+  padding: 2px 8px;
 }
 
 /* Status dots */
@@ -1199,6 +1244,7 @@ kbd {
   align-items: center;
   gap: 10px;
   margin-bottom: 4px;
+  flex-wrap: wrap;
 }
 .pm-detail-title h2 { font-size: 20px; }
 .pm-detail-icon { font-size: 26px; }
@@ -1207,6 +1253,7 @@ kbd {
   gap: 16px;
   margin-top: 8px;
   font-size: 13px;
+  flex-wrap: wrap;
 }
 .pm-detail-meta code {
   font-family: var(--font-mono);
@@ -1355,6 +1402,13 @@ kbd {
   background: var(--bg-hover);
 }
 
+.pm-row-disabled {
+  opacity: 0.6;
+}
+.pm-row-disabled td {
+  color: var(--text-dim);
+}
+
 .pm-pagination {
   display: flex;
   align-items: center;
@@ -1377,6 +1431,12 @@ kbd {
   .pm-preset-list { flex-direction: column; }
   .pm-action-buttons { flex-direction: column; }
   .pm-add-group-form { flex-direction: column; }
+  .search-form-row .input,
+  .search-topk-select,
+  .search-form-row .btn {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 /* -----------------------------------------------------------------------

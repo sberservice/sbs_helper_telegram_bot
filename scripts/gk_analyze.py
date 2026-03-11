@@ -9,6 +9,7 @@ gk_analyze — CLI утилита запуска анализа Q&A-пар.
     python scripts/gk_analyze.py --date 2024-01-15                — один день
     python scripts/gk_analyze.py --date-range 2024-01-10 2024-01-15 — диапазон
     python scripts/gk_analyze.py --all-unprocessed                — все даты с необработанными сообщениями
+    python scripts/gk_analyze.py --all-unprocessed-except-today   — все необработанные даты, кроме сегодняшней
     python scripts/gk_analyze.py --all-dates                      — все даты, где есть сообщения
     python scripts/gk_analyze.py --date 2024-01-15 --group-id -100123456
     python scripts/gk_analyze.py --index                          — проиндексировать новые пары
@@ -48,7 +49,7 @@ def _resolve_group_ids(args: argparse.Namespace) -> list[int]:
     if args.group_id:
         return [args.group_id]
 
-    groups = load_groups_config()
+    groups = load_groups_config(include_disabled=True)
     if not groups:
         logger.error(
             "Нет настроенных групп. Запустите: python scripts/gk_collector.py --manage-groups"
@@ -62,14 +63,27 @@ def _resolve_analysis_targets(
     group_ids: list[int],
 ) -> list[tuple[int, str]]:
     """Определить пары (group_id, date_str), которые нужно проанализировать."""
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
     if args.all_dates:
         targets: list[tuple[int, str]] = []
+        skipped_today = 0
+        exclude_today_for_rebuild = bool(getattr(args, "rebuild_pairs", False))
         for gid in group_ids:
             message_dates = gk_db.get_message_dates(gid)
             if not message_dates:
                 continue
             for date_str in message_dates:
+                if exclude_today_for_rebuild and date_str == today_str:
+                    skipped_today += 1
+                    continue
                 targets.append((gid, date_str))
+        if exclude_today_for_rebuild and skipped_today > 0:
+            logger.info(
+                "Rebuild-режим: исключена текущая дата %s из целей анализа (пропущено=%d)",
+                today_str,
+                skipped_today,
+            )
         return targets
 
     if args.all_unprocessed:
@@ -79,6 +93,18 @@ def _resolve_analysis_targets(
             if not unprocessed_dates:
                 continue
             for date_str in unprocessed_dates:
+                targets.append((gid, date_str))
+        return targets
+
+    if args.all_unprocessed_except_today:
+        targets: list[tuple[int, str]] = []
+        for gid in group_ids:
+            unprocessed_dates = gk_db.get_unprocessed_dates(gid)
+            if not unprocessed_dates:
+                continue
+            for date_str in unprocessed_dates:
+                if date_str == today_str:
+                    continue
                 targets.append((gid, date_str))
         return targets
 
@@ -149,6 +175,25 @@ def _rebuild_pairs_for_groups(group_ids: list[int]) -> None:
     )
 
 
+def _cleanup_expert_validations_for_groups(group_ids: list[int]) -> None:
+    """Удалить экспертные валидации для Q&A-пар выбранных групп."""
+    total_deleted = 0
+
+    for gid in group_ids:
+        deleted = gk_db.delete_expert_validations_by_group(gid)
+        total_deleted += deleted
+        logger.info(
+            "Очистка expert validations: group=%d deleted=%d",
+            gid,
+            deleted,
+        )
+
+    logger.info(
+        "Очистка expert validations завершена: deleted=%d",
+        total_deleted,
+    )
+
+
 async def run_analysis(args: argparse.Namespace) -> None:
     """
     Запустить анализ Q&A-пар.
@@ -176,6 +221,13 @@ async def run_analysis(args: argparse.Namespace) -> None:
         )
         _rebuild_pairs_for_groups(group_ids)
 
+    if args.all_dates and args.force_reanalyze:
+        logger.info(
+            "Включена очистка gk_expert_validations перед полным переанализом: группы=%s",
+            sorted(set(group_ids)),
+        )
+        _cleanup_expert_validations_for_groups(group_ids)
+
     targets = _resolve_analysis_targets(args, group_ids)
     if not targets:
         logger.info("Нет необработанных сообщений для анализа по выбранным параметрам.")
@@ -184,11 +236,13 @@ async def run_analysis(args: argparse.Namespace) -> None:
     effective_force_reanalyze = args.force_reanalyze or args.rebuild_pairs
 
     logger.info(
-        "Анализ: целей=%d группы=%s force_reanalyze=%s all_unprocessed=%s all_dates=%s rebuild_pairs=%s",
+        "Анализ: целей=%d группы=%s force_reanalyze=%s all_unprocessed=%s "
+        "all_unprocessed_except_today=%s all_dates=%s rebuild_pairs=%s",
         len(targets),
         sorted(set(group_ids)),
         effective_force_reanalyze,
         args.all_unprocessed,
+        args.all_unprocessed_except_today,
         args.all_dates,
         args.rebuild_pairs,
     )
@@ -267,6 +321,11 @@ def main() -> None:
         help="Проанализировать все даты, где есть сообщения processed=0",
     )
     date_group.add_argument(
+        "--all-unprocessed-except-today",
+        action="store_true",
+        help="Проанализировать все даты с processed=0, кроме сегодняшней",
+    )
+    date_group.add_argument(
         "--all-dates",
         action="store_true",
         help="Проанализировать все даты, где у выбранных групп есть сообщения",
@@ -304,12 +363,14 @@ def main() -> None:
     parser.add_argument(
         "--rebuild-pairs",
         action="store_true",
-        help="Удалить существующие Q&A-пары выбранных групп, очистить их vector-точки и заново проанализировать все даты",
+        help="Удалить существующие Q&A-пары выбранных групп, очистить их vector-точки и заново проанализировать все даты, кроме текущей",
     )
     args = parser.parse_args()
 
     if args.all_unprocessed and args.force_reanalyze:
         parser.error("--all-unprocessed нельзя использовать вместе с --force-reanalyze")
+    if args.all_unprocessed_except_today and args.force_reanalyze:
+        parser.error("--all-unprocessed-except-today нельзя использовать вместе с --force-reanalyze")
     if args.rebuild_pairs and not args.all_dates:
         parser.error("--rebuild-pairs можно использовать только вместе с --all-dates")
 

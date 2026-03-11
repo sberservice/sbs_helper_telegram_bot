@@ -27,6 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from telethon import events
+from config import ai_settings
 
 from src.common.constants.sync import (
     TELETHON_API_ID,
@@ -37,6 +38,7 @@ from src.group_knowledge.message_collector import (
     _get_available_groups,
     load_groups_config,
     manage_groups_interactive,
+    MessageCollector,
 )
 from src.group_knowledge.responder import GroupResponder
 from src.group_knowledge.telethon_session import (
@@ -268,10 +270,28 @@ async def run_responder(args: argparse.Namespace) -> None:
             test_mode_config["real_group"]["id"],
         )
 
-    group_ids = {g["id"] for g in listened_groups}
+    # Верифицировать group_id через Telegram API (обнаружить миграции Chat → Channel)
+    resolver = MessageCollector(client=client, groups=listened_groups)
+    await resolver.resolve_group_ids()
+    group_ids = resolver.group_ids
+    logger.info("Эффективные group_id после верификации: %s", sorted(group_ids))
 
     # Инициализировать автоответчик
     responder = GroupResponder(dry_run=dry_run, test_group_mapping=group_mapping)
+    try:
+        warmup_stats = responder.preload_search_resources(preload_vector_model=True)
+        logger.info(
+            "Прогрев GK-поиска завершён: corpus_pairs=%s corpus_signature=%s vector_model_preloaded=%s vector_index_ready=%s",
+            warmup_stats.get("corpus_pairs"),
+            warmup_stats.get("corpus_signature"),
+            warmup_stats.get("vector_model_preloaded"),
+            warmup_stats.get("vector_index_ready"),
+        )
+    except Exception as exc:
+        if ai_settings.AI_RAG_VECTOR_EMBEDDING_FAIL_FAST:
+            logger.error("Прогрев GK-поиска завершился с критической ошибкой (fail-fast): %s", exc)
+            raise
+        logger.warning("Прогрев GK-поиска завершился с ошибкой: %s", exc)
 
     stop_event = asyncio.Event()
 

@@ -12,6 +12,7 @@
   update cert     — синхронизация вопросов аттестации
   update vectors  — перестройка векторного индекса
   update all      — полный пересмотр корпуса (docs + cert + vectors)
+    preload-embeddings — предзагрузка embedding-модели в локальный кэш
   sync-remote     — синхронизация Qdrant remote → local
   wizard          — интерактивный guided-режим
 
@@ -24,6 +25,8 @@
   python scripts/rag_ops.py update cert --force --upsert-vectors
   python scripts/rag_ops.py update vectors --target both --batch-size 200
   python scripts/rag_ops.py update all --directory /path/to/docs --force
+    python scripts/rag_ops.py preload-embeddings
+    python scripts/rag_ops.py preload-embeddings --offline-check
   python scripts/rag_ops.py sync-remote --dry-run
   python scripts/rag_ops.py wizard
 """
@@ -524,6 +527,59 @@ def cmd_sync_remote(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Команда: preload-embeddings
+# ---------------------------------------------------------------------------
+
+def cmd_preload_embeddings(args: argparse.Namespace) -> int:
+    """Предзагрузить embedding-модель в локальный кэш sentence-transformers."""
+    _header("Preload Embedding Model")
+
+    try:
+        from config import ai_settings  # noqa: PLC0415
+        from src.core.ai.vector_search import LocalEmbeddingProvider  # noqa: PLC0415
+    except Exception as exc:
+        _err(f"Не удалось загрузить зависимости: {exc}")
+        return 1
+
+    cache_dir = getattr(args, "cache_dir", None)
+    offline_check = bool(getattr(args, "offline_check", False))
+
+    model_name = str(ai_settings.AI_RAG_VECTOR_EMBEDDING_MODEL)
+    effective_cache_dir = cache_dir if cache_dir is not None else ai_settings.AI_RAG_VECTOR_EMBEDDING_CACHE_DIR
+    effective_offline = offline_check or bool(ai_settings.AI_RAG_VECTOR_EMBEDDING_OFFLINE)
+
+    _info(f"Model       : {model_name}")
+    _info(f"Cache dir   : {effective_cache_dir or '<default>'}")
+    _info(f"Offline mode: {'да' if effective_offline else 'нет'}")
+
+    provider = LocalEmbeddingProvider(
+        model_name=model_name,
+        cache_dir=cache_dir,
+        offline=effective_offline,
+        fail_fast=False,
+    )
+
+    started = time.monotonic()
+    ready = provider.is_ready()
+    elapsed = time.monotonic() - started
+
+    if ready:
+        _ok(f"Embedding-модель готова. Прогрев завершён за {elapsed:.1f}с.")
+        return 0
+
+    error_code = provider.last_error_code() or "unknown"
+    error_message = provider.last_error_message() or "n/a"
+    if error_code == "local_cache_miss" and effective_offline:
+        _err(
+            "Модель не найдена в локальном кэше при offline-режиме. "
+            "Сначала выполните preload без --offline-check при доступной сети."
+        )
+    else:
+        _err(f"Не удалось прогреть embedding-модель: code={error_code} error={error_message}")
+    return 1
+
+
+# ---------------------------------------------------------------------------
 # Команда: wizard (интерактивный режим)
 # ---------------------------------------------------------------------------
 
@@ -546,6 +602,7 @@ def cmd_wizard(_args: argparse.Namespace) -> int:
         ("update_cert",             "Синхронизировать вопросы аттестации"),
         ("update_vectors",          "Перестроить векторный индекс"),
         ("update_all",              "Полный update (docs + cert + vectors)"),
+        ("preload_embeddings",      "Предзагрузить embedding-модель в кэш"),
         ("sync_remote",             "Синхронизировать Qdrant remote → local"),
         ("exit",                    "Выйти"),
     ]
@@ -556,13 +613,13 @@ def cmd_wizard(_args: argparse.Namespace) -> int:
             print(f"  {_c(str(i), _ANSI_BOLD)}.  {label}")
         print()
 
-        choice_str = _ask("Выберите пункт (1–9)", "9")
+        choice_str = _ask("Выберите пункт (1–10)", "10")
         try:
             choice = int(choice_str) - 1
             if not (0 <= choice < len(menu)):
                 raise ValueError
         except ValueError:
-            _warn("Неверный выбор. Введите число от 1 до 9.")
+            _warn("Неверный выбор. Введите число от 1 до 10.")
             continue
 
         action = menu[choice][0]
@@ -631,6 +688,16 @@ def cmd_wizard(_args: argparse.Namespace) -> int:
                 uploaded_by=0,
                 batch_size=100,
             ))
+
+        elif action == "preload_embeddings":
+            offline_check = _confirm("Проверить offline-only режим (--offline-check)?", default=False)
+            cache_dir = _ask("Кастомная директория кэша (Enter — из AI_RAG_VECTOR_EMBEDDING_CACHE_DIR)", "")
+            cmd_preload_embeddings(
+                argparse.Namespace(
+                    offline_check=offline_check,
+                    cache_dir=cache_dir or None,
+                )
+            )
 
         elif action == "sync_remote":
             dry_run = _confirm("Dry-run?", default=True)
@@ -713,6 +780,8 @@ def _build_parser() -> argparse.ArgumentParser:
               python scripts/rag_ops.py update cert --force --upsert-vectors
               python scripts/rag_ops.py update vectors --target both
               python scripts/rag_ops.py update all -d /path/to/docs --force
+              python scripts/rag_ops.py preload-embeddings
+              python scripts/rag_ops.py preload-embeddings --offline-check
               python scripts/rag_ops.py sync-remote --dry-run
               python scripts/rag_ops.py wizard
         """),
@@ -772,6 +841,23 @@ def _build_parser() -> argparse.ArgumentParser:
     p_sync.add_argument("--max-points", type=int, default=None, metavar="N")
     p_sync.add_argument("--delete-missing", action="store_true", help="Удалять точки, отсутствующие в remote")
 
+    # preload-embeddings
+    p_preload = subparsers.add_parser(
+        "preload-embeddings",
+        help="Скачать/проверить embedding-модель sentence-transformers в локальном кэше",
+    )
+    p_preload.add_argument(
+        "--offline-check",
+        action="store_true",
+        help="Проверить доступность модели только из локального кэша (без сети)",
+    )
+    p_preload.add_argument(
+        "--cache-dir",
+        default=None,
+        metavar="PATH",
+        help="Явно указать директорию кэша sentence-transformers",
+    )
+
     # wizard
     subparsers.add_parser("wizard", help="Интерактивный guided-режим")
 
@@ -786,6 +872,7 @@ _COMMAND_MAP = {
     "health": cmd_health,
     "status": cmd_status,
     "setup": cmd_setup,
+    "preload-embeddings": cmd_preload_embeddings,
     "sync-remote": cmd_sync_remote,
     "wizard": cmd_wizard,
 }

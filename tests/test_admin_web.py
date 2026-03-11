@@ -470,6 +470,37 @@ class TestGKPromptTesterHelpers(unittest.TestCase):
         self.assertNotIn("{thread_context}", rendered)
         self.assertNotIn("{question_confidence_threshold}", rendered)
 
+    def test_format_chain_context_contains_question_hints(self):
+        """Контекст цепочки включает QUESTION_HINT/NOT_QUESTION_HINT с уверенностью."""
+        from admin_web.modules.gk_knowledge.router import _format_chain_context
+
+        chain_messages = [
+            {
+                "telegram_message_id": 101,
+                "sender_id": 1,
+                "sender_name": "User A",
+                "message_text": "Почему не проходит операция?",
+                "caption": "",
+                "image_description": "",
+                "is_question": True,
+                "question_confidence": 0.91,
+            },
+            {
+                "telegram_message_id": 102,
+                "sender_id": 2,
+                "sender_name": "User B",
+                "message_text": "Проверьте канал связи",
+                "caption": "",
+                "image_description": "",
+                "is_question": False,
+                "question_confidence": 0.12,
+            },
+        ]
+
+        context = _format_chain_context(chain_messages, {"question_text": "Q", "answer_text": "A"})
+        self.assertIn("[QUESTION_HINT conf=0.91]", context)
+        self.assertIn("[NOT_QUESTION_HINT conf=0.12]", context)
+
     def test_extract_generated_pair_from_json(self):
         """JSON-ответ с question/answer успешно парсится."""
         from admin_web.modules.gk_knowledge.router import _extract_generated_pair
@@ -486,9 +517,213 @@ class TestGKPromptTesterHelpers(unittest.TestCase):
 
         self.assertIsNone(_extract_generated_pair('{"foo":"bar"}'))
 
+    def test_generate_session_passes_prompt_temperature_to_provider(self):
+        """Температура промпта передаётся в provider.chat при генерации сессии."""
+        from admin_web.modules.gk_knowledge import router as gk_router
+
+        fake_provider = MagicMock()
+        fake_provider.chat = AsyncMock(
+            return_value='{"question":"Q","answer":"A","confidence":0.8}'
+        )
+
+        prompts_snapshot = [{
+            "id": 1,
+            "label": "Prompt 1",
+            "user_prompt": "Q: {question}",
+            "extraction_type": "llm_inferred",
+            "model_name": "deepseek-chat",
+            "temperature": 0.19,
+        }]
+        source_rows = [{
+            "id": 101,
+            "group_id": -100123,
+            "question_text": "Почему не проходит операция?",
+            "answer_text": "Проверьте канал связи",
+        }]
+
+        with patch.object(gk_router, "get_provider", return_value=fake_provider):
+            with patch("admin_web.modules.gk_knowledge.db_expert_validation.get_chain_messages", return_value=[]):
+                with patch("admin_web.modules.gk_knowledge.db_prompt_tester.save_generation", return_value=1):
+                    with patch("admin_web.modules.gk_knowledge.db_prompt_tester.create_comparisons_for_session", return_value=0):
+                        with patch("admin_web.modules.gk_knowledge.db_prompt_tester.update_session_status", return_value=True):
+                            with patch.object(gk_router.asyncio, "sleep", AsyncMock(return_value=None)):
+                                _run_async(
+                                    gk_router._generate_gk_prompt_tester_session(
+                                        session_id=77,
+                                        prompts_snapshot=prompts_snapshot,
+                                        source_rows=source_rows,
+                                    )
+                                )
+
+        self.assertEqual(fake_provider.chat.await_count, 1)
+        call_kwargs = fake_provider.chat.await_args.kwargs
+        self.assertEqual(call_kwargs.get("temperature_override"), 0.19)
+
+    def test_generate_session_skips_source_row_if_any_prompt_invalid(self):
+        """Если один промпт в цепочке не сгенерировался, сохранения по этой цепочке не выполняются."""
+        from admin_web.modules.gk_knowledge import router as gk_router
+
+        fake_provider = MagicMock()
+        fake_provider.chat = AsyncMock(
+            side_effect=[
+                '{"question":"Q1","answer":"A1","confidence":0.8}',
+                '{"bad":"payload"}',
+            ]
+        )
+
+        prompts_snapshot = [
+            {
+                "id": 1,
+                "label": "Prompt 1",
+                "user_prompt": "Q: {question}",
+                "extraction_type": "llm_inferred",
+                "model_name": "deepseek-chat",
+                "temperature": 0.2,
+            },
+            {
+                "id": 2,
+                "label": "Prompt 2",
+                "user_prompt": "Q: {question}",
+                "extraction_type": "llm_inferred",
+                "model_name": "deepseek-chat",
+                "temperature": 0.4,
+            },
+        ]
+        source_rows = [
+            {
+                "id": 101,
+                "group_id": -100123,
+                "question_text": "Почему не проходит операция?",
+                "answer_text": "Проверьте канал связи",
+            }
+        ]
+
+        with patch.object(gk_router, "get_provider", return_value=fake_provider):
+            with patch("admin_web.modules.gk_knowledge.db_expert_validation.get_chain_messages", return_value=[]):
+                with patch("admin_web.modules.gk_knowledge.db_prompt_tester.save_generation", return_value=1) as save_generation_mock:
+                    with patch("admin_web.modules.gk_knowledge.db_prompt_tester.create_comparisons_for_session", return_value=0):
+                        with patch("admin_web.modules.gk_knowledge.db_prompt_tester.update_session_status", return_value=True):
+                            with patch.object(gk_router.asyncio, "sleep", AsyncMock(return_value=None)):
+                                _run_async(
+                                    gk_router._generate_gk_prompt_tester_session(
+                                        session_id=77,
+                                        prompts_snapshot=prompts_snapshot,
+                                        source_rows=source_rows,
+                                    )
+                                )
+
+        self.assertEqual(fake_provider.chat.await_count, 2)
+        save_generation_mock.assert_not_called()
+
+    def test_compare_payload_includes_source_context_with_question_hints(self):
+        """Сравнение возвращает source_context с QUESTION_HINT, если найден source_pair_id."""
+        from admin_web.modules.gk_knowledge import router as gk_router
+
+        compare_payload = {
+            "comparison_id": 11,
+            "question_a": "Q A",
+            "answer_a": "A A",
+            "question_b": "Q B",
+            "answer_b": "A B",
+            "source_pair_id": 101,
+            "progress_total": 5,
+            "progress_voted": 2,
+        }
+        chain_messages = [
+            {
+                "telegram_message_id": 1,
+                "sender_id": 100,
+                "sender_name": "User",
+                "message_text": "Вопрос",
+                "caption": "",
+                "image_description": "",
+                "is_question": True,
+                "question_confidence": 0.95,
+            }
+        ]
+
+        with patch("admin_web.modules.gk_knowledge.db_prompt_tester.get_next_comparison", return_value=compare_payload):
+            with patch("admin_web.modules.gk_knowledge.db_expert_validation.get_chain_messages", return_value=chain_messages):
+                user = WebUser(telegram_id=1, role=WebRole.SUPER_ADMIN)
+                prompt_tester_router = gk_router._build_prompt_tester_router()
+                compare_endpoint = None
+                for route in prompt_tester_router.routes:
+                    path = getattr(route, "path", "")
+                    methods = getattr(route, "methods", set())
+                    if path == "/sessions/{session_id}/compare" and "GET" in methods:
+                        compare_endpoint = route.endpoint
+                        break
+
+                self.assertIsNotNone(compare_endpoint)
+                result = _run_async(
+                    compare_endpoint(
+                        session_id=7,
+                        user=user,
+                    )
+                )
+
+        self.assertTrue(result["has_more"])
+        self.assertIn("QUESTION_HINT", result.get("source_context") or "")
+
+
+class TestGKApiPayloadNormalization(unittest.TestCase):
+    """Тесты нормализации backend payload для вкладок Group Knowledge."""
+
+    def test_normalize_overview_payload_from_nested_shape(self):
+        """Overview из вложенного формата корректно конвертируется в плоский формат UI."""
+        from admin_web.modules.gk_knowledge.router import _normalize_overview_payload
+
+        raw = {
+            "messages": {"total": 100, "questions": 33},
+            "qa_pairs": {
+                "total": 20,
+                "expert_approved": 7,
+                "expert_rejected": 2,
+                "expert_unvalidated": 11,
+                "vector_indexed": 14,
+            },
+            "responder": {"total": 9},
+            "images": {"total": 4},
+        }
+
+        normalized = _normalize_overview_payload(raw)
+        self.assertEqual(normalized["total_messages"], 100)
+        self.assertEqual(normalized["total_qa_pairs"], 20)
+        self.assertEqual(normalized["total_responder_entries"], 9)
+        self.assertEqual(normalized["qa_pairs_validated"], 9)
+        self.assertEqual(normalized["qa_pairs_unvalidated"], 11)
+
+    def test_normalize_timeline_payload_merges_message_and_qa_rows(self):
+        """Timeline объединяет ряды сообщений и Q&A по дате в поле `dates`."""
+        from admin_web.modules.gk_knowledge.router import _normalize_timeline_payload
+
+        raw = {
+            "messages": [{"day": "2026-03-08", "message_count": 12}],
+            "qa_pairs": [{"day": "2026-03-08", "pair_count": 5}],
+        }
+        normalized = _normalize_timeline_payload(raw)
+        self.assertEqual(len(normalized["dates"]), 1)
+        self.assertEqual(normalized["dates"][0]["date"], "2026-03-08")
+        self.assertEqual(normalized["dates"][0]["messages"], 12)
+        self.assertEqual(normalized["dates"][0]["qa_pairs"], 5)
+
+    def test_normalize_responder_summary_aliases_total_entries(self):
+        """Сводка автоответчика всегда содержит `total_entries` для UI."""
+        from admin_web.modules.gk_knowledge.router import _normalize_responder_summary_payload
+
+        normalized = _normalize_responder_summary_payload({"total": 17, "live_count": 6, "dry_run_count": 11, "avg_confidence": 0.9})
+        self.assertEqual(normalized["total_entries"], 17)
+        self.assertEqual(normalized["total"], 17)
+
 
 class TestGKSearchService(unittest.TestCase):
     """Тесты обёртки песочницы поиска Group Knowledge."""
+
+    def setUp(self):
+        """Сбрасывать singleton поискового сервиса перед каждым тестом."""
+        from admin_web.modules.gk_knowledge import search_service
+
+        search_service._SEARCH_SERVICE = None
 
     def test_hybrid_search_uses_qasearch_service(self):
         """Песочница поиска использует `QASearchService` и возвращает нормализованный результат."""
@@ -502,6 +737,8 @@ class TestGKSearchService(unittest.TestCase):
             group_id=-1001234,
             extraction_type="thread_reply",
             confidence=0.93,
+            confidence_reason="Решение подтверждено несколькими участниками",
+            fullness=0.79,
         )
         pair.search_bm25_score = 1.75
         pair.search_vector_score = 0.82
@@ -520,6 +757,8 @@ class TestGKSearchService(unittest.TestCase):
         self.assertEqual(results[0]["answer"], pair.answer_text)
         self.assertEqual(results[0]["bm25_score"], 1.75)
         self.assertEqual(results[0]["vector_score"], 0.82)
+        self.assertEqual(results[0]["fullness"], 0.79)
+        self.assertEqual(results[0]["confidence_reason"], "Решение подтверждено несколькими участниками")
         fake_service.search.assert_awaited_once_with("ошибка 1001", top_k=5)
 
     def test_hybrid_search_returns_empty_list_on_import_error(self):
@@ -543,6 +782,8 @@ class TestGKSearchService(unittest.TestCase):
           group_id=-1001234,
           extraction_type="thread_reply",
           confidence=0.93,
+                    confidence_reason="Решение подтверждено несколькими участниками",
+                    fullness=0.79,
         )
         pair.search_bm25_score = 1.75
         pair.search_vector_score = 0.82
@@ -557,7 +798,7 @@ class TestGKSearchService(unittest.TestCase):
             "source_message_links": ["https://t.me/c/1234567890/555"],
         })
         fake_service.format_answer_for_user.return_value = (
-            "**Отвечает робот Арчи**: Перезагрузите терминал и обновите конфиг\n\n"
+            "**Отвечает Арчи**: Перезагрузите терминал и обновите конфиг\n\n"
             "Похожий случай в группе, ссылка на ответ: https://t.me/c/1234567890/555"
         )
 
@@ -569,9 +810,12 @@ class TestGKSearchService(unittest.TestCase):
 
         self.assertEqual(len(result["results"]), 1)
         self.assertTrue(result["answer_preview"]["would_send"])
+        self.assertIn("progress_stages", result)
+        self.assertGreaterEqual(len(result["progress_stages"]), 3)
+        self.assertEqual(result["progress_stages"][-1]["status"], "done")
         self.assertEqual(
             result["answer_preview"]["final_answer_text"],
-            "**Отвечает робот Арчи**: Перезагрузите терминал и обновите конфиг\n\n"
+            "**Отвечает Арчи**: Перезагрузите терминал и обновите конфиг\n\n"
             "Похожий случай в группе, ссылка на ответ: https://t.me/c/1234567890/555",
         )
         fake_service.search.assert_awaited_once_with("ошибка 1001", top_k=5)

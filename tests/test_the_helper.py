@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import json
 import re
 import time
 import unittest
@@ -519,6 +520,34 @@ class TestGroupConfig(unittest.TestCase):
         mock_path.exists.return_value = False
         result = load_groups()
         self.assertEqual(result, [])
+
+    def test_load_groups_filters_disabled(self):
+        """load_groups исключает группы с disabled=true."""
+        import tempfile
+        config = {
+            "groups": [
+                {"id": -100, "title": "Active"},
+                {"id": -200, "title": "Disabled", "disabled": True},
+                {"id": -300, "title": "Also active", "disabled": False},
+            ]
+        }
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as f:
+            json.dump(config, f)
+            tmp_path = f.name
+
+        try:
+            with patch("scripts.the_helper.GROUPS_CONFIG_PATH", Path(tmp_path)):
+                result = load_groups()
+                self.assertEqual(len(result), 2)
+                ids = [g["id"] for g in result]
+                self.assertIn(-100, ids)
+                self.assertIn(-300, ids)
+                self.assertNotIn(-200, ids)
+        finally:
+            import os
+            os.unlink(tmp_path)
 
 
 class TestParseIndexSelection(unittest.TestCase):

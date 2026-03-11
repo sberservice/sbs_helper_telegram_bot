@@ -17,8 +17,14 @@ assert SPEC and SPEC.loader
 
 fake_telethon = types.ModuleType("telethon")
 fake_telethon.events = types.SimpleNamespace(NewMessage=lambda *args, **kwargs: None)
+fake_utils = types.ModuleType("telethon.utils")
+fake_utils.get_peer_id = lambda entity: getattr(entity, "id", 0)
+fake_telethon.utils = fake_utils
 
-with patch.dict(sys.modules, {"telethon": fake_telethon}):
+with patch.dict(sys.modules, {
+    "telethon": fake_telethon,
+    "telethon.utils": fake_utils,
+}):
     SPEC.loader.exec_module(GK_RESPONDER)
 
 
@@ -62,7 +68,15 @@ class TestGKResponderCli(unittest.TestCase):
 
     def test_run_responder_ignores_non_qa_only_outside_test_mode(self):
         """В test mode responder не отфильтровывает сообщения без /qa на уровне скрипта."""
-        args = argparse.Namespace(live=False, manage_groups=False, test_mode=True)
+        args = argparse.Namespace(
+            live=False,
+            manage_groups=False,
+            test_mode=True,
+            test_real_group_id=None,
+            test_group_id=None,
+            redirect_test_mode=False,
+            redirect_group_id=None,
+        )
         mock_client = AsyncMock()
         mock_client.on = lambda *_args, **_kwargs: (lambda func: func)
         mock_client.__bool__ = lambda self: True

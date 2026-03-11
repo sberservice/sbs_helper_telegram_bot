@@ -21,6 +21,7 @@ import logging
 import re
 import signal
 import sys
+import threading
 from pathlib import Path
 
 # Корень проекта для импортов
@@ -28,6 +29,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from telethon import events
+from telethon.tl import types as tl_types
+from config import ai_settings
 
 from src.common.constants.sync import (
     TELETHON_API_ID,
@@ -89,6 +92,42 @@ def _log_auth_hint() -> None:
 def _resolve_session_name() -> str:
     """Вернуть выделенную Telethon-сессию коллектора."""
     return GK_COLLECTOR_SESSION_NAME
+
+
+def _run_image_queue_in_thread(
+    image_processor: ImageProcessor,
+    stop_event: threading.Event,
+    result_container: list[int],
+) -> None:
+    """
+    Запустить цикл обработки очереди изображений в отдельном потоке.
+
+    Создаёт собственный asyncio event loop и выполняет process_queue_loop,
+    пока не будет установлен stop_event. После остановки дообрабатывает
+    оставшиеся изображения (drain_remaining=True).
+
+    Args:
+        image_processor: Экземпляр ImageProcessor.
+        stop_event: threading.Event для сигнала остановки.
+        result_container: Одноэлементный список для возврата числа обработанных изображений.
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        total = loop.run_until_complete(
+            image_processor.process_queue_loop(
+                poll_interval=5.0,
+                stop_event=stop_event,
+                drain_remaining=True,
+            )
+        )
+        result_container.append(total)
+    except Exception as exc:
+        logger.error(
+            "Ошибка в фоновом потоке обработки изображений: %s", exc, exc_info=True
+        )
+    finally:
+        loop.close()
 
 
 def _extract_qa_query(text: str) -> str | None:
@@ -365,6 +404,14 @@ async def run_collector(args: argparse.Namespace) -> None:
         image_processor=image_processor,
         groups=listened_groups,
     )
+
+    # Верифицировать group_id через Telegram API (обнаружить миграции Chat → Channel)
+    await collector.resolve_group_ids()
+    logger.info(
+        "Эффективные group_id после верификации: %s",
+        sorted(collector.group_ids),
+    )
+
     responder_dry_run = (not args.live) and (not args.test_mode) and (not args.redirect_test_mode)
     responder = GroupResponder(
         dry_run=responder_dry_run,
@@ -374,12 +421,16 @@ async def run_collector(args: argparse.Namespace) -> None:
     try:
         warmup_stats = responder.preload_search_resources(preload_vector_model=True)
         logger.info(
-            "Прогрев GK-поиска завершён: corpus_pairs=%s corpus_signature=%s vector_model_preloaded=%s",
+            "Прогрев GK-поиска завершён: corpus_pairs=%s corpus_signature=%s vector_model_preloaded=%s vector_index_ready=%s",
             warmup_stats.get("corpus_pairs"),
             warmup_stats.get("corpus_signature"),
             warmup_stats.get("vector_model_preloaded"),
+            warmup_stats.get("vector_index_ready"),
         )
     except Exception as exc:
+        if ai_settings.AI_RAG_VECTOR_EMBEDDING_FAIL_FAST:
+            logger.error("Прогрев GK-поиска завершился с критической ошибкой (fail-fast): %s", exc)
+            raise
         logger.warning("Прогрев GK-поиска завершился с ошибкой: %s", exc)
 
     responder_bridge = CollectorResponderBridge(
@@ -390,11 +441,14 @@ async def run_collector(args: argparse.Namespace) -> None:
     )
 
     stop_event = asyncio.Event()
+    # threading.Event для фонового потока обработки изображений (backfill)
+    image_thread_stop = threading.Event()
 
     # Graceful shutdown
     def handle_signal(sig, _frame):
         logger.info("Получен сигнал %s, остановка...", sig)
         stop_event.set()
+        image_thread_stop.set()
         collector.stop()
 
     signal.signal(signal.SIGINT, handle_signal)
@@ -405,26 +459,35 @@ async def run_collector(args: argparse.Namespace) -> None:
         # Режим backfill
         if args.backfill:
             logger.info("Режим backfill: %d дней, force=%s", args.days, args.force)
+
+            # Запустить обработку изображений в фоновом потоке
+            image_result: list[int] = []
+            image_thread = threading.Thread(
+                target=_run_image_queue_in_thread,
+                args=(image_processor, image_thread_stop, image_result),
+                name="gk-image-processor",
+                daemon=True,
+            )
+            image_thread.start()
+            logger.info("Фоновый поток обработки изображений запущен")
+
             count = await collector.backfill_messages(days=args.days, force=args.force)
             if stop_event.is_set():
                 logger.info("Backfill остановлен пользователем: %d сохранённых сообщений", count)
             else:
                 logger.info("Backfill завершён: %d сообщений", count)
 
-            # Обработать скачанные изображения
-            logger.info("Обработка очереди изображений...")
-            total_images = 0
-            while not stop_event.is_set():
-                processed = await image_processor.process_queue(batch_size=10)
-                if processed == 0:
-                    break
-                total_images += processed
-            if stop_event.is_set():
-                logger.info(
-                    "Обработка очереди изображений остановлена пользователем: %d изображений",
-                    total_images,
+            # Сообщить потоку, что новых изображений больше не будет —
+            # он дообработает оставшуюся очередь и завершится (drain_remaining=True)
+            image_thread_stop.set()
+            logger.info("Ожидание завершения обработки оставшихся изображений...")
+            image_thread.join(timeout=3600)  # макс. 1 час на дообработку
+            if image_thread.is_alive():
+                logger.warning(
+                    "Фоновый поток обработки изображений не завершился за отведённое время"
                 )
             else:
+                total_images = image_result[0] if image_result else 0
                 logger.info("Обработано изображений: %d", total_images)
             return
 
@@ -436,6 +499,28 @@ async def run_collector(args: argparse.Namespace) -> None:
             )
         else:
             logger.info("Перед запуском слушателя пропущенных сообщений не найдено")
+
+        # Обработчик миграции Chat → Channel/Supergroup
+        @client.on(events.ChatAction())
+        async def on_chat_action(event):
+            try:
+                if hasattr(event, "action_message") and event.action_message:
+                    action = event.action_message.action
+                    if isinstance(action, tl_types.MessageActionChatMigrateTo):
+                        old_chat_id = -(event.chat_id or 0)
+                        new_channel_id = action.channel_id
+                        new_chat_id = -int(f"100{new_channel_id}")
+                        logger.warning(
+                            "Обнаружена миграция группы: old_chat_id=%d -> new_channel_id=%d (peer_id=%d)",
+                            -old_chat_id, new_channel_id, new_chat_id,
+                        )
+                        if collector.handle_chat_migration(-old_chat_id, new_chat_id):
+                            logger.info(
+                                "Группа успешно мигрирована в runtime. Новые group_ids: %s",
+                                sorted(collector.group_ids),
+                            )
+            except Exception as exc:
+                logger.error("Ошибка обработки миграции группы: %s", exc, exc_info=True)
 
         # Режим слушателя
         @client.on(events.NewMessage())

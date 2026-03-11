@@ -3,7 +3,11 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { api, type GKImageQueueStatus, type GKImageQueueItem } from '../../api'
+import {
+  api,
+  type GKImageQueueStatus,
+  type GKImageQueueItem,
+} from '../../api'
 
 const STATUS_LABELS: Record<number, string> = {
   0: 'Ожидание',
@@ -30,6 +34,9 @@ export default function ImagesTab() {
   const [pageSize] = useState(20)
   const [statusFilter, setStatusFilter] = useState<number | null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadGroupId, setUploadGroupId] = useState('0')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -50,6 +57,27 @@ export default function ImagesTab() {
   }, [page, pageSize, statusFilter])
 
   useEffect(() => { load() }, [load])
+
+  const uploadImage = async () => {
+    if (!uploadFile) {
+      setError('Выберите файл изображения для загрузки')
+      return
+    }
+    setUploading(true)
+    setError('')
+    try {
+      const formData = new FormData()
+      formData.append('image', uploadFile)
+      formData.append('group_id', uploadGroupId || '0')
+      await api.gkImageUpload(formData)
+      setUploadFile(null)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка загрузки изображения')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   const totalPages = Math.ceil(total / pageSize)
 
@@ -90,6 +118,23 @@ export default function ImagesTab() {
         </select>
       </div>
 
+      <div className="card" style={{ marginBottom: 12 }}>
+        <h3 style={{ marginBottom: 8 }}>Добавить изображение</h3>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input type="file" accept="image/*" onChange={e => setUploadFile(e.target.files?.[0] || null)} />
+          <input
+            className="input input-sm"
+            style={{ width: 160 }}
+            value={uploadGroupId}
+            onChange={e => setUploadGroupId(e.target.value)}
+            placeholder="group_id (опц.)"
+          />
+          <button className="btn btn-primary" disabled={uploading || !uploadFile} onClick={uploadImage}>
+            {uploading ? 'Загрузка...' : 'Загрузить'}
+          </button>
+        </div>
+      </div>
+
       {/* Список */}
       {loading ? (
         <div className="loading-text">Загрузка...</div>
@@ -115,7 +160,14 @@ export default function ImagesTab() {
                 </div>
                 {expandedId === item.id && (
                   <div style={{ marginTop: 8 }}>
-                    {item.file_path && <div className="text-dim" style={{ fontSize: 12 }}>Путь: {item.file_path}</div>}
+                    <div style={{ marginBottom: 8 }}>
+                      <img
+                        src={`/api/gk-knowledge/images/${item.id}/preview`}
+                        alt={`preview-${item.id}`}
+                        style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 6, border: '1px solid var(--border)' }}
+                      />
+                    </div>
+                    {(item.image_path || item.file_path) && <div className="text-dim" style={{ fontSize: 12 }}>Путь: {item.image_path || item.file_path}</div>}
                     {item.image_description && (
                       <div style={{ marginTop: 6 }}>
                         <strong>Описание:</strong>

@@ -14,7 +14,8 @@ classified_docs/
 # Telethon session files
 *.session
 *.session-journal
-
+*.session-shm
+*.session-wal
 # IDEs
 .idea/
 .vscode/
@@ -56,3 +57,5 @@ rag_pres1.md
 *.tsbuildinfo
 docs/IDF.md
 docs/ingestion.md
+gk_collector_session.session-shm
+gk_collector_session.session-wal

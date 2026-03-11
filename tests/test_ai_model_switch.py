@@ -11,6 +11,10 @@ from config import ai_settings as ai_settings
 class TestAIModelSettings(unittest.TestCase):
     """Тесты функций настроек AI модели."""
 
+    def test_allowed_deepseek_models_include_reasoner(self):
+        """Список разрешённых моделей содержит reasoner-модель без деградации в chat."""
+        self.assertIn("deepseek-reasoner", ai_settings.ALLOWED_DEEPSEEK_MODELS)
+
     def test_normalize_deepseek_model(self):
         """Нормализация поддерживаемых/неподдерживаемых значений."""
         self.assertEqual(ai_settings.normalize_deepseek_model("deepseek-chat"), "deepseek-chat")

@@ -3,7 +3,7 @@
  */
 
 import { useState } from 'react'
-import { api, type GKSearchAnswerPreview, type GKSearchResult } from '../../api'
+import { api, type GKSearchAnswerPreview, type GKSearchProgressStage, type GKSearchResult } from '../../api'
 
 export default function SearchTab() {
   const [query, setQuery] = useState('')
@@ -14,18 +14,31 @@ export default function SearchTab() {
   const [error, setError] = useState('')
   const [searched, setSearched] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [progressStages, setProgressStages] = useState<GKSearchProgressStage[]>([])
+  const [searchDurationMs, setSearchDurationMs] = useState<number | null>(null)
 
   const doSearch = async () => {
     if (!query.trim()) return
     setSearching(true)
     setError('')
+    setProgressStages([
+      { key: 'init', label: 'Подготовка запроса', status: 'done' },
+      { key: 'retrieve', label: 'Гибридный поиск по Q&A', status: 'running' },
+      { key: 'answer', label: 'Генерация итогового ответа', status: 'pending' },
+    ])
+    setSearchDurationMs(null)
     try {
       const res = await api.gkSearch(query.trim(), topK)
       setResults(res.results)
       setAnswerPreview(res.answer_preview)
+      setProgressStages(res.progress_stages || [])
+      setSearchDurationMs(typeof res.duration_ms === 'number' ? res.duration_ms : null)
       setSearched(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка поиска')
+      setProgressStages(prev => prev.map(stage => (
+        stage.status === 'running' ? { ...stage, status: 'error' } : stage
+      )))
     } finally {
       setSearching(false)
     }
@@ -42,8 +55,30 @@ export default function SearchTab() {
     <div className="gk-search-tab">
       {error && <div className="alert alert-danger">{error}</div>}
 
+      {progressStages.length > 0 && (
+        <div className="card" style={{ marginBottom: 12, padding: 12 }}>
+          <div className="text-dim" style={{ marginBottom: 8 }}>
+            Прогресс поиска{searchDurationMs != null ? ` · ${searchDurationMs} мс` : ''}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {progressStages.map(stage => (
+              <div key={stage.key} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span>{stage.label}</span>
+                <span className="text-dim">
+                  {stage.status === 'done' ? '✓ выполнено' :
+                    stage.status === 'running' ? '⏳ выполняется' :
+                      stage.status === 'error' ? '✗ ошибка' :
+                        stage.status === 'skipped' ? '— пропущено' : '… ожидает'}
+                  {typeof stage.duration_ms === 'number' ? ` (${stage.duration_ms} мс)` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="search-form">
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="search-form-row">
           <input
             type="text"
             className="input"
@@ -52,9 +87,8 @@ export default function SearchTab() {
             onKeyDown={handleKeyDown}
             placeholder="Введите поисковый запрос..."
             maxLength={1000}
-            style={{ flex: 1 }}
           />
-          <select className="input input-sm" value={topK} onChange={e => setTopK(Number(e.target.value))} style={{ width: 80 }}>
+          <select className="input input-sm search-topk-select" value={topK} onChange={e => setTopK(Number(e.target.value))}>
             <option value={5}>Top 5</option>
             <option value={10}>Top 10</option>
             <option value={20}>Top 20</option>
@@ -118,6 +152,14 @@ export default function SearchTab() {
               {expandedId === i && (
                 <div className="pair-answer" style={{ marginTop: 6 }}>
                   <strong>A:</strong> {r.answer}
+                  <div className="text-dim" style={{ marginTop: 6 }}>
+                    <div>
+                      <strong>Fullness:</strong> {r.fullness != null ? r.fullness.toFixed(3) : '—'}
+                    </div>
+                    <div>
+                      <strong>Confidence reason:</strong> {r.confidence_reason?.trim() ? r.confidence_reason : '—'}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

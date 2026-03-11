@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from config import ai_settings
 from src.core.ai.llm_provider import get_provider
+from src.group_knowledge.acronyms import select_best_acronyms_by_term
 from src.group_knowledge import database as gk_db
 from src.group_knowledge.models import QAPair
 from src.group_knowledge.rag_text import enrich_question_for_rag
@@ -44,9 +45,10 @@ _ANSWER_ALLOWED_EXTRACTION_TYPES: Tuple[str, ...] = (
 # Токенизация и нормализация текста
 # ---------------------------------------------------------------------------
 
-_TOKEN_RE = re.compile(r"\d+(?:[\.,]\d+)+|[a-zа-яё0-9]+", re.IGNORECASE)
+_TOKEN_RE = re.compile(r"\d+(?:[\.,]\d+)+|[a-zа-яё0-9_]+", re.IGNORECASE)
 _SHORT_ALNUM_TOKEN_RE = re.compile(r"(?:[a-zа-яё]\d|\d[a-zа-яё])", re.IGNORECASE)
 _CYRILLIC_TOKEN_RE = re.compile(r"[а-яё]", re.IGNORECASE)
+_MULTISPACE_RE = re.compile(r"\s+", re.IGNORECASE)
 
 # Стоп-слова: высокочастотные функциональные слова без предметной нагрузки.
 _GK_STOPWORDS: frozenset = frozenset({
@@ -64,49 +66,167 @@ _GK_STOPWORDS: frozenset = frozenset({
     "чтобы", "если", "также", "тоже",
 })
 
-# Термины, защищённые от нормализации и фильтрации по длине.
-_GK_FIXED_TERMS: frozenset = frozenset({
+# Хардкодные термины — fallback на случай недоступности БД.
+_GK_FIXED_TERMS_FALLBACK: frozenset = frozenset({
     "осно", "усн", "псн", "енвд", "нпд", "сно",
     "фн", "ккт", "офд", "инн", "кпп", "аусн",
     "ип", "ндс", "ндфл", "ооо", "кбк",
     "ффд", "фд", "фп", "фпд", "рн", "зн", "ккм",
     "pos", "пин", "арм", "цто", "то", "усо", "атм",
     "nfc", "sim", "pin", "tcp", "usb", "lan", "gps",
+    "гз", "гпн", "эвотор 6", "эво6", "эвотор6",
+    "чз", "уз", "ца", "цк", "сбс", "рм", "тст", "утп", "лкп", "лкк",
+    "1с",
 })
+
+# ---------------------------------------------------------------------------
+# Кэш загрузки терминов из БД (lazy; fallback на хардкод)
+# ---------------------------------------------------------------------------
+_terms_cache_data: Optional[frozenset] = None
+_terms_cache_ts: float = 0.0
+_terms_cache_group_id: Optional[int] = None
+
+
+def load_fixed_terms(group_id: Optional[int] = None) -> frozenset:
+    """Загрузить approved fixed-термины из БД с TTL-кэшированием.
+
+    Если БД недоступна, возвращает хардкодный fallback.
+    """
+    global _terms_cache_data, _terms_cache_ts, _terms_cache_group_id  # noqa: PLW0603
+
+    now = time.time()
+    ttl = ai_settings.GK_TERMS_CACHE_TTL_SECONDS
+
+    if (
+        _terms_cache_data is not None
+        and (now - _terms_cache_ts) < ttl
+        and _terms_cache_group_id == group_id
+    ):
+        return _terms_cache_data
+
+    try:
+        terms_set = gk_db.get_approved_fixed_terms(group_id)
+        if terms_set:
+            _terms_cache_data = frozenset(terms_set)
+            _terms_cache_ts = now
+            _terms_cache_group_id = group_id
+            return _terms_cache_data
+    except Exception:
+        logger.debug("Не удалось загрузить термины из БД, используется fallback")
+
+    return _GK_FIXED_TERMS_FALLBACK
+
+
+def build_derived_term_structures(
+    terms: frozenset,
+) -> Tuple[
+    Tuple[str, ...],
+    Dict[str, str],
+    Dict[str, str],
+    frozenset,
+]:
+    """Построить производные структуры из множества защищённых терминов.
+
+    Returns:
+        (phrases, term_token_map, token_term_map, tokens_set)
+    """
+    phrases = tuple(
+        sorted((t for t in terms if " " in t), key=len, reverse=True),
+    )
+    term_token_map: Dict[str, str] = {
+        t: _MULTISPACE_RE.sub("_", t.strip().lower()) for t in terms
+    }
+    token_term_map: Dict[str, str] = {
+        tok: t for t, tok in term_token_map.items()
+    }
+    tokens_set = frozenset(term_token_map.values())
+    return phrases, term_token_map, token_term_map, tokens_set
+
+
+# Совместимость: модульные переменные, загружаемые из fallback.
+# Используются только кодом, который не имеет доступа к экземпляру
+# QASearchService (тесты, утилиты).
+_GK_FIXED_TERMS = _GK_FIXED_TERMS_FALLBACK
+_GK_FIXED_PHRASES, _GK_FIXED_TERM_TOKEN_MAP, _GK_FIXED_TOKEN_TO_TERM_MAP, _GK_FIXED_TOKENS = (
+    build_derived_term_structures(_GK_FIXED_TERMS_FALLBACK)
+)
+
+
+def _canonical_fixed_token(token: str, fixed_tokens: Optional[frozenset] = None,
+                           term_token_map: Optional[Dict[str, str]] = None) -> str:
+    """Привести токен к каноничному виду для protected terms."""
+    safe_token = (token or "").strip().lower()
+    if not safe_token:
+        return ""
+
+    tokens_set = fixed_tokens if fixed_tokens is not None else _GK_FIXED_TOKENS
+    t_map = term_token_map if term_token_map is not None else _GK_FIXED_TERM_TOKEN_MAP
+
+    if safe_token in tokens_set:
+        return safe_token
+
+    mapped = t_map.get(safe_token)
+    if mapped:
+        return mapped
+
+    return safe_token
 
 # Промпт для генерации ответа на основе Q&A пар
 _ANSWER_PROMPT_BASE = """Ты — помощник технической поддержки для полевых инженеров компании СберСервис, обслуживающих банк Сбербанк.
 
-На основе найденных пар вопрос-ответ из базы знаний технической поддержки ответь на вопрос инженера.
+На основе найденных пар вопрос-ответ из базы знаний технической поддержки ответь на вопрос инженера по тематике ККТ (контрольно-кассовая техника).
 
 Найденные пары:
 {qa_context}
 
-Правила:
-1. Отвечай максимально точно и конкретно, опираясь на найденные пары.
+ВОЗМОЖНЫЕ АББРЕВИАТУРЫ:
+{acronyms_section}
+
+ПРАВИЛА:
+0. Используй "ты", а не "вы".
+1. Отвечай максимально подробно, точно и конкретно, опираясь исключительно на найденные пары.
 2. Если несколько пар релевантны — объедини информацию.
 3. Если ни одна пара не релевантна вопросу — честно скажи, что не нашёл информации.
 4. Не придумывай информацию, которой нет в найденных парах. Не придумывай факты.
 5. Отвечай на русском языке.
+6. Не раскрывай источники в ответе. Не называй номера пар в ответе. Если вопрос откуда взял информацию - ответь, что из чата техподдержки.
+7. Для каждой пары дополнительно передаются их внутренние поля pair_confidence. При прочих равных отдавай приоритет парам с более высокими confidence.
+8. Confidence, который ты возвращаешь - степень уверенности 0-1 в твоем ответе.
+10. Если confidence>0.5, но меньше <=0.6, начни ответ с фразы похожей на "Я совсем не уверен, но возможно...". Если confidence >0.6, но меньше <=0.85, начни ответ с фразы похожей (измени фразу) на "Возможно...". 
+11. Если confidence <0.85 и вопрос технический, связанный с оборудованием, предложи инженеру обратиться в ЦТП (Центр технической поддержки СБС), если вопрос организационный или бюрократический - к региональному менеджеру или представителю ЦК (Центра Компетенций) Сергею Шевченко, если вопрос связан с ОФД предложи обратиться в техническую поддержку ОФД, если вопрос связан с кассой Эвотор - написать письмо в поддержку по приоритизации.
+12. Если confidence >0.85 пиши ответ более уверенно. 
+13. Если confidence <=0.5, верни is_relevant=false и пустой answer.
 {relevance_rule}
 Верни JSON:
 {{
     "answer": "Текст ответа",
     "is_relevant": true/false,
-    "confidence": 0.0-1.0,
+    "confidence": Это не confidence пар, а другой параметр, создай его с нуля 0.0-1.0
+    "confidence_reason": "Краткое объяснение, почему такой уровень confidence (макс 300 символов)",
     "used_pair_ids": [1, 2, ...]
 }}"""
 
 _RELEVANCE_RULE = (
-    "6. Каждая пара имеет метку релевантности (высокая/средняя/низкая) и числовые оценки "
+    "11. Каждая пара имеет метку релевантности (высокая/средняя/низкая) и числовые оценки "
     "BM25 и Вектор. Отдавай приоритет парам с высокой релевантностью. "
     "Пары с низкой релевантностью могут быть нерелевантны — используй их с осторожностью."
+)
+
+# Хардкод-fallback на случай недоступности БД.
+_ACRONYMS_FALLBACK = (
+    "ГЗ означает Горячая замена. Техобнул означает технологическое обнуление. "
+    "ЧЗ означает Честный Знак. УЗ означает удаленная загрузка. "
+    "ЦА - Центральный Аппарат. ЦК - Центр Компетенций. "
+    "СБС - СберСервис. РМ - Региональный Менеджер. "
+    "ТСТ - торгово-сервисная точка. "
+    "ФИАС - Федеральная информационная адресная система."
 )
 
 # Legacy-алиас для обратной совместимости.
 ANSWER_GENERATION_PROMPT = _ANSWER_PROMPT_BASE.format(
     qa_context="{qa_context}",
     relevance_rule="",
+    acronyms_section="{acronyms_section}",
 )
 
 
@@ -141,6 +261,9 @@ class QASearchService:
         self._ru_morph_analyzer: Optional[object] = None
         self._ru_stemmer: Optional[object] = None
         self._normalization_warning_logged: bool = False
+        self._vector_embedding_provider: Optional[object] = None
+        self._vector_index: Optional[object] = None
+        self._vector_collection_name: Optional[str] = None
 
         # Spellcheck (SymSpellPy + LLM fallback)
         self._spellcheck_sym: Optional[object] = None
@@ -148,6 +271,97 @@ class QASearchService:
         self._spellcheck_vocab_ready: bool = False
         self._spellcheck_token_freq: Dict[str, int] = {}
         self._spellcheck_llm_cache: Dict[str, Tuple[str, List[Tuple[str, str]], float]] = {}
+
+        # Защищённые термины (загружаются из БД, fallback на хардкод)
+        self._fixed_terms: frozenset = _GK_FIXED_TERMS_FALLBACK
+        self._fixed_phrases: Tuple[str, ...] = _GK_FIXED_PHRASES
+        self._fixed_term_token_map: Dict[str, str] = dict(_GK_FIXED_TERM_TOKEN_MAP)
+        self._fixed_token_term_map: Dict[str, str] = dict(_GK_FIXED_TOKEN_TO_TERM_MAP)
+        self._fixed_tokens: frozenset = _GK_FIXED_TOKENS
+        self._fixed_terms_loaded_at: float = 0.0
+
+        # Кэш секции аббревиатур по group_id.
+        self._acronyms_cache: Dict[int, Tuple[str, float]] = {}
+
+    def reload_terms(self, group_id: Optional[int] = None) -> None:
+        """Перезагрузить защищённые термины из БД."""
+        terms = load_fixed_terms(group_id)
+        phrases, t_map, r_map, tokens = build_derived_term_structures(terms)
+        self._fixed_terms = terms
+        self._fixed_phrases = phrases
+        self._fixed_term_token_map = t_map
+        self._fixed_token_term_map = r_map
+        self._fixed_tokens = tokens
+        self._fixed_terms_loaded_at = time.time()
+        # Сбросить spellcheck vocabulary при изменении терминов.
+        self._spellcheck_vocab_ready = False
+        self._spellcheck_sym = None
+
+    def _ensure_terms_loaded(self) -> None:
+        """Загрузить термины из БД если кэш протух."""
+        ttl = ai_settings.GK_TERMS_CACHE_TTL_SECONDS
+        if (time.time() - self._fixed_terms_loaded_at) >= ttl:
+            self.reload_terms()
+
+    def _build_acronyms_section(self, group_id: int) -> str:
+        """Построить секцию аббревиатур для промпта ответа.
+
+        Загружает approved-аббревиатуры (глобальные + групповые),
+        фильтрует по минимальному confidence (GK_ACRONYMS_MIN_CONFIDENCE)
+        и кэширует результат с TTL = GK_TERMS_CACHE_TTL_SECONDS.
+        """
+        now = time.time()
+        cached = self._acronyms_cache.get(group_id)
+        ttl = ai_settings.GK_TERMS_CACHE_TTL_SECONDS
+        if cached is not None:
+            text, ts = cached
+            if (now - ts) < ttl:
+                return text
+
+        min_confidence = float(getattr(ai_settings, "GK_ACRONYMS_MIN_CONFIDENCE", 0.9))
+
+        try:
+            terms = gk_db.get_terms_for_group(
+                group_id if group_id else 0,
+                status="approved",
+                term_type="acronym",
+            )
+            if terms:
+                eligible_terms: List[Dict[str, Any]] = []
+                for item in terms:
+                    term = str(item.get("term") or "").strip()
+                    definition = str(item.get("definition") or "").strip()
+                    if not term or not definition:
+                        continue
+
+                    raw_confidence = item.get("confidence")
+                    try:
+                        confidence = float(raw_confidence) if raw_confidence is not None else None
+                    except (TypeError, ValueError):
+                        confidence = None
+
+                    if confidence is None or confidence < min_confidence:
+                        continue
+                    eligible_terms.append(item)
+
+                best_by_term = select_best_acronyms_by_term(eligible_terms, uppercase_key=True)
+
+                parts: List[str] = []
+                for dedup_key in sorted(best_by_term.keys()):
+                    selected = best_by_term[dedup_key]
+                    term = str(selected.get("term") or "").strip()
+                    definition = str(selected.get("definition") or "").strip()
+                    if term and definition:
+                        parts.append(f"{term} означает {definition}.")
+
+                if parts:
+                    text = " ".join(parts)
+                    self._acronyms_cache[group_id] = (text, now)
+                    return text
+        except Exception:
+            logger.debug("Не удалось загрузить аббревиатуры из БД, используется fallback")
+
+        return _ACRONYMS_FALLBACK
 
     # -----------------------------------------------------------------------
     # Публичный API
@@ -175,6 +389,7 @@ class QASearchService:
 
         # Важно: сначала прогреть/загрузить корпус, чтобы spellcheck vocabulary
         # была готова уже на первом поисковом запросе.
+        self._ensure_terms_loaded()
         self._ensure_corpus_loaded()
 
         # Spell-check: коррекция опечаток перед поиском
@@ -261,26 +476,39 @@ class QASearchService:
             "corpus_pairs": len(self._corpus_pairs),
             "corpus_signature": self._corpus_signature,
             "vector_model_preloaded": False,
+            "vector_index_ready": False,
         }
 
         if preload_vector_model:
             try:
-                from src.core.ai.vector_search import LocalEmbeddingProvider, LocalVectorIndex
+                embedding_provider, vector_index = self._ensure_vector_resources()
 
-                embedding_provider = LocalEmbeddingProvider()
-                _ = embedding_provider.encode("прогрев модели gk поиска")
-                _ = LocalVectorIndex(chunk_collection_name=ai_settings.GK_QA_VECTOR_COLLECTION)
-                diagnostics["vector_model_preloaded"] = True
+                provider_ready = bool(embedding_provider and embedding_provider.is_ready())
+                index_ready = bool(vector_index and vector_index.is_ready())
+                diagnostics["vector_model_preloaded"] = provider_ready
+                diagnostics["vector_index_ready"] = index_ready
+
+                if (not provider_ready or not index_ready) and ai_settings.AI_RAG_VECTOR_EMBEDDING_FAIL_FAST:
+                    error_code = None
+                    if embedding_provider is not None:
+                        error_code = getattr(embedding_provider, "last_error_code", lambda: None)()
+                    raise RuntimeError(
+                        "GK warmup fail-fast: embedding/vector недоступны "
+                        f"(provider_ready={provider_ready}, index_ready={index_ready}, error_code={error_code})"
+                    )
             except Exception as exc:
                 diagnostics["vector_model_preloaded"] = False
                 diagnostics["vector_warmup_error"] = str(exc)
+                if ai_settings.AI_RAG_VECTOR_EMBEDDING_FAIL_FAST:
+                    raise
                 logger.warning("GK warmup: не удалось прогреть vector-модель: %s", exc)
 
         logger.info(
-            "GK warmup: corpus_pairs=%d corpus_signature=%s vector_model_preloaded=%s",
+            "GK warmup: corpus_pairs=%d corpus_signature=%s vector_model_preloaded=%s vector_index_ready=%s",
             diagnostics["corpus_pairs"],
             diagnostics["corpus_signature"],
             diagnostics["vector_model_preloaded"],
+            diagnostics["vector_index_ready"],
         )
         return diagnostics
 
@@ -331,6 +559,21 @@ class QASearchService:
         qa_context_parts = []
         pair_id_map = {}
         for i, pair in enumerate(relevant_pairs, 1):
+            pair_confidence_label = (
+                f"{float(pair.confidence):.2f}"
+                if pair.confidence is not None
+                else "—"
+            )
+            pair_fullness_label = (
+                f"{float(pair.fullness):.2f}"
+                if pair.fullness is not None
+                else "—"
+            )
+            pair_confidence_reason = (
+                str(pair.confidence_reason or "").strip()
+                if pair.confidence_reason is not None
+                else ""
+            )
             if hints_enabled and pair.search_relevance_tier is not None:
                 bm25_label = (
                     f"{pair.search_bm25_score:.2f}"
@@ -345,13 +588,22 @@ class QASearchService:
                 header = (
                     f"Пара {i} (ID={pair.id}, "
                     f"Релевантность: {pair.search_relevance_tier}, "
-                    f"BM25: {bm25_label}, Вектор: {vec_label}):"
+                    f"BM25: {bm25_label}, Вектор: {vec_label}, "
+                    f"pair_confidence: {pair_confidence_label}):"
                 )
             else:
-                header = f"Пара {i} (ID={pair.id}):"
+                header = (
+                    f"Пара {i} (ID={pair.id}, "
+                    f"pair_confidence: {pair_confidence_label}):"
+                )
+            confidence_reason_block = (
+                f"\n  Confidence reason: {pair_confidence_reason[:700]}"
+                if pair_confidence_reason
+                else ""
+            )
             qa_context_parts.append(
                 f"{header}\n"
-                f"  Вопрос: {pair.question_text[:3500]}\n"
+                f"  Контекст вопроса: {pair.question_text[:3500]}\n"
                 f"  Ответ: {pair.answer_text[:3500]}"
             )
             if pair.id:
@@ -361,9 +613,19 @@ class QASearchService:
 
         # Сгенерировать ответ через LLM
         relevance_rule = _RELEVANCE_RULE if hints_enabled else ""
+        group_id = next(
+            (
+                int(getattr(pair, "group_id", 0) or 0)
+                for pair in relevant_pairs
+                if int(getattr(pair, "group_id", 0) or 0) > 0
+            ),
+            0,
+        )
+        acronyms_section = self._build_acronyms_section(group_id)
         prompt = _ANSWER_PROMPT_BASE.format(
             qa_context=qa_context,
             relevance_rule=relevance_rule,
+            acronyms_section=acronyms_section,
         )
         provider = get_provider("deepseek")
 
@@ -433,7 +695,7 @@ class QASearchService:
         primary_source_link = str(answer_result.get("primary_source_link") or "").strip()
         if primary_source_link:
             return (
-                f"**Отвечает робот Арчи**: {answer_text}\n\n"
+                f"**Отвечает Арчи**: {answer_text}\n\nПоставьте 👍 или 👎\n"
                 f"Похожий случай в группе, ссылка на ответ: {primary_source_link}"
             )
 
@@ -605,6 +867,27 @@ class QASearchService:
     # Векторный поиск
     # -----------------------------------------------------------------------
 
+    def _ensure_vector_resources(self) -> Tuple[Optional[object], Optional[object]]:
+        """Инициализировать и закэшировать embedding/provider для векторного поиска."""
+        collection_name = ai_settings.GK_QA_VECTOR_COLLECTION
+
+        try:
+            from src.core.ai.vector_search import LocalEmbeddingProvider, LocalVectorIndex
+        except ImportError:
+            return None, None
+
+        if self._vector_embedding_provider is None:
+            self._vector_embedding_provider = LocalEmbeddingProvider()
+
+        if (
+            self._vector_index is None
+            or self._vector_collection_name != collection_name
+        ):
+            self._vector_index = LocalVectorIndex(chunk_collection_name=collection_name)
+            self._vector_collection_name = collection_name
+
+        return self._vector_embedding_provider, self._vector_index
+
     async def _vector_search(
         self,
         query: str,
@@ -621,11 +904,10 @@ class QASearchService:
             Список кортежей (QAPair, cosine_score).
         """
         try:
-            from src.core.ai.vector_search import LocalVectorIndex, LocalEmbeddingProvider
-
-            embedding_provider = LocalEmbeddingProvider()
-            collection_name = ai_settings.GK_QA_VECTOR_COLLECTION
-            vector_index = LocalVectorIndex(chunk_collection_name=collection_name)
+            embedding_provider, vector_index = self._ensure_vector_resources()
+            if embedding_provider is None or vector_index is None:
+                logger.debug("GK Vector: vector search не доступен")
+                return []
 
             # Генерировать эмбеддинг запроса
             query_embedding = embedding_provider.encode(query)
@@ -697,11 +979,10 @@ class QASearchService:
         где k — константа (GK_RRF_K, по умолчанию 60).
 
         Args:
-            bm25_results: Кандидаты от BM25 [(QAPair, score), ...], отсортированные по score desc.
-            vector_results: Кандидаты от vector [(QAPair, score), ...], отсортированные по score desc.
-            top_k: Число финальных результатов.
+                embedding_provider, vector_index = self._ensure_vector_resources()
+                if embedding_provider is None or vector_index is None:
+                    raise RuntimeError("vector search dependencies are unavailable")
 
-        Returns:
             Кортеж:
             - Список (QAPair, rrf_score), отсортированный по rrf_score desc.
             - Список диагностических словарей для логирования.
@@ -950,7 +1231,8 @@ class QASearchService:
 
             for pair in self._corpus_pairs:
                 text = f"{pair.question_text or ''} {pair.answer_text or ''}"
-                raw_tokens = _TOKEN_RE.findall(text.lower())
+                prepared_text = self._prepare_text_for_fixed_terms(text)
+                raw_tokens = [_canonical_fixed_token(token, self._fixed_tokens, self._fixed_term_token_map) for token in _TOKEN_RE.findall(prepared_text)]
                 for t in raw_tokens:
                     if len(t) >= 2:
                         token_freq[t] += 1
@@ -959,7 +1241,7 @@ class QASearchService:
             protected_freq = (
                 max(1000, max(token_freq.values()) * 10) if token_freq else 1000
             )
-            for term in _GK_FIXED_TERMS:
+            for term in self._fixed_tokens:
                 token_freq[term] = max(token_freq.get(term, 0), protected_freq)
 
             if not token_freq:
@@ -979,7 +1261,7 @@ class QASearchService:
                 "GK Spellcheck vocabulary built: vocab_size=%d protected_terms=%d "
                 "corpus_pairs=%d duration_ms=%d",
                 self._spellcheck_vocab_size,
-                len(_GK_FIXED_TERMS),
+                len(self._fixed_terms),
                 len(self._corpus_pairs),
                 duration_ms,
             )
@@ -1018,30 +1300,32 @@ class QASearchService:
         changes: List[Tuple[str, str]] = []
 
         for token in tokens:
+            canonical_token = _canonical_fixed_token(token, self._fixed_tokens, self._fixed_term_token_map)
+
             # Пропускаем защищённые термины
-            if token in _GK_FIXED_TERMS:
-                corrected_tokens.append(token)
+            if canonical_token in self._fixed_tokens:
+                corrected_tokens.append(canonical_token)
                 continue
 
             # Пропускаем короткие токены
-            if len(token) < min_length:
-                corrected_tokens.append(token)
+            if len(canonical_token) < min_length:
+                corrected_tokens.append(canonical_token)
                 continue
 
             # Пропускаем не-кириллические токены (латиница, числа)
-            if not _CYRILLIC_TOKEN_RE.search(token):
-                corrected_tokens.append(token)
+            if not _CYRILLIC_TOKEN_RE.search(canonical_token):
+                corrected_tokens.append(canonical_token)
                 continue
 
             # Ищем коррекцию через SymSpell
             try:
                 suggestions = self._spellcheck_sym.lookup(
-                    token,
+                    canonical_token,
                     _SymSpellVerbosity.CLOSEST,
                     max_edit_distance=max_edit,
                 )
             except Exception:
-                corrected_tokens.append(token)
+                corrected_tokens.append(canonical_token)
                 continue
 
             candidate: Optional[str] = None
@@ -1050,11 +1334,11 @@ class QASearchService:
                 if top.distance > 0:
                     candidate = top.term
                 else:
-                    token_freq = int(getattr(self, "_spellcheck_token_freq", {}).get(token, 0) or 0)
+                    token_freq = int(getattr(self, "_spellcheck_token_freq", {}).get(canonical_token, 0) or 0)
                     if token_freq <= 1:
                         try:
                             all_suggestions = self._spellcheck_sym.lookup(
-                                token,
+                                canonical_token,
                                 _SymSpellVerbosity.ALL,
                                 max_edit_distance=max_edit,
                             )
@@ -1063,7 +1347,7 @@ class QASearchService:
 
                         for alt in all_suggestions:
                             alt_term = str(getattr(alt, "term", "") or "")
-                            if not alt_term or alt_term == token:
+                            if not alt_term or alt_term == canonical_token:
                                 continue
                             if int(getattr(alt, "distance", 0) or 0) <= 0:
                                 continue
@@ -1078,11 +1362,18 @@ class QASearchService:
                                 candidate = alt_term
                                 break
 
-            if candidate and (candidate not in _GK_FIXED_TERMS or token in _GK_FIXED_TERMS):
-                corrected_tokens.append(candidate)
-                changes.append((token, candidate))
+            normalized_candidate = _canonical_fixed_token(candidate or "", self._fixed_tokens, self._fixed_term_token_map)
+            if (
+                normalized_candidate
+                and (
+                    normalized_candidate not in self._fixed_tokens
+                    or canonical_token in self._fixed_tokens
+                )
+            ):
+                corrected_tokens.append(normalized_candidate)
+                changes.append((canonical_token, normalized_candidate))
             else:
-                corrected_tokens.append(token)
+                corrected_tokens.append(canonical_token)
 
         return corrected_tokens, changes
 
@@ -1109,17 +1400,18 @@ class QASearchService:
         suspicious_uncorrected = 0
 
         for token in tokens:
-            if token in _GK_FIXED_TERMS:
+            canonical_token = _canonical_fixed_token(token, self._fixed_tokens, self._fixed_term_token_map)
+            if canonical_token in self._fixed_tokens:
                 continue
-            if len(token) < min_length:
+            if len(canonical_token) < min_length:
                 continue
-            if not _CYRILLIC_TOKEN_RE.search(token):
+            if not _CYRILLIC_TOKEN_RE.search(canonical_token):
                 continue
 
             # Проверяем, есть ли токен в словаре
             try:
                 suggestions = self._spellcheck_sym.lookup(
-                    token,
+                    canonical_token,
                     _SymSpellVerbosity.CLOSEST,
                     max_edit_distance=0,
                 )
@@ -1129,7 +1421,7 @@ class QASearchService:
 
             if not in_vocab:
                 suspicious_total += 1
-                if token not in corrected_originals:
+                if canonical_token not in corrected_originals:
                     suspicious_uncorrected += 1
 
         return suspicious_uncorrected, suspicious_total
@@ -1156,7 +1448,8 @@ class QASearchService:
         if not self._spellcheck_vocab_ready:
             return query, [], "vocab_not_ready"
 
-        original_tokens = _TOKEN_RE.findall((query or "").lower())
+        prepared_query = self._prepare_text_for_fixed_terms(query or "")
+        original_tokens = [_canonical_fixed_token(token, self._fixed_tokens, self._fixed_term_token_map) for token in _TOKEN_RE.findall(prepared_query)]
         if not original_tokens:
             return query, [], "none"
 
@@ -1165,10 +1458,14 @@ class QASearchService:
             return query, [], "none"
 
         # Реконструкция: заменяем подстроки в исходном запросе
-        corrected = query
+        corrected = self._prepare_text_for_fixed_terms(query)
         for orig, repl in changes:
             pattern = re.compile(re.escape(orig), re.IGNORECASE)
             corrected = pattern.sub(repl, corrected, count=1)
+
+        for fixed_token in self._fixed_tokens:
+            restored = self._restore_fixed_token(fixed_token)
+            corrected = corrected.replace(fixed_token, restored)
 
         return corrected, changes, "corpus"
 
@@ -1210,7 +1507,7 @@ class QASearchService:
             provider = get_provider("deepseek")
             max_chars = max(50, int(ai_settings.GK_SPELLCHECK_LLM_MAX_CHARS))
             truncated = query.strip()[:max_chars]
-            protected_terms_list = sorted(_GK_FIXED_TERMS)
+            protected_terms_list = sorted(self._fixed_terms)
 
             prompt = build_spellcheck_prompt(truncated, protected_terms_list)
             raw_response = await provider.chat(
@@ -1243,9 +1540,10 @@ class QASearchService:
                         changes.append((from_val, to_val))
 
             # Safety guard: LLM не должен удалять защищённые термины
-            corrected_lower = corrected.lower()
-            for term in _GK_FIXED_TERMS:
-                if term in query.lower() and term not in corrected_lower:
+            corrected_lower = self._prepare_text_for_fixed_terms(corrected)
+            query_lower = self._prepare_text_for_fixed_terms(query)
+            for term in self._fixed_tokens:
+                if term in query_lower and term not in corrected_lower:
                     logger.warning(
                         "GK Spellcheck LLM removed protected term '%s', "
                         "reverting to original",
@@ -1318,7 +1616,7 @@ class QASearchService:
                 1
                 for t in original_tokens
                 if (
-                    t not in _GK_FIXED_TERMS
+                    t not in self._fixed_tokens
                     and len(t) >= max(2, int(ai_settings.GK_SPELLCHECK_MIN_TOKEN_LENGTH))
                     and _CYRILLIC_TOKEN_RE.search(t)
                 )
@@ -1342,6 +1640,26 @@ class QASearchService:
 
         return corrected
 
+    def _prepare_text_for_fixed_terms(self, text: str) -> str:
+        """Защитить multi-word термины, заменив пробелы в них на подчёркивания."""
+        prepared = (text or "").lower()
+        if not prepared or not self._fixed_phrases:
+            return prepared
+
+        for phrase in self._fixed_phrases:
+            token = self._fixed_term_token_map.get(phrase, phrase)
+            pattern = re.compile(rf"(?<![a-zа-яё0-9]){re.escape(phrase)}(?![a-zа-яё0-9])", re.IGNORECASE)
+            prepared = pattern.sub(token, prepared)
+
+        return prepared
+
+    def _restore_fixed_token(self, token: str) -> str:
+        """Восстановить человекочитаемый protected term по токену, если возможно."""
+        safe_token = (token or "").strip().lower()
+        if not safe_token:
+            return ""
+        return self._fixed_token_term_map.get(safe_token, safe_token)
+
     # -----------------------------------------------------------------------
     # Токенизация и нормализация (Russian)
     # -----------------------------------------------------------------------
@@ -1359,12 +1677,13 @@ class QASearchService:
         Returns:
             Список нормализованных токенов.
         """
-        raw_tokens = _TOKEN_RE.findall((text or "").lower())
+        prepared = self._prepare_text_for_fixed_terms(text or "")
+        raw_tokens = [_canonical_fixed_token(token, self._fixed_tokens, self._fixed_term_token_map) for token in _TOKEN_RE.findall(prepared)]
         tokens = [
             token
             for token in raw_tokens
             if len(token) >= 3
-            or token in _GK_FIXED_TERMS
+            or token in self._fixed_tokens
             or bool(_SHORT_ALNUM_TOKEN_RE.fullmatch(token))
             or (token.isdigit() and len(token) >= 2)
         ]
@@ -1384,12 +1703,13 @@ class QASearchService:
 
     def _tokenize_with_diagnostics(self, text: str) -> Dict[str, object]:
         """Токенизировать текст и вернуть расширенную диагностику этапов фильтрации."""
-        raw_tokens = _TOKEN_RE.findall((text or "").lower())
+        prepared = self._prepare_text_for_fixed_terms(text or "")
+        raw_tokens = [_canonical_fixed_token(token, self._fixed_tokens, self._fixed_term_token_map) for token in _TOKEN_RE.findall(prepared)]
         length_filtered_tokens = [
             token
             for token in raw_tokens
             if len(token) >= 3
-            or token in _GK_FIXED_TERMS
+            or token in self._fixed_tokens
             or bool(_SHORT_ALNUM_TOKEN_RE.fullmatch(token))
             or (token.isdigit() and len(token) >= 2)
         ]
@@ -1425,11 +1745,11 @@ class QASearchService:
 
     def _normalize_token(self, token: str) -> str:
         """Нормализовать токен: лемматизация + стемминг для русского языка."""
-        safe_token = (token or "").strip().lower()
+        safe_token = _canonical_fixed_token((token or "").strip().lower(), self._fixed_tokens, self._fixed_term_token_map)
         if not safe_token:
             return ""
 
-        if safe_token in _GK_FIXED_TERMS:
+        if safe_token in self._fixed_tokens:
             return safe_token
 
         cached = self._normalized_token_cache.get(safe_token)

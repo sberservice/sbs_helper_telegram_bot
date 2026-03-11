@@ -3,23 +3,36 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { api, type GKGroup, type GKGroupDetailStats } from '../../api'
+import { api, groupsApi, type GKGroup, type GKGroupDetailStats } from '../../api'
 
 export default function GroupsTab() {
   const [groups, setGroups] = useState<GKGroup[]>([])
+  const [disabledGroupIds, setDisabledGroupIds] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [detailStats, setDetailStats] = useState<GKGroupDetailStats | null>(null)
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
 
-  useEffect(() => {
+  const fetchGroups = useCallback(() => {
     setLoading(true)
-    api.gkGroups()
-      .then(setGroups)
+    Promise.all([
+      api.gkGroups(),
+      groupsApi.getGKGroups().catch(() => ({ groups: [], test_target_group: null })),
+    ])
+      .then(([dbGroups, config]) => {
+        setGroups(dbGroups)
+        const disabled = new Set<number>()
+        for (const g of config.groups) {
+          if (g.disabled) disabled.add(g.id)
+        }
+        setDisabledGroupIds(disabled)
+      })
       .catch(err => setError(err instanceof Error ? err.message : 'Ошибка'))
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => { fetchGroups() }, [fetchGroups])
 
   const loadDetail = useCallback(async (groupId: number) => {
     if (selectedGroupId === groupId) {
@@ -52,11 +65,16 @@ export default function GroupsTab() {
           {groups.map(g => (
             <div
               key={g.group_id}
-              className={`card group-card ${selectedGroupId === g.group_id ? 'group-selected' : ''}`}
+              className={`card group-card ${selectedGroupId === g.group_id ? 'group-selected' : ''} ${disabledGroupIds.has(g.group_id) ? 'group-card-disabled' : ''}`}
               onClick={() => loadDetail(g.group_id)}
             >
               <div className="group-card-header">
-                <h3>{g.group_title || `Группа ${g.group_id}`}</h3>
+                <h3>
+                  {g.group_title || `Группа ${g.group_id}`}
+                  {disabledGroupIds.has(g.group_id) && (
+                    <span className="badge badge-warning" style={{ marginLeft: 8, fontSize: 11 }}>⏸ Отключена</span>
+                  )}
+                </h3>
                 <span className="text-dim">ID: {g.group_id}</span>
               </div>
               <div className="group-card-stats">

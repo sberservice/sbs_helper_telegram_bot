@@ -113,6 +113,12 @@ class QAPair:
     confidence: Optional[float] = None
     """Оценка уверенности LLM в качестве пары (0.0–1.0)."""
 
+    confidence_reason: Optional[str] = None
+    """Краткое объяснение, почему выставлен текущий confidence."""
+
+    fullness: Optional[float] = None
+    """Оценка полноты ответа (0.0–1.0)."""
+
     llm_model_used: str = ""
     """Модель LLM, использованная для извлечения/валидации."""
 

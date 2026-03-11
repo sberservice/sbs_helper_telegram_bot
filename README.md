@@ -6,7 +6,7 @@
 
 ## О проекте
 
-**SBS Archie** (Archie = Architect) — модульная AI-платформа для инженеров **СберСервис**. Проект включает Telegram-бота, веб-инструменты и CLI-утилиты — объединённые общим AI-ядром.
+**SBS Archie** (Archie = Architect) — модульная AI-платформа для инженеров **СберСервис**. Объединяет Telegram-бота, веб-админку, систему добычи знаний из групп техподдержки, AI-помощника для чатов и набор CLI-утилит — общим AI-ядром.
 
 Построен на архитектуре плагинов с AI-маршрутизатором в центре. Каждый модуль независим, включается/отключается через админку, а AI-роутер связывает их в единое целое — как мозг.
 
@@ -16,19 +16,21 @@
 
 ```
 SBS Archie
-├── src/core/ai/           ← Общее AI-ядро (LLM, RAG, vector search)
-├── src/sbs_helper_telegram_bot/  ← Telegram-бот (модули)
-├── prompt_tester/         ← Веб-приложение (FastAPI + React)
-├── scripts/               ← CLI-утилиты
-└── config/                ← Настройки (.env)
-    ├── ai_settings.py     ← AI/RAG/LLM параметры
-    ├── database_settings.py ← MySQL credentials
-    └── settings.py        ← Telegram и сетевые настройки
+├── src/core/ai/                  ← Общее AI-ядро (LLM, RAG, vector search)
+├── src/sbs_helper_telegram_bot/  ← Telegram-бот (модули-плагины)
+├── src/group_knowledge/          ← Добыча знаний из групп техподдержки
+├── admin_web/                    ← Веб-админка (FastAPI + React)
+├── prompt_tester/                ← A/B-тестер промптов RAG (FastAPI + React)
+├── scripts/                      ← CLI-утилиты и демоны
+└── config/                       ← Настройки (.env)
+    ├── ai_settings.py            ← AI/RAG/LLM/GigaChat/GK параметры (~700 строк)
+    ├── database_settings.py      ← MySQL credentials
+    └── settings.py               ← Telegram и сетевые настройки
 ```
 
 ## Компоненты
 
-### Telegram-бот
+### 1. Telegram-бот
 
 Основной интерфейс. Просто напишите боту что угодно — AI поймёт, о чём вы, и направит в нужный модуль.
 
@@ -44,51 +46,149 @@ SBS Archie
 | 📬 | **Обратная связь** | Категоризированные обращения с анонимными ответами от поддержки | [README](src/sbs_helper_telegram_bot/feedback/README.md) |
 | 📰 | **Новости** | Публикации, рассылки, обязательные объявления, реакции | [README](src/sbs_helper_telegram_bot/news/README.md) |
 | 🏆 | **Геймификация** | Очки, достижения (🥉🥈🥇), ранги, лидерборды | [README](src/sbs_helper_telegram_bot/gamification/README.md) |
+| 🩺 | **Health Check** | Мониторинг доступности сервиса налоговой + календарь плановых работ | — |
 | 🛠️ | **Админ бота** | Пользователи, инвайты, модули, настройки, плановые работы | [README](src/sbs_helper_telegram_bot/bot_admin/README.md) |
 
-### Prompt Tester (веб-приложение)
+### 2. Group Knowledge — добыча знаний из групп
+
+Standalone-подсистема на Telethon для автоматического извлечения знаний из переписок в Telegram-группах техподдержки. 4-стадийный пайплайн:
+
+1. **Коллектор** — слушает сообщения через Telethon, сохраняет в MySQL, классифицирует как вопрос/не вопрос через LLM.
+2. **Обработчик изображений** — описывает скриншоты через GigaChat Vision API.
+3. **Анализатор** — извлекает Q&A-пары из reply-цепочек (thread-based) и через LLM-анализ контекста (LLM-inferred), индексирует в Qdrant.
+4. **Автоответчик** — daemon, встроенный в коллектор: обнаруживает вопросы, ищет ответы через гибридный BM25 + Vector + RRF, отвечает с ссылкой на исходное обсуждение. Dry-run по умолчанию.
+
+Ключевые возможности:
+- Гибридный поиск с Russian NLP (pymorphy3 + snowballstemmer), защищёнными доменными терминами, корпусной коррекцией опечаток (SymSpellPy + LLM-fallback)
+- Склейка соседних сообщений одного пользователя (текст + изображение) в единый контекст
+- Кросс-дневное обогащение цепочек для ответов, приходящих на следующий день
+- Per-user и per-group rate limiting, test-mode с redirect в тестовую группу
+- Подсказки релевантности для LLM (уровень + нормализованные BM25/vector оценки)
+- Q&A-пары, отклонённые экспертами, исключаются из поиска и индексации
+
+Подробнее: [src/group_knowledge/README.md](src/group_knowledge/README.md)
+
+### 3. The Helper — AI-помощник для групп
+
+Telethon-скрипт, слушающий команду `/helpme` в настроенных Telegram-группах. Маршрутизирует запрос через AI-пайплайн (RAG / UPOS) и отвечает reply-сообщением с прогрессом по этапам.
+
+- Голый `/helpme` в ответ на сообщение — отправляет текст оригинала в RAG
+- `/helpme <вопрос>` — полная AI-маршрутизация
+- Двухуровневый rate-limit (per-user + per-group)
+- Ограничен intent-ами: `upos_error_lookup`, `rag_qa`, `general_chat`
+
+Подробнее: [scripts/THE_HELPER_README.md](scripts/THE_HELPER_README.md)
+
+### 4. Admin Web — веб-админка
+
+Единая веб-платформа администрирования (FastAPI + React SPA) с аутентификацией и RBAC.
+
+**Аутентификация:**
+- Telegram Login Widget
+- Password-вход (параллельно) с policy сложности, rate-limit и lockout
+
+**Роли:** `super_admin`, `admin`, `expert`, `viewer` — права настраиваются в БД.
+
+**Модули:**
+
+| Модуль | Возможности |
+|--------|-------------|
+| 🧠 **Group Knowledge** | 9 вкладок: статистика, каталог Q&A-пар, экспертная валидация с hotkeys и двойным подтверждением, A/B-тестер промптов (Elo + Win Rate + агрегированная статистика), группы, лог автоответчика, очередь изображений (ручная загрузка + превью), отдельный Image Prompt Tester (blind A/B + Elo + выбор модели + кастомные промпты + полная статистика), песочница гибридного поиска с предпросмотром ответа |
+| ⚙️ **Менеджер процессов** | Управление 18 процессами по 5 категориям: запуск/остановка/перезапуск из веба, пресеты режимов, формы выбора параметров, WebSocket-логи, история запусков, персистентное состояние (авто-восстановление демонов после рестарта), компактный обзор карточек процессов |
+| 🧪 **Prompt Tester** | Встроенный тестер промптов RAG (монтируется как sub-application) |
+
+```bash
+python -m admin_web
+```
+
+Подробнее: [admin_web/README.md](admin_web/README.md)
+
+### 5. Prompt Tester — A/B-тестирование промптов
 
 Веб-инструмент для слепого попарного сравнения промптов summary в RAG:
 - сравнение комбинаций `(system_prompt + user_message + model + temperature)`;
-- режимы оценки `human`, `llm`, `both`;
-- корректные этапы выполнения `generating -> judging -> in_progress/completed`;
+- режимы оценки: `human`, `llm` (LLM-as-Judge), `both`;
+- этапы: `generating → judging → in_progress → completed`;
+- стратифицированная выборка документов;
 - итоговые рейтинги Elo + Win Rate.
 
 ```bash
 python -m prompt_tester
 ```
 
-Документация: [prompt_tester/README.md](prompt_tester/README.md)
+Подробнее: [prompt_tester/README.md](prompt_tester/README.md)
 
-### AI-ядро (`src/core/ai/`)
+### 6. AI-ядро (`src/core/ai/`)
 
 Переиспользуемый AI-движок, не зависящий от Telegram:
-- **LLM Provider** — абстракция над DeepSeek API с circuit breaker и rate limiter
-- **RAG Service** — полнотекстовый + векторный поиск, HyDE, spellcheck, summary-aware retrieval
-- **Vector Search** — Qdrant (local/remote) с sentence-transformers
-- **Prompts** — системные промпты для классификации и генерации
 
-### CLI-утилиты (`scripts/`)
+| Файл | Назначение |
+|------|------------|
+| `llm_provider.py` | LLM-абстракция: `DeepSeekProvider` (classification + chat + RAG) и `GigaChatProvider` (vision/image description) |
+| `rag_service.py` | Полный RAG-пайплайн (~5200 строк): ingestion (PDF/TXT/DOCX/MD/HTML), BM25 с Russian NLP, HyDE, spellcheck (SymSpellPy + LLM), summary-prefilter/fallback, response caching |
+| `vector_search.py` | `LocalEmbeddingProvider` (BAAI/bge-m3, fp16) + `LocalVectorIndex` (Qdrant local/remote) |
+| `qdrant_sync.py` | Синхронизация Qdrant remote → local |
+| `circuit_breaker.py` | CLOSED → OPEN → HALF\_OPEN с настраиваемыми порогами |
+| `rate_limiter.py` | Sliding window per-user rate limiter |
+| `context_manager.py` | In-memory TTL-deque контекста диалога |
+| `prompts.py` | Динамические системные промпты (classification, chat, RAG, HyDE, spellcheck) |
+| `formatters.py` | MarkdownV2-форматирование, прогресс-этапы |
+| `rag_similarity.py` | Оценка похожести: semantic + lexical + sequence, CLI-режим |
+| `rag_similarity_interactive.py` | Интерактивный REPL для similarity с историей, diff, JSON/CSV-экспортом |
+
+### 7. CLI-утилиты и демоны (`scripts/`)
 
 | Скрипт | Описание |
 |--------|----------|
-| `rag_ops.py` | Единый CLI для всех RAG-операций (health, status, setup, wizard) |
-| `rag_directory_ingest.py` | Пакетная загрузка документов в RAG |
+| `gk_collector.py` | Daemon: сбор сообщений GK + обработка изображений + автоответчик |
+| `gk_analyze.py` | Извлечение Q&A-пар + Qdrant-индексация |
+| `gk_responder.py` | Legacy standalone-автоответчик GK |
+| `gk_delete_group_data.py` | Безопасное удаление данных группы с dry-run |
+| `the_helper.py` | Daemon: `/helpme` listener для Telegram-групп |
+| `rag_ops.py` | Единый CLI для RAG (health, status, setup, update, preload-embeddings, sync-remote, wizard) |
+| `rag_directory_ingest.py` | Пакетная загрузка документов в RAG (one-shot / daemon) |
 | `rag_certification_sync.py` | Синхронизация вопросов аттестации в RAG |
 | `rag_vector_backfill.py` | Пакетная индексация в Qdrant |
-| `rag_qdrant_sync_remote_to_local.py` | Синхронизация Qdrant remote→local |
-| `rag_sentence_similarity.py` | Оценка похожести фраз для отладки RAG |
+| `rag_qdrant_sync_remote_to_local.py` | Синхронизация Qdrant remote → local |
+| `rag_sentence_similarity.py` | Оценка похожести фраз (one-shot / интерактивный REPL) |
 | `sync_chat_members.py` | Синхронизация участников Telegram-группы |
 | `add_daily_scores.py` | Массовое начисление очков геймификации |
+| `release.py` | Bump VERSION, обновление CHANGELOG, создание git-тега |
+
+## Точки входа
+
+| Процесс | Команда | Назначение |
+|---------|---------|------------|
+| Telegram-бот + воркеры | `python run_bot.py` | 4 подпроцесса: бот, фоновые очереди скриншотов и СООС, health check |
+| Admin Web | `python -m admin_web` | Веб-админка на порту 8090 |
+| GK Collector | `python scripts/gk_collector.py` | Сбор + автоответчик (standalone) |
+| GK Analyzer | `python scripts/gk_analyze.py` | Q&A-извлечение (standalone) |
+| The Helper | `python scripts/the_helper.py` | `/helpme` listener (standalone) |
+| Prompt Tester | `python -m prompt_tester` | A/B-тестер промптов (standalone или через Admin Web) |
 
 ## Быстрый старт
 
 ```bash
+# 1. Виртуальное окружение
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+
+# 2. Конфигурация
 cp .env.example .env   # Заполнить TELEGRAM_TOKEN, MYSQL_*, DEEPSEEK_API_KEY
+
+# 3. База данных
 mysql -u root -p < schema.sql
+# Далее sql/*_setup.sql по необходимости (см. docs/SETUP.md)
+
+# 4. Запуск бота
 python run_bot.py
+
+# 5. (опционально) Веб-админка
+python -m admin_web
+
+# 6. (опционально) Group Knowledge
+python scripts/gk_collector.py --manage-groups  # настройка групп
+python scripts/gk_collector.py                  # старт коллектора (dry-run)
 ```
 
 Подробная установка, настройка БД и конфигурация `.env` — см. [docs/SETUP.md](docs/SETUP.md).
@@ -113,29 +213,39 @@ python run_bot.py
 | `/cancel` | Отмена операции |
 | `/invite` | Коды приглашений |
 
-## Зависимости
+## Основные зависимости
 
-| Пакет | Зачем |
-|-------|-------|
-| `python-telegram-bot` | Telegram Bot API |
-| `mysql-connector-python` | MySQL |
-| `httpx` | HTTP-клиент для LLM (AI Router) |
-| `pillow` | Обработка изображений |
-| `openpyxl`, `xlrd` | Excel (.xlsx, .xls) |
-| `python-dotenv` | Переменные окружения |
-| `telethon` | Синхронизация участников группы |
-| `fastapi`, `uvicorn` | Веб-сервер Prompt Tester |
+| Категория | Пакеты |
+|-----------|--------|
+| Telegram | `python-telegram-bot`, `Telethon` |
+| AI/ML | `torch`, `transformers`, `sentence-transformers`, `tokenizers` |
+| LLM | `httpx` (DeepSeek), `gigachat` (GigaChat Vision) |
+| NLP | `pymorphy3`, `snowballstemmer`, `rank-bm25`, `symspellpy` |
+| LangChain | `langchain`, `langchain-text-splitters`, `langchain-community` |
+| Vector DB | `qdrant-client` |
+| Database | `mysql-connector-python`, `PyMySQL`, `SQLAlchemy` |
+| Web | `fastapi`, `uvicorn`, `beautifulsoup4`, `Jinja2` |
+| Обработка файлов | `pillow`, `openpyxl`, `xlrd`, `pdfplumber` |
+| Validation | `pydantic`, `pydantic-settings` |
+| Config | `python-dotenv` |
+| Testing | `pytest`, `pytest-asyncio` |
 
 ## Документация
 
-**Модули** — каждый модуль содержит свой README с полным описанием (см. таблицу модулей выше).
+**По модулям** — каждый модуль содержит свой README (см. таблицу модулей выше).
+
+**Подсистемы:**
+- [Group Knowledge](src/group_knowledge/README.md)
+- [Admin Web](admin_web/README.md)
+- [Prompt Tester](prompt_tester/README.md)
+- [The Helper](scripts/THE_HELPER_README.md)
 
 **Гайды:**
 - [Установка и настройка](docs/SETUP.md)
 - [Руководство по разработке модулей](docs/MODULE_GUIDE_RU.md)
 - [Конфигурация модулей](docs/MODULE_CONFIG_GUIDE.md) · [Быстрый справочник](docs/MODULE_CONFIG_QUICK_REF.md)
-- [AI RAG — база знаний](docs/AI_RAG_GUIDE.md)
 - [RAG-операции (CLI)](docs/RAG_OPERATIONS_GUIDE.md)
+- [Ingestion пайплайн](docs/ingestion.md)
 - [Рекомендации по валидатору](docs/VALIDATOR_RECOMMENDATIONS.md)
 
 ## Лицензия
@@ -146,5 +256,5 @@ python run_bot.py
 
 ---
 
-*Разработано с ❤️ и AI для инженеров СберСервис · Март 2026*
+*Разработано с ❤️ и AI для инженеров СберСервис · v0.9.8 · Март 2026*
 

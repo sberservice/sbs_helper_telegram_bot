@@ -44,6 +44,7 @@ from src.common.constants.sync import (
     HELPER_RATE_LIMIT_GROUP_WINDOW,
 )
 from src.common.pii_masking import mask_sensitive_data
+from src.core.ai.rag_service import preload_rag_runtime_dependencies
 
 # ---------------------------------------------------------------------------
 # Логирование
@@ -275,7 +276,9 @@ class HelperRateLimiter:
 
 def load_groups() -> List[dict]:
     """
-    Загрузить список групп из JSON-конфига.
+    Загрузить список активных групп из JSON-конфига.
+
+    Группы с ``disabled: true`` исключаются из результата.
 
     Returns:
         Список словарей {"id": int, "title": str}.
@@ -285,7 +288,15 @@ def load_groups() -> List[dict]:
     try:
         with open(GROUPS_CONFIG_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return data.get("groups", [])
+        all_groups = data.get("groups", [])
+        enabled = [g for g in all_groups if not g.get("disabled", False)]
+        if len(enabled) < len(all_groups):
+            logger.info(
+                "Отфильтровано %d отключённых Helper-групп из %d",
+                len(all_groups) - len(enabled),
+                len(all_groups),
+            )
+        return enabled
     except (json.JSONDecodeError, OSError) as exc:
         logger.error("Ошибка чтения %s: %s", GROUPS_CONFIG_PATH, exc)
         return []
@@ -941,6 +952,8 @@ async def manage_groups_interactive() -> None:
 
 async def run_listener() -> None:
     """Запустить Telethon-слушатель /helpme в настроенных группах."""
+    await asyncio.to_thread(preload_rag_runtime_dependencies)
+
     groups = load_groups()
     group_ids = get_group_ids(groups)
 

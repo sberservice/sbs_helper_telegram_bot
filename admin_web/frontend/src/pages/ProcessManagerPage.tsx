@@ -120,30 +120,27 @@ function OverviewTab({ onSelectProcess }: { onSelectProcess: (key: string) => vo
                   <span className="pm-card-icon">{proc.icon}</span>
                   <div className="pm-card-title-area">
                     <h4 className="pm-card-name">{proc.name}</h4>
-                    <span className={statusBadgeClass(proc.status)}>
+                    <span className={`${statusBadgeClass(proc.status)} pm-status-badge-compact`}>
                       {proc.status === 'running' && <span className="pm-status-dot pm-dot-running" />}
                       {proc.status === 'crashed' && <span className="pm-status-dot pm-dot-crashed" />}
                       {statusLabel(proc.status)}
                     </span>
                   </div>
+                  <div className="pm-card-meta pm-card-meta-compact">
+                    {proc.status === 'running' && <span className="text-dim">PID: {proc.pid}</span>}
+                    {proc.status === 'running' && <span className="text-dim">{formatUptime(proc.uptime_seconds)}</span>}
+                    {proc.process_type === 'daemon' && (
+                      <span className="badge badge-dim">daemon</span>
+                    )}
+                  </div>
                 </div>
-                <p className="pm-card-desc text-dim">{proc.description}</p>
-                <div className="pm-card-meta">
-                  {proc.status === 'running' && (
-                    <>
-                      <span className="text-dim">PID: {proc.pid}</span>
-                      <span className="text-dim">Uptime: {formatUptime(proc.uptime_seconds)}</span>
-                    </>
-                  )}
+                <div className="pm-card-meta pm-card-meta-secondary">
                   {proc.status === 'running' && proc.current_preset && (
                     <span className="badge badge-accent">{proc.current_preset}</span>
                   )}
                   {proc.status === 'running' && !proc.current_preset && proc.current_flags?.length
                     ? <span className="text-dim">{proc.current_flags.join(' ')}</span>
-                    : null}
-                  {proc.process_type === 'daemon' && (
-                    <span className="badge badge-dim">daemon</span>
-                  )}
+                    : <span className="text-dim">{proc.description}</span>}
                 </div>
               </div>
             ))}
@@ -569,6 +566,7 @@ function LaunchFormDialog({
   const [collectedGroups, setCollectedGroups] = useState<CollectedGroupInfo[]>([])
   const [gkGroups, setGkGroups] = useState<GroupEntry[]>([])
   const [gkTestTarget, setGkTestTarget] = useState<TestTargetGroup | null>(null)
+  const [gkTestTargets, setGkTestTargets] = useState<TestTargetGroup[]>([])
   const [loadingGroups, setLoadingGroups] = useState(true)
 
   useEffect(() => {
@@ -582,6 +580,13 @@ function LaunchFormDialog({
           .then(cfg => {
             setGkGroups(cfg.groups)
             setGkTestTarget(cfg.test_target_group ?? null)
+            setGkTestTargets(cfg.test_target_groups ?? [])
+            if (cfg.test_target_group?.id) {
+              setFormValues(prev => ({
+                ...prev,
+                'redirect-group-id': prev['redirect-group-id'] ?? cfg.test_target_group?.id,
+              }))
+            }
           })
           .catch(() => {}),
       )
@@ -656,10 +661,11 @@ function LaunchFormDialog({
         )
 
       case 'gk_redirect_test': {
-        // Собрать все группы из всех источников, дедуплицировать
+        // Если настроен список test-target групп — используем его в приоритете.
         const allGroupsMap = new Map<number, { id: number; title: string }>()
-        for (const g of gkGroups) allGroupsMap.set(g.id, { id: g.id, title: g.title })
+        for (const g of gkTestTargets) allGroupsMap.set(g.id, { id: g.id, title: g.title })
         if (gkTestTarget) allGroupsMap.set(gkTestTarget.id, { id: gkTestTarget.id, title: gkTestTarget.title })
+        for (const g of gkGroups) allGroupsMap.set(g.id, { id: g.id, title: g.title })
         for (const g of collectedGroups) {
           if (!allGroupsMap.has(g.group_id)) {
             allGroupsMap.set(g.group_id, { id: g.group_id, title: g.group_title || '' })
@@ -778,12 +784,14 @@ function GroupsTab() {
   const [activeSection, setActiveSection] = useState<'gk' | 'helper' | 'collected'>('gk')
   const [addGroupId, setAddGroupId] = useState('')
   const [addGroupTitle, setAddGroupTitle] = useState('')
+  const [selectedCandidateTargetId, setSelectedCandidateTargetId] = useState('')
+  const [selectedConfiguredTargetId, setSelectedConfiguredTargetId] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
 
   const fetchAll = useCallback(() => {
     setLoading(true)
     Promise.all([
-      groupsApi.getGKGroups().catch(() => ({ groups: [], test_target_group: null })),
+      groupsApi.getGKGroups().catch(() => ({ groups: [], test_target_group: null, test_target_groups: [] })),
       groupsApi.getHelperGroups().catch(() => ({ groups: [] })),
       groupsApi.getCollectedGroups().catch(() => []),
     ])
@@ -791,6 +799,8 @@ function GroupsTab() {
         setGkConfig(gk)
         setHelperConfig(helper)
         setCollected(coll)
+        setSelectedCandidateTargetId('')
+        setSelectedConfiguredTargetId(String(gk.test_target_group?.id ?? gk.test_target_groups?.[0]?.id ?? ''))
         setError('')
       })
       .catch(e => setError(e.message))
@@ -826,6 +836,18 @@ function GroupsTab() {
     }
   }
 
+  const handleToggleGKGroup = async (groupId: number, disabled: boolean) => {
+    setActionLoading(true)
+    try {
+      await groupsApi.toggleGKGroup(groupId, disabled)
+      fetchAll()
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const handleAddHelperGroup = async () => {
     if (!addGroupId.trim()) return
     setActionLoading(true)
@@ -845,6 +867,74 @@ function GroupsTab() {
     setActionLoading(true)
     try {
       await groupsApi.removeHelperGroup(groupId)
+      fetchAll()
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleToggleHelperGroup = async (groupId: number, disabled: boolean) => {
+    setActionLoading(true)
+    try {
+      await groupsApi.toggleHelperGroup(groupId, disabled)
+      fetchAll()
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleAddTestTargetOption = async () => {
+    if (!selectedCandidateTargetId.trim()) return
+    const groupId = Number(selectedCandidateTargetId)
+    if (!Number.isInteger(groupId) || groupId === 0) return
+
+    const candidate = collected.find(g => g.group_id === groupId)
+    setActionLoading(true)
+    try {
+      await groupsApi.addGKTestTargetOption({
+        id: groupId,
+        title: candidate?.group_title || 'Без названия',
+        participants: null,
+      })
+      fetchAll()
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleSetActiveTestTarget = async () => {
+    if (!selectedConfiguredTargetId.trim()) return
+    const groupId = Number(selectedConfiguredTargetId)
+    if (!Number.isInteger(groupId) || groupId === 0) return
+
+    const target = gkConfig?.test_target_groups?.find(g => g.id === groupId)
+    if (!target) return
+
+    setActionLoading(true)
+    try {
+      await groupsApi.setGKTestTarget(target)
+      fetchAll()
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleRemoveTestTargetOption = async () => {
+    if (!selectedConfiguredTargetId.trim()) return
+    const groupId = Number(selectedConfiguredTargetId)
+    if (!Number.isInteger(groupId) || groupId === 0) return
+
+    setActionLoading(true)
+    try {
+      await groupsApi.removeGKTestTargetOption(groupId)
       fetchAll()
     } catch (e: any) {
       setError(e.message)
@@ -892,14 +982,25 @@ function GroupsTab() {
                 <tr>
                   <th>ID</th>
                   <th>Название</th>
+                  <th>Статус</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {gkConfig.groups.map(g => (
-                  <tr key={g.id}>
+                  <tr key={g.id} className={g.disabled ? 'pm-row-disabled' : ''}>
                     <td><code>{g.id}</code></td>
                     <td>{g.title || '—'}</td>
+                    <td>
+                      <button
+                        className={`btn btn-sm ${g.disabled ? 'btn-warning' : 'btn-success'}`}
+                        disabled={actionLoading}
+                        onClick={() => handleToggleGKGroup(g.id, !g.disabled)}
+                        title={g.disabled ? 'Включить группу' : 'Отключить группу'}
+                      >
+                        {g.disabled ? '⏸ Отключена' : '✓ Активна'}
+                      </button>
+                    </td>
                     <td>
                       <button
                         className="btn btn-sm btn-danger"
@@ -974,6 +1075,74 @@ function GroupsTab() {
             ) : (
               <p className="text-dim">Не установлена</p>
             )}
+
+            <div style={{ marginTop: 12 }}>
+              <label className="text-dim" style={{ display: 'block', marginBottom: 6 }}>
+                Добавить в список test target из собранных групп:
+              </label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <select
+                  className="input input-sm"
+                  value={selectedCandidateTargetId}
+                  onChange={e => setSelectedCandidateTargetId(e.target.value)}
+                  style={{ minWidth: 320 }}
+                >
+                  <option value="">— Выберите группу —</option>
+                  {collected
+                    .filter(g => !gkConfig.test_target_groups.some(tt => tt.id === g.group_id))
+                    .map(g => (
+                      <option key={g.group_id} value={g.group_id}>
+                        {g.group_title || 'Без названия'} (ID: {g.group_id}, msg: {g.message_count})
+                      </option>
+                    ))}
+                </select>
+                <button
+                  className="btn btn-sm btn-success"
+                  disabled={actionLoading || !selectedCandidateTargetId}
+                  onClick={handleAddTestTargetOption}
+                >
+                  + В список
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <label className="text-dim" style={{ display: 'block', marginBottom: 6 }}>
+                Список test target групп:
+              </label>
+              {gkConfig.test_target_groups.length === 0 ? (
+                <p className="text-dim">Список пуст</p>
+              ) : (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <select
+                    className="input input-sm"
+                    value={selectedConfiguredTargetId}
+                    onChange={e => setSelectedConfiguredTargetId(e.target.value)}
+                    style={{ minWidth: 320 }}
+                  >
+                    {gkConfig.test_target_groups.map(g => (
+                      <option key={g.id} value={g.id}>
+                        {g.title || 'Без названия'} (ID: {g.id})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn btn-sm btn-success"
+                    disabled={actionLoading || !selectedConfiguredTargetId}
+                    onClick={handleSetActiveTestTarget}
+                  >
+                    Сделать активной
+                  </button>
+                  <button
+                    className="btn btn-sm btn-danger"
+                    disabled={actionLoading || !selectedConfiguredTargetId}
+                    onClick={handleRemoveTestTargetOption}
+                  >
+                    Удалить из списка
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -992,14 +1161,25 @@ function GroupsTab() {
                 <tr>
                   <th>ID</th>
                   <th>Название</th>
+                  <th>Статус</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {helperConfig.groups.map(g => (
-                  <tr key={g.id}>
+                  <tr key={g.id} className={g.disabled ? 'pm-row-disabled' : ''}>
                     <td><code>{g.id}</code></td>
                     <td>{g.title || '—'}</td>
+                    <td>
+                      <button
+                        className={`btn btn-sm ${g.disabled ? 'btn-warning' : 'btn-success'}`}
+                        disabled={actionLoading}
+                        onClick={() => handleToggleHelperGroup(g.id, !g.disabled)}
+                        title={g.disabled ? 'Включить группу' : 'Отключить группу'}
+                      >
+                        {g.disabled ? '⏸ Отключена' : '✓ Активна'}
+                      </button>
+                    </td>
                     <td>
                       <button
                         className="btn btn-sm btn-danger"

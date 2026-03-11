@@ -8,8 +8,9 @@ GigaChat Vision API и обновляет записи в базе данных.
 import asyncio
 import logging
 import os
+import threading
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from config import ai_settings
 from src.core.ai.llm_provider import GigaChatProvider
@@ -218,40 +219,103 @@ class ImageProcessor:
 
         return processed_count
 
+    def _is_stop_set(self, stop_event: Optional[Union[asyncio.Event, threading.Event]]) -> bool:
+        """Проверить, установлен ли сигнал остановки (поддержка asyncio.Event и threading.Event)."""
+        if stop_event is None:
+            return False
+        return stop_event.is_set()
+
+    async def _wait_for_stop(
+        self,
+        stop_event: Optional[Union[asyncio.Event, threading.Event]],
+        timeout: float,
+    ) -> bool:
+        """
+        Ждать сигнала остановки с таймаутом.
+
+        Поддерживает asyncio.Event (ожидание через wait_for) и threading.Event
+        (поллинг через asyncio.sleep).
+
+        Returns:
+            True если сигнал остановки был получен, False по таймауту.
+        """
+        if stop_event is None:
+            await asyncio.sleep(timeout)
+            return False
+
+        if isinstance(stop_event, asyncio.Event):
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=timeout)
+                return True
+            except asyncio.TimeoutError:
+                return False
+
+        # threading.Event — поллинг с мелким шагом
+        elapsed = 0.0
+        step = min(0.5, timeout)
+        while elapsed < timeout:
+            if stop_event.is_set():
+                return True
+            await asyncio.sleep(step)
+            elapsed += step
+        return stop_event.is_set()
+
     async def process_queue_loop(
         self,
         poll_interval: float = 10.0,
-        stop_event: Optional[asyncio.Event] = None,
-    ) -> None:
+        stop_event: Optional[Union[asyncio.Event, threading.Event]] = None,
+        drain_remaining: bool = False,
+    ) -> int:
         """
         Запустить цикл обработки очереди изображений.
 
         Args:
             poll_interval: Интервал опроса очереди (секунды).
-            stop_event: Событие для остановки цикла.
+            stop_event: Событие для остановки цикла (asyncio.Event или threading.Event).
+            drain_remaining: Если True, после получения сигнала остановки дообработать
+                             все оставшиеся изображения в очереди перед выходом.
+
+        Returns:
+            Общее число обработанных изображений.
         """
         logger.info("Запущен цикл обработки очереди изображений (интервал=%.1fs)", poll_interval)
+        total_processed = 0
 
         while True:
-            if stop_event and stop_event.is_set():
-                logger.info("Остановка цикла обработки очереди изображений")
+            if self._is_stop_set(stop_event):
+                logger.info("Получен сигнал остановки цикла обработки очереди изображений")
                 break
 
             try:
                 processed = await self.process_queue()
                 if processed > 0:
-                    logger.info("Обработано изображений: %d", processed)
+                    total_processed += processed
+                    logger.info("Обработано изображений: %d (всего: %d)", processed, total_processed)
             except Exception as exc:
                 logger.error(
                     "Ошибка в цикле обработки очереди: %s", exc, exc_info=True
                 )
 
             # Ожидание с проверкой stop_event
-            if stop_event:
+            stopped = await self._wait_for_stop(stop_event, poll_interval)
+            if stopped:
+                break
+
+        # Дообработка оставшихся изображений после остановки
+        if drain_remaining:
+            logger.info("Дообработка оставшихся изображений в очереди...")
+            while True:
                 try:
-                    await asyncio.wait_for(stop_event.wait(), timeout=poll_interval)
+                    processed = await self.process_queue(batch_size=10)
+                    if processed == 0:
+                        break
+                    total_processed += processed
+                    logger.info("Дообработка: обработано %d (всего: %d)", processed, total_processed)
+                except Exception as exc:
+                    logger.error(
+                        "Ошибка при дообработке очереди: %s", exc, exc_info=True
+                    )
                     break
-                except asyncio.TimeoutError:
-                    continue
-            else:
-                await asyncio.sleep(poll_interval)
+
+        logger.info("Цикл обработки очереди изображений завершён: всего обработано %d", total_processed)
+        return total_processed
