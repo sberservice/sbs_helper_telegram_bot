@@ -5,6 +5,13 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.62] - 2026-03-13
+
+### Changed
+- `deploy/check_sessions.bat`: добавлен режим помощи в создании отсутствующих Telethon-сессий (интерактивное меню с запуском `gk_collector --manage-groups` и `the_helper --manage-groups`).
+- `deploy/start.bat`: проверка сессий выполняется в non-interactive режиме (`--non-interactive`), чтобы автозапуск не зависал в диалоге.
+- `deploy/README.md`: обновлены инструкции по assisted session setup и режимам проверки.
+
 ## [0.10.61] - 2026-03-13
 
 ### Fixed

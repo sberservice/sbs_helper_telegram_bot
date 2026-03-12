@@ -69,6 +69,7 @@ deploy\check_sessions.bat
 ```
 
 Если каких-то session-файлов не хватает, скрипт покажет точные команды для их создания (например, `python scripts/gk_collector.py --manage-groups`, `python scripts/the_helper.py --manage-groups`).
+Также `deploy\check_sessions.bat` умеет запустить эти команды автоматически через интерактивное меню.
 
 Важно: session-файлы можно перенести с предыдущего сервера (`*.session` в корень проекта), тогда повторная авторизация не потребуется.
 
@@ -107,6 +108,7 @@ deploy\start.bat
 ```
 
 `start.bat` автоматически проверяет обязательные Telethon-сессии и останавливает запуск при их отсутствии с подсказкой, как их создать.
+При автозапуске используется non-interactive режим проверки (`deploy\check_sessions.bat --non-interactive`), чтобы сервер не зависал в диалоге ввода.
 
 Если React build отсутствует (`admin_web/frontend/dist/index.html`), `start.bat` автоматически попытается выполнить `npm install` и `npm run build`, чтобы UI был доступен.
 

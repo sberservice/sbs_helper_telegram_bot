@@ -54,7 +54,7 @@ if not exist "%VENV_DIR%\Scripts\activate.bat" (
 call "%VENV_DIR%\Scripts\activate.bat"
 
 :: Проверка Telethon-сессий перед запуском оркестратора
-call "%PROJECT_DIR%\deploy\check_sessions.bat"
+call "%PROJECT_DIR%\deploy\check_sessions.bat" --non-interactive
 if errorlevel 3 (
     echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: не удалось выполнить авто-проверку Telethon-сессий.
 )
