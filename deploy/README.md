@@ -90,7 +90,14 @@ mysql -u root -p < schema.sql
 deploy\start.bat
 ```
 
-Откройте `http://localhost:8090` для доступа к админ-панели.
+Если React build отсутствует (`admin_web/frontend/dist/index.html`), `start.bat` автоматически попытается выполнить `npm install` и `npm run build`, чтобы UI был доступен.
+
+Откройте `http://localhost:8090` для локального доступа к админ-панели.
+
+Для доступа из LAN используйте IP адрес сервера:
+- `http://<IP_СЕРВЕРА>:8090`
+
+Важно: откройте входящий TCP-порт `8090` в Windows Firewall.
 
 ### 7. Настройка автозапуска
 
@@ -140,7 +147,7 @@ Task Scheduler
 
 ### Управление через админ-панель
 
-Админ-панель (`http://localhost:8090`) позволяет:
+Админ-панель (`http://localhost:8090` локально или `http://<IP_СЕРВЕРА>:8090` из LAN) позволяет:
 - Запускать/останавливать отдельные процессы
 - Менять пресеты и флаги запуска
 - Редактировать конфигурацию автозапуска (вкладка «Запуск»)
@@ -155,7 +162,7 @@ deploy\update.bat
 Скрипт автоматически:
 1. Остановит все процессы через API
 2. Создаст бэкап `.env`, `launch_config.json`, файлов групп
-3. Выполнит `git pull origin main`
+3. Выполнит принудительную синхронизацию с `origin/main` (`git reset --hard origin/main`, локальные tracked-изменения будут отброшены)
 4. Обновит Python-зависимости
 5. Пересоберёт frontend
 6. Предложит запустить бота
@@ -199,12 +206,13 @@ deploy\update.bat
 
 ### git pull конфликты
 
-Если `update.bat` сообщает об ошибке git pull:
+`update.bat` не использует `git pull` и автоматически сбрасывает локальные tracked-изменения через `git reset --hard origin/main`.
+
+Если нужно сохранить локальные правки перед обновлением — сделайте это вручную до запуска скрипта:
 ```cmd
 cd C:\SBS_Archie
-git stash
-git pull origin main
-git stash pop
+git add .
+git commit -m "local changes backup"
 ```
 
 ## Задача Task Scheduler

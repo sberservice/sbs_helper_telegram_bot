@@ -72,7 +72,7 @@ if exist "%PROJECT_DIR%\VERSION" (
     set "OLD_VERSION=неизвестно"
 )
 
-:: Git pull
+:: Git: принудительная синхронизация с origin/main
 git fetch origin main
 if errorlevel 1 (
     echo [%date% %time%] ОШИБКА: git fetch не удался. Проверьте сетевое подключение.
@@ -80,12 +80,20 @@ if errorlevel 1 (
     exit /b 1
 )
 
-git checkout main
-git pull origin main
+git checkout main >nul 2>&1
 if errorlevel 1 (
-    echo [%date% %time%] ОШИБКА: git pull не удался.
-    echo [%date% %time%] Возможно, есть локальные изменения. Выполните:
-    echo              git stash ^&^& git pull origin main ^&^& git stash pop
+    echo [%date% %time%] Ветка main не найдена локально, создаём tracking-ветку...
+    git checkout -b main --track origin/main
+    if errorlevel 1 (
+        echo [%date% %time%] ОШИБКА: не удалось создать локальную ветку main.
+        pause
+        exit /b 1
+    )
+)
+
+git reset --hard origin/main
+if errorlevel 1 (
+    echo [%date% %time%] ОШИБКА: не удалось синхронизироваться с origin/main.
     pause
     exit /b 1
 )

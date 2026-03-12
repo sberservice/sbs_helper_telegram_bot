@@ -5,6 +5,29 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.49] - 2026-03-12
+
+### Fixed
+- `deploy/start.bat`: исправлена ошибка batch-парсинга `". was unexpected at this time."` в watchdog-цикле (экранированы скобки в диагностическом `echo`).
+
+## [0.10.48] - 2026-03-12
+
+### Fixed
+- `deploy/start.bat`: добавлена автопроверка React build (`admin_web/frontend/dist/index.html`) и попытка автоматической сборки (`npm install` + `npm run build`) при его отсутствии, чтобы избежать сценария «API доступен, UI недоступен (404)».
+- `deploy/README.md`: уточнено поведение автосборки frontend при первом запуске.
+
+## [0.10.47] - 2026-03-12
+
+### Changed
+- `deploy/start.bat`: запуск `admin_web` на Windows теперь выполняется с `ADMIN_WEB_HOST=0.0.0.0`, чтобы веб-интерфейс был доступен из LAN, а не только через localhost.
+- `deploy/README.md`: добавлены инструкции по LAN-доступу (`http://<IP_СЕРВЕРА>:8090`) и напоминание открыть TCP-порт `8090` в Windows Firewall.
+
+## [0.10.46] - 2026-03-12
+
+### Changed
+- `deploy/update.bat`: обновление на Windows теперь принудительно синхронизирует рабочее дерево с `origin/main` через `git reset --hard origin/main`, игнорируя локальные tracked-изменения после создания бэкапа конфигурации.
+- `deploy/README.md`: обновлены инструкции по обновлению и раздел про конфликты, с явным предупреждением о сбросе локальных tracked-правок.
+
 ## [0.10.45] - 2026-03-12
 
 ### Fixed

@@ -11,9 +11,12 @@ setlocal EnableDelayedExpansion
 
 set "PROJECT_DIR=C:\SBS_Archie"
 set "VENV_DIR=%PROJECT_DIR%\venv_name"
+set "FRONTEND_DIR=%PROJECT_DIR%\admin_web\frontend"
+set "FRONTEND_DIST_INDEX=%FRONTEND_DIR%\dist\index.html"
 set "LOGS_DIR=%PROJECT_DIR%\logs"
 set "ADMIN_WEB_LOG=%LOGS_DIR%\admin_web.log"
 set "HEALTH_URL=http://localhost:8090/api/health"
+set "ADMIN_WEB_HOST=0.0.0.0"
 set "WATCHDOG_INTERVAL=30"
 set "MAX_RESTART_ATTEMPTS=5"
 
@@ -50,6 +53,25 @@ if not exist "%VENV_DIR%\Scripts\activate.bat" (
 :: Активация venv
 call "%VENV_DIR%\Scripts\activate.bat"
 
+:: Проверка React build (иначе API доступен, а UI отдаёт 404)
+if not exist "%FRONTEND_DIST_INDEX%" (
+    echo [%date% %time%] React build не найден, попытка сборки frontend...
+    where npm >nul 2>&1
+    if errorlevel 1 (
+        echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: npm не найден, UI может быть недоступен (только API).
+    ) else (
+        cd /d "%FRONTEND_DIR%"
+        call npm install --silent 2>nul
+        call npm run build
+        if errorlevel 1 (
+            echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: сборка frontend не удалась, UI может быть недоступен.
+        ) else (
+            echo [%date% %time%] Frontend успешно собран.
+        )
+        cd /d "%PROJECT_DIR%"
+    )
+)
+
 echo [%date% %time%] =========================================
 echo [%date% %time%] SBS Archie — Запуск
 echo [%date% %time%] Проект: %PROJECT_DIR%
@@ -72,7 +94,7 @@ if !RESTART_COUNT! GEQ %MAX_RESTART_ATTEMPTS% (
 echo [%date% %time%] Запуск admin_web (попытка !RESTART_COUNT! из %MAX_RESTART_ATTEMPTS%)...
 
 :: Запускаем admin_web в фоне через start /min
-start /min "SBS_Archie_AdminWeb" cmd /c "cd /d %PROJECT_DIR% && call %VENV_DIR%\Scripts\activate.bat && python -m admin_web >> %ADMIN_WEB_LOG% 2>&1"
+start /min "SBS_Archie_AdminWeb" cmd /c "cd /d %PROJECT_DIR% && call %VENV_DIR%\Scripts\activate.bat && set ADMIN_WEB_HOST=%ADMIN_WEB_HOST% && python -m admin_web >> %ADMIN_WEB_LOG% 2>&1"
 
 :: Ждём 10 секунд для инициализации
 echo [%date% %time%] Ожидание инициализации admin_web (10 сек)...
@@ -108,7 +130,7 @@ echo [%date% %time%] Watchdog активен. Интервал проверки:
             set /a RESTART_COUNT+=1
             goto :watchdog_loop
         ) else (
-            echo [%date% %time%] admin_web восстановился (ложная тревога).
+            echo [%date% %time%] admin_web восстановился ^(ложная тревога^).
         )
     )
 goto :health_check_loop
