@@ -13,7 +13,7 @@ import os
 import signal
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 
 from admin_web.core.models import WebUser
 from admin_web.core.rbac import require_permission
@@ -539,17 +539,25 @@ def build_process_manager_router() -> APIRouter:
 
     @router.post("/shutdown")
     async def shutdown_all(
-        user: WebUser = Depends(require_permission("process_manager", "edit")),
+        request: Request,
     ) -> Dict[str, Any]:
         """Остановить все управляемые процессы и завершить admin_web.
 
         Используется скриптом deploy/stop.bat для корректного завершения.
         """
+        client_host = request.client.host if request.client else "unknown"
+        if client_host not in {"127.0.0.1", "::1", "localhost"}:
+            raise HTTPException(
+                status_code=403,
+                detail="Shutdown endpoint разрешён только для localhost",
+            )
+
         supervisor = get_supervisor()
         results = supervisor.stop_all_processes()
         logger.info(
-            "shutdown: все процессы остановлены: user=%d results=%s",
-            user.telegram_id, results,
+            "shutdown: все процессы остановлены: host=%s results=%s",
+            client_host,
+            results,
         )
 
         # Запланировать остановку сервера через 2 секунды.

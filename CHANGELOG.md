@@ -5,6 +5,11 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.60] - 2026-03-13
+
+### Fixed
+- `admin_web/modules/process_manager/router.py`: `POST /api/process-manager/shutdown` теперь доступен без веб-логина только с localhost (`127.0.0.1`/`::1`), чтобы `deploy/stop.bat` корректно останавливал систему без `401 Unauthorized`.
+
 ## [0.10.59] - 2026-03-13
 
 ### Added
