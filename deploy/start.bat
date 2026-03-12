@@ -53,6 +53,18 @@ if not exist "%VENV_DIR%\Scripts\activate.bat" (
 :: Активация venv
 call "%VENV_DIR%\Scripts\activate.bat"
 
+:: Проверка Telethon-сессий перед запуском оркестратора
+call "%PROJECT_DIR%\deploy\check_sessions.bat"
+if errorlevel 3 (
+    echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: не удалось выполнить авто-проверку Telethon-сессий.
+)
+if errorlevel 2 (
+    echo [%date% %time%] ОШИБКА: отсутствуют обязательные Telethon-сессии для включённых процессов.
+    echo [%date% %time%] Создайте сессии командами из вывода deploy\check_sessions.bat.
+    pause
+    exit /b 1
+)
+
 :: Проверка React build (иначе API доступен, а UI отдаёт 404)
 if not exist "%FRONTEND_DIST_INDEX%" (
     echo [%date% %time%] React build не найден, попытка сборки frontend...

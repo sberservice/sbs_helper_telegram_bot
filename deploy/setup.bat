@@ -144,8 +144,21 @@ if not exist "%PROJECT_DIR%\config\.env" (
 )
 echo.
 
+:: ---- Проверка Telethon-сессий ----
+echo [7/8] Проверка Telethon-сессий...
+call "%PROJECT_DIR%\deploy\check_sessions.bat"
+if errorlevel 3 (
+    echo [ПРЕДУПРЕЖДЕНИЕ] Не удалось проверить Telethon-сессии автоматически.
+)
+if errorlevel 2 (
+    echo.
+    echo [ВНИМАНИЕ] Для части включённых Telethon-процессов нет session-файлов.
+    echo Их нужно создать перед рабочим запуском через команды, показанные выше.
+)
+echo.
+
 :: ---- Готово ----
-echo [7/7] Настройка завершена!
+echo [8/8] Настройка завершена!
 echo.
 echo =========================================
 echo  Следующие шаги:
@@ -161,10 +174,13 @@ echo.
 echo  3. Настройте deploy\launch_config.json
 echo     (какие процессы запускать автоматически)
 echo.
-echo  4. Настройте автозапуск в Task Scheduler:
+echo  4. Проверьте/создайте Telethon-сессии:
+echo     deploy\check_sessions.bat
+echo.
+echo  5. Настройте автозапуск в Task Scheduler:
 echo     deploy\task_scheduler_setup.bat
 echo.
-echo  5. Запустите вручную для проверки:
+echo  6. Запустите вручную для проверки:
 echo     deploy\start.bat
 echo.
 echo =========================================

@@ -18,6 +18,8 @@
 ```
 deploy/
 ├── launch_config.json         ← Конфигурация автозапуска процессов
+├── check_telethon_sessions.py ← Анализ required Telethon session-файлов
+├── check_sessions.bat         ← Удобный запуск проверки сессий
 ├── start.bat                  ← Запуск admin_web + watchdog
 ├── stop.bat                   ← Остановка всех процессов
 ├── update.bat                 ← Обновление из GitHub
@@ -58,6 +60,18 @@ deploy\setup.bat
 - `AI_DEEPSEEK_API_KEY` — ключ API DeepSeek
 - Остальные настройки по необходимости
 
+### 3.1 Проверка/подготовка Telethon-сессий
+
+Перед первым рабочим запуском выполните:
+
+```cmd
+deploy\check_sessions.bat
+```
+
+Если каких-то session-файлов не хватает, скрипт покажет точные команды для их создания (например, `python scripts/gk_collector.py --manage-groups`, `python scripts/the_helper.py --manage-groups`).
+
+Важно: session-файлы можно перенести с предыдущего сервера (`*.session` в корень проекта), тогда повторная авторизация не потребуется.
+
 ### 4. Настройка базы данных
 
 ```cmd
@@ -89,6 +103,8 @@ mysql -u root -p < schema.sql
 ```cmd
 deploy\start.bat
 ```
+
+`start.bat` автоматически проверяет обязательные Telethon-сессии и останавливает запуск при их отсутствии с подсказкой, как их создать.
 
 Если React build отсутствует (`admin_web/frontend/dist/index.html`), `start.bat` автоматически попытается выполнить `npm install` и `npm run build`, чтобы UI был доступен.
 
@@ -205,6 +221,11 @@ deploy\update.bat
 Файлы `*.session` (gk_collector_session, helper_session и др.) привязаны к конкретной машине. При переносе на новый компьютер:
 1. Скопируйте файлы сессий на новую машину
 2. Или пересоздайте сессии (потребуется SMS-верификация)
+
+Проверка перед запуском:
+```cmd
+deploy\check_sessions.bat
+```
 
 ### git pull конфликты
 

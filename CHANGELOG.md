@@ -5,6 +5,21 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.59] - 2026-03-13
+
+### Added
+- `deploy/check_telethon_sessions.py` и `deploy/check_sessions.bat`: preflight-проверка Telethon session-файлов с определением обязательных сессий по `deploy/launch_config.json` и подсказками команд для их создания.
+
+### Changed
+- `deploy/setup.bat`: добавлен шаг проверки Telethon-сессий и инструкции по их созданию до рабочего запуска.
+- `deploy/start.bat`: запуск теперь блокируется, если отсутствуют обязательные Telethon-сессии для включённых процессов.
+- `deploy/README.md`: добавлен отдельный раздел по подготовке/проверке Telethon-сессий и описано автоматическое preflight-поведение.
+
+## [0.10.58] - 2026-03-12
+
+### Fixed
+- `admin_web/modules/process_manager/supervisor.py`: для управляемых subprocess принудительно включена UTF-8 кодировка (`PYTHONIOENCODING=utf-8`, `PYTHONUTF8=1`, `subprocess.Popen(..., encoding="utf-8", errors="replace")`), чтобы устранить искажение русских логов в Process Manager.
+
 ## [0.10.57] - 2026-03-12
 
 ### Fixed
