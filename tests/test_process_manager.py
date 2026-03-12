@@ -670,6 +670,56 @@ class TestSupervisorOneShotCompletion(unittest.TestCase):
         mock_remove_pid.assert_called_once_with("gk_analyzer")
         self.assertEqual(managed.status, ProcessStatus.STOPPED)
 
+    def test_daemon_exit_zero_marked_stopped_without_restart(self):
+        """Daemon с exit_code=0 не считается crash и не перезапускается."""
+        from admin_web.modules.process_manager.models import ProcessType
+        from admin_web.modules.process_manager.supervisor import ManagedProcess, ProcessSupervisor
+
+        supervisor = ProcessSupervisor.__new__(ProcessSupervisor)
+        supervisor._processes = {}
+        supervisor._lock = __import__("threading").Lock()
+        supervisor._shutdown_event = __import__("threading").Event()
+        supervisor._monitor_thread = None
+
+        process = MagicMock()
+        process.poll.return_value = 0
+        process.returncode = 0
+
+        managed = ManagedProcess(key="gk_collector")
+        managed.status = ProcessStatus.RUNNING
+        managed.process = process
+        managed.pid = 4321
+        managed.run_id = 99
+        managed.flags = []
+        managed.preset_name = "Dry-run"
+        managed.started_by = None
+        supervisor._processes["gk_collector"] = managed
+
+        with patch("admin_web.modules.process_manager.supervisor.pm_db") as mock_db, \
+             patch("admin_web.modules.process_manager.supervisor._remove_pid_file") as mock_remove_pid, \
+             patch("admin_web.modules.process_manager.supervisor.get_process_registry") as mock_registry, \
+             patch.object(supervisor, "_do_start") as mock_do_start:
+            mock_registry.return_value = {
+                "gk_collector": SimpleNamespace(
+                    process_type=ProcessType.DAEMON,
+                    auto_restart=True,
+                    max_restart_attempts=3,
+                    restart_delay_seconds=0,
+                ),
+            }
+
+            supervisor._check_processes()
+
+        mock_db.finish_run_record.assert_called_once_with(
+            99,
+            exit_code=0,
+            status="stopped",
+            stop_reason="completed",
+        )
+        mock_remove_pid.assert_called_once_with("gk_collector")
+        mock_do_start.assert_not_called()
+        self.assertEqual(managed.status, ProcessStatus.STOPPED)
+
 
 # ===================================================================
 # Тесты groups_api — утилиты JSON

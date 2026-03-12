@@ -571,37 +571,46 @@ class ProcessSupervisor:
             if managed.process:
                 exit_code = managed.process.returncode
 
-            logger.warning(
-                "Процесс упал: key=%s pid=%s exit_code=%s",
-                key, managed.pid, exit_code,
-            )
-
-            if managed.run_id:
-                definition = registry.get(key)
-                one_shot_completed = bool(
-                    definition
-                    and definition.process_type == ProcessType.ONE_SHOT
-                    and exit_code == 0
-                )
-
-                pm_db.finish_run_record(
-                    managed.run_id,
-                    exit_code=exit_code,
-                    status="stopped" if one_shot_completed else "crashed",
-                    stop_reason="completed" if one_shot_completed else "crash",
-                )
-
-            managed.exit_code = exit_code
-            managed.process = None
             definition = registry.get(key)
             one_shot_completed = bool(
                 definition
                 and definition.process_type == ProcessType.ONE_SHOT
                 and exit_code == 0
             )
+            daemon_clean_exit = bool(
+                definition
+                and definition.process_type == ProcessType.DAEMON
+                and exit_code == 0
+            )
+
+            if one_shot_completed or daemon_clean_exit:
+                logger.info(
+                    "Процесс завершился штатно: key=%s pid=%s exit_code=%s",
+                    key, managed.pid, exit_code,
+                )
+            else:
+                logger.warning(
+                    "Процесс упал: key=%s pid=%s exit_code=%s",
+                    key, managed.pid, exit_code,
+                )
+
+            if managed.run_id:
+                pm_db.finish_run_record(
+                    managed.run_id,
+                    exit_code=exit_code,
+                    status="stopped" if (one_shot_completed or daemon_clean_exit) else "crashed",
+                    stop_reason="completed" if (one_shot_completed or daemon_clean_exit) else "crash",
+                )
+
+            managed.exit_code = exit_code
+            managed.process = None
             if one_shot_completed:
                 managed.add_output_line(
                     f"[PM] Процесс завершён: exit_code={exit_code}",
+                )
+            elif daemon_clean_exit:
+                managed.add_output_line(
+                    f"[PM] Процесс завершился штатно: exit_code={exit_code} (авто-рестарт не выполняется)",
                 )
             else:
                 managed.add_output_line(
@@ -614,6 +623,7 @@ class ProcessSupervisor:
                 definition
                 and definition.auto_restart
                 and definition.process_type == ProcessType.DAEMON
+                and not daemon_clean_exit
                 and managed.restart_count < definition.max_restart_attempts
             ):
                 managed.restart_count += 1
@@ -635,7 +645,7 @@ class ProcessSupervisor:
                     managed.started_by,
                 )
             else:
-                managed.status = ProcessStatus.STOPPED if one_shot_completed else ProcessStatus.CRASHED
+                managed.status = ProcessStatus.STOPPED if (one_shot_completed or daemon_clean_exit) else ProcessStatus.CRASHED
                 if definition and managed.restart_count >= definition.max_restart_attempts:
                     managed.add_output_line(
                         f"[PM] Достигнут лимит авто-рестартов ({definition.max_restart_attempts})",
