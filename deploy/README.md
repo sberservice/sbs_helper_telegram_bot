@@ -118,6 +118,8 @@ deploy\task_scheduler_setup.bat
 
 Компьютер перезагружается (например, в 7:00) → через 2 минуты Task Scheduler запускает `start.bat` → admin_web стартует и запускает процессы из `launch_config.json`.
 
+При запуске открывается отдельное окно `SBS_Archie_AdminWeb` с live-выводом сервера. Вывод одновременно сохраняется в `logs\admin_web.log`.
+
 ### Архитектура запуска
 
 ```

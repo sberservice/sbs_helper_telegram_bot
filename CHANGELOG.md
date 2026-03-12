@@ -5,6 +5,12 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.55] - 2026-03-12
+
+### Changed
+- `deploy/start.bat`: `admin_web` теперь запускается в видимом отдельном окне `SBS_Archie_AdminWeb` с live-выводом, при этом вывод одновременно пишется в `logs/admin_web.log` через `PowerShell Tee-Object`.
+- `deploy/README.md`: добавлено описание live-окна и параллельной записи лога.
+
 ## [0.10.54] - 2026-03-12
 
 ### Fixed
