@@ -94,7 +94,7 @@ if !RESTART_COUNT! GEQ %MAX_RESTART_ATTEMPTS% (
 echo [%date% %time%] Запуск admin_web (попытка !RESTART_COUNT! из %MAX_RESTART_ATTEMPTS%)...
 
 :: Запускаем admin_web в фоне через start /min
-start /min "SBS_Archie_AdminWeb" cmd /c "cd /d %PROJECT_DIR% && call %VENV_DIR%\Scripts\activate.bat && set ADMIN_WEB_HOST=%ADMIN_WEB_HOST% && python -m admin_web >> %ADMIN_WEB_LOG% 2>&1"
+start /min "SBS_Archie_AdminWeb" cmd /c "cd /d %PROJECT_DIR% && call %VENV_DIR%\Scripts\activate.bat && python -m admin_web >> %ADMIN_WEB_LOG% 2>&1"
 
 :: Ждём 10 секунд для инициализации
 echo [%date% %time%] Ожидание инициализации admin_web (10 сек)...

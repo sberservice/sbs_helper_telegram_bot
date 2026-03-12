@@ -2,8 +2,8 @@
 chcp 65001 >nul 2>&1
 setlocal EnableDelayedExpansion
 
-:: Защита от самоперезаписи: update.bat может обновить сам себя через git reset.
-:: Запускаем основную логику из временной копии, чтобы избежать ошибок парсинга.
+REM Защита от самоперезаписи: update.bat может обновить сам себя через git reset.
+REM Запускаем основную логику из временной копии, чтобы избежать ошибок парсинга.
 if /i "%~1" NEQ "__RUNNER__" (
     set "RUNNER=%TEMP%\sbs_archie_update_runner.bat"
     copy "%~f0" "!RUNNER!" >nul 2>&1
@@ -19,18 +19,18 @@ if /i "%~1" NEQ "__RUNNER__" (
 )
 shift
 
-:: ============================================================
-:: SBS Archie — Обновление (update.bat)
-:: Останавливает бота, обновляет из GitHub, пересобирает
-:: frontend, обновляет зависимости и предлагает запуск.
-:: ============================================================
+REM ============================================================
+REM SBS Archie — Обновление (update.bat)
+REM Останавливает бота, обновляет из GitHub, пересобирает
+REM frontend, обновляет зависимости и предлагает запуск.
+REM ============================================================
 
 set "PROJECT_DIR=C:\SBS_Archie"
 set "VENV_DIR=%PROJECT_DIR%\venv_name"
 set "BACKUP_DIR=%PROJECT_DIR%\deploy\backups"
 set "FRONTEND_DIR=%PROJECT_DIR%\admin_web\frontend"
 
-:: Переход в директорию проекта
+REM Переход в директорию проекта
 cd /d "%PROJECT_DIR%" || (
     echo [%date% %time%] ОШИБКА: Директория проекта не найдена: %PROJECT_DIR%
     pause
@@ -41,17 +41,17 @@ echo [%date% %time%] =========================================
 echo [%date% %time%] SBS Archie — Обновление
 echo [%date% %time%] =========================================
 
-:: ---- Шаг 1: Остановка ----
+REM ---- Шаг 1: Остановка ----
 echo.
 echo [%date% %time%] [1/6] Остановка текущих процессов...
 call "%PROJECT_DIR%\deploy\stop.bat"
 timeout /t 3 /nobreak >nul
 
-:: ---- Шаг 2: Бэкап конфигурации ----
+REM ---- Шаг 2: Бэкап конфигурации ----
 echo.
 echo [%date% %time%] [2/6] Резервное копирование конфигурации...
 
-:: Создаём папку бэкапов с датой
+REM Создаём папку бэкапов с датой
 for /f "tokens=1-3 delims=/.- " %%a in ("%date%") do set "D=%%c-%%b-%%a"
 for /f "tokens=1-2 delims=:." %%a in ("%time: =0%") do set "T=%%a%%b"
 set "BACKUP_SUBDIR=%BACKUP_DIR%\%D%_%T%"
@@ -76,10 +76,10 @@ if exist "%PROJECT_DIR%\config\helper_groups.json" (
 
 echo [%date% %time%]   Бэкап: %BACKUP_SUBDIR%
 
-:: Удаление бэкапов старше 30 дней
+REM Удаление бэкапов старше 30 дней
 forfiles /p "%BACKUP_DIR%" /d -30 /c "cmd /c if @isdir==TRUE rmdir /s /q @path" >nul 2>&1
 
-:: ---- Шаг 3: Сохранение текущей версии ----
+REM ---- Шаг 3: Сохранение текущей версии ----
 echo.
 echo [%date% %time%] [3/6] Обновление из GitHub (main)...
 
@@ -89,7 +89,7 @@ if exist "%PROJECT_DIR%\VERSION" (
     set "OLD_VERSION=неизвестно"
 )
 
-:: Git: принудительная синхронизация с origin/main
+REM Git: принудительная синхронизация с origin/main
 git fetch origin main
 if errorlevel 1 (
     echo [%date% %time%] ОШИБКА: git fetch не удался. Проверьте сетевое подключение.
@@ -123,7 +123,7 @@ if exist "%PROJECT_DIR%\VERSION" (
 
 echo [%date% %time%]   Обновлено: !OLD_VERSION! -^> !NEW_VERSION!
 
-:: ---- Шаг 4: Обновление зависимостей Python ----
+REM ---- Шаг 4: Обновление зависимостей Python ----
 echo.
 echo [%date% %time%] [4/6] Обновление Python-зависимостей...
 call "%VENV_DIR%\Scripts\activate.bat"
@@ -134,7 +134,7 @@ if errorlevel 1 (
     echo [%date% %time%]   Python-зависимости обновлены.
 )
 
-:: ---- Шаг 5: Пересборка frontend ----
+REM ---- Шаг 5: Пересборка frontend ----
 echo.
 echo [%date% %time%] [5/6] Пересборка frontend...
 
@@ -157,9 +157,10 @@ if errorlevel 1 (
 cd /d "%PROJECT_DIR%"
 echo [%date% %time%]   Frontend успешно пересобран.
 
+
 :skip_frontend
 
-:: ---- Шаг 6: Итог ----
+REM ---- Шаг 6: Итог ----
 echo.
 echo [%date% %time%] [6/6] Обновление завершено.
 echo [%date% %time%] =========================================
