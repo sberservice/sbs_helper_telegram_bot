@@ -222,6 +222,8 @@ export interface TermScanStatus {
     terms_found: number;
     terms_stored: number;
     terms_new?: number;
+    terms_updated?: number;
+    terms_skipped?: number;
     batches_processed: number;
     errors: string[];
   };
@@ -235,6 +237,8 @@ export interface TermScanStatus {
     terms_found_so_far?: number;
     terms_found?: number;
     terms_new?: number;
+    terms_updated?: number;
+    terms_skipped?: number;
     errors_count?: number;
   };
   progress_log?: Array<{
@@ -247,6 +251,8 @@ export interface TermScanStatus {
     terms_found_so_far?: number;
     terms_found?: number;
     terms_new?: number;
+    terms_updated?: number;
+    terms_skipped?: number;
     errors_count?: number;
   }>;
   error?: string;
