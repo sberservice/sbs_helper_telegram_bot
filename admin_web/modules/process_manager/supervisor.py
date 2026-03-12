@@ -401,6 +401,8 @@ class ProcessSupervisor:
         cmd = list(definition.command) + flags
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
 
         logger.info(
             "Запуск процесса: key=%s cmd=%s preset=%s started_by=%s",
@@ -413,6 +415,8 @@ class ProcessSupervisor:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 cwd=self._project_root,
                 env=env,
