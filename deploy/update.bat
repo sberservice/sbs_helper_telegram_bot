@@ -2,6 +2,23 @@
 chcp 65001 >nul 2>&1
 setlocal EnableDelayedExpansion
 
+:: Защита от самоперезаписи: update.bat может обновить сам себя через git reset.
+:: Запускаем основную логику из временной копии, чтобы избежать ошибок парсинга.
+if /i "%~1" NEQ "__RUNNER__" (
+    set "RUNNER=%TEMP%\sbs_archie_update_runner.bat"
+    copy "%~f0" "!RUNNER!" >nul 2>&1
+    if errorlevel 1 (
+        echo [%date% %time%] ОШИБКА: не удалось создать временную копию update.bat
+        pause
+        exit /b 1
+    )
+    call "!RUNNER!" __RUNNER__
+    set "RC=%ERRORLEVEL%"
+    del "!RUNNER!" >nul 2>&1
+    exit /b %RC%
+)
+shift
+
 :: ============================================================
 :: SBS Archie — Обновление (update.bat)
 :: Останавливает бота, обновляет из GitHub, пересобирает

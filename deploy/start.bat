@@ -58,7 +58,7 @@ if not exist "%FRONTEND_DIST_INDEX%" (
     echo [%date% %time%] React build не найден, попытка сборки frontend...
     where npm >nul 2>&1
     if errorlevel 1 (
-        echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: npm не найден, UI может быть недоступен (только API).
+        echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: npm не найден, UI может быть недоступен ^(только API^).
     ) else (
         cd /d "%FRONTEND_DIR%"
         call npm install --silent 2>nul
