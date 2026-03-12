@@ -5,6 +5,12 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.56] - 2026-03-12
+
+### Fixed
+- `deploy/start.bat`: убран запуск через `PowerShell Tee-Object` (вызывал искажение кириллицы и `NativeCommandError`); запуск `admin_web` переведён на `cmd /k` с `chcp 65001` и `PYTHONIOENCODING=utf-8` для корректного live-вывода.
+- `deploy/README.md`: уточнено поведение live-окна `SBS_Archie_AdminWeb` после изменения механизма запуска.
+
 ## [0.10.55] - 2026-03-12
 
 ### Changed

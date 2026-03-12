@@ -93,8 +93,8 @@ if !RESTART_COUNT! GEQ %MAX_RESTART_ATTEMPTS% (
 
 echo [%date% %time%] Запуск admin_web (попытка !RESTART_COUNT! из %MAX_RESTART_ATTEMPTS%)...
 
-:: Запускаем admin_web в отдельном видимом окне (live output + запись в лог)
-start "SBS_Archie_AdminWeb" powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$env:PYTHONUNBUFFERED='1'; Set-Location '%PROJECT_DIR%'; & '%VENV_DIR%\Scripts\python.exe' -m admin_web *>&1 | Tee-Object -FilePath '%ADMIN_WEB_LOG%' -Append"
+:: Запускаем admin_web в отдельном видимом окне (live output)
+start "SBS_Archie_AdminWeb" cmd /k "chcp 65001 >nul && set PYTHONUNBUFFERED=1 && set PYTHONIOENCODING=utf-8 && cd /d %PROJECT_DIR% && call %VENV_DIR%\Scripts\activate.bat && python -m admin_web"
 
 :: Ждём 10 секунд для инициализации
 echo [%date% %time%] Ожидание инициализации admin_web (10 сек)...
