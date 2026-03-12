@@ -45,6 +45,7 @@ from src.common.constants.sync import (
 )
 from src.common.pii_masking import mask_sensitive_data
 from src.core.ai.rag_service import preload_rag_runtime_dependencies
+from src.group_knowledge.telethon_session import start_telegram_client_with_logging
 
 # ---------------------------------------------------------------------------
 # Логирование
@@ -769,11 +770,20 @@ async def manage_groups_interactive() -> None:
     """Интерактивный CLI для управления списком групп THE_HELPER."""
     print("\n🔧 THE_HELPER — Управление группами\n")
 
-    client = TelegramClient(
-        str(PROJECT_ROOT / HELPER_SESSION_NAME),
-        TELETHON_API_ID,
-        TELETHON_API_HASH,
+    session_path = str(PROJECT_ROOT / HELPER_SESSION_NAME)
+    client = await start_telegram_client_with_logging(
+        session_path=session_path,
+        api_id=TELETHON_API_ID,
+        api_hash=TELETHON_API_HASH,
+        logger=logger,
+        interactive=False,
     )
+    if not client:
+        logger.error(
+            "Не удалось запустить THE_HELPER: отсутствует/невалидна Telethon-сессия. "
+            "Создайте сессию командой: python scripts/the_helper.py --manage-groups",
+        )
+        sys.exit(1)
     await client.start()
 
     groups = load_groups()
@@ -1009,7 +1019,6 @@ async def run_listener() -> None:
                 except Exception:
                     pass
 
-    await client.start()
     logger.info("✅ THE_HELPER запущен и слушает /helpme в %d группах.", len(group_ids))
 
     # Корректное завершение

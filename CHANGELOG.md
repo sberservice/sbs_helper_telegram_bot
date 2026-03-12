@@ -5,6 +5,16 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.61] - 2026-03-13
+
+### Fixed
+- `src/group_knowledge/telethon_session.py`: добавлен non-interactive режим запуска Telethon-клиента (`interactive=False`) для daemon-сценариев — при отсутствии сессии больше нет попытки запросить телефон/код через `input()`, вместо этого возвращается понятная ошибка с инструкцией.
+- `scripts/gk_collector.py`, `scripts/gk_responder.py`, `scripts/the_helper.py`: daemon-старты переведены на non-interactive Telethon startup, чтобы процессы не пытались «создавать сессию сами» при автозапуске.
+- `src/group_knowledge/telethon_session.py`: `disconnect_client_quietly()` теперь подавляет `CancelledError` и другие вторичные исключения при cleanup.
+
+### Changed
+- `deploy/README.md`: явно указано, что daemon-процессы не выполняют интерактивную Telethon-авторизацию на автозапуске; сессии нужно создать заранее или перенести с прежнего сервера.
+
 ## [0.10.60] - 2026-03-13
 
 ### Fixed

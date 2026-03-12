@@ -356,6 +356,7 @@ async def run_collector(args: argparse.Namespace) -> None:
         api_id=TELETHON_API_ID,
         api_hash=TELETHON_API_HASH,
         logger=logger,
+        interactive=False,
     )
 
     if not client:

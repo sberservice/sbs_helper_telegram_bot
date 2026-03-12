@@ -56,7 +56,7 @@ async def disconnect_client_quietly(client: Any) -> None:
 
     try:
         await client.disconnect()
-    except Exception:
+    except BaseException:
         return
 
 
@@ -65,8 +65,18 @@ async def start_telegram_client_with_logging(
     api_id: int,
     api_hash: str,
     logger: logging.Logger,
+    interactive: bool = True,
 ) -> Optional[Any]:
-    """Запустить Telethon-клиент с понятными сообщениями об ошибках."""
+    """Запустить Telethon-клиент с понятными сообщениями об ошибках.
+
+    Args:
+        session_path: Путь к файлу Telethon-сессии.
+        api_id: TELETHON_API_ID.
+        api_hash: TELETHON_API_HASH.
+        logger: Логгер.
+        interactive: Разрешить интерактивную авторизацию (ввод телефона/кода).
+            Для daemon-процессов должно быть False.
+    """
     from telethon.errors import (
         ApiIdInvalidError,
         FloodWaitError,
@@ -78,8 +88,26 @@ async def start_telegram_client_with_logging(
 
     client = build_telegram_client(session_path, api_id, api_hash, logger)
     try:
-        await client.start()
+        if interactive:
+            await client.start()
+        else:
+            await client.connect()
+            is_authorized = await client.is_user_authorized()
+            if not is_authorized:
+                logger.error(
+                    "Telethon-сессия не авторизована: %s. "
+                    "Daemon-режим не выполняет интерактивную авторизацию. "
+                    "Создайте сессию вручную (например, через --manage-groups).",
+                    session_path,
+                )
+                await disconnect_client_quietly(client)
+                return None
         return client
+    except EOFError:
+        logger.error(
+            "Интерактивный ввод недоступен при авторизации Telethon (EOF). "
+            "Запустите скрипт вручную в интерактивной консоли для создания сессии.",
+        )
     except ApiIdInvalidError:
         logger.error("Неверные TELETHON_API_ID или TELETHON_API_HASH. Проверьте значения в .env")
     except PhoneNumberInvalidError:
