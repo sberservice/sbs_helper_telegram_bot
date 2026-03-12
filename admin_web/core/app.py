@@ -658,6 +658,7 @@ def main() -> None:
                     "()": "uvicorn.logging.AccessFormatter",
                     "fmt": '%(asctime)s %(levelname)s %(name)s: %(client_addr)s - "%(request_line)s" %(status_code)s',
                     "datefmt": date_format,
+                    "use_colors": False,
                 },
             },
             "handlers": {

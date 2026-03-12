@@ -5,6 +5,11 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.57] - 2026-03-12
+
+### Fixed
+- `admin_web/core/app.py`: в `uvicorn` access formatter отключены ANSI-цвета (`use_colors=False`), чтобы в консоли Windows не появлялись escape-последовательности вида `\u001b[32m`.
+
 ## [0.10.56] - 2026-03-12
 
 ### Fixed
