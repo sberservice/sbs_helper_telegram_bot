@@ -759,7 +759,7 @@ class TestGKSearchService(unittest.TestCase):
         self.assertEqual(results[0]["vector_score"], 0.82)
         self.assertEqual(results[0]["fullness"], 0.79)
         self.assertEqual(results[0]["confidence_reason"], "Решение подтверждено несколькими участниками")
-        fake_service.search.assert_awaited_once_with("ошибка 1001", top_k=5)
+        fake_service.search.assert_awaited_once_with("ошибка 1001", top_k=5, group_id=None)
 
     def test_hybrid_search_returns_empty_list_on_import_error(self):
         """Если `qa_search` недоступен, обёртка возвращает пустой список."""
@@ -818,7 +818,7 @@ class TestGKSearchService(unittest.TestCase):
             "**Отвечает Арчи**: Перезагрузите терминал и обновите конфиг\n\n"
             "Похожий случай в группе, ссылка на ответ: https://t.me/c/1234567890/555",
         )
-        fake_service.search.assert_awaited_once_with("ошибка 1001", top_k=5)
+        fake_service.search.assert_awaited_once_with("ошибка 1001", top_k=5, group_id=None)
         fake_service.answer_question_from_pairs.assert_awaited_once()
 
 

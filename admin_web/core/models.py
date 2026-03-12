@@ -257,7 +257,6 @@ class TermDetail(BaseModel):
     group_id: int = 0
     group_title: Optional[str] = None
     term: str
-    term_type: str
     definition: Optional[str] = None
     source: str = "llm_discovered"
     status: str = "pending"
@@ -270,6 +269,7 @@ class TermDetail(BaseModel):
     updated_at: Optional[Any] = None
     existing_verdict: Optional[str] = None
     existing_comment: Optional[str] = None
+    has_definition: bool = False
 
 
 class TermValidationStats(BaseModel):
@@ -279,8 +279,8 @@ class TermValidationStats(BaseModel):
     pending: int = 0
     approved: int = 0
     rejected: int = 0
-    fixed_terms: int = 0
-    acronyms: int = 0
+    with_definition: int = 0
+    without_definition: int = 0
 
 
 class TermListResponse(BaseModel):
@@ -298,7 +298,6 @@ class AddTermRequest(BaseModel):
 
     group_id: int = 0
     term: str = Field(..., min_length=1, max_length=100)
-    term_type: str = Field("fixed_term", pattern=r"^(fixed_term|acronym)$")
     definition: Optional[str] = Field(None, max_length=2000)
 
 

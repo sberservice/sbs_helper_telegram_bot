@@ -1,0 +1,152 @@
+@echo off
+chcp 65001 >nul 2>&1
+setlocal EnableDelayedExpansion
+
+:: ============================================================
+:: SBS Archie — Обновление (update.bat)
+:: Останавливает бота, обновляет из GitHub, пересобирает
+:: frontend, обновляет зависимости и предлагает запуск.
+:: ============================================================
+
+set "PROJECT_DIR=C:\SBS_Archie"
+set "VENV_DIR=%PROJECT_DIR%\venv_name"
+set "BACKUP_DIR=%PROJECT_DIR%\deploy\backups"
+set "FRONTEND_DIR=%PROJECT_DIR%\admin_web\frontend"
+
+:: Переход в директорию проекта
+cd /d "%PROJECT_DIR%" || (
+    echo [%date% %time%] ОШИБКА: Директория проекта не найдена: %PROJECT_DIR%
+    pause
+    exit /b 1
+)
+
+echo [%date% %time%] =========================================
+echo [%date% %time%] SBS Archie — Обновление
+echo [%date% %time%] =========================================
+
+:: ---- Шаг 1: Остановка ----
+echo.
+echo [%date% %time%] [1/6] Остановка текущих процессов...
+call "%PROJECT_DIR%\deploy\stop.bat"
+timeout /t 3 /nobreak >nul
+
+:: ---- Шаг 2: Бэкап конфигурации ----
+echo.
+echo [%date% %time%] [2/6] Резервное копирование конфигурации...
+
+:: Создаём папку бэкапов с датой
+for /f "tokens=1-3 delims=/.- " %%a in ("%date%") do set "D=%%c-%%b-%%a"
+for /f "tokens=1-2 delims=:." %%a in ("%time: =0%") do set "T=%%a%%b"
+set "BACKUP_SUBDIR=%BACKUP_DIR%\%D%_%T%"
+mkdir "%BACKUP_SUBDIR%" >nul 2>&1
+
+if exist "%PROJECT_DIR%\config\.env" (
+    copy "%PROJECT_DIR%\config\.env" "%BACKUP_SUBDIR%\.env" >nul
+    echo [%date% %time%]   .env скопирован
+)
+if exist "%PROJECT_DIR%\deploy\launch_config.json" (
+    copy "%PROJECT_DIR%\deploy\launch_config.json" "%BACKUP_SUBDIR%\launch_config.json" >nul
+    echo [%date% %time%]   launch_config.json скопирован
+)
+if exist "%PROJECT_DIR%\config\gk_groups.json" (
+    copy "%PROJECT_DIR%\config\gk_groups.json" "%BACKUP_SUBDIR%\gk_groups.json" >nul
+    echo [%date% %time%]   gk_groups.json скопирован
+)
+if exist "%PROJECT_DIR%\config\helper_groups.json" (
+    copy "%PROJECT_DIR%\config\helper_groups.json" "%BACKUP_SUBDIR%\helper_groups.json" >nul
+    echo [%date% %time%]   helper_groups.json скопирован
+)
+
+echo [%date% %time%]   Бэкап: %BACKUP_SUBDIR%
+
+:: Удаление бэкапов старше 30 дней
+forfiles /p "%BACKUP_DIR%" /d -30 /c "cmd /c if @isdir==TRUE rmdir /s /q @path" >nul 2>&1
+
+:: ---- Шаг 3: Сохранение текущей версии ----
+echo.
+echo [%date% %time%] [3/6] Обновление из GitHub (main)...
+
+if exist "%PROJECT_DIR%\VERSION" (
+    set /p OLD_VERSION=<"%PROJECT_DIR%\VERSION"
+) else (
+    set "OLD_VERSION=неизвестно"
+)
+
+:: Git pull
+git fetch origin main
+if errorlevel 1 (
+    echo [%date% %time%] ОШИБКА: git fetch не удался. Проверьте сетевое подключение.
+    pause
+    exit /b 1
+)
+
+git checkout main
+git pull origin main
+if errorlevel 1 (
+    echo [%date% %time%] ОШИБКА: git pull не удался.
+    echo [%date% %time%] Возможно, есть локальные изменения. Выполните:
+    echo              git stash ^&^& git pull origin main ^&^& git stash pop
+    pause
+    exit /b 1
+)
+
+if exist "%PROJECT_DIR%\VERSION" (
+    set /p NEW_VERSION=<"%PROJECT_DIR%\VERSION"
+) else (
+    set "NEW_VERSION=неизвестно"
+)
+
+echo [%date% %time%]   Обновлено: !OLD_VERSION! -^> !NEW_VERSION!
+
+:: ---- Шаг 4: Обновление зависимостей Python ----
+echo.
+echo [%date% %time%] [4/6] Обновление Python-зависимостей...
+call "%VENV_DIR%\Scripts\activate.bat"
+pip install -r requirements.txt --quiet
+if errorlevel 1 (
+    echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: pip install завершился с ошибкой.
+) else (
+    echo [%date% %time%]   Python-зависимости обновлены.
+)
+
+:: ---- Шаг 5: Пересборка frontend ----
+echo.
+echo [%date% %time%] [5/6] Пересборка frontend...
+
+where npm >nul 2>&1
+if errorlevel 1 (
+    echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: npm не найден. Frontend не будет пересобран.
+    echo [%date% %time%] Установите Node.js: https://nodejs.org/
+    goto :skip_frontend
+)
+
+cd /d "%FRONTEND_DIR%"
+call npm install --silent 2>nul
+call npm run build
+if errorlevel 1 (
+    echo [%date% %time%] ОШИБКА: Сборка frontend не удалась!
+    cd /d "%PROJECT_DIR%"
+    pause
+    exit /b 1
+)
+cd /d "%PROJECT_DIR%"
+echo [%date% %time%]   Frontend успешно пересобран.
+
+:skip_frontend
+
+:: ---- Шаг 6: Итог ----
+echo.
+echo [%date% %time%] [6/6] Обновление завершено.
+echo [%date% %time%] =========================================
+echo [%date% %time%]   Версия: !NEW_VERSION!
+echo [%date% %time%]   Бэкап:  %BACKUP_SUBDIR%
+echo [%date% %time%] =========================================
+echo.
+
+set /p START_NOW="Запустить SBS Archie? (y/n): "
+if /i "%START_NOW%"=="y" (
+    echo [%date% %time%] Запуск...
+    call "%PROJECT_DIR%\deploy\start.bat"
+) else (
+    echo [%date% %time%] Для запуска выполните: deploy\start.bat
+)

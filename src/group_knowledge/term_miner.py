@@ -12,6 +12,8 @@
 import asyncio
 import json
 import logging
+import re
+import unicodedata
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -22,30 +24,45 @@ from src.group_knowledge import database as gk_db
 
 logger = logging.getLogger(__name__)
 
+# Regex для извлечения JSON из markdown code fence (в т.ч. с преамбулой).
+_JSON_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
+
+# Regex для схлопывания внутренних пробелов.
+_MULTISPACE_RE = re.compile(r"\s+")
+
+
+def _normalize_term(raw: str) -> str:
+    """Нормализовать строку термина.
+
+    - Unicode NFKC (каноническое представление).
+    - strip + lower.
+    - Схлопывание внутренних пробелов.
+    - Пустая строка → вернуть "".
+    """
+    text = unicodedata.normalize("NFKC", raw)
+    text = text.strip().lower()
+    text = _MULTISPACE_RE.sub(" ", text)
+    return text
+
+
 # Максимальная длина текста сообщений в одном батче для LLM.
 _MAX_BATCH_TEXT_LENGTH = 12000
 
-# Промпт для извлечения терминов и аббревиатур из батча сообщений.
+# Промпт для извлечения терминов из батча сообщений.
 TERM_EXTRACTION_PROMPT = """Ты — эксперт по технической поддержке оборудования для полевых инженеров.
 
-Проанализируй переписку из чата технической поддержки и найди:
-
-1. **Защищённые термины (fixed_term)** — короткие (2–6 символов) доменные сокращения,
-   которые используются в техническом контексте и НЕ должны изменяться при поиске.
-   Примеры: ккт, офд, фн, усн, pos, nfc, sim, гз, чз.
-   Включай только устоявшиеся сокращения, а не случайные слова.
-
-2. **Аббревиатуры с расшифровками (acronym)** — сокращения, для которых из контекста
-   можно определить полное значение. Расшифровка должна быть точной и понятной.
-   Примеры: ГЗ = Горячая замена, ЧЗ = Честный Знак, ТСТ = торгово-сервисная точка.
+Проанализируй переписку из чата технической поддержки и найди доменные сокращения и термины.
+Примеры: ккт, офд, фн, усн, pos, nfc, sim, гз, чз.
 
 ПРАВИЛА:
 - Термины записывай в нижнем регистре.
 - Не включай общеупотребительные слова (да, нет, ок, привет, спасибо).
 - Не включай имена людей, города, даты.
-- Если аббревиатура употребляется но расшифровка НЕ ясна из контекста — добавь как fixed_term без definition.
+- Включай только устоявшиеся сокращения, а не случайные слова.
+- Если из контекста понятна расшифровка сокращения — укажи её в definition.
+- Если расшифровка НЕ ясна из контекста — укажи definition: null.
 - confidence — уверенность, что это устоявшийся технический термин (0.0–1.0).
-- Не дублируй термины — если термин можно добавить и как fixed_term, и как acronym с определением, предпочти acronym.
+- Не дублируй термины.
 
 СООБЩЕНИЯ:
 {messages}
@@ -55,8 +72,7 @@ TERM_EXTRACTION_PROMPT = """Ты — эксперт по технической 
     "terms": [
         {{
             "term": "сокращение в нижнем регистре",
-            "type": "fixed_term или acronym",
-            "definition": "расшифровка (только для acronym, иначе null)",
+            "definition": "расшифровка (если известна, иначе null)",
             "confidence": 0.0-1.0
         }}
     ]
@@ -90,6 +106,7 @@ class TermMiner:
         date_to: str,
         *,
         progress_callback: Optional[Any] = None,
+        scan_batch_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Сканировать сообщения группы за период и извлечь термины.
@@ -99,16 +116,20 @@ class TermMiner:
             date_from: Начальная дата (YYYY-MM-DD).
             date_to: Конечная дата (YYYY-MM-DD).
             progress_callback: Опциональный callback для обновления прогресса.
+            scan_batch_id: Внешний UUID батча (если не указан — генерируется).
 
         Returns:
             Словарь с результатами сканирования:
             - scan_batch_id: UUID батча
             - total_messages: число отсканированных сообщений
-            - terms_found: число найденных терминов
-            - terms_new: число новых (не дублированных) терминов
+            - terms_found: число найденных терминов (после дедупликации)
+            - terms_new: число вставленных новых терминов
+            - terms_updated: число обновлённых существующих терминов
+            - terms_skipped: число пропущенных (ранее рассмотренных) терминов
             - errors: список ошибок
         """
-        scan_batch_id = str(uuid.uuid4())
+        if not scan_batch_id:
+            scan_batch_id = str(uuid.uuid4())
         result: Dict[str, Any] = {
             "scan_batch_id": scan_batch_id,
             "group_id": group_id,
@@ -119,6 +140,8 @@ class TermMiner:
             "batches_processed": 0,
             "terms_found": 0,
             "terms_new": 0,
+            "terms_updated": 0,
+            "terms_skipped": 0,
             "errors": [],
             "status": "running",
             "progress": {
@@ -194,8 +217,10 @@ class TermMiner:
             )
             return result
 
-        # Собрать все сообщения из целевых дат.
-        all_messages = []
+        # Собрать сообщения из целевых дат поэтапно (экономия памяти):
+        # загружаем по одному дню, собираем общее число,
+        # формируем батчи постепенно.
+        all_messages: List[Any] = []
         await _emit_progress(
             "loading_messages",
             "Загрузка сообщений из БД",
@@ -284,7 +309,6 @@ class TermMiner:
             terms_to_store.append({
                 "group_id": group_id,
                 "term": term_data["term"],
-                "term_type": term_data["type"],
                 "definition": term_data.get("definition"),
                 "source": "llm_discovered",
                 "status": "pending",
@@ -293,8 +317,10 @@ class TermMiner:
                 "scan_batch_id": scan_batch_id,
             })
 
-        stored = gk_db.store_terms_batch(terms_to_store)
-        result["terms_new"] = stored
+        store_result = gk_db.store_terms_batch(terms_to_store)
+        result["terms_new"] = store_result["inserted"]
+        result["terms_updated"] = store_result["updated"]
+        result["terms_skipped"] = store_result["skipped"]
         result["status"] = "completed"
         await _emit_progress(
             "completed",
@@ -302,6 +328,8 @@ class TermMiner:
             100,
             terms_found=result["terms_found"],
             terms_new=result["terms_new"],
+            terms_updated=result["terms_updated"],
+            terms_skipped=result["terms_skipped"],
             batches_processed=result["batches_processed"],
             total_batches=result["total_batches"],
             errors_count=len(result["errors"]),
@@ -309,10 +337,11 @@ class TermMiner:
 
         logger.info(
             "Сканирование терминов завершено: group=%d batch_id=%s "
-            "messages=%d terms_found=%d terms_new=%d errors=%d",
+            "messages=%d terms_found=%d new=%d updated=%d skipped=%d errors=%d",
             group_id, scan_batch_id,
             result["total_messages"], result["terms_found"],
-            result["terms_new"], len(result["errors"]),
+            result["terms_new"], result["terms_updated"],
+            result["terms_skipped"], len(result["errors"]),
         )
 
         return result
@@ -409,15 +438,10 @@ class TermMiner:
             return []
 
         text = raw.strip()
-        # Удалить markdown code fence если есть.
-        if text.startswith("```"):
-            lines = text.split("\n")
-            # Убрать первую и последнюю строки если это fence.
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            text = "\n".join(lines).strip()
+        # Извлечь JSON из code fence (даже с преамбулой LLM).
+        fence_match = _JSON_CODE_FENCE_RE.search(text)
+        if fence_match:
+            text = fence_match.group(1).strip()
 
         try:
             parsed = json.loads(text)
@@ -434,13 +458,9 @@ class TermMiner:
             if not isinstance(item, dict):
                 continue
 
-            term = (item.get("term") or "").strip().lower()
+            term = _normalize_term(item.get("term") or "")
             if not term or len(term) > 100:
                 continue
-
-            term_type = (item.get("type") or "fixed_term").strip().lower()
-            if term_type not in ("fixed_term", "acronym"):
-                term_type = "fixed_term"
 
             definition = item.get("definition")
             if definition is not None:
@@ -456,7 +476,6 @@ class TermMiner:
 
             result.append({
                 "term": term,
-                "type": term_type,
                 "definition": definition,
                 "confidence": confidence,
             })
@@ -465,24 +484,49 @@ class TermMiner:
 
     @staticmethod
     def _deduplicate_terms(terms: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Дедупликация терминов по term.
+
+        Правила:
+        - Предпочитаем запись с definition перед записью без.
+        - При одинаковом наличии definition — предпочитаем запись с более
+          высоким confidence.
+        - При замене записи всегда сохраняем definition от проигравшей
+          записи, если у победителя definition отсутствует.
         """
-        Дедупликация терминов по (term, type), сохраняя запись с наибольшей confidence.
-        """
-        seen: Dict[tuple, Dict[str, Any]] = {}
+        seen: Dict[str, Dict[str, Any]] = {}
 
         for item in terms:
-            key = (item["term"], item["type"])
+            key = item["term"]
             existing = seen.get(key)
 
             if existing is None:
                 seen[key] = item
+                continue
+
+            existing_conf = existing.get("confidence") or 0.0
+            new_conf = item.get("confidence") or 0.0
+
+            should_replace = False
+
+            # Предпочитаем запись с definition.
+            existing_has_def = bool(existing.get("definition"))
+            new_has_def = bool(item.get("definition"))
+            if new_has_def and not existing_has_def:
+                should_replace = True
+            elif existing_has_def and not new_has_def:
+                should_replace = False
+            elif new_conf > existing_conf:
+                should_replace = True
+
+            if should_replace:
+                # Сохраняем definition от existing, если новая запись
+                # не имеет своего.
+                old_def = existing.get("definition")
+                seen[key] = item
+                if not item.get("definition") and old_def:
+                    seen[key]["definition"] = old_def
             else:
-                # Предпочитаем запись с более высокой confidence.
-                existing_conf = existing.get("confidence") or 0.0
-                new_conf = item.get("confidence") or 0.0
-                if new_conf > existing_conf:
-                    seen[key] = item
-                # Если у существующего нет definition, а у нового есть — обновить.
+                # Обратный случай — обогащаем existing.
                 if not existing.get("definition") and item.get("definition"):
                     seen[key]["definition"] = item["definition"]
 

@@ -2644,6 +2644,85 @@ class TestQASearchAnswer(unittest.TestCase):
         self.assertIn("Fullness: 0.81", system_prompt)
         self.assertIn("Confidence reason:", system_prompt)
 
+    @patch("src.group_knowledge.qa_search.ai_settings")
+    def test_answer_prompt_excludes_low_tier_pairs_when_enabled(self, mock_settings):
+        """При включённой настройке пары с tier=низкая не попадают в LLM-контекст."""
+        from src.group_knowledge.qa_search import QASearchService
+        from src.group_knowledge.models import QAPair
+
+        mock_settings.GK_RELEVANCE_HINTS_ENABLED = True
+        mock_settings.GK_EXCLUDE_LOW_TIER_FROM_LLM_CONTEXT = True
+
+        high_pair = QAPair(
+            id=101,
+            question_text="Как перезапустить терминал?",
+            answer_text="Зажмите кнопку питания на 5 секунд.",
+            group_id=-100,
+            extraction_type="thread_reply",
+        )
+        high_pair.search_relevance_tier = "высокая"
+
+        low_pair = QAPair(
+            id=202,
+            question_text="Нерелевантный кейс про другой девайс",
+            answer_text="Ответ из нерелевантного кейса",
+            group_id=-100,
+            extraction_type="thread_reply",
+        )
+        low_pair.search_relevance_tier = "низкая"
+
+        mock_provider = MagicMock()
+        mock_provider.chat = AsyncMock(return_value=json.dumps({
+            "answer": "Перезапустите терминал.",
+            "is_relevant": True,
+            "confidence": 0.9,
+            "used_pair_ids": [1],
+        }))
+
+        service = QASearchService()
+        with patch("src.group_knowledge.qa_search.get_provider", return_value=mock_provider):
+            result = _run_async(service.answer_question_from_pairs("Терминал завис", [high_pair, low_pair]))
+
+        self.assertIsNotNone(result)
+        system_prompt = mock_provider.chat.await_args.kwargs["system_prompt"]
+        self.assertIn("Как перезапустить терминал?", system_prompt)
+        self.assertNotIn("Нерелевантный кейс про другой девайс", system_prompt)
+        self.assertNotIn("Релевантность: низкая", system_prompt)
+
+    @patch("src.group_knowledge.qa_search.ai_settings")
+    def test_answer_falls_back_when_all_pairs_low_tier_and_exclusion_enabled(self, mock_settings):
+        """Если все пары низкой релевантности и фильтр включён — используется fallback и ответ генерируется."""
+        from src.group_knowledge.qa_search import QASearchService
+        from src.group_knowledge.models import QAPair
+
+        mock_settings.GK_RELEVANCE_HINTS_ENABLED = True
+        mock_settings.GK_EXCLUDE_LOW_TIER_FROM_LLM_CONTEXT = True
+
+        low_pair = QAPair(
+            id=303,
+            question_text="Низкорелевантный вопрос",
+            answer_text="Низкорелевантный ответ",
+            group_id=-100,
+            extraction_type="thread_reply",
+        )
+        low_pair.search_relevance_tier = "низкая"
+
+        mock_provider = MagicMock()
+        mock_provider.chat = AsyncMock(return_value=json.dumps({
+            "answer": "Проверьте подключение и перезапустите устройство.",
+            "is_relevant": True,
+            "confidence": 0.6,
+            "used_pair_ids": [1],
+        }))
+
+        service = QASearchService()
+        with patch("src.group_knowledge.qa_search.get_provider", return_value=mock_provider):
+            result = _run_async(service.answer_question_from_pairs("Любой вопрос", [low_pair]))
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["answer"], "Проверьте подключение и перезапустите устройство.")
+        mock_provider.chat.assert_awaited_once()
+
     def test_answer_generated_with_source_link(self):
         """В ответ возвращается ссылка на похожий кейс из группы."""
         from src.group_knowledge.qa_search import QASearchService

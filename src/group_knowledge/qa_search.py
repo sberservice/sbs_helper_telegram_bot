@@ -82,35 +82,36 @@ _GK_FIXED_TERMS_FALLBACK: frozenset = frozenset({
 # ---------------------------------------------------------------------------
 # Кэш загрузки терминов из БД (lazy; fallback на хардкод)
 # ---------------------------------------------------------------------------
-_terms_cache_data: Optional[frozenset] = None
-_terms_cache_ts: float = 0.0
-_terms_cache_group_id: Optional[int] = None
+_terms_cache: Dict[Optional[int], Tuple[frozenset, float]] = {}
 
 
 def load_fixed_terms(group_id: Optional[int] = None) -> frozenset:
-    """Загрузить approved fixed-термины из БД с TTL-кэшированием.
+    """Загрузить approved защищённые термины из БД с TTL-кэшированием.
+
+    Кэш хранится per-group_id, чтобы не вызывать thrashing при
+    обслуживании нескольких групп.
+
+    Все approved-термины становятся защищёнными BM25-токенами
+    (независимо от наличия definition).
 
     Если БД недоступна, возвращает хардкодный fallback.
     """
-    global _terms_cache_data, _terms_cache_ts, _terms_cache_group_id  # noqa: PLW0603
-
     now = time.time()
     ttl = ai_settings.GK_TERMS_CACHE_TTL_SECONDS
 
-    if (
-        _terms_cache_data is not None
-        and (now - _terms_cache_ts) < ttl
-        and _terms_cache_group_id == group_id
-    ):
-        return _terms_cache_data
+    cached = _terms_cache.get(group_id)
+    if cached is not None:
+        data, ts = cached
+        if (now - ts) < ttl:
+            return data
 
     try:
-        terms_set = gk_db.get_approved_fixed_terms(group_id)
+        terms_set = set(gk_db.get_approved_terms(group_id) or set())
+
         if terms_set:
-            _terms_cache_data = frozenset(terms_set)
-            _terms_cache_ts = now
-            _terms_cache_group_id = group_id
-            return _terms_cache_data
+            result = frozenset(terms_set)
+            _terms_cache[group_id] = (result, now)
+            return result
     except Exception:
         logger.debug("Не удалось загрузить термины из БД, используется fallback")
 
@@ -171,6 +172,8 @@ def _canonical_fixed_token(token: str, fixed_tokens: Optional[frozenset] = None,
 
     return safe_token
 
+#3. Если ни одна пара не релевантна вопросу — честно скажи, что не нашёл информации.
+
 # Промпт для генерации ответа на основе Q&A пар
 _ANSWER_PROMPT_BASE = """Ты — помощник технической поддержки для полевых инженеров компании СберСервис, обслуживающих банк Сбербанк.
 
@@ -186,16 +189,16 @@ _ANSWER_PROMPT_BASE = """Ты — помощник технической под
 0. Используй "ты", а не "вы".
 1. Отвечай максимально подробно, точно и конкретно, опираясь исключительно на найденные пары.
 2. Если несколько пар релевантны — объедини информацию.
-3. Если ни одна пара не релевантна вопросу — честно скажи, что не нашёл информации.
 4. Не придумывай информацию, которой нет в найденных парах. Не придумывай факты.
 5. Отвечай на русском языке.
-6. Не раскрывай источники в ответе. Не называй номера пар в ответе. Если вопрос откуда взял информацию - ответь, что из чата техподдержки.
+6. Не раскрывай источники в ответе. Не называй номера пар в ответе. Если вопрос откуда взял информацию - ответь, что из чата техподдержки, что ты не используешь базу знаний.
 7. Для каждой пары дополнительно передаются их внутренние поля pair_confidence. При прочих равных отдавай приоритет парам с более высокими confidence.
 8. Confidence, который ты возвращаешь - степень уверенности 0-1 в твоем ответе.
 10. Если confidence>0.5, но меньше <=0.6, начни ответ с фразы похожей на "Я совсем не уверен, но возможно...". Если confidence >0.6, но меньше <=0.85, начни ответ с фразы похожей (измени фразу) на "Возможно...". 
-11. Если confidence <0.85 и вопрос технический, связанный с оборудованием, предложи инженеру обратиться в ЦТП (Центр технической поддержки СБС), если вопрос организационный или бюрократический - к региональному менеджеру или представителю ЦК (Центра Компетенций) Сергею Шевченко, если вопрос связан с ОФД предложи обратиться в техническую поддержку ОФД, если вопрос связан с кассой Эвотор - написать письмо в поддержку по приоритизации.
+11. Если confidence <0.85 и если вопрос связан с ОФД предложи обратиться в техническую поддержку ОФД, если вопрос связан с кассой Эвотор - написать письмо в поддержку Эвотор по приоритизации.
 12. Если confidence >0.85 пиши ответ более уверенно. 
 13. Если confidence <=0.5, верни is_relevant=false и пустой answer.
+14. Если confidence <0.85, напиши очень кратко в начале ответа причину, почему ты не вполне уверен в своем ответе. 
 {relevance_rule}
 Верни JSON:
 {{
@@ -306,8 +309,9 @@ class QASearchService:
     def _build_acronyms_section(self, group_id: int) -> str:
         """Построить секцию аббревиатур для промпта ответа.
 
-        Загружает approved-аббревиатуры (глобальные + групповые),
-        фильтрует по минимальному confidence (GK_ACRONYMS_MIN_CONFIDENCE)
+        Загружает approved-термины с расшифровкой (глобальные + групповые),
+        отбирает те, у которых высокий confidence (>= GK_ACRONYMS_MIN_CONFIDENCE)
+        ИЛИ подтверждённые экспертом (expert_status='approved'),
         и кэширует результат с TTL = GK_TERMS_CACHE_TTL_SECONDS.
         """
         now = time.time()
@@ -323,10 +327,10 @@ class QASearchService:
         try:
             terms = gk_db.get_terms_for_group(
                 group_id if group_id else 0,
-                status="approved",
-                term_type="acronym",
+                has_definition=True,
             )
             if terms:
+                logger.info("Загружено аббревиатур из БД для group_id=%d: total=%d", group_id, len(terms))
                 eligible_terms: List[Dict[str, Any]] = []
                 for item in terms:
                     term = str(item.get("term") or "").strip()
@@ -334,14 +338,18 @@ class QASearchService:
                     if not term or not definition:
                         continue
 
-                    raw_confidence = item.get("confidence")
-                    try:
-                        confidence = float(raw_confidence) if raw_confidence is not None else None
-                    except (TypeError, ValueError):
-                        confidence = None
+                    # Термин, подтверждённый экспертом, проходит без проверки confidence.
+                    expert_approved = item.get("expert_status") == "approved"
 
-                    if confidence is None or confidence < min_confidence:
-                        continue
+                    if not expert_approved:
+                        raw_confidence = item.get("confidence")
+                        try:
+                            confidence = float(raw_confidence) if raw_confidence is not None else None
+                        except (TypeError, ValueError):
+                            confidence = None
+
+                        if confidence is None or confidence < min_confidence:
+                            continue
                     eligible_terms.append(item)
 
                 best_by_term = select_best_acronyms_by_term(eligible_terms, uppercase_key=True)
@@ -352,7 +360,7 @@ class QASearchService:
                     term = str(selected.get("term") or "").strip()
                     definition = str(selected.get("definition") or "").strip()
                     if term and definition:
-                        parts.append(f"{term} означает {definition}.")
+                        parts.append(f"{term} - {definition}.")
 
                 if parts:
                     text = " ".join(parts)
@@ -367,10 +375,21 @@ class QASearchService:
     # Публичный API
     # -----------------------------------------------------------------------
 
+    @staticmethod
+    def _filter_by_group(
+        results: List[Tuple[QAPair, float]],
+        group_id: Optional[int],
+    ) -> List[Tuple[QAPair, float]]:
+        """Отфильтровать результаты поиска по group_id (если указан)."""
+        if group_id is None:
+            return results
+        return [(pair, score) for pair, score in results if pair.group_id == group_id]
+
     async def search(
         self,
         query: str,
         top_k: Optional[int] = None,
+        group_id: Optional[int] = None,
     ) -> List[QAPair]:
         """
         Найти релевантные Q&A пары для запроса.
@@ -380,6 +399,7 @@ class QASearchService:
         Args:
             query: Текст запроса.
             top_k: Число результатов (по умолчанию из настроек).
+            group_id: Идентификатор группы для фильтрации (None = все группы).
 
         Returns:
             Список релевантных QAPair, отсортированных по RRF-score.
@@ -396,10 +416,22 @@ class QASearchService:
         search_query = await self._apply_spellcheck_pipeline(query)
 
         # BM25 (лексический) поиск
-        bm25_results = self._bm25_search(search_query, candidates_per_method)
+        bm25_results = self._filter_by_group(
+            self._bm25_search(search_query, candidates_per_method),
+            group_id,
+        )
 
         # Векторный поиск
-        vector_results = await self._vector_search(search_query, candidates_per_method)
+        vector_results = self._filter_by_group(
+            await self._vector_search(search_query, candidates_per_method),
+            group_id,
+        )
+
+        if group_id is not None:
+            logger.info(
+                "GK поиск: фильтрация по group_id=%d bm25_filtered=%d vector_filtered=%d",
+                group_id, len(bm25_results), len(vector_results),
+            )
 
         # Если гибридный режим выключен или один из методов пуст — fallback
         if not ai_settings.GK_HYBRID_ENABLED:
@@ -515,12 +547,14 @@ class QASearchService:
     async def answer_question(
         self,
         query: str,
+        group_id: Optional[int] = None,
     ) -> Optional[Dict]:
         """
         Ответить на вопрос, используя найденные Q&A пары.
 
         Args:
             query: Текст вопроса.
+            group_id: Идентификатор группы для фильтрации (None = все группы).
 
         Returns:
             Словарь с ключами: answer, confidence, source_pair_ids,
@@ -528,16 +562,24 @@ class QASearchService:
             None если ответ не найден.
         """
         # Поиск релевантных пар
-        relevant_pairs = await self.search(query)
+        relevant_pairs = await self.search(query, group_id=group_id)
 
-        return await self.answer_question_from_pairs(query, relevant_pairs)
+        return await self.answer_question_from_pairs(query, relevant_pairs, group_id=group_id)
 
     async def answer_question_from_pairs(
         self,
         query: str,
         relevant_pairs: List[QAPair],
+        group_id: Optional[int] = None,
     ) -> Optional[Dict]:
-        """Сгенерировать ответ по уже найденным релевантным Q&A-парам."""
+        """Сгенерировать ответ по уже найденным релевантным Q&A-парам.
+
+        Args:
+            query: Текст вопроса.
+            relevant_pairs: Список релевантных QAPair.
+            group_id: Идентификатор группы для загрузки аббревиатур.
+                      Если None, определяется автоматически из пар.
+        """
 
         if not relevant_pairs:
             logger.info("Не найдены Q&A пары для вопроса: %s", query[:100])
@@ -545,8 +587,10 @@ class QASearchService:
 
         # Если подсказки релевантности включены, но уровни ещё не вычислены
         # (вызов минуя search(), например из admin web) — вычислить.
+        # Аналогично, уровни нужны для фильтрации low-tier пар из LLM-контекста.
         hints_enabled = ai_settings.GK_RELEVANCE_HINTS_ENABLED
-        if hints_enabled and any(
+        exclude_low_tier_for_llm = ai_settings.GK_EXCLUDE_LOW_TIER_FROM_LLM_CONTEXT
+        if (hints_enabled or exclude_low_tier_for_llm) and any(
             p.search_relevance_tier is None
             and (p.search_bm25_score is not None or p.search_vector_score is not None)
             for p in relevant_pairs
@@ -555,10 +599,24 @@ class QASearchService:
                 [(p, 0.0) for p in relevant_pairs],
             )
 
+        pairs_for_llm = relevant_pairs
+        if exclude_low_tier_for_llm:
+            pairs_for_llm = [
+                pair for pair in relevant_pairs
+                if pair.search_relevance_tier != "низкая"
+            ]
+            if not pairs_for_llm:
+                logger.info(
+                    "GK answer: все найденные пары имеют tier=низкая, "
+                    "возвращаем fallback на полный набор для вопроса: %s",
+                    query[:100],
+                )
+                pairs_for_llm = relevant_pairs
+
         # Подготовить контекст из найденных пар
         qa_context_parts = []
         pair_id_map = {}
-        for i, pair in enumerate(relevant_pairs, 1):
+        for i, pair in enumerate(pairs_for_llm, 1):
             pair_confidence_label = (
                 f"{float(pair.confidence):.2f}"
                 if pair.confidence is not None
@@ -586,14 +644,14 @@ class QASearchService:
                     else "—"
                 )
                 header = (
-                    f"Пара {i} (ID={pair.id}, "
+                    f"ПАРА {i} ("
                     f"Релевантность: {pair.search_relevance_tier}, "
                     f"BM25: {bm25_label}, Вектор: {vec_label}, "
                     f"pair_confidence: {pair_confidence_label}):"
                 )
             else:
                 header = (
-                    f"Пара {i} (ID={pair.id}, "
+                    f"ПАРА {i} , "
                     f"pair_confidence: {pair_confidence_label}):"
                 )
             confidence_reason_block = (
@@ -603,8 +661,8 @@ class QASearchService:
             )
             qa_context_parts.append(
                 f"{header}\n"
-                f"  Контекст вопроса: {pair.question_text[:3500]}\n"
-                f"  Ответ: {pair.answer_text[:3500]}"
+                f"  КОНТЕКСТ ВОПРОСА: {pair.question_text[:3500]}\n"
+                f"  ОТВЕТ: {pair.answer_text[:3500]}"
             )
             if pair.id:
                 pair_id_map[i] = pair.id
@@ -613,15 +671,15 @@ class QASearchService:
 
         # Сгенерировать ответ через LLM
         relevance_rule = _RELEVANCE_RULE if hints_enabled else ""
-        group_id = next(
+        effective_group_id = group_id if group_id is not None else next(
             (
                 int(getattr(pair, "group_id", 0) or 0)
-                for pair in relevant_pairs
-                if int(getattr(pair, "group_id", 0) or 0) > 0
+                for pair in pairs_for_llm
+                if int(getattr(pair, "group_id", 0) or 0) != 0
             ),
             0,
         )
-        acronyms_section = self._build_acronyms_section(group_id)
+        acronyms_section = self._build_acronyms_section(effective_group_id)
         prompt = _ANSWER_PROMPT_BASE.format(
             qa_context=qa_context,
             relevance_rule=relevance_rule,
@@ -654,8 +712,8 @@ class QASearchService:
                 if isinstance(idx, int) and idx in pair_id_map:
                     source_pair_ids.append(pair_id_map[idx])
 
-            if not source_pair_ids and relevant_pairs and relevant_pairs[0].id:
-                source_pair_ids.append(relevant_pairs[0].id)
+            if not source_pair_ids and pairs_for_llm and pairs_for_llm[0].id:
+                source_pair_ids.append(pairs_for_llm[0].id)
 
             if not is_relevant or not answer:
                 logger.info(
