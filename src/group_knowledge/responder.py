@@ -272,8 +272,10 @@ class GroupResponder:
             )
             return None
 
-        # Поиск ответа в Q&A базе
-        answer_result = await self._qa_service.answer_question(text)
+        # Поиск ответа в Q&A базе (фильтрация по группе)
+        answer_result = await self._qa_service.answer_question(
+            text, group_id=effective_group_id,
+        )
         if not answer_result:
             logger.info(
                 "RAG не нашёл ответ: group=%d actual_group=%d msg=%d text=%s",

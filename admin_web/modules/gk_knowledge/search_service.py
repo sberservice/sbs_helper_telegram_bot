@@ -104,13 +104,14 @@ def _format_results(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return formatted
 
 
-async def hybrid_search(query: str, top_k: int = 10) -> List[Dict[str, Any]]:
+async def hybrid_search(query: str, top_k: int = 10, group_id: Optional[int] = None) -> List[Dict[str, Any]]:
     """
     Выполнить гибридный поиск (BM25 + Vector + RRF) по Q&A-корпусу.
 
     Args:
         query: Поисковый запрос.
         top_k: Количество результатов.
+        group_id: Идентификатор группы для фильтрации (None = все группы).
 
     Returns:
         Список результатов с полями: qa_pair_id, question_text, answer_text,
@@ -118,7 +119,7 @@ async def hybrid_search(query: str, top_k: int = 10) -> List[Dict[str, Any]]:
     """
     try:
         service = _get_search_service()
-        pairs = await service.search(query, top_k=top_k)
+        pairs = await service.search(query, top_k=top_k, group_id=group_id)
         ranked_results = _build_ranked_results_from_pairs(pairs)
         return _format_results(ranked_results)
 
@@ -134,7 +135,7 @@ async def hybrid_search(query: str, top_k: int = 10) -> List[Dict[str, Any]]:
         return []
 
 
-async def hybrid_search_with_answer(query: str, top_k: int = 10) -> Dict[str, Any]:
+async def hybrid_search_with_answer(query: str, top_k: int = 10, group_id: Optional[int] = None) -> Dict[str, Any]:
     """Вернуть top документов и итоговый ответ так, как его увидел бы пользователь."""
     started = time.perf_counter()
     progress_stages: List[Dict[str, Any]] = [
@@ -146,7 +147,7 @@ async def hybrid_search_with_answer(query: str, top_k: int = 10) -> Dict[str, An
     retrieval_started = time.perf_counter()
     try:
         service = _get_search_service()
-        pairs = await service.search(query, top_k=top_k)
+        pairs = await service.search(query, top_k=top_k, group_id=group_id)
         progress_stages[1]["status"] = "done"
         progress_stages[1]["duration_ms"] = int((time.perf_counter() - retrieval_started) * 1000)
         progress_stages[2]["status"] = "running"
@@ -156,7 +157,9 @@ async def hybrid_search_with_answer(query: str, top_k: int = 10) -> Dict[str, An
         formatted_results = _format_results(ranked_results)
 
         relevant_pairs = [item["pair"] for item in ranked_results]
-        answer_result = await service.answer_question_from_pairs(query, relevant_pairs)
+        answer_result = await service.answer_question_from_pairs(
+            query, relevant_pairs, group_id=group_id,
+        )
         final_answer_text = service.format_answer_for_user(answer_result)
         confidence = float(answer_result.get("confidence", 0.0)) if answer_result else None
         threshold = float(ai_settings.GK_RESPONDER_CONFIDENCE_THRESHOLD)

@@ -17,6 +17,8 @@ import {
   type GKGroupsConfig,
   type GroupEntry,
   type HelperGroupsConfig,
+  type LaunchConfigProcessEntry,
+  type LaunchConfigResponse,
   type PresetDef,
   type ProcessHistoryResponse,
   type ProcessRegistryInfo,
@@ -75,6 +77,7 @@ const TABS = [
   { key: 'detail', label: 'Процесс', icon: '🔎' },
   { key: 'groups', label: 'Группы', icon: '👥' },
   { key: 'history', label: 'История', icon: '📜' },
+  { key: 'launch', label: 'Запуск', icon: '🚀' },
 ] as const
 
 // ===================================================================
@@ -1366,6 +1369,246 @@ function HistoryTab() {
 }
 
 // ===================================================================
+// Launch Config Tab
+// ===================================================================
+
+function LaunchConfigTab() {
+  const [config, setConfig] = useState<LaunchConfigResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [applyResults, setApplyResults] = useState<Record<string, string> | null>(null)
+  const [dirty, setDirty] = useState(false)
+
+  const fetchConfig = useCallback(() => {
+    setLoading(true)
+    api.pmGetLaunchConfig()
+      .then(data => { setConfig(data); setError(''); setDirty(false) })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { fetchConfig() }, [fetchConfig])
+
+  const toggleProcess = (key: string) => {
+    if (!config) return
+    const proc = config.processes[key]
+    if (!proc) return
+    setConfig({
+      ...config,
+      processes: {
+        ...config.processes,
+        [key]: { ...proc, enabled: !proc.enabled },
+      },
+    })
+    setDirty(true)
+    setSuccess('')
+    setApplyResults(null)
+  }
+
+  const setPreset = (key: string, presetName: string | null) => {
+    if (!config) return
+    const proc = config.processes[key]
+    if (!proc) return
+    const preset = proc.available_presets.find(p => p.name === presetName)
+    setConfig({
+      ...config,
+      processes: {
+        ...config.processes,
+        [key]: {
+          ...proc,
+          preset: presetName,
+          flags: preset ? [...preset.flags] : [],
+        },
+      },
+    })
+    setDirty(true)
+    setSuccess('')
+    setApplyResults(null)
+  }
+
+  const handleSave = async () => {
+    if (!config) return
+    setSaving(true)
+    setError('')
+    setSuccess('')
+    try {
+      const payload: Record<string, { enabled: boolean; flags: string[]; preset: string | null }> = {}
+      for (const [key, proc] of Object.entries(config.processes)) {
+        payload[key] = {
+          enabled: proc.enabled,
+          flags: proc.flags,
+          preset: proc.preset,
+        }
+      }
+      await api.pmUpdateLaunchConfig({ processes: payload })
+      setSuccess('Конфигурация сохранена')
+      setDirty(false)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleApply = async () => {
+    if (!config) return
+    // Сначала сохраним, если есть изменения.
+    if (dirty) {
+      await handleSave()
+    }
+    setApplying(true)
+    setError('')
+    setApplyResults(null)
+    try {
+      const result = await api.pmApplyLaunchConfig()
+      setApplyResults(result.actions)
+      setSuccess('Конфигурация применена')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  if (loading) return <div className="loading-text">Загрузка...</div>
+  if (error && !config) return <div className="alert alert-danger">{error}</div>
+  if (!config) return null
+
+  // Группировка процессов по категории для display.
+  const categories: Record<string, Array<[string, LaunchConfigProcessEntry]>> = {}
+  for (const [key, proc] of Object.entries(config.processes)) {
+    const cat = proc.category || 'Прочие'
+    if (!categories[cat]) categories[cat] = []
+    categories[cat].push([key, proc])
+  }
+
+  const actionLabel = (action: string) => {
+    if (action === 'started') return '✅ Запущен'
+    if (action === 'stopped') return '⏹️ Остановлен'
+    if (action === 'unchanged') return '— Без изменений'
+    if (action.startsWith('error:')) return `❌ ${action}`
+    return action
+  }
+
+  return (
+    <div className="pm-launch-config">
+      <div className="pm-launch-header">
+        <div>
+          <h3 style={{ margin: 0 }}>Конфигурация автозапуска</h3>
+          <p className="text-dim" style={{ marginTop: 4 }}>
+            Процессы, которые запускаются автоматически при старте системы.
+            Изменения сохраняются в <code>deploy/launch_config.json</code>.
+          </p>
+        </div>
+        <div className="pm-launch-actions">
+          <button
+            className="btn btn-primary"
+            onClick={handleSave}
+            disabled={saving || !dirty}
+          >
+            {saving ? 'Сохранение...' : 'Сохранить'}
+          </button>
+          <button
+            className="btn btn-accent"
+            onClick={handleApply}
+            disabled={applying}
+            title="Сохранить и запустить/остановить процессы по конфигурации"
+          >
+            {applying ? 'Применение...' : 'Применить сейчас'}
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="alert alert-danger" style={{ marginTop: 12 }}>{error}</div>}
+      {success && <div className="alert alert-success" style={{ marginTop: 12 }}>{success}</div>}
+
+      {applyResults && (
+        <div className="pm-apply-results" style={{ marginTop: 12 }}>
+          <h4 style={{ marginBottom: 8 }}>Результаты применения:</h4>
+          <div className="pm-apply-results-grid">
+            {Object.entries(applyResults).map(([key, action]) => {
+              const proc = config.processes[key]
+              return (
+                <div key={key} className="pm-apply-result-row">
+                  <span>{proc?.icon || '📦'} {proc?.name || key}</span>
+                  <span className="text-dim">{actionLabel(action)}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {Object.entries(categories).map(([cat, procs]) => (
+        <div key={cat} className="pm-category-group" style={{ marginTop: 20 }}>
+          <h3 className="pm-category-title">{cat}</h3>
+          <div className="pm-launch-grid">
+            {procs.map(([key, proc]) => (
+              <div
+                key={key}
+                className={`pm-launch-card ${proc.enabled ? 'pm-launch-enabled' : 'pm-launch-disabled'}`}
+              >
+                <div className="pm-launch-card-header">
+                  <span className="pm-card-icon">{proc.icon}</span>
+                  <div className="pm-launch-card-info">
+                    <h4 className="pm-card-name">{proc.name}</h4>
+                    <span className="text-dim" style={{ fontSize: '0.85em' }}>{proc.description}</span>
+                  </div>
+                  <label className="pm-toggle">
+                    <input
+                      type="checkbox"
+                      checked={proc.enabled}
+                      onChange={() => toggleProcess(key)}
+                    />
+                    <span className="pm-toggle-slider" />
+                  </label>
+                </div>
+
+                {proc.enabled && proc.available_presets.length > 0 && (
+                  <div className="pm-launch-preset-row">
+                    <span className="text-dim" style={{ fontSize: '0.85em' }}>Режим:</span>
+                    <select
+                      value={proc.preset || ''}
+                      onChange={e => setPreset(key, e.target.value || null)}
+                      className="pm-launch-select"
+                    >
+                      <option value="">Без пресета</option>
+                      {proc.available_presets.map(p => (
+                        <option key={p.name} value={p.name}>
+                          {p.icon} {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {proc.enabled && proc.preset && (
+                  <div className="pm-launch-flags-info">
+                    {(() => {
+                      const preset = proc.available_presets.find(p => p.name === proc.preset)
+                      if (!preset) return null
+                      return (
+                        <span className="text-dim" style={{ fontSize: '0.8em' }}>
+                          {preset.description}
+                          {preset.flags.length > 0 && ` (${preset.flags.join(' ')})`}
+                        </span>
+                      )
+                    })()}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ===================================================================
 // Main Page
 // ===================================================================
 
@@ -1426,6 +1669,9 @@ export default function ProcessManagerPage() {
         )}
         {activeTab === 'history' && (
           <HistoryTab />
+        )}
+        {activeTab === 'launch' && (
+          <LaunchConfigTab />
         )}
       </div>
     </div>

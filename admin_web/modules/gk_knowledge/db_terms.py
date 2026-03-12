@@ -1,4 +1,4 @@
-"""Слой работы с БД: термины и аббревиатуры (gk_terms).
+"""Слой работы с БД: термины (gk_terms).
 
 Запросы к gk_terms и gk_term_validations для админ-панели.
 Включает пагинацию, фильтрацию, экспертную валидацию и статистику.
@@ -58,7 +58,7 @@ def get_terms_for_validation(
     page: int = 1,
     page_size: int = 20,
     group_id: Optional[int] = None,
-    term_type: Optional[str] = None,
+    has_definition: Optional[bool] = None,
     status: Optional[str] = None,
     search_text: Optional[str] = None,
     min_confidence: Optional[float] = None,
@@ -74,7 +74,7 @@ def get_terms_for_validation(
         page: Номер страницы (1-based).
         page_size: Размер страницы.
         group_id: Фильтр по группе (None = все).
-        term_type: Фильтр по типу (fixed_term / acronym).
+        has_definition: Фильтр: True = с определением, False = без.
         status: Фильтр по статусу (pending / approved / rejected).
         search_text: Поиск подстроки в термине или определении.
         min_confidence: Минимальный порог confidence (0.0–1.0).
@@ -93,9 +93,10 @@ def get_terms_for_validation(
         conditions.append("t.group_id = %s")
         params.append(group_id)
 
-    if term_type:
-        conditions.append("t.term_type = %s")
-        params.append(term_type)
+    if has_definition is True:
+        conditions.append("t.definition IS NOT NULL")
+    elif has_definition is False:
+        conditions.append("t.definition IS NULL")
 
     if status:
         conditions.append("t.status = %s")
@@ -133,7 +134,6 @@ def get_terms_for_validation(
         "confidence": "t.confidence",
         "id": "t.id",
         "group_id": "t.group_id",
-        "term_type": "t.term_type",
         "status": "t.status",
     }
     sort_field = allowed_sort_fields.get(sort_by, "t.created_at")
@@ -150,8 +150,8 @@ def get_terms_for_validation(
                               SUM(t.status = 'pending')       AS pending,
                               SUM(t.status = 'approved')      AS approved,
                               SUM(t.status = 'rejected')      AS rejected,
-                              SUM(t.term_type = 'fixed_term') AS fixed_terms,
-                              SUM(t.term_type = 'acronym')    AS acronyms
+                              SUM(t.definition IS NOT NULL)   AS with_definition,
+                              SUM(t.definition IS NULL)       AS without_definition
                        FROM gk_terms t WHERE {where_clause}""",
                     tuple(params),
                 )
@@ -162,8 +162,8 @@ def get_terms_for_validation(
                     "pending": int(count_row["pending"] or 0) if count_row else 0,
                     "approved": int(count_row["approved"] or 0) if count_row else 0,
                     "rejected": int(count_row["rejected"] or 0) if count_row else 0,
-                    "fixed_terms": int(count_row["fixed_terms"] or 0) if count_row else 0,
-                    "acronyms": int(count_row["acronyms"] or 0) if count_row else 0,
+                    "with_definition": int(count_row["with_definition"] or 0) if count_row else 0,
+                    "without_definition": int(count_row["without_definition"] or 0) if count_row else 0,
                 }
 
                 # Данные страницы
@@ -210,7 +210,7 @@ def get_terms_for_validation(
         logger.error(
             "Ошибка получения терминов для валидации: %s", exc, exc_info=True,
         )
-        return [], 0, {"total": 0, "pending": 0, "approved": 0, "rejected": 0, "fixed_terms": 0, "acronyms": 0}
+        return [], 0, {"total": 0, "pending": 0, "approved": 0, "rejected": 0, "with_definition": 0, "without_definition": 0}
 
 
 def get_term_detail(term_id: int) -> Optional[Dict[str, Any]]:
@@ -371,15 +371,15 @@ def get_term_validation_stats(
     Получить агрегированную статистику по терминам.
 
     Returns:
-        Словарь: total, pending, approved, rejected, fixed_terms, acronyms.
+        Словарь: total, pending, approved, rejected, with_definition, without_definition.
     """
     defaults = {
         "total": 0,
         "pending": 0,
         "approved": 0,
         "rejected": 0,
-        "fixed_terms": 0,
-        "acronyms": 0,
+        "with_definition": 0,
+        "without_definition": 0,
     }
 
     try:
@@ -398,8 +398,8 @@ def get_term_validation_stats(
                         SUM(status = 'pending') AS pending,
                         SUM(status = 'approved') AS approved,
                         SUM(status = 'rejected') AS rejected,
-                        SUM(term_type = 'fixed_term') AS fixed_terms,
-                        SUM(term_type = 'acronym') AS acronyms
+                        SUM(definition IS NOT NULL) AS with_definition,
+                        SUM(definition IS NULL) AS without_definition
                     FROM gk_terms
                     {group_filter}
                     """,
@@ -412,8 +412,8 @@ def get_term_validation_stats(
                         "pending": int(row.get("pending") or 0),
                         "approved": int(row.get("approved") or 0),
                         "rejected": int(row.get("rejected") or 0),
-                        "fixed_terms": int(row.get("fixed_terms") or 0),
-                        "acronyms": int(row.get("acronyms") or 0),
+                        "with_definition": int(row.get("with_definition") or 0),
+                        "without_definition": int(row.get("without_definition") or 0),
                     }
                 return defaults
 
@@ -441,12 +441,12 @@ def get_groups_with_term_counts() -> List[Dict[str, Any]]:
                     """
                     SELECT
                         t.group_id,
-                        COUNT(*)                           AS total_terms,
-                        SUM(t.status = 'pending')          AS pending_terms,
-                        SUM(t.status = 'approved')         AS approved_terms,
-                        SUM(t.status = 'rejected')         AS rejected_terms,
-                        SUM(t.term_type = 'fixed_term')    AS fixed_terms,
-                        SUM(t.term_type = 'acronym')       AS acronyms
+                        COUNT(*)                              AS total_terms,
+                        SUM(t.status = 'pending')             AS pending_terms,
+                        SUM(t.status = 'approved')            AS approved_terms,
+                        SUM(t.status = 'rejected')            AS rejected_terms,
+                        SUM(t.definition IS NOT NULL)         AS with_definition,
+                        SUM(t.definition IS NULL)             AS without_definition
                     FROM gk_terms t
                     GROUP BY t.group_id
                     ORDER BY total_terms DESC
@@ -461,8 +461,8 @@ def get_groups_with_term_counts() -> List[Dict[str, Any]]:
                         "pending_terms": int(r.get("pending_terms") or 0),
                         "approved_terms": int(r.get("approved_terms") or 0),
                         "rejected_terms": int(r.get("rejected_terms") or 0),
-                        "fixed_terms": int(r.get("fixed_terms") or 0),
-                        "acronyms": int(r.get("acronyms") or 0),
+                        "with_definition": int(r.get("with_definition") or 0),
+                        "without_definition": int(r.get("without_definition") or 0),
                     }
                     for r in rows
                 ]
@@ -483,35 +483,57 @@ def add_term_manually(
     *,
     group_id: int,
     term: str,
-    term_type: str,
     definition: Optional[str] = None,
-) -> Optional[int]:
+) -> Dict[str, Any]:
     """
     Добавить термин вручную.
 
     Returns:
-        ID записи или None при ошибке.
+        Словарь: {"term_id": int, "was_duplicate": bool} или None при ошибке.
     """
+    normalized_term = term.strip().lower()
+    if not normalized_term:
+        logger.warning("Попытка добавить пустой термин")
+        return None
+    if len(normalized_term) > 100:
+        logger.warning("Термин превышает 100 символов: '%s'", normalized_term[:30])
+        return None
     try:
         with database.get_db_connection() as conn:
             with database.get_cursor(conn) as cursor:
                 cursor.execute(
                     """
                     INSERT INTO gk_terms
-                        (group_id, term, term_type, definition, source, status)
-                    VALUES (%s, %s, %s, %s, 'manual', 'pending')
+                        (group_id, term, definition, source, status)
+                    VALUES (%s, %s, %s, 'manual', 'pending')
                     ON DUPLICATE KEY UPDATE
                         definition = COALESCE(VALUES(definition), definition),
+                        source = 'manual',
                         updated_at = NOW()
                     """,
-                    (group_id, term.strip().lower(), term_type, definition),
+                    (group_id, normalized_term, definition),
                 )
+                # rowcount: 1 = INSERT, 2 = UPDATE с изменением, 0 = дубликат без изменений.
+                was_insert = cursor.rowcount == 1
                 term_id = cursor.lastrowid
+                # lastrowid ненадёжен при ON DUPLICATE KEY UPDATE —
+                # запросить явно.
+                if not term_id:
+                    cursor.execute(
+                        """
+                        SELECT id FROM gk_terms
+                        WHERE group_id = %s AND term = %s
+                        """,
+                        (group_id, normalized_term),
+                    )
+                    row = cursor.fetchone()
+                    term_id = row["id"] if row else None
                 logger.info(
-                    "Термин добавлен вручную: id=%s term='%s' type=%s group=%d",
-                    term_id, term, term_type, group_id,
+                    "Термин %s вручную: id=%s term='%s' group=%d",
+                    "добавлен" if was_insert else "обновлён",
+                    term_id, normalized_term, group_id,
                 )
-                return term_id
+                return {"term_id": term_id, "was_duplicate": not was_insert}
     except Exception as exc:
         logger.error(
             "Ошибка ручного добавления термина '%s': %s",

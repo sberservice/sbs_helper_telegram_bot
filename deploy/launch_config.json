@@ -1,0 +1,39 @@
+{
+    "processes": {
+        "telegram_bot": {
+            "enabled": false,
+            "flags": [],
+            "preset": "Стандартный запуск"
+        },
+        "image_queue": {
+            "enabled": false,
+            "flags": [],
+            "preset": "Стандартный запуск"
+        },
+        "soos_queue": {
+            "enabled": false,
+            "flags": [],
+            "preset": "Стандартный запуск"
+        },
+        "health_check_daemon": {
+            "enabled": false,
+            "flags": [],
+            "preset": "Стандартный запуск"
+        },
+        "gk_collector": {
+            "enabled": false,
+            "flags": [],
+            "preset": "Dry-run"
+        },
+        "gk_responder": {
+            "enabled": false,
+            "flags": [],
+            "preset": "Dry-run"
+        },
+        "the_helper": {
+            "enabled": false,
+            "flags": [],
+            "preset": null
+        }
+    }
+}

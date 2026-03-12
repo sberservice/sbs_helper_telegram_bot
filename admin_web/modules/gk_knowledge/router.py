@@ -1919,8 +1919,12 @@ def _build_search_router() -> APIRouter:
             raise HTTPException(400, "Запрос слишком длинный (макс. 1000 символов)")
 
         top_k = min(body.get("top_k", 10), 50)
+        raw_group_id = body.get("group_id")
+        group_id = int(raw_group_id) if raw_group_id is not None else None
         request_started = time.perf_counter()
-        search_result = await search_service.hybrid_search_with_answer(query, top_k=top_k)
+        search_result = await search_service.hybrid_search_with_answer(
+            query, top_k=top_k, group_id=group_id,
+        )
         elapsed_ms = int((time.perf_counter() - request_started) * 1000)
         results = search_result["results"]
         return {
@@ -1983,7 +1987,6 @@ def _row_to_term_detail(row: Dict[str, Any]) -> TermDetail:
         id=row["id"],
         group_id=row.get("group_id", 0),
         term=row.get("term", ""),
-        term_type=row.get("term_type", "fixed_term"),
         definition=row.get("definition"),
         source=row.get("source", "llm_discovered"),
         status=row.get("status", "pending"),
@@ -1996,6 +1999,7 @@ def _row_to_term_detail(row: Dict[str, Any]) -> TermDetail:
         updated_at=updated_at,
         existing_verdict=row.get("existing_verdict"),
         existing_comment=row.get("existing_comment"),
+        has_definition=row.get("definition") is not None,
     )
 
 
@@ -2007,13 +2011,13 @@ def _build_terms_router() -> APIRouter:
         page: int = Query(1, ge=1),
         page_size: int = Query(20, ge=1, le=100),
         group_id: Optional[int] = Query(None),
-        term_type: Optional[str] = Query(None, pattern=r"^(fixed_term|acronym)$"),
+        has_definition: Optional[bool] = Query(None),
         status: Optional[str] = Query(None, pattern=r"^(pending|approved|rejected)$"),
         min_confidence: Optional[float] = Query(None, ge=0.0, le=1.0),
         search_text: Optional[str] = Query(None, min_length=1, max_length=200),
         search: Optional[str] = Query(None, min_length=1, max_length=200),
         expert_status: Optional[str] = Query(None, pattern=r"^(approved|rejected|unvalidated)$"),
-        sort_by: str = Query("created_at", pattern=r"^(created_at|term|confidence|id|group_id|term_type|status)$"),
+        sort_by: str = Query("created_at", pattern=r"^(created_at|term|confidence|id|group_id|status)$"),
         sort_order: str = Query("desc", pattern=r"^(asc|desc)$"),
         user: WebUser = Depends(require_permission("gk_knowledge")),
     ) -> TermListResponse:
@@ -2024,7 +2028,7 @@ def _build_terms_router() -> APIRouter:
 
         rows, total, stats = db_terms.get_terms_for_validation(
             page=page, page_size=page_size, group_id=group_id,
-            term_type=term_type, status=status, search_text=effective_search_text,
+            has_definition=has_definition, status=status, search_text=effective_search_text,
             min_confidence=min_confidence,
             expert_status=expert_status,
             sort_by=sort_by, sort_order=sort_order,
@@ -2159,6 +2163,7 @@ def _build_terms_router() -> APIRouter:
                     date_from=body.date_from,
                     date_to=body.date_to,
                     progress_callback=lambda event: _append_scan_progress_event(scan_batch_id, event),
+                    scan_batch_id=scan_batch_id,
                 )
                 _term_scan_tasks[scan_batch_id]["result"] = result
                 _term_scan_tasks[scan_batch_id]["status"] = "completed"
@@ -2205,18 +2210,19 @@ def _build_terms_router() -> APIRouter:
     ) -> Dict[str, Any]:
         """Добавить термин вручную."""
         from admin_web.modules.gk_knowledge import db_terms
-        term_id = db_terms.add_term_manually(
+        add_result = db_terms.add_term_manually(
             group_id=body.group_id,
             term=body.term,
-            term_type=body.term_type,
             definition=body.definition,
         )
-        if not term_id:
+        if not add_result:
             raise HTTPException(500, "Не удалось добавить термин")
         db_terms.invalidate_groups_cache()
+        msg = "Термин обновлён (уже существовал)" if add_result.get("was_duplicate") else "Термин добавлен"
         return {
-            "term_id": term_id,
-            "message": "Термин добавлен",
+            "term_id": add_result["term_id"],
+            "message": msg,
+            "was_duplicate": add_result.get("was_duplicate", False),
         }
 
     @router.delete("/{term_id}")

@@ -1001,6 +1001,7 @@ def get_qa_pair_by_id(pair_id: int) -> Optional[QAPair]:
 
 def get_all_approved_qa_pairs(
     extraction_types: Optional[Iterable[str]] = None,
+    group_id: Optional[int] = None,
 ) -> List[QAPair]:
     """
     Получить все одобренные Q&A-пары из БД.
@@ -1009,6 +1010,7 @@ def get_all_approved_qa_pairs(
 
     Args:
         extraction_types: Допустимые типы извлечения (`thread_reply`, `llm_inferred`).
+        group_id: Идентификатор группы для фильтрации (None = все группы).
 
     Returns:
         Список всех QAPair с approved = 1, отсортированных по id.
@@ -1021,11 +1023,14 @@ def get_all_approved_qa_pairs(
                     "WHERE approved = 1"
                     " AND (expert_status IS NULL OR expert_status != 'rejected')"
                 )
-                params: List[str] = []
+                params: list = []
                 if normalized_extraction_types:
                     placeholders = ", ".join(["%s"] * len(normalized_extraction_types))
                     where_clause += f" AND extraction_type IN ({placeholders})"
                     params.extend(normalized_extraction_types)
+                if group_id is not None:
+                    where_clause += " AND group_id = %s"
+                    params.append(group_id)
                 cursor.execute(
                     f"""
                     SELECT * FROM gk_qa_pairs
@@ -1043,12 +1048,17 @@ def get_all_approved_qa_pairs(
 
 def get_approved_qa_pairs_corpus_signature(
     extraction_types: Optional[Iterable[str]] = None,
+    group_id: Optional[int] = None,
 ) -> Optional[Tuple[int, int, int]]:
     """
     Получить сигнатуру (версию) текущего approved-корпуса Q&A.
 
     Сигнатура используется для быстрого определения изменений корпуса
     без полной перезагрузки кэша BM25.
+
+    Args:
+        extraction_types: Допустимые типы извлечения.
+        group_id: Идентификатор группы для фильтрации (None = все группы).
 
     Returns:
         Кортеж (count, max_id, max_created_at) или None при ошибке.
@@ -1061,11 +1071,14 @@ def get_approved_qa_pairs_corpus_signature(
                     "WHERE approved = 1"
                     " AND (expert_status IS NULL OR expert_status != 'rejected')"
                 )
-                params: List[str] = []
+                params: list = []
                 if normalized_extraction_types:
                     placeholders = ", ".join(["%s"] * len(normalized_extraction_types))
                     where_clause += f" AND extraction_type IN ({placeholders})"
                     params.extend(normalized_extraction_types)
+                if group_id is not None:
+                    where_clause += " AND group_id = %s"
+                    params.append(group_id)
                 cursor.execute(
                     f"""
                     SELECT
@@ -1398,10 +1411,10 @@ def _row_to_qa_pair(row: Dict[str, Any]) -> QAPair:
 
 def store_term(term_data: Dict[str, Any]) -> Optional[int]:
     """
-    Сохранить термин/аббревиатуру в БД (upsert по group_id + term + term_type).
+    Сохранить термин в БД (upsert по group_id + term).
 
     Args:
-        term_data: Словарь с полями: group_id, term, term_type, definition,
+        term_data: Словарь с полями: group_id, term, definition,
                    source, status, confidence, llm_model_used,
                    llm_request_payload, scan_batch_id.
 
@@ -1411,12 +1424,14 @@ def store_term(term_data: Dict[str, Any]) -> Optional[int]:
     try:
         with get_db_connection() as conn:
             with get_cursor(conn) as cursor:
+                group_id = term_data.get("group_id", 0)
+                term = (term_data.get("term") or "").strip().lower()
                 cursor.execute(
                     """
                     INSERT INTO gk_terms
-                        (group_id, term, term_type, definition, source, status,
+                        (group_id, term, definition, source, status,
                          confidence, llm_model_used, llm_request_payload, scan_batch_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
                         definition = COALESCE(VALUES(definition), definition),
                         confidence = COALESCE(VALUES(confidence), confidence),
@@ -1426,9 +1441,8 @@ def store_term(term_data: Dict[str, Any]) -> Optional[int]:
                         updated_at = NOW()
                     """,
                     (
-                        term_data.get("group_id", 0),
-                        (term_data.get("term") or "").strip().lower(),
-                        term_data.get("term_type", "fixed_term"),
+                        group_id,
+                        term,
                         term_data.get("definition"),
                         term_data.get("source", "llm_discovered"),
                         term_data.get("status", "pending"),
@@ -1438,7 +1452,20 @@ def store_term(term_data: Dict[str, Any]) -> Optional[int]:
                         term_data.get("scan_batch_id"),
                     ),
                 )
-                return cursor.lastrowid or None
+                result_id = cursor.lastrowid
+                # lastrowid ненадёжен при ON DUPLICATE KEY UPDATE —
+                # запросить явно.
+                if not result_id:
+                    cursor.execute(
+                        """
+                        SELECT id FROM gk_terms
+                        WHERE group_id = %s AND term = %s
+                        """,
+                        (group_id, term),
+                    )
+                    row = cursor.fetchone()
+                    result_id = row["id"] if row else None
+                return result_id or None
     except Exception as exc:
         logger.error(
             "Ошибка сохранения термина '%s': %s",
@@ -1447,31 +1474,46 @@ def store_term(term_data: Dict[str, Any]) -> Optional[int]:
         return None
 
 
-def store_terms_batch(terms: List[Dict[str, Any]]) -> int:
+def store_terms_batch(terms: List[Dict[str, Any]]) -> Dict[str, int]:
     """
     Сохранить пакет терминов в БД (upsert).
+
+    Пропускает записи, которые уже были рассмотрены экспертом
+    (status IN ('approved', 'rejected')), чтобы не перезаписывать
+    ранее принятые решения.
 
     Args:
         terms: Список словарей с данными терминов.
 
     Returns:
-        Количество успешно сохранённых записей.
+        Словарь с количеством: {"inserted": N, "updated": N, "skipped": N}.
     """
+    result = {"inserted": 0, "updated": 0, "skipped": 0}
     if not terms:
-        return 0
+        return result
 
-    stored = 0
     try:
         with get_db_connection() as conn:
             with get_cursor(conn) as cursor:
+                # Предзагрузка ранее рассмотренных терминов для пропуска.
+                reviewed_keys = _get_reviewed_term_keys(cursor, terms)
+
                 for term_data in terms:
                     try:
+                        term_key = (
+                            term_data.get("group_id", 0),
+                            (term_data.get("term") or "").strip().lower(),
+                        )
+                        if term_key in reviewed_keys:
+                            result["skipped"] += 1
+                            continue
+
                         cursor.execute(
                             """
                             INSERT INTO gk_terms
-                                (group_id, term, term_type, definition, source, status,
+                                (group_id, term, definition, source, status,
                                  confidence, llm_model_used, llm_request_payload, scan_batch_id)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON DUPLICATE KEY UPDATE
                                 definition = COALESCE(VALUES(definition), definition),
                                 confidence = COALESCE(VALUES(confidence), confidence),
@@ -1483,7 +1525,6 @@ def store_terms_batch(terms: List[Dict[str, Any]]) -> int:
                             (
                                 term_data.get("group_id", 0),
                                 (term_data.get("term") or "").strip().lower(),
-                                term_data.get("term_type", "fixed_term"),
                                 term_data.get("definition"),
                                 term_data.get("source", "llm_discovered"),
                                 term_data.get("status", "pending"),
@@ -1493,21 +1534,70 @@ def store_terms_batch(terms: List[Dict[str, Any]]) -> int:
                                 term_data.get("scan_batch_id"),
                             ),
                         )
-                        stored += 1
+                        # MySQL rowcount: 1 = INSERT, 2 = UPDATE (с изменением),
+                        # 0 = UPDATE без изменения (но дубликат найден).
+                        rowcount = cursor.rowcount
+                        if rowcount == 1:
+                            result["inserted"] += 1
+                        else:
+                            result["updated"] += 1
                     except Exception as row_exc:
                         logger.warning(
                             "Ошибка сохранения термина '%s': %s",
                             term_data.get("term"), row_exc,
                         )
-        logger.info("Сохранено терминов: %d из %d", stored, len(terms))
+        total = result["inserted"] + result["updated"]
+        logger.info(
+            "Сохранено терминов: %d (новых: %d, обновлено: %d, пропущено: %d) из %d",
+            total, result["inserted"], result["updated"],
+            result["skipped"], len(terms),
+        )
     except Exception as exc:
         logger.error("Ошибка пакетного сохранения терминов: %s", exc, exc_info=True)
-    return stored
+    return result
 
 
-def get_approved_fixed_terms(group_id: Optional[int] = None) -> set:
+def _get_reviewed_term_keys(
+    cursor: Any,
+    terms: List[Dict[str, Any]],
+) -> set:
     """
-    Получить множество одобренных protected-терминов.
+    Получить множество ключей (group_id, term) терминов,
+    которые уже имеют status approved/rejected в БД.
+
+    Используется для пропуска при повторном сканировании.
+    """
+    if not terms:
+        return set()
+
+    group_ids = {t.get("group_id", 0) for t in terms}
+    placeholders = ",".join(["%s"] * len(group_ids))
+    try:
+        cursor.execute(
+            f"""
+            SELECT group_id, term
+            FROM gk_terms
+            WHERE group_id IN ({placeholders})
+              AND status IN ('approved', 'rejected')
+            """,
+            tuple(group_ids),
+        )
+        rows = cursor.fetchall() or []
+        return {
+            (row["group_id"], row["term"].strip().lower())
+            for row in rows
+            if row.get("term")
+        }
+    except Exception as exc:
+        logger.warning(
+            "Не удалось загрузить рассмотренные термины: %s", exc,
+        )
+        return set()
+
+
+def get_approved_terms(group_id: Optional[int] = None) -> set:
+    """
+    Получить множество одобренных терминов (для BM25-защиты).
 
     Всегда включает глобальные термины (group_id=0).
     Если указан group_id — добавляет термины конкретной группы.
@@ -1525,8 +1615,7 @@ def get_approved_fixed_terms(group_id: Optional[int] = None) -> set:
                     cursor.execute(
                         """
                         SELECT term FROM gk_terms
-                        WHERE term_type = 'fixed_term'
-                          AND status = 'approved'
+                        WHERE status = 'approved'
                           AND group_id IN (0, %s)
                         """,
                         (group_id,),
@@ -1535,72 +1624,23 @@ def get_approved_fixed_terms(group_id: Optional[int] = None) -> set:
                     cursor.execute(
                         """
                         SELECT term FROM gk_terms
-                        WHERE term_type = 'fixed_term'
-                          AND status = 'approved'
+                        WHERE status = 'approved'
                           AND group_id = 0
                         """
                     )
                 rows = cursor.fetchall() or []
                 return {row["term"].strip().lower() for row in rows if row.get("term")}
     except Exception as exc:
-        logger.error("Ошибка загрузки fixed terms: %s", exc, exc_info=True)
+        logger.error("Ошибка загрузки терминов: %s", exc, exc_info=True)
         return set()
-
-
-def get_approved_acronyms(group_id: Optional[int] = None) -> List[Dict[str, str]]:
-    """
-    Получить одобренные аббревиатуры с расшифровками.
-
-    Всегда включает глобальные аббревиатуры (group_id=0).
-    Если указан group_id — добавляет аббревиатуры конкретной группы.
-
-    Args:
-        group_id: ID группы (None = только глобальные).
-
-    Returns:
-        Список словарей: [{"term": "гз", "definition": "Горячая замена"}, ...].
-    """
-    try:
-        with get_db_connection() as conn:
-            with get_cursor(conn) as cursor:
-                if group_id is not None and group_id != 0:
-                    cursor.execute(
-                        """
-                        SELECT term, definition FROM gk_terms
-                        WHERE term_type = 'acronym'
-                          AND status = 'approved'
-                          AND definition IS NOT NULL
-                          AND group_id IN (0, %s)
-                        ORDER BY term
-                        """,
-                        (group_id,),
-                    )
-                else:
-                    cursor.execute(
-                        """
-                        SELECT term, definition FROM gk_terms
-                        WHERE term_type = 'acronym'
-                          AND status = 'approved'
-                          AND definition IS NOT NULL
-                          AND group_id = 0
-                        ORDER BY term
-                        """
-                    )
-                rows = cursor.fetchall() or []
-                return [
-                    {"term": row["term"], "definition": row["definition"]}
-                    for row in rows
-                    if row.get("term") and row.get("definition")
-                ]
-    except Exception as exc:
-        logger.error("Ошибка загрузки аббревиатур: %s", exc, exc_info=True)
-        return []
 
 
 def get_terms_for_group(
     group_id: int,
     *,
     status: Optional[str] = None,
+    has_definition: Optional[bool] = None,
+    # Обратная совместимость: term_type принимается, но игнорируется.
     term_type: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
@@ -1609,7 +1649,9 @@ def get_terms_for_group(
     Args:
         group_id: ID группы.
         status: Фильтр по статусу (pending/approved/rejected).
-        term_type: Фильтр по типу (fixed_term/acronym).
+        has_definition: True — только с расшифровкой, False — только без.
+        term_type: Устаревший параметр (игнорируется). Для обратной
+                   совместимости: 'acronym' → has_definition=True.
 
     Returns:
         Список словарей с данными терминов.
@@ -1620,9 +1662,16 @@ def get_terms_for_group(
     if status:
         conditions.append("status = %s")
         params.append(status)
-    if term_type:
-        conditions.append("term_type = %s")
-        params.append(term_type)
+
+    # Обратная совместимость: term_type='acronym' → has_definition=True.
+    effective_has_definition = has_definition
+    if term_type == "acronym" and has_definition is None:
+        effective_has_definition = True
+
+    if effective_has_definition is True:
+        conditions.append("definition IS NOT NULL")
+    elif effective_has_definition is False:
+        conditions.append("definition IS NULL")
 
     where_clause = " AND ".join(conditions)
 
@@ -1633,7 +1682,7 @@ def get_terms_for_group(
                     f"""
                     SELECT * FROM gk_terms
                     WHERE {where_clause}
-                    ORDER BY term, term_type
+                    ORDER BY term
                     """,
                     tuple(params),
                 )

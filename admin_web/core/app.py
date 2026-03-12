@@ -153,6 +153,52 @@ register_module(ProcessManagerModule())
 register_module(GKKnowledgeModule())
 
 # Prompt tester как sub-application (если доступен)
+
+
+# ---------------------------------------------------------------------------
+# Health-эндпоинт (без аутентификации) для watchdog и мониторинга
+# ---------------------------------------------------------------------------
+
+_APP_START_TIME: Optional[float] = None
+
+
+@app.on_event("startup")
+async def _init_start_time() -> None:
+    """Зафиксировать время запуска приложения."""
+    global _APP_START_TIME
+    import time as _time
+    _APP_START_TIME = _time.monotonic()
+
+
+@app.get("/api/health")
+async def health_check() -> Dict[str, Any]:
+    """Проверка работоспособности admin_web.
+
+    Без аутентификации — используется watchdog-скриптом (deploy/start.bat)
+    и внешним мониторингом для проверки, что сервер жив.
+    """
+    import time as _time
+
+    # Прочитать версию из файла VERSION.
+    version = "unknown"
+    version_path = Path(_PROJECT_ROOT) / "VERSION"
+    try:
+        version = version_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+
+    uptime_seconds = None
+    if _APP_START_TIME is not None:
+        uptime_seconds = round(_time.monotonic() - _APP_START_TIME, 1)
+
+    return {
+        "status": "ok",
+        "version": version,
+        "uptime_seconds": uptime_seconds,
+    }
+
+
+# Prompt tester — sub-application
 try:
     from prompt_tester.backend.app import app as _prompt_tester_app
     app.mount("/prompt-tester", _prompt_tester_app)

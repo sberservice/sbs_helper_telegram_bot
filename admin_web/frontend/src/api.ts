@@ -159,15 +159,15 @@ export interface GroupInfo {
 }
 
 // ---------------------------------------------------------------------------
-// GK Terms & Acronyms
+// GK Terms
 // ---------------------------------------------------------------------------
 
 export interface TermDetail {
   id: number;
   group_id: number;
   term: string;
-  term_type: 'fixed_term' | 'acronym';
   definition: string | null;
+  has_definition: boolean;
   source: string;
   status: string;
   confidence: number | null;
@@ -185,8 +185,8 @@ export interface TermValidationStats {
   pending: number;
   approved: number;
   rejected: number;
-  fixed_terms: number;
-  acronyms: number;
+  with_definition: number;
+  without_definition: number;
 }
 
 export interface TermListResponse {
@@ -984,10 +984,10 @@ export const api = {
     request<Array<{ id: number; prompt_id: number; prompt_label: string; generated_text: string; generated_at: string }>>(`/api/gk-knowledge/prompt-tester/sessions/${sessionId}/generations`),
 
   // GK Knowledge — Search
-  gkSearch: (query: string, topK: number = 10) =>
+  gkSearch: (query: string, topK: number = 10, groupId?: number) =>
     request<GKSearchResponse>(
       '/api/gk-knowledge/search/query',
-      { method: 'POST', body: JSON.stringify({ query, top_k: topK }) },
+      { method: 'POST', body: JSON.stringify({ query, top_k: topK, group_id: groupId ?? null }) },
     ),
 
   // GK Knowledge — QA Analyzer Sandbox
@@ -1114,15 +1114,38 @@ export const api = {
       `/api/process-manager/processes/${key}/output?last_n=${lastN}`,
     ),
 
+  /** Получить конфигурацию автозапуска (launch_config.json). */
+  pmGetLaunchConfig: () =>
+    request<LaunchConfigResponse>('/api/process-manager/launch-config'),
+
+  /** Сохранить конфигурацию автозапуска. */
+  pmUpdateLaunchConfig: (config: LaunchConfigPayload) =>
+    request<{ success: boolean; message: string }>('/api/process-manager/launch-config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+
+  /** Применить конфигурацию автозапуска немедленно. */
+  pmApplyLaunchConfig: () =>
+    request<{ success: boolean; actions: Record<string, string> }>('/api/process-manager/launch-config/apply', {
+      method: 'POST',
+    }),
+
+  /** Остановить все процессы и завершить admin_web. */
+  pmShutdownAll: () =>
+    request<{ success: boolean; stopped: Record<string, string> }>('/api/process-manager/shutdown', {
+      method: 'POST',
+    }),
+
   // -----------------------------------------------------------------------
-  // GK Terms & Acronyms
+  // GK Terms
   // -----------------------------------------------------------------------
 
   listTerms: (params: {
     page?: number;
     page_size?: number;
     group_id?: number | null;
-    term_type?: string | null;
+    has_definition?: boolean | null;
     status?: string | null;
     min_confidence?: number | null;
     search_text?: string | null;
@@ -1134,7 +1157,7 @@ export const api = {
     if (params.page) sp.set('page', String(params.page));
     if (params.page_size) sp.set('page_size', String(params.page_size));
     if (params.group_id != null) sp.set('group_id', String(params.group_id));
-    if (params.term_type) sp.set('term_type', params.term_type);
+    if (params.has_definition != null) sp.set('has_definition', String(params.has_definition));
     if (params.status) sp.set('status', params.status);
     if (params.min_confidence != null) sp.set('min_confidence', String(params.min_confidence));
     if (params.search_text) sp.set('search_text', params.search_text);
@@ -1179,7 +1202,7 @@ export const api = {
   getTermScanStatus: (batchId: string) =>
     request<TermScanStatus>(`/api/gk-knowledge/terms/scan/${batchId}/status`),
 
-  addTermManually: (data: { group_id: number; term: string; term_type: string; definition?: string }) =>
+  addTermManually: (data: { group_id: number; term: string; definition?: string }) =>
     request<{ message: string; term_id: number }>('/api/gk-knowledge/terms/add', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -1313,6 +1336,46 @@ export interface ProcessHistoryResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Process Manager: Launch Config
+// ---------------------------------------------------------------------------
+
+export interface LaunchConfigProcessEntry {
+  enabled: boolean;
+  flags: string[];
+  preset: string | null;
+  name: string;
+  icon: string;
+  category: string;
+  description: string;
+  available_presets: Array<{
+    name: string;
+    description: string;
+    flags: string[];
+    icon: string;
+  }>;
+  available_flags: Array<{
+    name: string;
+    flag_type: string;
+    description: string;
+    default: unknown;
+  }>;
+}
+
+export interface LaunchConfigResponse {
+  description: string;
+  processes: Record<string, LaunchConfigProcessEntry>;
+}
+
+export interface LaunchConfigPayload {
+  description?: string;
+  processes: Record<string, {
+    enabled: boolean;
+    flags: string[];
+    preset: string | null;
+  }>;
+}
+
+// ---------------------------------------------------------------------------
 // Process Manager: Groups
 // ---------------------------------------------------------------------------
 
@@ -1440,14 +1503,14 @@ export const groupsApi = {
     request<CollectedGroupInfo[]>('/api/process-manager/groups/collected'),
 
   // -----------------------------------------------------------------------
-  // GK Terms & Acronyms
+  // GK Terms
   // -----------------------------------------------------------------------
 
   listTerms: (params: {
     page?: number;
     page_size?: number;
     group_id?: number | null;
-    term_type?: string | null;
+    has_definition?: boolean | null;
     status?: string | null;
     min_confidence?: number | null;
     search_text?: string | null;
@@ -1459,7 +1522,7 @@ export const groupsApi = {
     if (params.page) sp.set('page', String(params.page));
     if (params.page_size) sp.set('page_size', String(params.page_size));
     if (params.group_id != null) sp.set('group_id', String(params.group_id));
-    if (params.term_type) sp.set('term_type', params.term_type);
+    if (params.has_definition != null) sp.set('has_definition', String(params.has_definition));
     if (params.status) sp.set('status', params.status);
     if (params.min_confidence != null) sp.set('min_confidence', String(params.min_confidence));
     if (params.search_text) sp.set('search_text', params.search_text);
@@ -1504,7 +1567,7 @@ export const groupsApi = {
   getTermScanStatus: (batchId: string) =>
     request<TermScanStatus>(`/api/gk-knowledge/terms/scan/${batchId}/status`),
 
-  addTermManually: (data: { group_id: number; term: string; term_type: string; definition?: string }) =>
+  addTermManually: (data: { group_id: number; term: string; definition?: string }) =>
     request<{ message: string; term_id: number }>('/api/gk-knowledge/terms/add', {
       method: 'POST',
       body: JSON.stringify(data),

@@ -740,6 +740,11 @@ GK_SEARCH_CANDIDATES_PER_METHOD: Final[int] = int(os.getenv("GK_SEARCH_CANDIDATE
 GK_BM25_CORPUS_TTL_SECONDS: Final[int] = int(os.getenv("GK_BM25_CORPUS_TTL_SECONDS", "300"))
 # Мастер-переключатель передачи подсказок релевантности в промпт LLM.
 GK_RELEVANCE_HINTS_ENABLED: Final[bool] = os.getenv("GK_RELEVANCE_HINTS_ENABLED", "1") == "1"
+# Если включено, пары с tier=низкая не передаются в LLM-контекст ответа GK.
+GK_EXCLUDE_LOW_TIER_FROM_LLM_CONTEXT: Final[bool] = os.getenv(
+    "GK_EXCLUDE_LOW_TIER_FROM_LLM_CONTEXT",
+    "1",
+) == "1"
 # Порог относительного падения combined-score для обнаружения «обрыва» качества.
 GK_SCORE_CLIFF_THRESHOLD: Final[float] = float(os.getenv("GK_SCORE_CLIFF_THRESHOLD", "0.3"))
 

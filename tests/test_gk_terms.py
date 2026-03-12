@@ -1,4 +1,4 @@
-"""Тесты системы терминов и аббревиатур GK.
+"""Тесты системы терминов GK.
 
 Проверяет:
 - build_derived_term_structures — построение производных структур.
@@ -76,9 +76,7 @@ class TestLoadFixedTerms(unittest.TestCase):
     def setUp(self):
         # Сбросить глобальный кэш перед каждым тестом
         import src.group_knowledge.qa_search as mod
-        mod._terms_cache_data = None
-        mod._terms_cache_ts = 0.0
-        mod._terms_cache_group_id = None
+        mod._terms_cache.clear()
 
     @patch("src.group_knowledge.qa_search.gk_db")
     @patch("src.group_knowledge.qa_search.ai_settings")
@@ -86,11 +84,11 @@ class TestLoadFixedTerms(unittest.TestCase):
         from src.group_knowledge.qa_search import load_fixed_terms
 
         mock_settings.GK_TERMS_CACHE_TTL_SECONDS = 300
-        mock_db.get_approved_fixed_terms.return_value = {"осно", "усн"}
+        mock_db.get_approved_terms.return_value = {"осно", "усн", "чз"}
 
         result = load_fixed_terms(group_id=123)
-        self.assertEqual(result, frozenset({"осно", "усн"}))
-        mock_db.get_approved_fixed_terms.assert_called_once_with(123)
+        self.assertEqual(result, frozenset({"осно", "усн", "чз"}))
+        mock_db.get_approved_terms.assert_called_once_with(123)
 
     @patch("src.group_knowledge.qa_search.gk_db")
     @patch("src.group_knowledge.qa_search.ai_settings")
@@ -98,25 +96,29 @@ class TestLoadFixedTerms(unittest.TestCase):
         from src.group_knowledge.qa_search import load_fixed_terms
 
         mock_settings.GK_TERMS_CACHE_TTL_SECONDS = 300
-        mock_db.get_approved_fixed_terms.return_value = {"осно"}
+        mock_db.get_approved_terms.return_value = {"осно"}
 
         result1 = load_fixed_terms(group_id=1)
         result2 = load_fixed_terms(group_id=1)
         # Второй вызов использует кэш
-        self.assertEqual(mock_db.get_approved_fixed_terms.call_count, 1)
+        self.assertEqual(mock_db.get_approved_terms.call_count, 1)
         self.assertEqual(result1, result2)
 
     @patch("src.group_knowledge.qa_search.gk_db")
     @patch("src.group_knowledge.qa_search.ai_settings")
-    def test_invalidates_cache_on_group_change(self, mock_settings, mock_db):
+    def test_caches_per_group_id(self, mock_settings, mock_db):
         from src.group_knowledge.qa_search import load_fixed_terms
 
         mock_settings.GK_TERMS_CACHE_TTL_SECONDS = 300
-        mock_db.get_approved_fixed_terms.return_value = {"осно"}
+        mock_db.get_approved_terms.return_value = {"осно"}
 
         load_fixed_terms(group_id=1)
         load_fixed_terms(group_id=2)
-        self.assertEqual(mock_db.get_approved_fixed_terms.call_count, 2)
+        # Разные group_id — оба вызывают БД, но кэш не сбрасывается.
+        self.assertEqual(mock_db.get_approved_terms.call_count, 2)
+        # Повторный вызов с group_id=1 использует кэш.
+        load_fixed_terms(group_id=1)
+        self.assertEqual(mock_db.get_approved_terms.call_count, 2)
 
     @patch("src.group_knowledge.qa_search.gk_db")
     @patch("src.group_knowledge.qa_search.ai_settings")
@@ -124,7 +126,7 @@ class TestLoadFixedTerms(unittest.TestCase):
         from src.group_knowledge.qa_search import load_fixed_terms, _GK_FIXED_TERMS_FALLBACK
 
         mock_settings.GK_TERMS_CACHE_TTL_SECONDS = 300
-        mock_db.get_approved_fixed_terms.side_effect = Exception("DB error")
+        mock_db.get_approved_terms.side_effect = Exception("DB error")
 
         result = load_fixed_terms()
         self.assertEqual(result, _GK_FIXED_TERMS_FALLBACK)
@@ -135,10 +137,23 @@ class TestLoadFixedTerms(unittest.TestCase):
         from src.group_knowledge.qa_search import load_fixed_terms, _GK_FIXED_TERMS_FALLBACK
 
         mock_settings.GK_TERMS_CACHE_TTL_SECONDS = 300
-        mock_db.get_approved_fixed_terms.return_value = set()
+        mock_db.get_approved_terms.return_value = set()
 
         result = load_fixed_terms()
         self.assertEqual(result, _GK_FIXED_TERMS_FALLBACK)
+
+    @patch("src.group_knowledge.qa_search.gk_db")
+    @patch("src.group_knowledge.qa_search.ai_settings")
+    def test_acronyms_without_confidence_are_ignored(self, mock_settings, mock_db):
+        """Все approved-термины загружаются без фильтрации по confidence."""
+        from src.group_knowledge.qa_search import load_fixed_terms
+
+        mock_settings.GK_TERMS_CACHE_TTL_SECONDS = 300
+        mock_db.get_approved_terms.return_value = {"осно", "чз", "уз", "гз"}
+
+        result = load_fixed_terms(group_id=77)
+
+        self.assertEqual(result, frozenset({"осно", "чз", "уз", "гз"}))
 
 
 class TestQASearchServiceTerms(unittest.TestCase):
@@ -180,6 +195,24 @@ class TestQASearchServiceTerms(unittest.TestCase):
             svc._ensure_terms_loaded()
             mock_reload.assert_called_once()
 
+    @patch("src.group_knowledge.qa_search.ai_settings")
+    def test_short_acronym_token_is_preserved_after_reload(self, mock_settings):
+        from src.group_knowledge.qa_search import QASearchService
+
+        mock_settings.GK_RESPONDER_MODEL = "test"
+        mock_settings.GK_RESPONDER_TOP_K = 5
+        mock_settings.GK_TERMS_CACHE_TTL_SECONDS = 300
+        mock_settings.GK_RU_NORMALIZATION_ENABLED = True
+
+        svc = QASearchService()
+
+        with patch("src.group_knowledge.qa_search.load_fixed_terms") as mock_load:
+            mock_load.return_value = frozenset({"аб"})
+            svc.reload_terms(group_id=42)
+
+        tokens = svc._tokenize("ошибка АБ на кассе")
+        self.assertIn("аб", [t.lower() for t in tokens])
+
 
 class TestQAAnalyzerAcronyms(unittest.TestCase):
     """Тесты _build_acronyms_section QAAnalyzer."""
@@ -196,8 +229,8 @@ class TestQAAnalyzerAcronyms(unittest.TestCase):
         mock_settings.GK_ACRONYMS_MIN_CONFIDENCE = 0.9
 
         mock_db.get_terms_for_group.return_value = [
-            {"term": "ГЗ", "definition": "Горячая замена", "status": "approved", "confidence": 0.1},
-            {"term": "ЧЗ", "definition": "Честный Знак", "confidence": 0.95},
+            {"term": "ГЗ", "definition": "Горячая замена", "status": "approved", "confidence": 0.95},
+            {"term": "ЧЗ", "definition": "Честный Знак", "status": "approved", "confidence": 0.95},
         ]
 
         analyzer = QAAnalyzer()
@@ -205,7 +238,7 @@ class TestQAAnalyzerAcronyms(unittest.TestCase):
 
         self.assertIn("ГЗ означает Горячая замена.", section)
         self.assertIn("ЧЗ означает Честный Знак.", section)
-        mock_db.get_terms_for_group.assert_called_once_with(123, term_type="acronym")
+        mock_db.get_terms_for_group.assert_called_once_with(123, status="approved", has_definition=True)
 
     @patch("src.group_knowledge.qa_analyzer.ai_settings")
     @patch("src.group_knowledge.qa_analyzer.gk_db")
@@ -219,7 +252,7 @@ class TestQAAnalyzerAcronyms(unittest.TestCase):
         mock_settings.GK_ACRONYMS_MIN_CONFIDENCE = 0.9
 
         mock_db.get_terms_for_group.return_value = [
-            {"term": "ГЗ", "definition": "Горячая замена"},
+            {"term": "ГЗ", "definition": "Горячая замена", "status": "approved", "confidence": 0.95},
         ]
 
         analyzer = QAAnalyzer()
@@ -259,19 +292,21 @@ class TestQAAnalyzerAcronyms(unittest.TestCase):
         mock_settings.GK_ACRONYMS_MIN_CONFIDENCE = 0.9
 
         mock_db.get_terms_for_group.return_value = [
-            {"term": "ABC", "definition": "", "status": "approved"},
-            {"term": "DEF", "definition": "Full Name", "status": "approved"},
+            {"term": "ABC", "definition": "", "status": "approved", "confidence": 0.95},
+            {"term": "DEF", "definition": "Full Name", "status": "approved", "confidence": 0.95},
         ]
 
         analyzer = QAAnalyzer()
         section = analyzer._build_acronyms_section(1)
 
-        self.assertIn("ABC.", section)
+        # Термины без definition не включаются.
+        self.assertNotIn("ABC", section)
         self.assertIn("DEF означает Full Name.", section)
 
     @patch("src.group_knowledge.qa_analyzer.ai_settings")
     @patch("src.group_knowledge.qa_analyzer.gk_db")
-    def test_filters_only_rejected_terms(self, mock_db, mock_settings):
+    def test_filters_by_approved_status_only(self, mock_db, mock_settings):
+        """QAAnalyzer теперь использует только approved-аббревиатуры (как и QASearchService)."""
         from src.group_knowledge.qa_analyzer import QAAnalyzer
 
         mock_settings.GK_ANALYSIS_MODEL = "test"
@@ -281,23 +316,21 @@ class TestQAAnalyzerAcronyms(unittest.TestCase):
         mock_settings.GK_ACRONYMS_MIN_CONFIDENCE = 0.9
 
         mock_db.get_terms_for_group.return_value = [
-            {"term": "APP", "definition": "Approved", "status": "approved", "confidence": 0.01},
-            {"term": "PND", "definition": "Pending", "status": "pending", "confidence": 0.95},
-            {"term": "R1", "definition": "Rejected", "status": "rejected"},
-            {"term": "R2", "definition": "RejectedByExpert", "expert_status": "rejected"},
+            {"term": "APP", "definition": "Approved", "status": "approved", "confidence": 0.95},
         ]
 
         analyzer = QAAnalyzer()
         section = analyzer._build_acronyms_section(1)
 
         self.assertIn("APP означает Approved.", section)
-        self.assertIn("PND означает Pending.", section)
-        self.assertNotIn("R1 означает Rejected.", section)
-        self.assertNotIn("R2 означает RejectedByExpert.", section)
+        mock_db.get_terms_for_group.assert_called_once_with(
+            1, status="approved", has_definition=True,
+        )
 
     @patch("src.group_knowledge.qa_analyzer.ai_settings")
     @patch("src.group_knowledge.qa_analyzer.gk_db")
-    def test_filters_by_min_confidence_unless_approved(self, mock_db, mock_settings):
+    def test_filters_by_min_confidence(self, mock_db, mock_settings):
+        """Approved-термины ниже порога confidence не включаются."""
         from src.group_knowledge.qa_analyzer import QAAnalyzer
 
         mock_settings.GK_ANALYSIS_MODEL = "test"
@@ -307,19 +340,46 @@ class TestQAAnalyzerAcronyms(unittest.TestCase):
         mock_settings.GK_ACRONYMS_MIN_CONFIDENCE = 0.9
 
         mock_db.get_terms_for_group.return_value = [
-            {"term": "HI", "definition": "HighConfidence", "confidence": 0.95, "status": "pending"},
-            {"term": "LOW", "definition": "LowConfidence", "confidence": 0.89, "status": "pending"},
-            {"term": "APR", "definition": "ApprovedLowConf", "confidence": 0.2, "status": "approved"},
-            {"term": "NON", "definition": "NoConfidence", "status": "pending"},
+            {"term": "HI", "definition": "HighConfidence", "confidence": 0.95, "status": "approved"},
+            {"term": "LOW", "definition": "LowConfidence", "confidence": 0.89, "status": "approved"},
+            {"term": "NON", "definition": "NoConfidence", "status": "approved"},
         ]
 
         analyzer = QAAnalyzer()
         section = analyzer._build_acronyms_section(1)
 
         self.assertIn("HI означает HighConfidence.", section)
-        self.assertIn("APR означает ApprovedLowConf.", section)
         self.assertNotIn("LOW означает LowConfidence.", section)
         self.assertNotIn("NON означает NoConfidence.", section)
+
+    @patch("src.group_knowledge.qa_analyzer.ai_settings")
+    @patch("src.group_knowledge.qa_analyzer.gk_db")
+    def test_expert_approved_bypasses_confidence(self, mock_db, mock_settings):
+        """Термины с expert_status='approved' включаются без проверки confidence."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        mock_settings.GK_ANALYSIS_MODEL = "test"
+        mock_settings.GK_ANALYSIS_BATCH_SIZE = 10
+        mock_settings.GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD = 0.5
+        mock_settings.GK_TERMS_CACHE_TTL_SECONDS = 300
+        mock_settings.GK_ACRONYMS_MIN_CONFIDENCE = 0.9
+
+        mock_db.get_terms_for_group.return_value = [
+            {"term": "HI", "definition": "HighConf", "confidence": 0.95, "status": "approved", "expert_status": None},
+            {"term": "LOW", "definition": "LowConf", "confidence": 0.5, "status": "approved", "expert_status": "approved"},
+            {"term": "NON", "definition": "NoConf", "confidence": None, "status": "approved", "expert_status": "approved"},
+            {"term": "REJ", "definition": "Rejected", "confidence": 0.3, "status": "approved", "expert_status": "rejected"},
+            {"term": "SKIP", "definition": "Skipped", "confidence": 0.4, "status": "approved", "expert_status": None},
+        ]
+
+        analyzer = QAAnalyzer()
+        section = analyzer._build_acronyms_section(1)
+
+        self.assertIn("HI означает HighConf.", section)
+        self.assertIn("LOW означает LowConf.", section)
+        self.assertIn("NON означает NoConf.", section)
+        self.assertNotIn("REJ означает Rejected.", section)
+        self.assertNotIn("SKIP означает Skipped.", section)
 
     @patch("src.group_knowledge.qa_analyzer.ai_settings")
     @patch("src.group_knowledge.qa_analyzer.gk_db")
@@ -333,7 +393,7 @@ class TestQAAnalyzerAcronyms(unittest.TestCase):
         mock_settings.GK_ACRONYMS_MIN_CONFIDENCE = 0.9
 
         mock_db.get_terms_for_group.return_value = [
-            {"term": "чз", "definition": "Честный Знак", "status": "approved"},
+            {"term": "чз", "definition": "Честный Знак", "status": "approved", "confidence": 0.95},
         ]
 
         analyzer = QAAnalyzer()
@@ -396,7 +456,7 @@ class TestQASearchAcronyms(unittest.TestCase):
         mock_db.get_terms_for_group.assert_called_once_with(
             123,
             status="approved",
-            term_type="acronym",
+            has_definition=True,
         )
 
     @patch("src.group_knowledge.qa_search.ai_settings")
@@ -442,6 +502,32 @@ class TestQASearchAcronyms(unittest.TestCase):
         self.assertIn("чз означает Групповой.", section)
         self.assertNotIn("ЧЗ означает Глобальный.", section)
         self.assertIn("ОФД означает Оператор фискальных данных.", section)
+
+    @patch("src.group_knowledge.qa_search.ai_settings")
+    @patch("src.group_knowledge.qa_search.gk_db")
+    def test_expert_approved_bypasses_confidence(self, mock_db, mock_settings):
+        """Термины с expert_status='approved' включаются без проверки confidence."""
+        from src.group_knowledge.qa_search import QASearchService
+
+        mock_settings.GK_RESPONDER_MODEL = "test"
+        mock_settings.GK_RESPONDER_TOP_K = 5
+        mock_settings.GK_TERMS_CACHE_TTL_SECONDS = 300
+        mock_settings.GK_ACRONYMS_MIN_CONFIDENCE = 0.9
+
+        mock_db.get_terms_for_group.return_value = [
+            {"term": "ГЗ", "definition": "Горячая замена", "confidence": 0.95, "expert_status": None},
+            {"term": "ЧЗ", "definition": "Честный Знак", "confidence": 0.5, "expert_status": "approved"},
+            {"term": "ОФД", "definition": "Оператор фискальных данных", "confidence": None, "expert_status": "approved"},
+            {"term": "ФН", "definition": "Фискальный накопитель", "confidence": 0.3, "expert_status": "rejected"},
+        ]
+
+        service = QASearchService()
+        section = service._build_acronyms_section(123)
+
+        self.assertIn("ГЗ означает Горячая замена.", section)
+        self.assertIn("ЧЗ означает Честный Знак.", section)
+        self.assertIn("ОФД означает Оператор фискальных данных.", section)
+        self.assertNotIn("ФН означает Фискальный накопитель.", section)
 
     def test_answer_prompt_contains_acronyms_section_placeholder(self):
         from src.group_knowledge.qa_search import _ANSWER_PROMPT_BASE
@@ -497,6 +583,220 @@ class TestBackwardCompatibility(unittest.TestCase):
         self.assertIsInstance(_GK_FIXED_TERM_TOKEN_MAP, dict)
         self.assertIsInstance(_GK_FIXED_TOKEN_TO_TERM_MAP, dict)
         self.assertIsInstance(_GK_FIXED_TOKENS, frozenset)
+
+
+class TestTermMinerDeduplicateTerms(unittest.TestCase):
+    """Тесты _deduplicate_terms из TermMiner."""
+
+    def _dedup(self, terms):
+        from src.group_knowledge.term_miner import TermMiner
+        return TermMiner._deduplicate_terms(terms)
+
+    def test_basic_dedup_by_term(self):
+        """Одинаковый term — оставить с большим confidence."""
+        terms = [
+            {"term": "ккт", "definition": None, "confidence": 0.7},
+            {"term": "ккт", "definition": None, "confidence": 0.9},
+        ]
+        result = self._dedup(terms)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["confidence"], 0.9)
+
+    def test_definition_not_lost_on_replace(self):
+        """При замене на запись с definition — она побеждает."""
+        terms = [
+            {"term": "гз", "definition": "Горячая замена", "confidence": 0.7},
+            {"term": "гз", "definition": None, "confidence": 0.9},
+        ]
+        result = self._dedup(terms)
+        self.assertEqual(len(result), 1)
+        # Запись с definition побеждает (definition > higher confidence)
+        self.assertEqual(result[0]["confidence"], 0.7)
+        self.assertEqual(result[0]["definition"], "Горячая замена")
+
+    def test_definition_enriched_from_lower_confidence(self):
+        """Если existing не имеет definition, а новый имеет — новый побеждает."""
+        terms = [
+            {"term": "гз", "definition": None, "confidence": 0.9},
+            {"term": "гз", "definition": "Горячая замена", "confidence": 0.5},
+        ]
+        result = self._dedup(terms)
+        self.assertEqual(len(result), 1)
+        # Запись с definition побеждает
+        self.assertEqual(result[0]["confidence"], 0.5)
+        self.assertEqual(result[0]["definition"], "Горячая замена")
+
+    def test_prefer_with_definition_over_without(self):
+        """Запись с definition предпочтительнее без."""
+        terms = [
+            {"term": "гз", "definition": None, "confidence": 0.95},
+            {"term": "гз", "definition": "Горячая замена", "confidence": 0.8},
+        ]
+        result = self._dedup(terms)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["definition"], "Горячая замена")
+
+    def test_without_definition_not_replaced_by_without_definition(self):
+        """При отсутствии definition у обоих — побеждает больший confidence."""
+        terms = [
+            {"term": "гз", "definition": None, "confidence": 0.95},
+            {"term": "гз", "definition": None, "confidence": 0.8},
+        ]
+        result = self._dedup(terms)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["confidence"], 0.95)
+
+    def test_none_confidence_treated_as_zero(self):
+        """confidence=None интерпретируется как 0.0."""
+        terms = [
+            {"term": "тест", "definition": None, "confidence": None},
+            {"term": "тест", "definition": None, "confidence": 0.5},
+        ]
+        result = self._dedup(terms)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["confidence"], 0.5)
+
+    def test_unique_terms_preserved(self):
+        """Разные термины не дедуплицируются."""
+        terms = [
+            {"term": "ккт", "definition": None, "confidence": 0.9},
+            {"term": "офд", "definition": None, "confidence": 0.8},
+        ]
+        result = self._dedup(terms)
+        self.assertEqual(len(result), 2)
+
+
+class TestTermMinerParseTermResponse(unittest.TestCase):
+    """Тесты _parse_term_response из TermMiner."""
+
+    def _parse(self, raw):
+        from src.group_knowledge.term_miner import TermMiner
+        return TermMiner._parse_term_response(raw)
+
+    def test_valid_json(self):
+        raw = '{"terms": [{"term": "ккт", "confidence": 0.9}]}'
+        result = self._parse(raw)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["term"], "ккт")
+
+    def test_code_fence_json(self):
+        """Распарсить JSON, обёрнутый в код-блок."""
+        raw = '```json\n{"terms": [{"term": "офд", "confidence": 0.8}]}\n```'
+        result = self._parse(raw)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["term"], "офд")
+
+    def test_preamble_with_code_fence(self):
+        """LLM добавил текст перед код-блоком."""
+        raw = 'Вот найденные термины:\n```json\n{"terms": [{"term": "фн", "confidence": 0.7}]}\n```'
+        result = self._parse(raw)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["term"], "фн")
+
+    def test_empty_terms(self):
+        raw = '{"terms": []}'
+        result = self._parse(raw)
+        self.assertEqual(result, [])
+
+    def test_empty_string(self):
+        self.assertEqual(self._parse(""), [])
+        self.assertEqual(self._parse(None), [])
+
+    def test_invalid_json(self):
+        result = self._parse("not json at all")
+        self.assertEqual(result, [])
+
+    def test_unicode_normalization(self):
+        """NFKC-нормализация и схлопывание пробелов."""
+        raw = '{"terms": [{"term": "к  к  т", "confidence": 0.5}]}'
+        result = self._parse(raw)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["term"], "к к т")  # Internal spaces collapsed
+
+    def test_term_stripped_and_lowercased(self):
+        raw = '{"terms": [{"term": "  ККТ  ", "confidence": 0.5}]}'
+        result = self._parse(raw)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["term"], "ккт")
+
+    def test_empty_term_rejected(self):
+        raw = '{"terms": [{"term": "  ", "confidence": 0.5}]}'
+        result = self._parse(raw)
+        self.assertEqual(result, [])
+
+    def test_confidence_clamped(self):
+        raw = '{"terms": [{"term": "a", "confidence": 1.5}]}'
+        result = self._parse(raw)
+        self.assertEqual(result[0]["confidence"], 1.0)
+
+        raw2 = '{"terms": [{"term": "b", "confidence": -0.5}]}'
+        result2 = self._parse(raw2)
+        self.assertEqual(result2[0]["confidence"], 0.0)
+
+
+class TestSelectBestAcronymsByTerm(unittest.TestCase):
+    """Тесты select_best_acronyms_by_term из acronyms.py."""
+
+    def test_group_over_global(self):
+        from src.group_knowledge.acronyms import select_best_acronyms_by_term
+        records = [
+            {"term": "гз", "group_id": 0, "confidence": 0.99, "id": 1},
+            {"term": "гз", "group_id": 5, "confidence": 0.7, "id": 2},
+        ]
+        best = select_best_acronyms_by_term(records)
+        self.assertEqual(best["ГЗ"]["group_id"], 5)
+
+    def test_higher_confidence_wins_same_scope(self):
+        from src.group_knowledge.acronyms import select_best_acronyms_by_term
+        records = [
+            {"term": "гз", "group_id": 5, "confidence": 0.7, "id": 1},
+            {"term": "гз", "group_id": 5, "confidence": 0.9, "id": 2},
+        ]
+        best = select_best_acronyms_by_term(records)
+        self.assertEqual(best["ГЗ"]["confidence"], 0.9)
+
+    def test_higher_id_wins_when_equal_confidence(self):
+        from src.group_knowledge.acronyms import select_best_acronyms_by_term
+        records = [
+            {"term": "гз", "group_id": 5, "confidence": 0.9, "id": 1},
+            {"term": "гз", "group_id": 5, "confidence": 0.9, "id": 5},
+        ]
+        best = select_best_acronyms_by_term(records)
+        self.assertEqual(best["ГЗ"]["id"], 5)
+
+    def test_empty_term_skipped(self):
+        from src.group_knowledge.acronyms import select_best_acronyms_by_term
+        records = [
+            {"term": "", "group_id": 0, "confidence": 0.9, "id": 1},
+            {"term": None, "group_id": 0, "confidence": 0.9, "id": 2},
+        ]
+        best = select_best_acronyms_by_term(records)
+        self.assertEqual(len(best), 0)
+
+
+class TestNormalizeTerm(unittest.TestCase):
+    """Тесты _normalize_term из term_miner.py."""
+
+    def test_basic_normalization(self):
+        from src.group_knowledge.term_miner import _normalize_term
+        self.assertEqual(_normalize_term("  КкТ  "), "ккт")
+
+    def test_internal_whitespace_collapsed(self):
+        from src.group_knowledge.term_miner import _normalize_term
+        self.assertEqual(_normalize_term("к  к  т"), "к к т")
+
+    def test_empty_string(self):
+        from src.group_knowledge.term_miner import _normalize_term
+        self.assertEqual(_normalize_term(""), "")
+        self.assertEqual(_normalize_term("   "), "")
+
+    def test_nfkc_normalization(self):
+        from src.group_knowledge.term_miner import _normalize_term
+        import unicodedata
+        # NFKC maps fullwidth to ASCII
+        fullwidth_a = "\uff21"  # Ａ (fullwidth A)
+        result = _normalize_term(fullwidth_a)
+        self.assertEqual(result, "a")
 
 
 if __name__ == "__main__":

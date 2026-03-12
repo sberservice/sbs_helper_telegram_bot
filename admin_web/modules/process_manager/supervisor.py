@@ -18,6 +18,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import deque
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 OUTPUT_BUFFER_MAX_LINES = 1000
-PID_DIR = Path("/tmp")
+PID_DIR = Path(tempfile.gettempdir())
 PID_PREFIX = "archie_pm_"
 RESTART_DELAY_SECONDS = 5
 MAX_RESTART_ATTEMPTS = 3
@@ -51,7 +52,12 @@ def _pid_file_path(process_key: str) -> Path:
 
 
 def _is_pid_alive(pid: int) -> bool:
-    """Проверить, жив ли процесс по PID."""
+    """Проверить, жив ли процесс по PID.
+
+    На Unix использует os.kill(pid, 0) — сигнал 0 не убивает процесс.
+    На Windows os.kill(pid, 0) использует OpenProcess, но может выбрасывать
+    OSError вместо ProcessLookupError, поэтому обрабатываем оба варианта.
+    """
     if pid <= 0:
         return False
     try:
@@ -61,6 +67,9 @@ def _is_pid_alive(pid: int) -> bool:
         return False
     except PermissionError:
         return True  # Процесс жив, но нет прав на сигнал
+    except OSError:
+        # На Windows при отсутствии процесса может быть OSError
+        return False
 
 
 def _write_pid_file(process_key: str, pid: int) -> None:
@@ -662,7 +671,15 @@ class ProcessSupervisor:
                 )
 
     def _restore_desired_state(self) -> None:
-        """Восстановить процессы, которые должны быть запущены (из process_desired_state)."""
+        """Восстановить процессы, которые должны быть запущены.
+
+        Читает launch_config.json (если есть) и применяет конфигурацию
+        к desired state в БД. Затем запускает все процессы с should_run=True.
+        """
+        # Фаза 1: применить launch_config.json, если он существует.
+        self._apply_launch_config_to_desired_state()
+
+        # Фаза 2: запустить процессы из desired state.
         desired_states = pm_db.get_desired_states()
         if not desired_states:
             logger.info("Нет процессов для автоматического восстановления")
@@ -718,6 +735,216 @@ class ProcessSupervisor:
                     "Ошибка восстановления процесса %s: %s",
                     process_key, exc, exc_info=True,
                 )
+
+    # -------------------------------------------------------------------
+    # Launch config
+    # -------------------------------------------------------------------
+
+    LAUNCH_CONFIG_RELATIVE_PATH = os.path.join("deploy", "launch_config.json")
+
+    def _get_launch_config_path(self) -> Path:
+        """Путь к файлу конфигурации запуска."""
+        return Path(self._project_root) / self.LAUNCH_CONFIG_RELATIVE_PATH
+
+    def _apply_launch_config_to_desired_state(self) -> None:
+        """Прочитать deploy/launch_config.json и синхронизировать с desired state в БД.
+
+        При наличии файла: для каждого процесса с enabled=true устанавливает
+        desired state, для enabled=false — очищает. Процессы, отсутствующие
+        в конфиге, остаются без изменений (обратная совместимость).
+        """
+        config_path = self._get_launch_config_path()
+        if not config_path.exists():
+            logger.debug(
+                "Файл launch_config.json не найден: %s — пропуск", config_path,
+            )
+            return
+
+        try:
+            raw = config_path.read_text(encoding="utf-8")
+            config = json.loads(raw)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.error(
+                "Ошибка чтения launch_config.json: %s — пропуск", exc,
+            )
+            return
+
+        processes = config.get("processes", {})
+        if not isinstance(processes, dict):
+            logger.error("Некорректный формат launch_config.json: processes не dict")
+            return
+
+        registry = get_process_registry()
+        applied = 0
+
+        for process_key, entry in processes.items():
+            if process_key not in registry:
+                logger.warning(
+                    "launch_config: неизвестный процесс '%s' — пропуск", process_key,
+                )
+                continue
+
+            if not isinstance(entry, dict):
+                logger.warning(
+                    "launch_config: некорректная запись для '%s' — пропуск", process_key,
+                )
+                continue
+
+            enabled = entry.get("enabled", False)
+            flags = entry.get("flags", [])
+            preset = entry.get("preset")
+
+            if not isinstance(flags, list):
+                flags = []
+
+            if enabled:
+                flags_json = json.dumps(flags) if flags else None
+                pm_db.set_desired_state(
+                    process_key,
+                    should_run=True,
+                    flags_json=flags_json,
+                    preset_name=preset,
+                    started_by=None,
+                )
+                logger.info(
+                    "launch_config → desired state: key=%s enabled=%s flags=%s preset=%s",
+                    process_key, enabled, flags, preset,
+                )
+            else:
+                pm_db.clear_desired_state(process_key)
+                logger.info(
+                    "launch_config → desired state: key=%s enabled=%s (очищен)",
+                    process_key, enabled,
+                )
+            applied += 1
+
+        logger.info(
+            "launch_config.json обработан: applied=%d entries=%d path=%s",
+            applied, len(processes), config_path,
+        )
+
+    def read_launch_config(self) -> Dict[str, Any]:
+        """Прочитать текущую конфигурацию запуска из файла.
+
+        Returns:
+            Содержимое launch_config.json или пустой конфиг.
+        """
+        config_path = self._get_launch_config_path()
+        if not config_path.exists():
+            return {"description": "", "processes": {}}
+
+        try:
+            raw = config_path.read_text(encoding="utf-8")
+            return json.loads(raw)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.error("Ошибка чтения launch_config.json: %s", exc)
+            return {"description": "", "processes": {}}
+
+    def write_launch_config(self, config: Dict[str, Any]) -> None:
+        """Записать конфигурацию запуска в файл.
+
+        Args:
+            config: Полная структура launch_config.json.
+
+        Raises:
+            ValueError: Если конфиг содержит неизвестные процессы.
+            OSError: Если не удалось записать файл.
+        """
+        processes = config.get("processes", {})
+        registry = get_process_registry()
+
+        # Валидация ключей процессов.
+        unknown_keys = [k for k in processes if k not in registry]
+        if unknown_keys:
+            raise ValueError(
+                f"Неизвестные процессы в конфигурации: {', '.join(unknown_keys)}",
+            )
+
+        config_path = self._get_launch_config_path()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        raw = json.dumps(config, ensure_ascii=False, indent=4)
+        config_path.write_text(raw + "\n", encoding="utf-8")
+        logger.info("launch_config.json сохранён: path=%s", config_path)
+
+    def apply_launch_config(self) -> Dict[str, str]:
+        """Применить launch_config.json немедленно: запустить/остановить процессы.
+
+        Returns:
+            Словарь {process_key: action}, где action = 'started' | 'stopped' | 'unchanged'.
+        """
+        config = self.read_launch_config()
+        processes = config.get("processes", {})
+        registry = get_process_registry()
+        actions: Dict[str, str] = {}
+
+        for process_key, entry in processes.items():
+            if process_key not in registry:
+                continue
+
+            enabled = entry.get("enabled", False)
+            flags = entry.get("flags", [])
+            preset_name = entry.get("preset")
+
+            if not isinstance(flags, list):
+                flags = []
+
+            managed = self._processes.get(process_key)
+            is_running = managed and managed.status == ProcessStatus.RUNNING
+
+            if enabled and not is_running:
+                try:
+                    self.start_process(
+                        process_key,
+                        flags=flags,
+                        preset_name=preset_name,
+                        persist=True,
+                    )
+                    actions[process_key] = "started"
+                except Exception as exc:
+                    logger.error(
+                        "apply_launch_config: ошибка запуска %s: %s",
+                        process_key, exc, exc_info=True,
+                    )
+                    actions[process_key] = f"error: {exc}"
+            elif not enabled and is_running:
+                try:
+                    self.stop_process(process_key, reason="launch_config_apply")
+                    actions[process_key] = "stopped"
+                except Exception as exc:
+                    logger.error(
+                        "apply_launch_config: ошибка остановки %s: %s",
+                        process_key, exc, exc_info=True,
+                    )
+                    actions[process_key] = f"error: {exc}"
+            else:
+                actions[process_key] = "unchanged"
+
+        logger.info("apply_launch_config завершён: actions=%s", actions)
+        return actions
+
+    def stop_all_processes(self) -> Dict[str, str]:
+        """Остановить все запущенные процессы.
+
+        Returns:
+            Словарь {process_key: result}, где result = 'stopped' | 'error: ...'.
+        """
+        results: Dict[str, str] = {}
+        for key, managed in list(self._processes.items()):
+            if managed.status != ProcessStatus.RUNNING:
+                continue
+            try:
+                self.stop_process(key, reason="shutdown")
+                results[key] = "stopped"
+            except Exception as exc:
+                logger.error(
+                    "stop_all_processes: ошибка остановки %s: %s",
+                    key, exc, exc_info=True,
+                )
+                results[key] = f"error: {exc}"
+
+        logger.info("stop_all_processes завершён: results=%s", results)
+        return results
 
 
 # ---------------------------------------------------------------------------

@@ -820,6 +820,7 @@ class TestRestoreDesiredStateFlags(unittest.TestCase):
         supervisor._lock = __import__("threading").Lock()
         supervisor._shutdown_event = __import__("threading").Event()
         supervisor._monitor_thread = None
+        supervisor._project_root = "/tmp/fake_project"
 
         # Имитировать запущенный процесс (как после _scan_pid_files)
         managed = ManagedProcess(key="gk_collector")
@@ -865,6 +866,7 @@ class TestRestoreDesiredStateFlags(unittest.TestCase):
         supervisor._lock = __import__("threading").Lock()
         supervisor._shutdown_event = __import__("threading").Event()
         supervisor._monitor_thread = None
+        supervisor._project_root = "/tmp/fake_project"
 
         managed = ManagedProcess(key="gk_collector")
         managed.status = ProcessStatus.STOPPED

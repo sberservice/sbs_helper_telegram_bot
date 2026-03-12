@@ -2,12 +2,14 @@
  * Вкладка «Песочница поиска» — гибридный поиск по Q&A-корпусу.
  */
 
-import { useState } from 'react'
-import { api, type GKSearchAnswerPreview, type GKSearchProgressStage, type GKSearchResult } from '../../api'
+import { useState, useEffect } from 'react'
+import { api, type GKGroup, type GKSearchAnswerPreview, type GKSearchProgressStage, type GKSearchResult } from '../../api'
 
 export default function SearchTab() {
   const [query, setQuery] = useState('')
   const [topK, setTopK] = useState(10)
+  const [groupId, setGroupId] = useState<number | undefined>(undefined)
+  const [groups, setGroups] = useState<GKGroup[]>([])
   const [results, setResults] = useState<GKSearchResult[]>([])
   const [answerPreview, setAnswerPreview] = useState<GKSearchAnswerPreview | null>(null)
   const [searching, setSearching] = useState(false)
@@ -16,6 +18,10 @@ export default function SearchTab() {
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [progressStages, setProgressStages] = useState<GKSearchProgressStage[]>([])
   const [searchDurationMs, setSearchDurationMs] = useState<number | null>(null)
+
+  useEffect(() => {
+    api.gkGroups().then(setGroups).catch(() => {})
+  }, [])
 
   const doSearch = async () => {
     if (!query.trim()) return
@@ -28,7 +34,7 @@ export default function SearchTab() {
     ])
     setSearchDurationMs(null)
     try {
-      const res = await api.gkSearch(query.trim(), topK)
+      const res = await api.gkSearch(query.trim(), topK, groupId)
       setResults(res.results)
       setAnswerPreview(res.answer_preview)
       setProgressStages(res.progress_stages || [])
@@ -88,6 +94,18 @@ export default function SearchTab() {
             placeholder="Введите поисковый запрос..."
             maxLength={1000}
           />
+          <select
+            className="input input-sm search-topk-select"
+            value={groupId ?? ''}
+            onChange={e => setGroupId(e.target.value ? Number(e.target.value) : undefined)}
+          >
+            <option value="">Все группы</option>
+            {groups.map(g => (
+              <option key={g.group_id} value={g.group_id}>
+                {g.group_title || `Группа ${g.group_id}`}
+              </option>
+            ))}
+          </select>
           <select className="input input-sm search-topk-select" value={topK} onChange={e => setTopK(Number(e.target.value))}>
             <option value={5}>Top 5</option>
             <option value={10}>Top 10</option>

@@ -48,7 +48,7 @@ export default function TermsTab() {
   const [minConfidence, setMinConfidence] = useState<number | null>(null)
   const [searchInput, setSearchInput] = useState('')
   const [searchText, setSearchText] = useState<string | null>(null)
-  const [sortBy, setSortBy] = useState<'created_at' | 'term' | 'confidence' | 'id' | 'group_id' | 'term_type' | 'status'>('created_at')
+  const [sortBy, setSortBy] = useState<'created_at' | 'term' | 'confidence' | 'id' | 'group_id' | 'status'>('created_at')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [expertStatus] = useState<string | null>(null)
 
@@ -68,7 +68,6 @@ export default function TermsTab() {
   const [showAdd, setShowAdd] = useState(false)
   const [addGroupId, setAddGroupId] = useState<number | ''>(0)
   const [addTerm, setAddTerm] = useState('')
-  const [addTermType, setAddTermType] = useState<'fixed_term' | 'acronym'>('fixed_term')
   const [addDefinition, setAddDefinition] = useState('')
   const [addSubmitting, setAddSubmitting] = useState(false)
 
@@ -81,7 +80,7 @@ export default function TermsTab() {
         page,
         page_size: pageSize,
         group_id: groupId,
-        term_type: termType,
+        has_definition: termType === 'with_definition' ? true : termType === 'without_definition' ? false : undefined,
         status,
         min_confidence: minConfidence,
         search_text: searchText,
@@ -255,7 +254,6 @@ export default function TermsTab() {
       await api.addTermManually({
         group_id: typeof addGroupId === 'number' ? addGroupId : 0,
         term: addTerm.trim(),
-        term_type: addTermType,
         definition: addDefinition.trim() || undefined,
       })
       setAddTerm('')
@@ -267,7 +265,7 @@ export default function TermsTab() {
     } finally {
       setAddSubmitting(false)
     }
-  }, [canEdit, addSubmitting, addTerm, addTermType, addDefinition, addGroupId, loadTerms])
+  }, [canEdit, addSubmitting, addTerm, addDefinition, addGroupId, loadTerms])
 
   // Сканирование
   const handleScan = useCallback(async () => {
@@ -322,8 +320,8 @@ export default function TermsTab() {
             <div className="stat stat-warning"><span className="stat-value">{stats.pending}</span><span className="stat-label">На проверке</span></div>
             <div className="stat stat-success"><span className="stat-value">{stats.approved}</span><span className="stat-label">Одобрено</span></div>
             <div className="stat stat-danger"><span className="stat-value">{stats.rejected}</span><span className="stat-label">Отклонено</span></div>
-            <div className="stat"><span className="stat-value">{stats.fixed_terms}</span><span className="stat-label">Термины</span></div>
-            <div className="stat stat-accent"><span className="stat-value">{stats.acronyms}</span><span className="stat-label">Аббревиатуры</span></div>
+            <div className="stat"><span className="stat-value">{stats.with_definition}</span><span className="stat-label">С определением</span></div>
+            <div className="stat stat-accent"><span className="stat-value">{stats.without_definition}</span><span className="stat-label">Без определения</span></div>
           </div>
         )}
 
@@ -338,9 +336,9 @@ export default function TermsTab() {
             ))}
           </select>
           <select className="input input-sm" value={termType ?? ''} onChange={e => { setTermType(e.target.value || null); setPage(1) }}>
-            <option value="">Все типы</option>
-            <option value="fixed_term">Термин</option>
-            <option value="acronym">Аббревиатура</option>
+            <option value="">Все</option>
+            <option value="with_definition">С определением</option>
+            <option value="without_definition">Без определения</option>
           </select>
           <select className="input input-sm" value={status ?? ''} onChange={e => { setStatus(e.target.value || null); setPage(1) }}>
             <option value="">Все статусы</option>
@@ -372,7 +370,6 @@ export default function TermsTab() {
             <option value="term">Сортировка: термин</option>
             <option value="confidence">Сортировка: confidence</option>
             <option value="status">Сортировка: статус</option>
-            <option value="term_type">Сортировка: тип</option>
             <option value="group_id">Сортировка: группа</option>
             <option value="id">Сортировка: ID</option>
           </select>
@@ -418,19 +415,12 @@ export default function TermsTab() {
                 </select>
               </div>
               <div>
-                <label className="text-dim" style={{ fontSize: 12 }}>Тип</label>
-                <select className="input input-sm" value={addTermType} onChange={e => setAddTermType(e.target.value as 'fixed_term' | 'acronym')}>
-                  <option value="fixed_term">Термин</option>
-                  <option value="acronym">Аббревиатура</option>
-                </select>
-              </div>
-              <div>
                 <label className="text-dim" style={{ fontSize: 12 }}>Термин</label>
                 <input type="text" className="input input-sm" value={addTerm} onChange={e => setAddTerm(e.target.value)} placeholder="напр. ккт" maxLength={100} />
               </div>
               <div>
                 <label className="text-dim" style={{ fontSize: 12 }}>Определение</label>
-                <input type="text" className="input input-sm" value={addDefinition} onChange={e => setAddDefinition(e.target.value)} placeholder="для аббревиатур" maxLength={500} />
+                <input type="text" className="input input-sm" value={addDefinition} onChange={e => setAddDefinition(e.target.value)} placeholder="расшифровка (необязательно)" maxLength={500} />
               </div>
               <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={addSubmitting || !addTerm.trim()}>
                 {addSubmitting ? 'Добавление...' : 'Добавить'}
@@ -489,7 +479,13 @@ export default function TermsTab() {
                   {scanStatus.status === 'completed' && (
                     <>
                       ✓ Найдено терминов: {scanStatus.result?.terms_found ?? scanStatus.progress?.terms_found ?? 0}
-                      , новых: {scanStatus.result?.terms_new ?? scanStatus.progress?.terms_new ?? scanStatus.result?.terms_stored ?? 0}
+                      , новых: {scanStatus.result?.terms_new ?? scanStatus.progress?.terms_new ?? 0}
+                      {(scanStatus.result?.terms_updated ?? scanStatus.progress?.terms_updated ?? 0) > 0 && (
+                        <>, обновлено: {scanStatus.result?.terms_updated ?? scanStatus.progress?.terms_updated ?? 0}</>
+                      )}
+                      {(scanStatus.result?.terms_skipped ?? scanStatus.progress?.terms_skipped ?? 0) > 0 && (
+                        <>, пропущено (рассмотрено): {scanStatus.result?.terms_skipped ?? scanStatus.progress?.terms_skipped ?? 0}</>
+                      )}
                     </>
                   )}
                   {scanStatus.status === 'failed' && `Ошибка: ${scanStatus.error || 'Неизвестная ошибка'}`}
@@ -547,8 +543,8 @@ export default function TermsTab() {
                 >
                   <div className="pair-card-header">
                     <span className="pair-id">#{term.id}</span>
-                    <span className={`badge badge-${term.term_type === 'fixed_term' ? 'info' : 'warning'}`}>
-                      {term.term_type === 'fixed_term' ? 'Термин' : 'Аббревиатура'}
+                    <span className={`badge badge-${term.has_definition ? 'warning' : 'info'}`}>
+                      {term.has_definition ? 'С определением' : 'Термин'}
                     </span>
                     <span className={`badge badge-dim`}>{term.source}</span>
                     {term.confidence != null && (
@@ -606,8 +602,8 @@ export default function TermsTab() {
         <div className="review-content">
           <div className="pair-meta">
             <span className="pair-id">Термин #{currentTerm.id}</span>
-            <span className={`badge badge-${currentTerm.term_type === 'fixed_term' ? 'info' : 'warning'}`}>
-              {currentTerm.term_type === 'fixed_term' ? 'Термин' : 'Аббревиатура'}
+            <span className={`badge badge-${currentTerm.has_definition ? 'warning' : 'info'}`}>
+              {currentTerm.has_definition ? 'С определением' : 'Термин'}
             </span>
             <span className="badge badge-dim">{currentTerm.source}</span>
             {currentTerm.confidence != null && (
@@ -629,7 +625,7 @@ export default function TermsTab() {
             )}
           </div>
 
-          {(currentTerm.term_type === 'acronym' || currentTerm.definition || isEditing) && (
+          {(currentTerm.has_definition || currentTerm.definition || isEditing) && (
             <div className="qa-block qa-answer">
               <div className="qa-label">💡 Определение</div>
               {isEditing ? (

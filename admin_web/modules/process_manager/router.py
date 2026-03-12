@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import signal
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -447,5 +449,117 @@ def build_process_manager_router() -> APIRouter:
     # --- Подключить роутер управления группами ---
     from admin_web.modules.process_manager.groups_api import build_groups_router
     router.include_router(build_groups_router())
+
+    # --- Конфигурация запуска (launch_config.json) ---
+
+    @router.get("/launch-config")
+    async def get_launch_config(
+        user: WebUser = Depends(require_permission("process_manager")),
+    ) -> Dict[str, Any]:
+        """Получить текущую конфигурацию автозапуска из deploy/launch_config.json.
+
+        Результат обогащается данными из реестра (имя, иконка, категория, тип)
+        для удобного отображения в UI.
+        """
+        supervisor = get_supervisor()
+        config = supervisor.read_launch_config()
+        processes_raw = config.get("processes", {})
+        registry = get_process_registry()
+
+        enriched: Dict[str, Any] = {}
+        # Включить все daemon-процессы из реестра (не только те, что в конфиге).
+        for key, definition in registry.items():
+            if definition.process_type.value != "daemon":
+                continue
+            entry = processes_raw.get(key, {})
+            enriched[key] = {
+                "enabled": entry.get("enabled", False) if isinstance(entry, dict) else False,
+                "flags": entry.get("flags", []) if isinstance(entry, dict) else [],
+                "preset": entry.get("preset") if isinstance(entry, dict) else None,
+                "name": definition.name,
+                "icon": definition.icon,
+                "category": definition.category,
+                "description": definition.description,
+                "available_presets": [
+                    {"name": p.name, "description": p.description, "flags": p.flags, "icon": p.icon}
+                    for p in definition.presets
+                    if not p.hidden
+                ],
+                "available_flags": [
+                    {
+                        "name": f.name,
+                        "flag_type": f.flag_type.value,
+                        "description": f.description,
+                        "default": f.default,
+                    }
+                    for f in definition.flags
+                ],
+            }
+
+        return {
+            "description": config.get("description", ""),
+            "processes": enriched,
+        }
+
+    @router.put("/launch-config")
+    async def update_launch_config(
+        body: Dict[str, Any],
+        user: WebUser = Depends(require_permission("process_manager", "edit")),
+    ) -> Dict[str, Any]:
+        """Сохранить конфигурацию автозапуска в deploy/launch_config.json."""
+        supervisor = get_supervisor()
+        try:
+            supervisor.write_launch_config(body)
+            logger.info(
+                "launch_config.json обновлён: user=%d processes=%s",
+                user.telegram_id,
+                list(body.get("processes", {}).keys()),
+            )
+            return {"success": True, "message": "Конфигурация сохранена"}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except OSError as exc:
+            logger.error("Ошибка записи launch_config.json: %s", exc, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Ошибка записи: {exc}")
+
+    @router.post("/launch-config/apply")
+    async def apply_launch_config(
+        user: WebUser = Depends(require_permission("process_manager", "edit")),
+    ) -> Dict[str, Any]:
+        """Применить конфигурацию запуска немедленно: запустить/остановить процессы."""
+        supervisor = get_supervisor()
+        actions = supervisor.apply_launch_config()
+        logger.info(
+            "launch_config применён: user=%d actions=%s",
+            user.telegram_id, actions,
+        )
+        return {"success": True, "actions": actions}
+
+    # --- Завершение работы (для deploy/stop.bat) ---
+
+    @router.post("/shutdown")
+    async def shutdown_all(
+        user: WebUser = Depends(require_permission("process_manager", "edit")),
+    ) -> Dict[str, Any]:
+        """Остановить все управляемые процессы и завершить admin_web.
+
+        Используется скриптом deploy/stop.bat для корректного завершения.
+        """
+        supervisor = get_supervisor()
+        results = supervisor.stop_all_processes()
+        logger.info(
+            "shutdown: все процессы остановлены: user=%d results=%s",
+            user.telegram_id, results,
+        )
+
+        # Запланировать остановку сервера через 2 секунды.
+        async def _delayed_shutdown() -> None:
+            await asyncio.sleep(2)
+            logger.info("shutdown: завершение admin_web")
+            os.kill(os.getpid(), signal.SIGTERM)
+
+        asyncio.create_task(_delayed_shutdown())
+
+        return {"success": True, "stopped": results}
 
     return router
