@@ -83,6 +83,7 @@
 | PUT | `/api/process-manager/groups/gk` | Полная замена конфигурации GK-групп |
 | POST | `/api/process-manager/groups/gk/add` | Добавить GK-группу |
 | DELETE | `/api/process-manager/groups/gk/{group_id}` | Удалить GK-группу |
+| PATCH | `/api/process-manager/groups/gk/{group_id}/toggle` | Включить/отключить GK-группу |
 | POST | `/api/process-manager/groups/gk/test-targets` | Добавить группу в список test-target |
 | DELETE | `/api/process-manager/groups/gk/test-targets/{group_id}` | Удалить группу из списка test-target |
 | PUT | `/api/process-manager/groups/gk/test-target` | Задать тестовую целевую группу |
@@ -91,6 +92,7 @@
 | PUT | `/api/process-manager/groups/helper` | Полная замена конфигурации Helper-групп |
 | POST | `/api/process-manager/groups/helper/add` | Добавить Helper-группу |
 | DELETE | `/api/process-manager/groups/helper/{group_id}` | Удалить Helper-группу |
+| PATCH | `/api/process-manager/groups/helper/{group_id}/toggle` | Включить/отключить Helper-группу |
 | GET | `/api/process-manager/groups/collected` | Группы из БД (gk_messages) |
 
 ## Формы запуска

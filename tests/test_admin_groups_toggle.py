@@ -126,6 +126,25 @@ class TestGroupsToggleLogic(unittest.TestCase):
         req2 = GroupToggleRequest(disabled=False)
         self.assertFalse(req2.disabled)
 
+    def test_groups_router_toggle_paths_use_fastapi_syntax(self):
+        """Роуты toggle/remove групп используют корректный FastAPI path-синтаксис."""
+        from admin_web.modules.process_manager.groups_api import build_groups_router
+
+        router = build_groups_router()
+        route_map = {
+            (route.path, tuple(sorted(route.methods or [])))
+            for route in router.routes
+            if hasattr(route, "methods") and route.methods
+        }
+
+        self.assertIn(("/groups/gk/{group_id}/toggle", ("PATCH",)), route_map)
+        self.assertIn(("/groups/helper/{group_id}/toggle", ("PATCH",)), route_map)
+        self.assertIn(("/groups/gk/{group_id}", ("DELETE",)), route_map)
+        self.assertIn(("/groups/helper/{group_id}", ("DELETE",)), route_map)
+
+        for path, _methods in route_map:
+            self.assertNotIn(":int", path)
+
 
 if __name__ == "__main__":
     unittest.main()

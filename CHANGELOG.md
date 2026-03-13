@@ -5,6 +5,14 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.74] - 2026-03-13
+
+### Fixed
+- `admin_web/modules/process_manager/groups_api.py`: исправлены path-шаблоны эндпоинтов групп GK/Helper (`{group_id}` вместо некорректного `{group_id:int}`), чтобы PATCH/DELETE маршруты корректно матчились в FastAPI и `PATCH /api/process-manager/groups/gk/{id}/toggle` больше не возвращал `405 Method Not Allowed` из-за несовпадения маршрута.
+
+### Changed
+- `tests/test_admin_groups_toggle.py`: добавлен регрессионный тест на регистрацию route-путей toggle/remove без `:int` и наличие PATCH/DELETE маршрутов для GK/Helper.
+
 ## [0.10.73] - 2026-03-13
 
 ### Fixed

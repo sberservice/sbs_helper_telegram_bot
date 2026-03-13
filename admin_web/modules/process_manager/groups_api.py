@@ -300,7 +300,7 @@ def build_groups_router() -> APIRouter:
         )
         return {"test_target_groups": data["test_target_groups"]}
 
-    @router.delete("/gk/test-targets/{group_id:int}")
+    @router.delete("/gk/test-targets/{group_id}")
     async def remove_gk_test_target_option(
         group_id: int,
         user: WebUser = Depends(require_permission("process_manager", "edit")),
@@ -373,7 +373,7 @@ def build_groups_router() -> APIRouter:
         logger.info("GK test target group очищена: user=%d", user.telegram_id)
         return {"test_target_group": None}
 
-    @router.delete("/gk/{group_id:int}")
+    @router.delete("/gk/{group_id}")
     async def remove_gk_group(
         group_id: int,
         user: WebUser = Depends(require_permission("process_manager", "edit")),
@@ -398,7 +398,7 @@ def build_groups_router() -> APIRouter:
         )
         return {"groups": groups}
 
-    @router.patch("/gk/{group_id:int}/toggle")
+    @router.patch("/gk/{group_id}/toggle")
     async def toggle_gk_group(
         group_id: int,
         body: GroupToggleRequest,
@@ -483,7 +483,7 @@ def build_groups_router() -> APIRouter:
         )
         return {"groups": groups}
 
-    @router.delete("/helper/{group_id:int}")
+    @router.delete("/helper/{group_id}")
     async def remove_helper_group(
         group_id: int,
         user: WebUser = Depends(require_permission("process_manager", "edit")),
@@ -508,7 +508,7 @@ def build_groups_router() -> APIRouter:
         )
         return {"groups": groups}
 
-    @router.patch("/helper/{group_id:int}/toggle")
+    @router.patch("/helper/{group_id}/toggle")
     async def toggle_helper_group(
         group_id: int,
         body: GroupToggleRequest,
