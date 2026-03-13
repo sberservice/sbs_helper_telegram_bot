@@ -40,6 +40,9 @@ from scripts.the_helper import (
     load_groups,
     save_groups,
     get_group_ids,
+    run_listener,
+    PROJECT_ROOT,
+    HELPER_SESSION_NAME,
 )
 
 
@@ -583,6 +586,64 @@ class TestParseIndexSelection(unittest.TestCase):
         """Некорректный токен вызывает ValueError."""
         with self.assertRaises(ValueError):
             parse_index_selection("1,abc", 10)
+
+
+class TestListenerStartup(unittest.TestCase):
+    """Тесты старта run_listener: валидация групп и Telethon-сессии."""
+
+    @patch("scripts.the_helper.asyncio.to_thread", new_callable=AsyncMock)
+    @patch("scripts.the_helper.start_telegram_client_with_logging", new_callable=AsyncMock)
+    @patch("scripts.the_helper.get_group_ids")
+    @patch("scripts.the_helper.load_groups")
+    def test_run_listener_exits_when_no_groups(
+        self,
+        mock_load_groups,
+        mock_get_group_ids,
+        mock_start_client,
+        mock_to_thread,
+    ):
+        """При пустом списке групп listener завершает работу с ошибкой."""
+        mock_load_groups.return_value = []
+        mock_get_group_ids.return_value = []
+        mock_to_thread.return_value = None
+
+        with self.assertRaises(SystemExit) as cm:
+            _run_async(run_listener())
+
+        self.assertEqual(cm.exception.code, 1)
+        mock_start_client.assert_not_called()
+
+    @patch("scripts.the_helper.asyncio.to_thread", new_callable=AsyncMock)
+    @patch("scripts.the_helper.start_telegram_client_with_logging", new_callable=AsyncMock)
+    @patch("scripts.the_helper.get_group_ids")
+    @patch("scripts.the_helper.load_groups")
+    def test_run_listener_exits_on_unauthorized_session(
+        self,
+        mock_load_groups,
+        mock_get_group_ids,
+        mock_start_client,
+        mock_to_thread,
+    ):
+        """Если сессия не авторизована, listener завершает работу до старта событий."""
+        mock_load_groups.return_value = [{"id": -100111, "title": "Test Group"}]
+        mock_get_group_ids.return_value = [-100111]
+        mock_start_client.return_value = None
+        mock_to_thread.return_value = None
+
+        with patch("scripts.the_helper.TELETHON_API_ID", 123456), patch(
+            "scripts.the_helper.TELETHON_API_HASH", "abc123hash"
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                _run_async(run_listener())
+
+        self.assertEqual(cm.exception.code, 1)
+        mock_start_client.assert_awaited_once_with(
+            session_path=str(PROJECT_ROOT / HELPER_SESSION_NAME),
+            api_id=123456,
+            api_hash="abc123hash",
+            logger=unittest.mock.ANY,
+            interactive=False,
+        )
 
 
 # ===========================================================================

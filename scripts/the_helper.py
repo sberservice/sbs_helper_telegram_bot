@@ -16,7 +16,6 @@ import argparse
 import html
 import json
 import logging
-import os
 import re
 import signal
 import sys
@@ -979,11 +978,20 @@ async def run_listener() -> None:
         )
         sys.exit(1)
 
-    client = TelegramClient(
-        str(PROJECT_ROOT / HELPER_SESSION_NAME),
-        TELETHON_API_ID,
-        TELETHON_API_HASH,
+    session_path = str(PROJECT_ROOT / HELPER_SESSION_NAME)
+    client = await start_telegram_client_with_logging(
+        session_path=session_path,
+        api_id=TELETHON_API_ID,
+        api_hash=TELETHON_API_HASH,
+        logger=logger,
+        interactive=False,
     )
+    if not client:
+        logger.error(
+            "Не удалось запустить THE_HELPER: Telethon-сессия отсутствует или не авторизована. "
+            "Создайте/обновите сессию командой: python scripts/the_helper.py --manage-groups"
+        )
+        sys.exit(1)
 
     rate_limiter = HelperRateLimiter()
 

@@ -132,6 +132,34 @@ if errorlevel 1 (
     echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: pip install завершился с ошибкой.
 ) else (
     echo [%date% %time%]   Python-зависимости обновлены.
+
+    REM На GPU-серверах после pip install может вернуться CPU-сборка torch.
+    REM Автоматически восстанавливаем CUDA-сборку при наличии NVIDIA.
+    where nvidia-smi >nul 2>&1
+    if not errorlevel 1 (
+        nvidia-smi >nul 2>&1
+        if not errorlevel 1 (
+            echo [%date% %time%]   NVIDIA GPU обнаружен: проверка torch backend...
+            for /f "tokens=*" %%v in ('python -c "import torch; print(int(torch.cuda.is_available()))"') do set "TORCH_CUDA_READY=%%v"
+            if not "!TORCH_CUDA_READY!"=="1" (
+                echo [%date% %time%]   torch CUDA недоступна, выполняется установка CUDA-сборки...
+                python -m pip uninstall -y torch torchvision torchaudio >nul 2>&1
+                python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+                if errorlevel 1 (
+                    echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: установка CUDA-сборки torch не удалась.
+                ) else (
+                    for /f "tokens=*" %%v in ('python -c "import torch; print(int(torch.cuda.is_available()))"') do set "TORCH_CUDA_READY=%%v"
+                    if "!TORCH_CUDA_READY!"=="1" (
+                        echo [%date% %time%]   CUDA-сборка torch успешно активирована.
+                    ) else (
+                        echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: torch установлен, но CUDA всё ещё недоступна.
+                    )
+                )
+            ) else (
+                echo [%date% %time%]   torch уже использует CUDA.
+            )
+        )
+    )
 )
 
 REM ---- Шаг 5: Пересборка frontend ----

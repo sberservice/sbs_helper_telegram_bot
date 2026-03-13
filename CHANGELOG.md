@@ -5,6 +5,16 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.73] - 2026-03-13
+
+### Fixed
+- `scripts/the_helper.py`: запуск listener переведён на `start_telegram_client_with_logging(..., interactive=False)` с обязательной проверкой авторизации Telethon-сессии перед стартом, чтобы процесс не работал с невалидной/неавторизованной сессией.
+- `scripts/the_helper.py`: устранён сценарий, при котором listener создавал `TelegramClient`, но не выполнял подключение к Telegram, из-за чего `/helpme`-события могли не поступать.
+
+### Changed
+- `tests/test_the_helper.py`: добавлены тесты startup-логики listener для кейсов пустого списка групп и неавторизованной Telethon-сессии.
+- `scripts/THE_HELPER_README.md`: документация дополнена явным описанием startup-проверки авторизации session-файла.
+
 ## [0.10.72] - 2026-03-13
 
 ### Added
@@ -13,6 +23,7 @@
 ### Changed
 - `deploy/README.md`: добавлен раздел по GPU/CUDA-развёртыванию и post-update шагу (`deploy\setup_cuda.bat`) для серверов с NVIDIA.
 - `deploy/setup_cuda.bat`: при обнаружении `venv` на Python `3.13+` скрипт автоматически пересоздаёт окружение на Python `3.12` (если доступен `py -3.12`) вместо немедленного завершения.
+- `deploy/update.bat`: на серверах с NVIDIA GPU добавлена автоматическая проверка backend `torch` и авто-восстановление CUDA-сборки (`cu124`) после обновления зависимостей.
 
 ## [0.10.71] - 2026-03-13
 
