@@ -133,6 +133,7 @@ class TestGKAnalyzeCliHelpers(unittest.TestCase):
         """Режим rebuild удаляет старые пары и запускает force_reanalyze по всем датам."""
         args = argparse.Namespace(
             index=False,
+            rebuild_vector_index=False,
             group_id=-1001,
             all_dates=True,
             all_unprocessed=False,
@@ -183,6 +184,7 @@ class TestGKAnalyzeCliHelpers(unittest.TestCase):
         """Режим --all-dates --force-reanalyze очищает expert validations по выбранным группам."""
         args = argparse.Namespace(
             index=False,
+            rebuild_vector_index=False,
             group_id=-1001,
             all_dates=True,
             all_unprocessed=False,
@@ -223,6 +225,53 @@ class TestGKAnalyzeCliHelpers(unittest.TestCase):
             skip_llm=False,
             force_reanalyze=True,
         )
+
+    def test_run_analysis_rebuild_vector_index_reindexes_all_approved_pairs(self):
+        """Режим --rebuild-vector-index очищает QA-векторы и запускает повторную индексацию."""
+        args = argparse.Namespace(
+            rebuild_vector_index=True,
+            index=False,
+            group_id=None,
+            all_dates=False,
+            all_unprocessed=False,
+            all_unprocessed_except_today=False,
+            date=None,
+            date_range=None,
+            skip_thread=False,
+            skip_llm=False,
+            force_reanalyze=False,
+            rebuild_pairs=False,
+            no_index=False,
+        )
+
+        analyzer = unittest.mock.MagicMock()
+        analyzer.index_new_pairs = unittest.mock.AsyncMock(return_value=2)
+        pair_1 = argparse.Namespace(id=101)
+        pair_2 = argparse.Namespace(id=202)
+        pair_duplicate = argparse.Namespace(id=202)
+
+        async def _run():
+            with patch.object(GK_ANALYZE, "QAAnalyzer", return_value=analyzer):
+                with patch.object(
+                    GK_ANALYZE.gk_db,
+                    "get_all_approved_qa_pairs",
+                    return_value=[pair_1, pair_2, pair_duplicate],
+                ):
+                    with patch.object(GK_ANALYZE, "_cleanup_vector_points", return_value=2) as mock_cleanup:
+                        with patch.object(
+                            GK_ANALYZE.gk_db,
+                            "reset_qa_pairs_vector_indexed",
+                            return_value=2,
+                        ) as mock_reset:
+                            await GK_ANALYZE.run_analysis(args)
+            return mock_cleanup, mock_reset
+
+        mock_cleanup, mock_reset = asyncio.run(_run())
+
+        mock_cleanup.assert_called_once_with([101, 202])
+        mock_reset.assert_called_once_with(approved_only=True)
+        analyzer.index_new_pairs.assert_awaited_once_with()
+        analyzer.analyze_day.assert_not_called()
 
 
 if __name__ == "__main__":

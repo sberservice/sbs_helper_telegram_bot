@@ -13,6 +13,7 @@ gk_analyze — CLI утилита запуска анализа Q&A-пар.
     python scripts/gk_analyze.py --all-dates                      — все даты, где есть сообщения
     python scripts/gk_analyze.py --date 2024-01-15 --group-id -100123456
     python scripts/gk_analyze.py --index                          — проиндексировать новые пары
+    python scripts/gk_analyze.py --rebuild-vector-index           — полная пересборка QA-векторного индекса
     python scripts/gk_analyze.py --date 2024-01-15 --force-reanalyze — переанализировать все сообщения за день
     python scripts/gk_analyze.py --all-dates --rebuild-pairs      — полностью пересобрать Q&A-пары
 """
@@ -194,6 +195,37 @@ def _cleanup_expert_validations_for_groups(group_ids: list[int]) -> None:
     )
 
 
+async def _rebuild_vector_index_for_approved_pairs(analyzer: QAAnalyzer) -> None:
+    """Полностью пересобрать QA-векторный индекс для текущих approved-пар."""
+    approved_pairs = gk_db.get_all_approved_qa_pairs()
+    pair_ids = sorted({int(pair.id) for pair in approved_pairs if getattr(pair, "id", 0)})
+
+    logger.info(
+        "Запуск полной пересборки QA-векторного индекса: approved_pairs=%d",
+        len(pair_ids),
+    )
+
+    deleted_vectors = _cleanup_vector_points(pair_ids)
+
+    reset_count = 0
+    reset_index_fn = getattr(gk_db, "reset_qa_pairs_vector_indexed", None)
+    if callable(reset_index_fn):
+        reset_count = int(reset_index_fn(approved_only=True) or 0)
+    else:
+        logger.warning(
+            "Функция reset_qa_pairs_vector_indexed недоступна: пропускаем массовый сброс vector_indexed"
+        )
+
+    indexed_count = await analyzer.index_new_pairs()
+
+    logger.info(
+        "Пересборка QA-векторного индекса завершена: vector_delete_ops=%d reset_vector_indexed=%d reindexed=%d",
+        deleted_vectors,
+        reset_count,
+        indexed_count,
+    )
+
+
 async def run_analysis(args: argparse.Namespace) -> None:
     """
     Запустить анализ Q&A-пар.
@@ -202,6 +234,11 @@ async def run_analysis(args: argparse.Namespace) -> None:
         args: Аргументы командной строки.
     """
     analyzer = QAAnalyzer()
+
+    # Полная пересборка векторного индекса
+    if args.rebuild_vector_index:
+        await _rebuild_vector_index_for_approved_pairs(analyzer)
+        return
 
     # Режим индексации
     if args.index:
@@ -341,6 +378,11 @@ def main() -> None:
         help="Только проиндексировать новые Q&A-пары в Qdrant",
     )
     parser.add_argument(
+        "--rebuild-vector-index",
+        action="store_true",
+        help="Полностью пересобрать QA-векторный индекс: удалить QA-векторы, сбросить vector_indexed и заново проиндексировать approved-пары",
+    )
+    parser.add_argument(
         "--no-index",
         action="store_true",
         help="Не индексировать пары автоматически после анализа",
@@ -373,6 +415,23 @@ def main() -> None:
         parser.error("--all-unprocessed-except-today нельзя использовать вместе с --force-reanalyze")
     if args.rebuild_pairs and not args.all_dates:
         parser.error("--rebuild-pairs можно использовать только вместе с --all-dates")
+    if args.rebuild_vector_index:
+        incompatible_flags = [
+            args.index,
+            args.date is not None,
+            args.date_range is not None,
+            args.all_unprocessed,
+            args.all_unprocessed_except_today,
+            args.all_dates,
+            args.group_id is not None,
+            args.no_index,
+            args.skip_thread,
+            args.skip_llm,
+            args.force_reanalyze,
+            args.rebuild_pairs,
+        ]
+        if any(incompatible_flags):
+            parser.error("--rebuild-vector-index это отдельный режим и не комбинируется с другими флагами анализа")
 
     asyncio.run(run_analysis(args))
 

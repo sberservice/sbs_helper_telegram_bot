@@ -11,7 +11,6 @@ gk_collector — Telethon-скрипт сбора сообщений из гру
     python scripts/gk_collector.py --test-mode             — слушатель + автоответчик в test mode
     python scripts/gk_collector.py --manage-groups         — управление группами (CLI)
     python scripts/gk_collector.py --backfill --days 7     — загрузить историю
-    python scripts/gk_collector.py --rebuild-vector-index  — полная пересборка QA-векторного индекса
     python scripts/gk_collector.py --fill-missing-is-question --fill-days 30
                                                         — заполнить is_question для уже сохранённых сообщений
 """
@@ -636,67 +635,6 @@ async def _run_fill_missing_is_question(args: argparse.Namespace) -> None:
     logger.info("Заполнение missing is_question завершено: updated=%d", updated)
 
 
-def _create_gk_vector_index():
-    """Создать экземпляр векторного индекса GK Q&A."""
-    from src.core.ai.vector_search import LocalVectorIndex
-
-    return LocalVectorIndex(chunk_collection_name=ai_settings.GK_QA_VECTOR_COLLECTION)
-
-
-def _create_qa_analyzer():
-    """Создать экземпляр анализатора Q&A-пар."""
-    from src.group_knowledge.qa_analyzer import QAAnalyzer
-
-    return QAAnalyzer()
-
-
-async def _run_rebuild_vector_index(_args: argparse.Namespace) -> None:
-    """Полностью пересобрать QA-векторный индекс из БД с удалением старых QA-векторов."""
-    approved_pairs = gk_db.get_all_approved_qa_pairs()
-    pair_ids = sorted({int(pair.id) for pair in approved_pairs if getattr(pair, "id", 0)})
-
-    logger.info(
-        "Запуск полной пересборки QA-векторного индекса: approved_pairs=%d",
-        len(pair_ids),
-    )
-
-    delete_ops_ok = 0
-    delete_ops_failed = 0
-
-    if pair_ids:
-        vector_index = _create_gk_vector_index()
-        for pair_id in pair_ids:
-            try:
-                vector_index.delete_document_points(pair_id)
-                delete_ops_ok += 1
-            except Exception as exc:
-                delete_ops_failed += 1
-                logger.warning(
-                    "Не удалось удалить QA-векторы для pair_id=%d: %s",
-                    pair_id,
-                    exc,
-                )
-
-    reset_count = 0
-    reset_index_fn = getattr(gk_db, "reset_qa_pairs_vector_indexed", None)
-    if callable(reset_index_fn):
-        reset_count = int(reset_index_fn(approved_only=True) or 0)
-    else:
-        logger.warning(
-            "Функция reset_qa_pairs_vector_indexed недоступна: пропускаем массовый сброс vector_indexed"
-        )
-    analyzer = _create_qa_analyzer()
-    indexed_count = await analyzer.index_new_pairs()
-
-    logger.info(
-        "Полная пересборка QA-векторного индекса завершена: delete_ok=%d delete_failed=%d reset_vector_indexed=%d reindexed=%d",
-        delete_ops_ok,
-        delete_ops_failed,
-        reset_count,
-        indexed_count,
-    )
-
-
 def main() -> None:
     """Точка входа."""
     parser = argparse.ArgumentParser(
@@ -711,11 +649,6 @@ def main() -> None:
         "--backfill",
         action="store_true",
         help="Загрузить историю сообщений",
-    )
-    parser.add_argument(
-        "--rebuild-vector-index",
-        action="store_true",
-        help="Полностью пересобрать QA-векторный индекс: удалить QA-векторы, сбросить vector_indexed и заново проиндексировать approved-пары",
     )
     parser.add_argument(
         "--fill-missing-is-question",
@@ -793,12 +726,11 @@ def main() -> None:
         for flag in (
             args.manage_groups,
             args.backfill,
-            args.rebuild_vector_index,
             args.fill_missing_is_question,
         )
     )
     if selected_modes > 1:
-        parser.error("Флаги --manage-groups, --backfill, --rebuild-vector-index и --fill-missing-is-question взаимоисключающие")
+        parser.error("Флаги --manage-groups, --backfill и --fill-missing-is-question взаимоисключающие")
     if args.test_mode and args.redirect_test_mode:
         parser.error("Флаги --test-mode и --redirect-test-mode нельзя использовать одновременно")
     if args.fill_missing_is_question and args.force:
@@ -820,10 +752,6 @@ def main() -> None:
 
     if args.fill_missing_is_question:
         asyncio.run(_run_fill_missing_is_question(args))
-        return
-
-    if args.rebuild_vector_index:
-        asyncio.run(_run_rebuild_vector_index(args))
         return
 
     if not _validate_telethon_credentials():
