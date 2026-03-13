@@ -5,6 +5,11 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.63] - 2026-03-13
+
+### Fixed
+- `deploy/check_sessions.bat`: исправлена обработка выбора пункта меню создания сессий (`setlocal EnableDelayedExpansion` + `!SESSION_CHOICE!`), из-за чего ранее выбор `1/2/3` мог не запускать команды.
+
 ## [0.10.62] - 2026-03-13
 
 ### Changed

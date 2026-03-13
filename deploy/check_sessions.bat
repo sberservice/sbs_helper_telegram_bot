@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul 2>&1
-setlocal
+setlocal EnableDelayedExpansion
 
 REM Проверка Telethon-сессий для deploy.
 REM По умолчанию запускается в режиме "проверка + помощь в создании сессий".
@@ -37,15 +37,15 @@ if "%RC%"=="2" (
 
     set /p SESSION_CHOICE="Выберите действие (0/1/2/3): "
 
-    if "%SESSION_CHOICE%"=="1" (
+    if "!SESSION_CHOICE!"=="1" (
         "%PYTHON_EXE%" scripts\gk_collector.py --manage-groups
         goto :run_check
     )
-    if "%SESSION_CHOICE%"=="2" (
+    if "!SESSION_CHOICE!"=="2" (
         "%PYTHON_EXE%" scripts\the_helper.py --manage-groups
         goto :run_check
     )
-    if "%SESSION_CHOICE%"=="3" (
+    if "!SESSION_CHOICE!"=="3" (
         "%PYTHON_EXE%" scripts\gk_collector.py --manage-groups
         "%PYTHON_EXE%" scripts\the_helper.py --manage-groups
         goto :run_check
