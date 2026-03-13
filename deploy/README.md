@@ -223,7 +223,8 @@ deploy\update.bat
 
 ### Telethon-сессии
 
-Файлы `*.session` (gk_collector_session, helper_session и др.) привязаны к конкретной машине. При переносе на новый компьютер:
+Имена файлов `*.session` берутся из env (например, `GK_COLLECTOR_SESSION_NAME`, `HELPER_SESSION_NAME`, `TELETHON_SESSION_NAME`; по умолчанию — `gk_collector_session`, `helper_session`, `chat_sync_session`).
+Сами `*.session` файлы привязаны к конкретной машине. При переносе на новый компьютер:
 1. Скопируйте файлы сессий на новую машину
 2. Или пересоздайте сессии (потребуется SMS-верификация)
 

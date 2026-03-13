@@ -5,6 +5,12 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.67] - 2026-03-13
+
+### Fixed
+- `deploy/check_telethon_sessions.py`: проверка `gk_collector` теперь использует имя сессии из глобального env (`GK_COLLECTOR_SESSION_NAME`) вместо хардкода `gk_collector_session`.
+- `deploy/README.md`: уточнено, что имена Telethon session-файлов настраиваются через env-переменные с дефолтами.
+
 ## [0.10.66] - 2026-03-13
 
 ### Changed

@@ -30,7 +30,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.common.constants.sync import TELETHON_API_HASH, TELETHON_API_ID
+from src.common.constants.sync import (
+    GK_COLLECTOR_SESSION_NAME,
+    TELETHON_API_HASH,
+    TELETHON_API_ID,
+)
 from src.group_knowledge.telethon_session import (
     build_telegram_client,
     disconnect_client_quietly,
@@ -50,7 +54,7 @@ class SessionRequirement:
 REQUIREMENTS: Dict[str, SessionRequirement] = {
     "gk_collector": SessionRequirement(
         process_key="gk_collector",
-        session_basename="gk_collector_session",
+        session_basename=GK_COLLECTOR_SESSION_NAME,
         setup_command="python scripts/gk_collector.py --manage-groups",
         description="Group Knowledge collector",
     ),
