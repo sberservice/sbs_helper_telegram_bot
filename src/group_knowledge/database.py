@@ -1159,6 +1159,47 @@ def mark_qa_pair_indexed(pair_id: int) -> None:
         logger.error("Ошибка обновления индекса Q&A-пары: %s", exc, exc_info=True)
 
 
+def reset_qa_pairs_vector_indexed(
+    group_id: Optional[int] = None,
+    approved_only: bool = True,
+) -> int:
+    """
+    Сбросить флаг vector_indexed у Q&A-пар.
+
+    Args:
+        group_id: Если задан, сбросить только для указанной группы.
+        approved_only: Если True, сбрасывать только approved-пары.
+
+    Returns:
+        Число обновлённых строк.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                conditions = []
+                params: list = []
+
+                if approved_only:
+                    conditions.append("approved = 1")
+
+                if group_id is not None:
+                    conditions.append("group_id = %s")
+                    params.append(group_id)
+
+                where_clause = ""
+                if conditions:
+                    where_clause = " WHERE " + " AND ".join(conditions)
+
+                cursor.execute(
+                    f"UPDATE gk_qa_pairs SET vector_indexed = 0{where_clause}",
+                    tuple(params),
+                )
+                return int(cursor.rowcount or 0)
+    except Exception as exc:
+        logger.error("Ошибка сброса флага vector_indexed у Q&A-пар: %s", exc, exc_info=True)
+        raise
+
+
 def get_qa_pairs_count(
     group_id: Optional[int] = None,
     approved_only: bool = True,

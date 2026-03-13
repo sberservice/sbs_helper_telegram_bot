@@ -141,6 +141,9 @@ class TestGKCollectorCli(unittest.TestCase):
             live=False,
             test_mode=True,
             redirect_test_mode=False,
+            test_real_group_id=None,
+            test_group_id=None,
+            redirect_group_id=None,
             collect_only=False,
         )
         mock_client = AsyncMock()
@@ -202,6 +205,9 @@ class TestGKCollectorCli(unittest.TestCase):
             live=False,
             test_mode=False,
             redirect_test_mode=True,
+            test_real_group_id=None,
+            test_group_id=None,
+            redirect_group_id=None,
             collect_only=False,
         )
         mock_client = AsyncMock()
@@ -378,6 +384,44 @@ class TestGKCollectorCli(unittest.TestCase):
             days=30,
             limit=100,
         )
+
+    def test_rebuild_vector_index_resets_and_reindexes_all_approved_pairs(self):
+        """Режим rebuild-vector-index удаляет QA-векторы, сбрасывает флаг и запускает переиндексацию."""
+        args = argparse.Namespace(rebuild_vector_index=True)
+
+        pair_1 = types.SimpleNamespace(id=101)
+        pair_2 = types.SimpleNamespace(id=202)
+        pair_duplicate = types.SimpleNamespace(id=202)
+
+        mock_vector_index = MagicMock()
+        mock_vector_index.delete_document_points = MagicMock(return_value=1)
+
+        mock_analyzer = MagicMock()
+        mock_analyzer.index_new_pairs = AsyncMock(return_value=2)
+
+        async def _run():
+            with patch.object(
+                GK_COLLECTOR.gk_db,
+                "get_all_approved_qa_pairs",
+                return_value=[pair_1, pair_2, pair_duplicate],
+            ):
+                with patch.object(GK_COLLECTOR, "_create_gk_vector_index", return_value=mock_vector_index):
+                    with patch.object(
+                        GK_COLLECTOR.gk_db,
+                        "reset_qa_pairs_vector_indexed",
+                        return_value=2,
+                    ) as mock_reset:
+                        with patch.object(GK_COLLECTOR, "_create_qa_analyzer", return_value=mock_analyzer):
+                            await GK_COLLECTOR._run_rebuild_vector_index(args)
+            return mock_reset
+
+        mock_reset = asyncio.run(_run())
+
+        mock_vector_index.delete_document_points.assert_any_call(101)
+        mock_vector_index.delete_document_points.assert_any_call(202)
+        self.assertEqual(mock_vector_index.delete_document_points.call_count, 2)
+        mock_reset.assert_called_once_with(approved_only=True)
+        mock_analyzer.index_new_pairs.assert_awaited_once_with()
 
 
 if __name__ == "__main__":

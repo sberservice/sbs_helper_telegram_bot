@@ -5,6 +5,15 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.71] - 2026-03-13
+
+### Added
+- `scripts/gk_collector.py`: добавлен флаг `--rebuild-vector-index` для полной пересборки QA-векторного индекса (удаление QA-векторов, сброс `vector_indexed`, повторная индексация approved-пар).
+
+### Changed
+- `src/group_knowledge/database.py`: добавлен хелпер `reset_qa_pairs_vector_indexed(...)` для массового сброса флага индексации Q&A-пар перед полной переиндексацией.
+- `src/group_knowledge/README.md`: добавлена документация нового режима `gk_collector --rebuild-vector-index`.
+
 ## [0.10.69] - 2026-03-13
 
 ## [0.10.70] - 2026-03-13
