@@ -5,6 +5,21 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.69] - 2026-03-13
+
+### Added
+- `scripts/telethon_login_debug.py`: новая CLI-утилита для диагностики Telethon-авторизации (проверка отправки кода, обработка типовых ошибок `FLOOD_WAIT`/`PHONE_CODE_INVALID`/`2FA`, явные подсказки оператору).
+- `tests/test_telethon_login_debug.py`: тесты нормализации номера телефона для отладки авторизации.
+
+### Changed
+- `deploy/README.md`: добавлена инструкция по запуску диагностики, если Telegram-код не приходит при создании сессии.
+
+## [0.10.68] - 2026-03-13
+
+### Fixed
+- `deploy/check_telethon_sessions.py`: проверка `the_helper` теперь использует имя сессии из env (`HELPER_SESSION_NAME`) вместо хардкода `helper_session`.
+- `deploy/check_telethon_sessions.py`: опциональная проверка `sync_chat_members` теперь использует имя сессии из env (`TELETHON_SESSION_NAME`) вместо хардкода `chat_sync_session`.
+
 ## [0.10.67] - 2026-03-13
 
 ### Fixed

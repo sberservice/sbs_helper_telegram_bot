@@ -32,8 +32,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.common.constants.sync import (
     GK_COLLECTOR_SESSION_NAME,
+    HELPER_SESSION_NAME,
     TELETHON_API_HASH,
     TELETHON_API_ID,
+    TELETHON_SESSION_NAME,
 )
 from src.group_knowledge.telethon_session import (
     build_telegram_client,
@@ -60,7 +62,7 @@ REQUIREMENTS: Dict[str, SessionRequirement] = {
     ),
     "the_helper": SessionRequirement(
         process_key="the_helper",
-        session_basename="helper_session",
+        session_basename=HELPER_SESSION_NAME,
         setup_command="python scripts/the_helper.py --manage-groups",
         description="The Helper listener",
     ),
@@ -69,7 +71,7 @@ REQUIREMENTS: Dict[str, SessionRequirement] = {
 OPTIONAL_SESSIONS: List[SessionRequirement] = [
     SessionRequirement(
         process_key="sync_chat_members",
-        session_basename="chat_sync_session",
+        session_basename=TELETHON_SESSION_NAME,
         setup_command="python scripts/sync_chat_members.py",
         description="Chat members sync (опционально)",
     ),
