@@ -22,6 +22,7 @@ import argparse
 import asyncio
 import logging
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -127,7 +128,20 @@ def _resolve_analysis_targets(
     return [(gid, date_str) for date_str in dates for gid in group_ids]
 
 
-def _cleanup_vector_points(pair_ids: list[int]) -> int:
+def _format_eta(seconds: float) -> str:
+    """Отформатировать длительность в HH:MM:SS для ETA."""
+    total_seconds = max(0, int(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _cleanup_vector_points(
+    pair_ids: list[int],
+    *,
+    log_progress: bool = False,
+    progress_prefix: str = "",
+) -> int:
     """Удалить векторные точки указанных Q&A-пар из Qdrant-коллекции GK."""
     if not pair_ids:
         return 0
@@ -143,11 +157,30 @@ def _cleanup_vector_points(pair_ids: list[int]) -> int:
         return 0
 
     deleted = 0
-    for pair_id in pair_ids:
+    total = len(pair_ids)
+    started_at = time.time()
+    prefix = progress_prefix or "Удаление QA-векторов"
+    for index, pair_id in enumerate(pair_ids, start=1):
         try:
             deleted += int(vector_index.delete_document_points(int(pair_id)) or 0)
         except Exception as exc:
             logger.warning("Не удалось удалить vector-точки pair_id=%s: %s", pair_id, exc)
+
+        if log_progress and (index == 1 or index % 25 == 0 or index == total):
+            elapsed = max(time.time() - started_at, 1e-6)
+            rate = index / elapsed
+            remaining_items = max(total - index, 0)
+            eta_seconds = remaining_items / rate if rate > 0 else 0.0
+            expected_finish = datetime.now() + timedelta(seconds=eta_seconds)
+            logger.info(
+                "%s: %d/%d (%.1f%%), ETA=%s, ожидаемое завершение=%s",
+                prefix,
+                index,
+                total,
+                (index / total) * 100.0,
+                _format_eta(eta_seconds),
+                expected_finish.strftime("%Y-%m-%d %H:%M:%S"),
+            )
     return deleted
 
 
@@ -205,7 +238,11 @@ async def _rebuild_vector_index_for_approved_pairs(analyzer: QAAnalyzer) -> None
         len(pair_ids),
     )
 
-    deleted_vectors = _cleanup_vector_points(pair_ids)
+    deleted_vectors = _cleanup_vector_points(
+        pair_ids,
+        log_progress=True,
+        progress_prefix="Rebuild vector index: удаление QA-векторов",
+    )
 
     reset_count = 0
     reset_index_fn = getattr(gk_db, "reset_qa_pairs_vector_indexed", None)

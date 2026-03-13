@@ -14,6 +14,7 @@
 - `src/group_knowledge/database.py`: добавлен хелпер `reset_qa_pairs_vector_indexed(...)` для массового сброса флага индексации Q&A-пар перед полной переиндексацией.
 - `src/group_knowledge/README.md`: документация обновлена — режим `--rebuild-vector-index` перенесён в `gk_analyze`.
 - `admin_web/modules/process_manager/registry.py`: в Process Manager добавлены флаг и пресет для запуска `gk_analyze --rebuild-vector-index` из web-интерфейса.
+- `scripts/gk_analyze.py` и `src/group_knowledge/qa_analyzer.py`: при полной пересборке и переиндексации добавлен прогресс с `ETA` и ожидаемым временем завершения.
 
 ## [0.10.69] - 2026-03-13
 

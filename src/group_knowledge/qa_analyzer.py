@@ -11,6 +11,7 @@
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -1408,57 +1409,83 @@ class QAAnalyzer:
                 question_messages_by_id = gk_db.get_messages_by_ids(question_message_ids)
 
             indexed_count = 0
-            for pair in pairs:
-                if not pair.id:
-                    continue
-
-                source_message = None
-                if pair.question_message_id is not None:
-                    source_message = question_messages_by_id.get(int(pair.question_message_id))
-
-                rag_question_text = enrich_question_for_rag(
-                    question_text=pair.question_text,
-                    source_message=source_message,
-                    enabled=ai_settings.GK_RAG_IMAGE_GIST_ENABLED,
-                )
-                if not rag_question_text:
-                    rag_question_text = (pair.question_text or "").strip()
-
-                # Текст для эмбеддинга: вопрос + ответ
-                embed_text = f"Вопрос: {rag_question_text}\nОтвет: {pair.answer_text}"
-
+            total_pairs = len(pairs)
+            started_at = time.time()
+            for index, pair in enumerate(pairs, start=1):
                 try:
-                    embedding = embedding_provider.encode(embed_text)
-                    if not embedding:
-                        logger.warning(
-                            "Не удалось получить эмбеддинг для пары %d",
-                            pair.id,
-                        )
+                    if not pair.id:
                         continue
 
-                    upserted = vector_index.upsert_chunks(
-                        chunks=[{
-                            "document_id": pair.id,
-                            "chunk_index": 0,
-                            "filename": f"gk_qa_pair_{pair.id}",
-                            "chunk_text": embed_text,
-                            "status": "active",
-                        }],
-                        embeddings=[embedding],
-                    )
-                    if upserted <= 0:
-                        logger.warning(
-                            "Qdrant не принял вектор для пары %d",
-                            pair.id,
-                        )
-                        continue
+                    source_message = None
+                    if pair.question_message_id is not None:
+                        source_message = question_messages_by_id.get(int(pair.question_message_id))
 
-                    gk_db.mark_qa_pair_indexed(pair.id)
-                    indexed_count += 1
-                except Exception as exc:
-                    logger.warning(
-                        "Ошибка индексации пары %d: %s", pair.id, exc,
+                    rag_question_text = enrich_question_for_rag(
+                        question_text=pair.question_text,
+                        source_message=source_message,
+                        enabled=ai_settings.GK_RAG_IMAGE_GIST_ENABLED,
                     )
+                    if not rag_question_text:
+                        rag_question_text = (pair.question_text or "").strip()
+
+                    # Текст для эмбеддинга: вопрос + ответ
+                    embed_text = f"Вопрос: {rag_question_text}\nОтвет: {pair.answer_text}"
+
+                    try:
+                        embedding = embedding_provider.encode(embed_text)
+                        if not embedding:
+                            logger.warning(
+                                "Не удалось получить эмбеддинг для пары %d",
+                                pair.id,
+                            )
+                            continue
+
+                        upserted = vector_index.upsert_chunks(
+                            chunks=[{
+                                "document_id": pair.id,
+                                "chunk_index": 0,
+                                "filename": f"gk_qa_pair_{pair.id}",
+                                "chunk_text": embed_text,
+                                "status": "active",
+                            }],
+                            embeddings=[embedding],
+                        )
+                        if upserted <= 0:
+                            logger.warning(
+                                "Qdrant не принял вектор для пары %d",
+                                pair.id,
+                            )
+                            continue
+
+                        gk_db.mark_qa_pair_indexed(pair.id)
+                        indexed_count += 1
+                    except Exception as exc:
+                        logger.warning(
+                            "Ошибка индексации пары %d: %s", pair.id, exc,
+                        )
+                finally:
+                    if total_pairs and (index == 1 or index % 25 == 0 or index == total_pairs):
+                        elapsed = max(time.time() - started_at, 1e-6)
+                        rate = index / elapsed
+                        remaining_items = max(total_pairs - index, 0)
+                        eta_seconds = remaining_items / rate if rate > 0 else 0.0
+                        eta_h = int(max(0, eta_seconds)) // 3600
+                        eta_m = (int(max(0, eta_seconds)) % 3600) // 60
+                        eta_s = int(max(0, eta_seconds)) % 60
+                        expected_finish_str = datetime.fromtimestamp(
+                            time.time() + eta_seconds
+                        ).strftime("%Y-%m-%d %H:%M:%S")
+                        logger.info(
+                            "Индексация QA-пар: %d/%d (%.1f%%), успешных=%d, ETA=%02d:%02d:%02d, ожидаемое завершение=%s",
+                            index,
+                            total_pairs,
+                            (index / total_pairs) * 100.0,
+                            indexed_count,
+                            eta_h,
+                            eta_m,
+                            eta_s,
+                            expected_finish_str,
+                        )
 
             logger.info("Проиндексировано пар: %d / %d", indexed_count, len(pairs))
             return indexed_count

@@ -268,7 +268,11 @@ class TestGKAnalyzeCliHelpers(unittest.TestCase):
 
         mock_cleanup, mock_reset = asyncio.run(_run())
 
-        mock_cleanup.assert_called_once_with([101, 202])
+        mock_cleanup.assert_called_once_with(
+            [101, 202],
+            log_progress=True,
+            progress_prefix="Rebuild vector index: удаление QA-векторов",
+        )
         mock_reset.assert_called_once_with(approved_only=True)
         analyzer.index_new_pairs.assert_awaited_once_with()
         analyzer.analyze_day.assert_not_called()
