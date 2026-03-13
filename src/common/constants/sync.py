@@ -6,9 +6,14 @@
 """
 from typing import Final
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Сначала загружаем стандартный проектный .env в корне,
+# затем fallback на legacy deploy-путь config/.env.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+load_dotenv(_PROJECT_ROOT / ".env")
+load_dotenv(_PROJECT_ROOT / "config" / ".env")
 
 # Учётные данные Telethon API (получить на https://my.telegram.org)
 TELETHON_API_ID: Final[int] = int(os.getenv("TELETHON_API_ID", "0"))

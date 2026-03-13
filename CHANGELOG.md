@@ -5,6 +5,17 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.66] - 2026-03-13
+
+### Changed
+- `src/common/constants/sync.py`: порядок загрузки env скорректирован под стандарт проекта — сначала корневой `.env`, затем fallback на `config/.env`.
+
+## [0.10.65] - 2026-03-13
+
+### Fixed
+- `src/common/constants/sync.py`: загрузка env для Telethon приведена к deploy-структуре — сначала `config/.env`, затем fallback на корневой `.env`.
+- `deploy/check_telethon_sessions.py`: добавлен диагностический вывод `TELETHON_API_ID` и маскированного `TELETHON_API_HASH`, чтобы проще проверять, что в runtime подхватываются правильные API-учётные данные.
+
 ## [0.10.64] - 2026-03-13
 
 ### Fixed

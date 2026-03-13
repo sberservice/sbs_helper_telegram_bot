@@ -72,6 +72,16 @@ OPTIONAL_SESSIONS: List[SessionRequirement] = [
 ]
 
 
+def _mask_hash(value: str) -> str:
+    """Замаскировать API hash для безопасного вывода в консоль."""
+    raw = (value or "").strip()
+    if not raw:
+        return "<empty>"
+    if len(raw) <= 8:
+        return "*" * len(raw)
+    return f"{raw[:4]}...{raw[-4:]}"
+
+
 def _session_file_exists(project_dir: Path, session_basename: str) -> bool:
     """Проверить наличие файла Telethon-сессии в корне проекта."""
     return (project_dir / f"{session_basename}.session").exists()
@@ -152,6 +162,10 @@ def main() -> int:
     enabled_map = _enabled_processes(launch_config)
 
     has_telethon_creds = bool(TELETHON_API_ID) and bool(TELETHON_API_HASH)
+    print(
+        f"[SESSIONS] TELETHON_API_ID={TELETHON_API_ID or '<empty>'} "
+        f"TELETHON_API_HASH={_mask_hash(TELETHON_API_HASH)}"
+    )
     if not has_telethon_creds:
         print(
             "[SESSIONS] ПРЕДУПРЕЖДЕНИЕ: TELETHON_API_ID/TELETHON_API_HASH не заданы. "
