@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -46,6 +46,26 @@ def invalidate_groups_cache() -> None:
     """Сбросить кэш групп (вызывать при изменении статуса терминов)."""
     _GROUPS_CACHE["data"] = None
     _GROUPS_CACHE["ts"] = 0.0
+
+
+_TERM_WORD_CHARS = "0-9A-Za-zА-Яа-яЁё"
+
+
+def _build_term_boundary_pattern(term: str) -> re.Pattern[str]:
+    """Скомпилировать regex с границами токена для точного совпадения термина."""
+    escaped_term = re.escape(term)
+    return re.compile(
+        rf"(?<![{_TERM_WORD_CHARS}]){escaped_term}(?![{_TERM_WORD_CHARS}])",
+        re.IGNORECASE,
+    )
+
+
+def _extract_term_match(row: Dict[str, Any], pattern: re.Pattern[str]) -> Optional[Tuple[str, str]]:
+    """Вернуть поле и текст, где найден термин, либо None."""
+    field_value = row.get("message_text")
+    if field_value and pattern.search(str(field_value)):
+        return "message_text", str(field_value)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +155,7 @@ def get_terms_for_validation(
         "id": "t.id",
         "group_id": "t.group_id",
         "status": "t.status",
+        "message_count": "t.message_count",
     }
     sort_field = allowed_sort_fields.get(sort_by, "t.created_at")
     safe_order = "ASC" if sort_order.upper() == "ASC" else "DESC"
@@ -223,6 +244,105 @@ def get_term_detail(term_id: int) -> Optional[Dict[str, Any]]:
     except Exception as exc:
         logger.error("Ошибка получения термина %d: %s", term_id, exc, exc_info=True)
         return None
+
+
+def get_term_usage_messages(
+    *,
+    group_id: int,
+    term: str,
+    limit: int = 10,
+) -> List[Dict[str, Any]]:
+    """Получить последние сообщения, где встречается термин.
+
+    Поиск выполняется как case-insensitive LIKE по полям message_text,
+    caption и image_description. Для group_id=0 поиск идёт по всем группам.
+    """
+    normalized_term = (term or "").strip()
+    if not normalized_term:
+        return []
+
+    safe_limit = max(1, min(int(limit), 50))
+    batch_size = 500
+    max_scan_rows = 20000
+    term_pattern = _build_term_boundary_pattern(normalized_term)
+
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                matched_rows: List[Dict[str, Any]] = []
+                scanned_rows = 0
+                offset = 0
+
+                while len(matched_rows) < safe_limit and scanned_rows < max_scan_rows:
+                    if group_id == 0:
+                        cursor.execute(
+                            """
+                            SELECT
+                                id,
+                                telegram_message_id,
+                                group_id,
+                                sender_name,
+                                sender_id,
+                                message_text,
+                                caption,
+                                image_description,
+                                message_date
+                            FROM gk_messages
+                            ORDER BY message_date DESC, telegram_message_id DESC
+                            LIMIT %s OFFSET %s
+                            """,
+                            (batch_size, offset),
+                        )
+                    else:
+                        cursor.execute(
+                            """
+                            SELECT
+                                id,
+                                telegram_message_id,
+                                group_id,
+                                sender_name,
+                                sender_id,
+                                message_text,
+                                caption,
+                                image_description,
+                                message_date
+                            FROM gk_messages
+                            WHERE group_id = %s
+                            ORDER BY message_date DESC, telegram_message_id DESC
+                            LIMIT %s OFFSET %s
+                            """,
+                            (group_id, batch_size, offset),
+                        )
+
+                    rows = cursor.fetchall() or []
+                    if not rows:
+                        break
+
+                    for row in rows:
+                        match_info = _extract_term_match(row, term_pattern)
+                        if match_info:
+                            matched_field, matched_text = match_info
+                            enriched_row = dict(row)
+                            enriched_row["matched_field"] = matched_field
+                            enriched_row["matched_text"] = matched_text
+                            matched_rows.append(enriched_row)
+                            if len(matched_rows) >= safe_limit:
+                                break
+
+                    scanned_rows += len(rows)
+                    offset += batch_size
+                    if len(rows) < batch_size:
+                        break
+
+                return matched_rows
+    except Exception as exc:
+        logger.error(
+            "Ошибка получения примеров сообщений для термина '%s': %s",
+            normalized_term,
+            exc,
+            exc_info=True,
+        )
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +436,34 @@ def store_term_verdict(
             "Ошибка сохранения вердикта по термину: term_id=%d expert=%d error=%s",
             term_id, expert_telegram_id, exc, exc_info=True,
         )
+        raise
+
+
+def reset_terms_and_validations() -> Dict[str, int]:
+    """Полностью очистить таблицы gk_terms и gk_term_validations."""
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute("SELECT COUNT(*) AS cnt FROM gk_term_validations")
+                validations_before = int((cursor.fetchone() or {}).get("cnt") or 0)
+
+                cursor.execute("SELECT COUNT(*) AS cnt FROM gk_terms")
+                terms_before = int((cursor.fetchone() or {}).get("cnt") or 0)
+
+                cursor.execute("DELETE FROM gk_term_validations")
+                deleted_validations = int(cursor.rowcount or 0)
+
+                cursor.execute("DELETE FROM gk_terms")
+                deleted_terms = int(cursor.rowcount or 0)
+
+                return {
+                    "terms_deleted": deleted_terms,
+                    "validations_deleted": deleted_validations,
+                    "terms_before": terms_before,
+                    "validations_before": validations_before,
+                }
+    except Exception as exc:
+        logger.error("Ошибка полной очистки таблиц терминов: %s", exc, exc_info=True)
         raise
 
 

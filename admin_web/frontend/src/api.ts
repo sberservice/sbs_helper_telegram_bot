@@ -178,6 +178,8 @@ export interface TermDetail {
   group_title: string | null;
   existing_verdict: string | null;
   existing_comment: string | null;
+  message_count: number;
+  message_count_updated_at: string | null;
 }
 
 export interface TermValidationStats {
@@ -214,9 +216,25 @@ export interface TermValidationHistoryEntry {
   updated_at: string;
 }
 
+export interface TermUsageMessage {
+  id: number;
+  telegram_message_id: number;
+  group_id: number;
+  sender_name: string | null;
+  sender_id: number | null;
+  message_text: string | null;
+  caption: string | null;
+  image_description: string | null;
+  message_date: number;
+  matched_field?: 'message_text';
+  matched_text?: string | null;
+}
+
 export interface TermScanStatus {
   status: string;
   batch_id: string;
+  started_at?: string;
+  finished_at?: string | null;
   result?: {
     scan_batch_id: string;
     terms_found: number;
@@ -255,6 +273,29 @@ export interface TermScanStatus {
     terms_skipped?: number;
     errors_count?: number;
   }>;
+  error?: string;
+}
+
+export interface TermRecountStatus {
+  task_id: string;
+  group_id: number;
+  status: string;
+  started_at?: string;
+  finished_at?: string | null;
+  progress?: {
+    stage?: string;
+    message?: string;
+    percent?: number;
+    updated_at?: string;
+  };
+  result?: {
+    group_id: number;
+    terms_counted: number;
+    messages_scanned: number;
+    updated: number;
+    status: string;
+    errors?: string[];
+  };
   error?: string;
 }
 
@@ -1205,6 +1246,9 @@ export const api = {
   getTermHistory: (termId: number) =>
     request<TermValidationHistoryEntry[]>(`/api/gk-knowledge/terms/${termId}/history`),
 
+  getTermUsageMessages: (termId: number, limit = 10) =>
+    request<TermUsageMessage[]>(`/api/gk-knowledge/terms/${termId}/usage-messages?limit=${limit}`),
+
   triggerTermScan: (data: { group_id: number; date_from: string; date_to: string }) =>
     request<{ batch_id: string; message: string }>('/api/gk-knowledge/terms/scan', {
       method: 'POST',
@@ -1213,6 +1257,24 @@ export const api = {
 
   getTermScanStatus: (batchId: string) =>
     request<TermScanStatus>(`/api/gk-knowledge/terms/scan/${batchId}/status`),
+
+  triggerTermRecount: (data: { group_id: number }) =>
+    request<{ task_id: string; status: string; message: string }>('/api/gk-knowledge/terms/recount', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getTermRecountStatus: (taskId: string) =>
+    request<TermRecountStatus>(`/api/gk-knowledge/terms/recount/${taskId}/status`),
+
+  resetTermsData: (data: { confirmation_text: string }) =>
+    request<{ message: string; terms_deleted: number; validations_deleted: number; terms_before: number; validations_before: number }>(
+      '/api/gk-knowledge/terms/actions/reset',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+    ),
 
   addTermManually: (data: { group_id: number; term: string; definition?: string }) =>
     request<{ message: string; term_id: number }>('/api/gk-knowledge/terms/add', {

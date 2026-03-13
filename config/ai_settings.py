@@ -775,4 +775,11 @@ GK_TERMS_CACHE_TTL_SECONDS: Final[int] = int(os.getenv("GK_TERMS_CACHE_TTL_SECON
 GK_TERMS_SCAN_BATCH_SIZE: Final[int] = int(os.getenv("GK_TERMS_SCAN_BATCH_SIZE", "100"))
 # Модель для сканирования терминов (по умолчанию = GK_ANALYSIS_MODEL).
 GK_TERMS_SCAN_MODEL: Final[str] = os.getenv("GK_TERMS_SCAN_MODEL", GK_ANALYSIS_MODEL)
+# Максимальное число аббревиатур (терминов с расшифровкой), включаемых
+# в секцию «ВОЗМОЖНЫЕ АББРЕВИАТУРЫ» промпта. Глобальные термины (group_id=0)
+# не учитываются в этом лимите и включаются всегда.
+# Группо-специфичные термины ранжируются по message_count DESC.
+GK_ACRONYMS_MAX_PROMPT_TERMS: Final[int] = int(os.getenv("GK_ACRONYMS_MAX_PROMPT_TERMS", "50"))
+# Размер батча сообщений при пересчёте message_count терминов.
+GK_TERMS_RECOUNT_BATCH_SIZE: Final[int] = int(os.getenv("GK_TERMS_RECOUNT_BATCH_SIZE", "5000"))
 

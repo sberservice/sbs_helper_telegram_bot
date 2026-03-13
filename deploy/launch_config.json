@@ -21,7 +21,7 @@
             "preset": "Стандартный запуск"
         },
         "gk_collector": {
-            "enabled": true,
+            "enabled": false,
             "flags": [],
             "preset": "Dry-run"
         },

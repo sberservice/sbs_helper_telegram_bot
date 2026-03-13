@@ -270,6 +270,8 @@ class TermDetail(BaseModel):
     existing_verdict: Optional[str] = None
     existing_comment: Optional[str] = None
     has_definition: bool = False
+    message_count: int = 0
+    message_count_updated_at: Optional[Any] = None
 
 
 class TermValidationStats(BaseModel):
@@ -307,3 +309,15 @@ class TermScanRequest(BaseModel):
     group_id: int
     date_from: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     date_to: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class TermRecountRequest(BaseModel):
+    """Запрос на пересчёт message_count терминов."""
+
+    group_id: int
+
+
+class TermResetRequest(BaseModel):
+    """Запрос на полную очистку терминов и их валидаций."""
+
+    confirmation_text: str = Field(..., min_length=1, max_length=64)

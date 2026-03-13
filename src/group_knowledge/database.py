@@ -1861,3 +1861,118 @@ def update_term_status(
     except Exception as exc:
         logger.error("Ошибка обновления статуса термина %d: %s", term_id, exc, exc_info=True)
         return False
+
+
+# ---------------------------------------------------------------------------
+# Пересчёт message_count (частота упоминания термина в сообщениях)
+# ---------------------------------------------------------------------------
+
+
+def get_message_texts_batch(
+    group_id: int,
+    *,
+    offset: int = 0,
+    limit: int = 5000,
+) -> List[Dict[str, str]]:
+    """
+    Получить тексты сообщений группы порциями (для пересчёта usage).
+
+    Возвращает только текстовые поля для экономии памяти.
+
+    Args:
+        group_id: ID группы Telegram.
+        offset: Смещение выборки.
+        limit: Размер порции.
+
+    Returns:
+        Список словарей с ключами message_text, caption, image_description.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT message_text, caption, image_description
+                    FROM gk_messages
+                    WHERE group_id = %s
+                    ORDER BY id ASC
+                    LIMIT %s OFFSET %s
+                    """,
+                    (group_id, limit, offset),
+                )
+                return cursor.fetchall() or []
+    except Exception as exc:
+        logger.error(
+            "Ошибка загрузки текстов сообщений group=%d offset=%d: %s",
+            group_id, offset, exc, exc_info=True,
+        )
+        return []
+
+
+def get_message_count_for_group(group_id: int) -> int:
+    """
+    Получить общее количество сообщений в группе.
+
+    Args:
+        group_id: ID группы Telegram.
+
+    Returns:
+        Количество сообщений.
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) AS cnt FROM gk_messages WHERE group_id = %s",
+                    (group_id,),
+                )
+                row = cursor.fetchone()
+                return int(row["cnt"]) if row else 0
+    except Exception as exc:
+        logger.error(
+            "Ошибка подсчёта сообщений group=%d: %s",
+            group_id, exc, exc_info=True,
+        )
+        return 0
+
+
+def bulk_update_term_message_counts(
+    counts: Dict[int, int],
+) -> int:
+    """
+    Массово обновить message_count и message_count_updated_at для терминов.
+
+    Args:
+        counts: Словарь {term_id: message_count}.
+
+    Returns:
+        Число обновлённых записей.
+    """
+    if not counts:
+        return 0
+
+    updated = 0
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                for term_id, count in counts.items():
+                    cursor.execute(
+                        """
+                        UPDATE gk_terms
+                        SET message_count = %s,
+                            message_count_updated_at = NOW()
+                        WHERE id = %s
+                        """,
+                        (count, term_id),
+                    )
+                    updated += cursor.rowcount
+        logger.info(
+            "Обновлено message_count для %d терминов из %d",
+            updated, len(counts),
+        )
+    except Exception as exc:
+        logger.error(
+            "Ошибка массового обновления message_count: %s",
+            exc, exc_info=True,
+        )
+    return updated

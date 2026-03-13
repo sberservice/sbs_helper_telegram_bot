@@ -5,6 +5,97 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.90] - 2026-03-14
+
+### Added
+- `admin_web/modules/gk_knowledge/router.py` и `admin_web/modules/gk_knowledge/db_terms.py`: добавлено действие полной очистки таблиц `gk_terms` и `gk_term_validations` через endpoint `POST /api/gk-knowledge/terms/actions/reset`.
+- `admin_web/frontend/src/pages/gk_tabs/TermsTab.tsx`: добавлена кнопка «☢ Очистить термины и валидации» с двойным подтверждением (confirm + ввод фразы `NUKE_TERMS`).
+
+### Changed
+- `admin_web/frontend/src/api.ts`: добавлен метод `resetTermsData(...)` для вызова операции полной очистки терминов.
+
+## [0.10.89] - 2026-03-14
+
+### Changed
+- `src/group_knowledge/term_miner.py` и `admin_web/modules/gk_knowledge/db_terms.py`: откат гибридного матчинга; восстановлено строгое standalone-совпадение терминов по границам токена для всех длин терминов.
+
+### Fixed
+- `tests/test_gk_terms.py`: удалён тест `pin`/`pinpad`, так как подстрочное совпадение для терминов длиной 3+ больше не используется.
+
+## [0.10.88] - 2026-03-14
+
+### Changed
+- `src/group_knowledge/term_miner.py` и `admin_web/modules/gk_knowledge/db_terms.py`: введено гибридное правило матчинга терминов в `message_text` — для коротких терминов (1–2 символа) строго по границам токена, для терминов длиной 3+ включено подстрочное совпадение.
+
+### Added
+- `tests/test_gk_terms.py`: добавлен тест `pin`/`pinpad` для проверки матчинга терминов длиной 3+.
+
+## [0.10.87] - 2026-03-14
+
+### Changed
+- `admin_web/frontend/src/pages/gk_tabs/TermsTab.tsx`: в режиме проверки термина блок с кнопками валидации (`Одобрить/Отклонить`) перенесён выше блока «Примеры сообщений с термином».
+
+## [0.10.86] - 2026-03-14
+
+### Added
+- `admin_web/frontend/src/pages/gk_tabs/TermsTab.tsx`: во вкладке терминов добавлен выбор размера страницы (10/50/100/500 записей).
+
+### Changed
+- `admin_web/frontend/src/pages/gk_tabs/TermsTab.tsx`: выбранный размер страницы сохраняется в `localStorage` (`gk_terms_page_size`) и восстанавливается при следующем открытии страницы.
+
+## [0.10.85] - 2026-03-14
+
+### Added
+- `admin_web/frontend/src/pages/gk_tabs/TermsTab.tsx`: для LLM-сканирования и пересчёта `message_count` добавлены расчёт ETA (оставшееся время) и прогноз времени завершения.
+- `admin_web/frontend/src/pages/gk_tabs/TermsTab.tsx`: для пересчёта `message_count` добавлен графический progress bar (как в сканировании).
+
+### Changed
+- `admin_web/frontend/src/api.ts`: тип `TermScanStatus` расширен полями `started_at`/`finished_at` для отображения ETA.
+
+## [0.10.84] - 2026-03-14
+
+### Fixed
+- `admin_web/modules/gk_knowledge/db_terms.py`: примеры сообщений для термина теперь отбираются по точному совпадению по границам токена (без ложных срабатываний вида `г` внутри `гз`).
+- `src/group_knowledge/term_miner.py`: пересчёт `message_count` переведён на точное boundary-matching по токенам, чтобы частота использования не завышалась из-за подстрок.
+- `src/group_knowledge/term_miner.py` и `admin_web/modules/gk_knowledge/db_terms.py`: matching терминов ограничен только полем `message_text` (без `caption` и `image_description`) по требованию валидации.
+
+### Changed
+- `admin_web/modules/gk_knowledge/db_terms.py`: выборка примеров сообщений перестроена на батч-скан последних сообщений с тем же boundary-matching, что и в пересчёте `message_count`, чтобы примеры были консистентны со счётчиком.
+- `admin_web/modules/gk_knowledge/db_terms.py` и `admin_web/frontend/src/pages/gk_tabs/TermsTab.tsx`: в примерах сообщений теперь отображается именно то поле (`message_text`/`caption`/`image_description`), где найден термин, чтобы исключить визуально «нерелевантные» примеры.
+
+### Added
+- `tests/test_gk_terms.py`: добавлен регрессионный тест на кейс короткого термина (`г`) против более длинного (`гз`).
+
+## [0.10.83] - 2026-03-14
+
+### Added
+- `admin_web/modules/gk_knowledge/router.py` и `admin_web/modules/gk_knowledge/db_terms.py`: добавлен endpoint `GET /api/gk-knowledge/terms/{term_id}/usage-messages` для возврата последних сообщений, где встречается термин (по `message_text`/`caption`/`image_description`).
+- `admin_web/frontend/src/pages/gk_tabs/TermsTab.tsx`: в режиме проверки термина отображается блок «Примеры сообщений с термином» для быстрой валидации релевантности.
+
+### Changed
+- `admin_web/frontend/src/api.ts`: добавлены тип `TermUsageMessage` и метод `getTermUsageMessages(...)`.
+
+## [0.10.82] - 2026-03-14
+
+### Added
+- `admin_web/frontend/src/pages/gk_tabs/TermsTab.tsx` и `admin_web/frontend/src/api.ts`: во вкладке терминов добавлен ручной запуск пересчёта `message_count` с отображением прогресса (`POST /api/gk-knowledge/terms/recount`, `GET /api/gk-knowledge/terms/recount/{task_id}/status`).
+
+### Changed
+- `admin_web/modules/gk_knowledge/router.py`: после успешного LLM-сканирования терминов автоматически запускается пересчёт `message_count` для выбранной группы, результат пересчёта добавляется в итог `scan`-задачи.
+- `admin_web/frontend/src/pages/gk_tabs/TermsTab.tsx`: добавлена сортировка терминов по частоте (`message_count`) и отображение счётчика сообщений в карточке термина.
+
+## [0.10.81] - 2026-03-14
+
+### Added
+- Система подсчёта частоты использования аббревиатур в сообщениях групп: новое поле `message_count` в `gk_terms`, пакетный пересчёт через админ-панель (`POST /recount`, `GET /recount/{task_id}/status`).
+- `sql/gk_terms_message_count.sql`: миграция добавляет `message_count` и `message_count_updated_at` в таблицу `gk_terms`.
+- Переменная окружения `GK_ACRONYMS_MAX_PROMPT_TERMS` (по умолчанию 50) — ограничение количества группо-специфичных аббревиатур, инжектируемых в промпт.
+- Переменная окружения `GK_TERMS_RECOUNT_BATCH_SIZE` (по умолчанию 5000) — размер батча при пересчёте.
+
+### Changed
+- Промпты анализатора и автоответчика теперь инжектируют только top-N наиболее часто встречающихся группо-специфичных аббревиатур (отсортированных по `message_count`); глобальные термины включаются всегда.
+- Админ-панель: таблица терминов поддерживает сортировку по `message_count`.
+
 ## [0.10.80] - 2026-03-13
 
 ### Added

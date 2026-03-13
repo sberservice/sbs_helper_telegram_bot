@@ -331,6 +331,10 @@ class QASearchService:
         отбирает те, у которых высокий confidence (>= GK_ACRONYMS_MIN_CONFIDENCE)
         ИЛИ подтверждённые экспертом (expert_status='approved'),
         и кэширует результат с TTL = GK_TERMS_CACHE_TTL_SECONDS.
+
+        Глобальные термины (group_id=0) включаются всегда.
+        Группо-специфичные термины ранжируются по message_count DESC
+        и ограничиваются лимитом GK_ACRONYMS_MAX_PROMPT_TERMS.
         """
         now = time.time()
         cached = self._acronyms_cache.get(group_id)
@@ -341,6 +345,7 @@ class QASearchService:
                 return text
 
         min_confidence = float(getattr(ai_settings, "GK_ACRONYMS_MIN_CONFIDENCE", 0.9))
+        max_group_terms = int(getattr(ai_settings, "GK_ACRONYMS_MAX_PROMPT_TERMS", 50))
 
         try:
             terms = gk_db.get_terms_for_group(
@@ -349,7 +354,10 @@ class QASearchService:
             )
             if terms:
                 logger.info("Загружено аббревиатур из БД для group_id=%d: total=%d", group_id, len(terms))
-                eligible_terms: List[Dict[str, Any]] = []
+                # Разделить на глобальные и группо-специфичные.
+                global_eligible: List[Dict[str, Any]] = []
+                group_eligible: List[Dict[str, Any]] = []
+
                 for item in terms:
                     term = str(item.get("term") or "").strip()
                     definition = str(item.get("definition") or "").strip()
@@ -368,9 +376,28 @@ class QASearchService:
 
                         if confidence is None or confidence < min_confidence:
                             continue
-                    eligible_terms.append(item)
 
-                best_by_term = select_best_acronyms_by_term(eligible_terms, uppercase_key=True)
+                    if int(item.get("group_id") or 0) == 0:
+                        global_eligible.append(item)
+                    else:
+                        group_eligible.append(item)
+
+                # Группо-специфичные: ранжировать по message_count DESC,
+                # ограничить лимитом.
+                group_eligible.sort(
+                    key=lambda x: int(x.get("message_count") or 0),
+                    reverse=True,
+                )
+                if len(group_eligible) > max_group_terms:
+                    logger.info(
+                        "Обрезка группо-специфичных аббревиатур: %d → %d (group_id=%d)",
+                        len(group_eligible), max_group_terms, group_id,
+                    )
+                    group_eligible = group_eligible[:max_group_terms]
+
+                # Объединить глобальные + top-N группо-специфичных.
+                all_eligible = global_eligible + group_eligible
+                best_by_term = select_best_acronyms_by_term(all_eligible, uppercase_key=True)
 
                 parts: List[str] = []
                 for dedup_key in sorted(best_by_term.keys()):

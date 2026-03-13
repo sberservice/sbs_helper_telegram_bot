@@ -11,6 +11,8 @@ import {
   type TermGroupInfo,
   type TermListResponse,
   type TermScanStatus,
+  type TermRecountStatus,
+  type TermUsageMessage,
   type GroupInfo,
 } from '../../api'
 import { useAuth } from '../../auth'
@@ -30,6 +32,8 @@ export default function TermsTab() {
 
   // Текущий термин
   const [currentTerm, setCurrentTerm] = useState<TermDetail | null>(null)
+  const [usageMessages, setUsageMessages] = useState<TermUsageMessage[]>([])
+  const [usageLoading, setUsageLoading] = useState(false)
   const [currentIndex, setCurrentIndex] = useState(0)
   const [comment, setComment] = useState('')
   const [editedTerm, setEditedTerm] = useState('')
@@ -41,14 +45,22 @@ export default function TermsTab() {
 
   // Фильтры
   const [page, setPage] = useState(1)
-  const [pageSize] = useState(30)
+  const [pageSize, setPageSize] = useState<number>(() => {
+    try {
+      const raw = window.localStorage.getItem('gk_terms_page_size')
+      const parsed = raw ? Number(raw) : 50
+      return [10, 50, 100, 500].includes(parsed) ? parsed : 50
+    } catch {
+      return 50
+    }
+  })
   const [groupId, setGroupId] = useState<number | null>(null)
   const [termType, setTermType] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>('pending')
   const [minConfidence, setMinConfidence] = useState<number | null>(null)
   const [searchInput, setSearchInput] = useState('')
   const [searchText, setSearchText] = useState<string | null>(null)
-  const [sortBy, setSortBy] = useState<'created_at' | 'term' | 'confidence' | 'id' | 'group_id' | 'status'>('created_at')
+  const [sortBy, setSortBy] = useState<'created_at' | 'term' | 'confidence' | 'id' | 'group_id' | 'status' | 'message_count'>('created_at')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [expertStatus] = useState<string | null>(null)
 
@@ -63,6 +75,10 @@ export default function TermsTab() {
   const [scanBatchId, setScanBatchId] = useState<string | null>(null)
   const [scanStatus, setScanStatus] = useState<TermScanStatus | null>(null)
   const [showScan, setShowScan] = useState(false)
+  const [recountRunning, setRecountRunning] = useState(false)
+  const [recountTaskId, setRecountTaskId] = useState<string | null>(null)
+  const [recountStatus, setRecountStatus] = useState<TermRecountStatus | null>(null)
+  const [progressNowTs, setProgressNowTs] = useState<number>(Date.now())
 
   // Ручное добавление
   const [showAdd, setShowAdd] = useState(false)
@@ -70,6 +86,7 @@ export default function TermsTab() {
   const [addTerm, setAddTerm] = useState('')
   const [addDefinition, setAddDefinition] = useState('')
   const [addSubmitting, setAddSubmitting] = useState(false)
+  const [resetSubmitting, setResetSubmitting] = useState(false)
 
   // Загрузка списка
   const loadTerms = useCallback(async () => {
@@ -111,13 +128,25 @@ export default function TermsTab() {
     api.getEVGroups().then(setEvGroups).catch(() => {})
   }, [])
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('gk_terms_page_size', String(pageSize))
+    } catch {
+      // noop
+    }
+  }, [pageSize])
+
   useEffect(() => { loadTerms() }, [loadTerms])
 
   // Загрузка деталей термина
   const loadTermDetail = useCallback(async (termId: number) => {
     try {
-      const detail = await api.getTermDetail(termId)
+      const [detail, usage] = await Promise.all([
+        api.getTermDetail(termId),
+        api.getTermUsageMessages(termId, 10),
+      ])
       setCurrentTerm(detail)
+      setUsageMessages(usage)
       setComment('')
       setEditedTerm(detail.term)
       setEditedDefinition(detail.definition || '')
@@ -125,6 +154,9 @@ export default function TermsTab() {
       setPendingVerdict(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка загрузки термина')
+      setUsageMessages([])
+    } finally {
+      setUsageLoading(false)
     }
   }, [])
 
@@ -208,6 +240,7 @@ export default function TermsTab() {
     const t = terms[currentIndex]
     if (!t) { setCurrentTerm(null); return }
     if (currentTerm?.id === t.id) return
+    setUsageLoading(true)
     loadTermDetail(t.id)
   }, [mode, loading, terms, currentIndex, currentTerm?.id, loadTermDetail])
 
@@ -267,6 +300,34 @@ export default function TermsTab() {
     }
   }, [canEdit, addSubmitting, addTerm, addDefinition, addGroupId, loadTerms])
 
+  const handleResetTerms = useCallback(async () => {
+    if (!canEdit || resetSubmitting) return
+    const sure = window.confirm(
+      'Это действие удалит ВСЕ термины и ВСЮ историю валидации терминов. Продолжить?',
+    )
+    if (!sure) return
+
+    const confirmation = window.prompt('Введите фразу подтверждения: NUKE_TERMS')
+    if (!confirmation) return
+
+    setResetSubmitting(true)
+    try {
+      const result = await api.resetTermsData({ confirmation_text: confirmation })
+      setShowAdd(false)
+      setShowScan(false)
+      setMode('list')
+      setCurrentTerm(null)
+      setUsageMessages([])
+      setPage(1)
+      await loadTerms()
+      window.alert(`Готово. Удалено терминов: ${result.terms_deleted}, валидаций: ${result.validations_deleted}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка очистки таблиц терминов')
+    } finally {
+      setResetSubmitting(false)
+    }
+  }, [canEdit, resetSubmitting, loadTerms])
+
   // Сканирование
   const handleScan = useCallback(async () => {
     if (!canEdit || scanRunning || !scanGroupId || !scanDateFrom || !scanDateTo) return
@@ -284,6 +345,21 @@ export default function TermsTab() {
       setScanRunning(false)
     }
   }, [canEdit, scanRunning, scanGroupId, scanDateFrom, scanDateTo])
+
+  const handleRecount = useCallback(async () => {
+    if (!canEdit || recountRunning || !scanGroupId) return
+    setRecountRunning(true)
+    setRecountStatus(null)
+    try {
+      const res = await api.triggerTermRecount({
+        group_id: Number(scanGroupId),
+      })
+      setRecountTaskId(res.task_id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка запуска пересчёта')
+      setRecountRunning(false)
+    }
+  }, [canEdit, recountRunning, scanGroupId])
 
   // Полл статуса сканирования
   useEffect(() => {
@@ -307,6 +383,74 @@ export default function TermsTab() {
     poll()
     return () => { cancelled = true }
   }, [scanBatchId, loadTerms])
+
+  // Полл статуса пересчёта message_count
+  useEffect(() => {
+    if (!recountTaskId) return
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const st = await api.getTermRecountStatus(recountTaskId)
+        if (cancelled) return
+        setRecountStatus(st)
+        if (st.status === 'completed' || st.status === 'failed') {
+          setRecountRunning(false)
+          if (st.status === 'completed') loadTerms()
+          return
+        }
+        setTimeout(poll, 2000)
+      } catch {
+        if (!cancelled) setRecountRunning(false)
+      }
+    }
+    poll()
+    return () => { cancelled = true }
+  }, [recountTaskId, loadTerms])
+
+  // Локальный таймер для актуализации ETA между поллами.
+  useEffect(() => {
+    if (!scanRunning && !recountRunning) return
+    const id = window.setInterval(() => setProgressNowTs(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [scanRunning, recountRunning])
+
+  const formatDuration = useCallback((seconds: number): string => {
+    const safe = Math.max(0, Math.round(seconds))
+    const hours = Math.floor(safe / 3600)
+    const minutes = Math.floor((safe % 3600) / 60)
+    const secs = safe % 60
+    if (hours > 0) return `${hours}ч ${minutes}м`
+    if (minutes > 0) return `${minutes}м ${secs}с`
+    return `${secs}с`
+  }, [])
+
+  const buildEtaText = useCallback((startedAt?: string, percent?: number): string | null => {
+    if (!startedAt || percent == null || percent <= 0 || percent >= 100) return null
+    const startedTs = new Date(startedAt).getTime()
+    if (!Number.isFinite(startedTs) || startedTs <= 0) return null
+    const elapsedSec = (progressNowTs - startedTs) / 1000
+    if (elapsedSec <= 0) return null
+
+    const totalSec = elapsedSec / (percent / 100)
+    const remainingSec = Math.max(0, totalSec - elapsedSec)
+    const etaDate = new Date(progressNowTs + remainingSec * 1000)
+    return `Осталось ~${formatDuration(remainingSec)} · ETA ${etaDate.toLocaleTimeString()}`
+  }, [formatDuration, progressNowTs])
+
+  const getScanPercent = useCallback((status: TermScanStatus | null): number => {
+    if (!status) return 0
+    if (typeof status.progress?.percent === 'number') {
+      return Math.max(0, Math.min(100, status.progress.percent))
+    }
+    const latestProgress = status.progress_log && status.progress_log.length > 0
+      ? status.progress_log[status.progress_log.length - 1]
+      : null
+    if (latestProgress && typeof latestProgress.percent === 'number') {
+      return Math.max(0, Math.min(100, latestProgress.percent))
+    }
+    if (status.status === 'completed') return 100
+    return 0
+  }, [])
 
   const totalPages = Math.ceil(total / pageSize)
 
@@ -369,6 +513,7 @@ export default function TermsTab() {
             <option value="created_at">Сортировка: дата</option>
             <option value="term">Сортировка: термин</option>
             <option value="confidence">Сортировка: confidence</option>
+            <option value="message_count">Сортировка: частота</option>
             <option value="status">Сортировка: статус</option>
             <option value="group_id">Сортировка: группа</option>
             <option value="id">Сортировка: ID</option>
@@ -376,6 +521,20 @@ export default function TermsTab() {
           <select className="input input-sm" value={sortOrder} onChange={e => { setSortOrder(e.target.value as typeof sortOrder); setPage(1) }}>
             <option value="desc">По убыванию</option>
             <option value="asc">По возрастанию</option>
+          </select>
+          <select
+            className="input input-sm"
+            value={String(pageSize)}
+            onChange={e => {
+              setPageSize(Number(e.target.value))
+              setPage(1)
+            }}
+            title="Терминов на странице"
+          >
+            <option value="10">10 / стр</option>
+            <option value="50">50 / стр</option>
+            <option value="100">100 / стр</option>
+            <option value="500">500 / стр</option>
           </select>
           <input
             type="text" className="input input-sm" value={searchInput}
@@ -394,6 +553,9 @@ export default function TermsTab() {
             </button>
             <button className="btn btn-sm" onClick={() => setShowScan(!showScan)}>
               {showScan ? '✕ Закрыть' : '🔬 Сканирование LLM'}
+            </button>
+            <button className="btn btn-sm" onClick={handleResetTerms} disabled={resetSubmitting}>
+              {resetSubmitting ? '⏳ Очистка...' : '☢ Очистить термины и валидации'}
             </button>
           </div>
         )}
@@ -460,9 +622,23 @@ export default function TermsTab() {
               >
                 {scanRunning ? '⏳ Сканирование...' : '🔬 Запустить'}
               </button>
+              <button
+                className="btn btn-sm"
+                onClick={handleRecount}
+                disabled={recountRunning || !scanGroupId}
+                title="Пересчитать частоту встречаемости терминов по сообщениям группы"
+              >
+                {recountRunning ? '⏳ Пересчёт...' : '♻ Пересчитать message_count'}
+              </button>
             </div>
             {scanStatus && (
               <>
+                {(() => {
+                  const etaText = buildEtaText(scanStatus.started_at, scanStatus.progress?.percent)
+                  return etaText ? (
+                    <div className="text-dim" style={{ marginTop: 8, fontSize: 12 }}>{etaText}</div>
+                  ) : null
+                })()}
                 <div
                   className={`alert alert-${scanStatus.status === 'completed' ? 'success' : scanStatus.status === 'failed' ? 'danger' : 'info'}`}
                   style={{ marginTop: 12 }}
@@ -491,15 +667,18 @@ export default function TermsTab() {
                   {scanStatus.status === 'failed' && `Ошибка: ${scanStatus.error || 'Неизвестная ошибка'}`}
                 </div>
 
-                {(scanStatus.progress || (scanStatus.progress_log && scanStatus.progress_log.length > 0)) && (
+                {
+                  (() => {
+                    const scanPercent = getScanPercent(scanStatus)
+                    return (
                   <div className="card" style={{ marginTop: 8, padding: 10 }}>
                     <div style={{ fontSize: 12, marginBottom: 6, color: 'var(--text-dim)' }}>
-                      Прогресс: {typeof scanStatus.progress?.percent === 'number' ? `${Math.max(0, Math.min(100, Math.round(scanStatus.progress.percent)))}%` : '—'}
+                      Прогресс: {`${Math.round(scanPercent)}%`}
                     </div>
                     <div style={{ width: '100%', height: 6, background: 'var(--surface-2)', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
                       <div
                         style={{
-                          width: `${Math.max(0, Math.min(100, scanStatus.progress?.percent ?? 0))}%`,
+                          width: `${scanPercent}%`,
                           height: '100%',
                           background: 'var(--accent)',
                           transition: 'width 0.2s ease',
@@ -519,6 +698,53 @@ export default function TermsTab() {
                         })}
                       </div>
                     )}
+                  </div>
+                    )
+                  })()
+                }
+              </>
+            )}
+            {recountStatus && (
+              <>
+                {(() => {
+                  const etaText = buildEtaText(recountStatus.started_at, recountStatus.progress?.percent)
+                  return etaText ? (
+                    <div className="text-dim" style={{ marginTop: 8, fontSize: 12 }}>{etaText}</div>
+                  ) : null
+                })()}
+                <div
+                  className={`alert alert-${recountStatus.status === 'completed' ? 'success' : recountStatus.status === 'failed' ? 'danger' : 'info'}`}
+                  style={{ marginTop: 12 }}
+                >
+                  {(recountStatus.status === 'running' || recountStatus.status === 'queued') && (
+                    <>
+                      ⏳ {recountStatus.progress?.message || 'Пересчёт выполняется...'}
+                      {typeof recountStatus.progress?.percent === 'number' ? ` (${Math.round(recountStatus.progress.percent)}%)` : ''}
+                    </>
+                  )}
+                  {recountStatus.status === 'completed' && (
+                    <>
+                      ✓ Пересчёт завершён: обновлено терминов {recountStatus.result?.updated ?? 0},
+                      проанализировано сообщений {recountStatus.result?.messages_scanned ?? 0}
+                    </>
+                  )}
+                  {recountStatus.status === 'failed' && `Ошибка пересчёта: ${recountStatus.error || 'Неизвестная ошибка'}`}
+                </div>
+                {(recountStatus.progress || recountStatus.status === 'running' || recountStatus.status === 'queued') && (
+                  <div className="card" style={{ marginTop: 8, padding: 10 }}>
+                    <div style={{ fontSize: 12, marginBottom: 6, color: 'var(--text-dim)' }}>
+                      Прогресс: {typeof recountStatus.progress?.percent === 'number' ? `${Math.max(0, Math.min(100, Math.round(recountStatus.progress.percent)))}%` : '—'}
+                    </div>
+                    <div style={{ width: '100%', height: 6, background: 'var(--surface-2)', borderRadius: 4, overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${Math.max(0, Math.min(100, recountStatus.progress?.percent ?? 0))}%`,
+                          height: '100%',
+                          background: 'var(--accent)',
+                          transition: 'width 0.2s ease',
+                        }}
+                      />
+                    </div>
                   </div>
                 )}
               </>
@@ -558,6 +784,9 @@ export default function TermsTab() {
                   <div className="pair-question">
                     <strong>{term.term}</strong>
                     {term.definition && <span className="text-dim" style={{ marginLeft: 8 }}>— {term.definition}</span>}
+                    <span className="text-dim" style={{ marginLeft: 8 }} title="Количество сообщений группы, где найден термин">
+                      · msg: {term.message_count ?? 0}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -682,6 +911,33 @@ export default function TermsTab() {
               Нажмите {pendingVerdict.verdict === 'approved' ? '«Одобрить» (Y)' : '«Отклонить» (N)'} ещё раз в течение 2 с для подтверждения
             </div>
           )}
+
+          <div className="qa-block">
+            <div className="qa-label">📚 Примеры сообщений с термином</div>
+            {usageLoading ? (
+              <div className="text-dim">Загрузка примеров...</div>
+            ) : usageMessages.length === 0 ? (
+              <div className="text-dim">Совпадения не найдены</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {usageMessages.map((message) => {
+                  const sourceText = message.matched_text || message.message_text || message.caption || message.image_description || ''
+                  const matchedFieldLabel = message.matched_field || 'message_text'
+                  const dateText = message.message_date
+                    ? new Date(message.message_date * 1000).toLocaleString()
+                    : '—'
+                  return (
+                    <div key={message.id} className="card" style={{ padding: 10 }}>
+                      <div className="text-dim" style={{ fontSize: 12, marginBottom: 6 }}>
+                        {dateText} · {message.sender_name || `user:${message.sender_id ?? 'unknown'}`} · msg #{message.telegram_message_id} · поле: {matchedFieldLabel}
+                      </div>
+                      <div style={{ whiteSpace: 'pre-wrap' }}>{sourceText || <span className="text-dim">(пустое сообщение)</span>}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
           {!canEdit && (
             <div className="card" style={{ textAlign: 'center', marginTop: 16 }}>

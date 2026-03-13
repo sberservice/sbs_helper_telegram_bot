@@ -30,6 +30,18 @@ _JSON_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 # Regex для схлопывания внутренних пробелов.
 _MULTISPACE_RE = re.compile(r"\s+")
 
+# Символы, считающиеся частью слова при проверке границ термина.
+_TERM_WORD_CHARS = "0-9A-Za-zА-Яа-яЁё"
+
+
+def _build_term_boundary_pattern(term: str) -> re.Pattern[str]:
+    """Построить regex для точного совпадения термина по границам токена."""
+    escaped_term = re.escape(term)
+    return re.compile(
+        rf"(?<![{_TERM_WORD_CHARS}]){escaped_term}(?![{_TERM_WORD_CHARS}])",
+        re.IGNORECASE,
+    )
+
 
 def _normalize_term(raw: str) -> str:
     """Нормализовать строку термина.
@@ -531,3 +543,195 @@ class TermMiner:
                     seen[key]["definition"] = item["definition"]
 
         return list(seen.values())
+
+
+# ---------------------------------------------------------------------------
+# Пересчёт частоты упоминания терминов в сообщениях группы
+# ---------------------------------------------------------------------------
+
+
+async def recount_term_usage(
+    group_id: int,
+    *,
+    progress_callback: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """
+    Пересчитать message_count для всех одобренных терминов с расшифровкой.
+
+    Сканирует тексты сообщений указанной группы и считает, в скольких
+    сообщениях каждый термин упоминается (case-insensitive match по
+    границам токена, без ложных срабатываний на подстроки).
+
+    Глобальные термины (group_id=0) обновляются ТОЛЬКО при явном вызове
+    с group_id=0 (подсчёт по всем группам). При пересчёте для конкретной
+    группы глобальные термины НЕ затрагиваются.
+
+    Args:
+        group_id: ID группы Telegram.
+        progress_callback: Опциональный callback для отслеживания прогресса.
+
+    Returns:
+        Словарь с результатами: terms_counted, messages_scanned, updated.
+    """
+    result: Dict[str, Any] = {
+        "group_id": group_id,
+        "terms_counted": 0,
+        "messages_scanned": 0,
+        "updated": 0,
+        "status": "running",
+        "errors": [],
+    }
+
+    async def _emit(stage: str, message: str, percent: float) -> None:
+        """Уведомить о прогрессе."""
+        if not progress_callback:
+            return
+        event = {
+            "stage": stage,
+            "message": message,
+            "percent": max(0.0, min(100.0, percent)),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        try:
+            cb_result = progress_callback(event)
+            if asyncio.iscoroutine(cb_result):
+                await cb_result
+        except Exception:
+            pass
+
+    await _emit("loading_terms", "Загрузка терминов", 5)
+
+    # Загрузить термины для пересчёта.
+    # Для group_id=0 — только глобальные; для конкретной группы — только групповые.
+    if group_id == 0:
+        # Глобальный пересчёт: берём только глобальные термины,
+        # считаем по ВСЕМ сообщениям (всех групп).
+        raw_terms = gk_db.get_terms_for_group(0, has_definition=True)
+        terms = [
+            t for t in raw_terms
+            if t.get("group_id", 0) == 0
+        ]
+    else:
+        # Групповой пересчёт: берём только группо-специфичные термины.
+        raw_terms = gk_db.get_terms_for_group(group_id, has_definition=True)
+        terms = [
+            t for t in raw_terms
+            if t.get("group_id", 0) == group_id
+        ]
+
+    if not terms:
+        result["status"] = "completed"
+        await _emit("completed", "Нет терминов для пересчёта", 100)
+        return result
+
+    # Построить lookup: term_string_lower -> list of term_ids.
+    term_lookup: Dict[str, List[int]] = {}
+    for t in terms:
+        key = (t.get("term") or "").strip().lower()
+        if key:
+            term_lookup.setdefault(key, []).append(t["id"])
+
+    term_patterns: Dict[str, re.Pattern[str]] = {
+        term_str: _build_term_boundary_pattern(term_str)
+        for term_str in term_lookup.keys()
+    }
+
+    # Инициализировать счётчики.
+    counts: Dict[int, int] = {t["id"]: 0 for t in terms}
+
+    result["terms_counted"] = len(terms)
+    await _emit("counting", f"Подсчёт для {len(terms)} терминов", 10)
+
+    # Определить общее количество сообщений.
+    if group_id == 0:
+        # Для глобальных терминов — считаем по всем группам.
+        # Получаем список всех групп с сообщениями.
+        all_group_ids = _get_all_group_ids_with_messages()
+        total_messages = sum(
+            gk_db.get_message_count_for_group(gid) for gid in all_group_ids
+        )
+    else:
+        all_group_ids = [group_id]
+        total_messages = gk_db.get_message_count_for_group(group_id)
+
+    if total_messages == 0:
+        result["status"] = "completed"
+        await _emit("completed", "Нет сообщений для анализа", 100)
+        return result
+
+    batch_size = ai_settings.GK_TERMS_RECOUNT_BATCH_SIZE
+    messages_processed = 0
+
+    # Сканировать сообщения батчами.
+    for scan_group_id in all_group_ids:
+        offset = 0
+        while True:
+            rows = gk_db.get_message_texts_batch(
+                scan_group_id, offset=offset, limit=batch_size,
+            )
+            if not rows:
+                break
+
+            for row in rows:
+                # Учитываем только текст сообщения (без caption/image_description).
+                message_text = row.get("message_text")
+                if not message_text:
+                    continue
+
+                combined = str(message_text)
+
+                for term_str, term_ids in term_lookup.items():
+                    pattern = term_patterns.get(term_str)
+                    if pattern and pattern.search(combined):
+                        for tid in term_ids:
+                            counts[tid] += 1
+
+            messages_processed += len(rows)
+            offset += batch_size
+
+            # Обновить прогресс.
+            pct = 10 + (messages_processed / max(1, total_messages)) * 80
+            await _emit(
+                "scanning",
+                f"Обработано {messages_processed}/{total_messages} сообщений",
+                pct,
+            )
+
+            if len(rows) < batch_size:
+                break
+
+    result["messages_scanned"] = messages_processed
+
+    # Сохранить результаты в БД.
+    await _emit("saving", "Сохранение результатов", 92)
+    updated = gk_db.bulk_update_term_message_counts(counts)
+    result["updated"] = updated
+    result["status"] = "completed"
+
+    logger.info(
+        "Пересчёт usage терминов завершён: group=%d terms=%d messages=%d updated=%d",
+        group_id, len(terms), messages_processed, updated,
+    )
+    await _emit(
+        "completed",
+        f"Пересчёт завершён: {len(terms)} терминов, {messages_processed} сообщений",
+        100,
+    )
+    return result
+
+
+def _get_all_group_ids_with_messages() -> List[int]:
+    """Получить список всех group_id, имеющих сообщения в gk_messages."""
+    try:
+        from src.common.database import get_db_connection, get_cursor
+
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    "SELECT DISTINCT group_id FROM gk_messages ORDER BY group_id"
+                )
+                rows = cursor.fetchall() or []
+                return [int(r["group_id"]) for r in rows]
+    except Exception as exc:
+        logger.warning("Не удалось получить список групп: %s", exc)
+        return []

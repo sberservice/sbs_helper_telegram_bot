@@ -39,6 +39,8 @@ from admin_web.core.models import (
     QAPairListResponse,
     TermDetail,
     TermListResponse,
+    TermResetRequest,
+    TermRecountRequest,
     TermScanRequest,
     TermValidationRequest,
     TermValidationStats,
@@ -2035,6 +2037,12 @@ def _row_to_term_detail(row: Dict[str, Any]) -> TermDetail:
         existing_verdict=row.get("existing_verdict"),
         existing_comment=row.get("existing_comment"),
         has_definition=row.get("definition") is not None,
+        message_count=int(row.get("message_count") or 0),
+        message_count_updated_at=(
+            row["message_count_updated_at"].isoformat()
+            if isinstance(row.get("message_count_updated_at"), datetime)
+            else row.get("message_count_updated_at")
+        ),
     )
 
 
@@ -2052,7 +2060,7 @@ def _build_terms_router() -> APIRouter:
         search_text: Optional[str] = Query(None, min_length=1, max_length=200),
         search: Optional[str] = Query(None, min_length=1, max_length=200),
         expert_status: Optional[str] = Query(None, pattern=r"^(approved|rejected|unvalidated)$"),
-        sort_by: str = Query("created_at", pattern=r"^(created_at|term|confidence|id|group_id|status)$"),
+        sort_by: str = Query("created_at", pattern=r"^(created_at|term|confidence|id|group_id|status|message_count)$"),
         sort_order: str = Query("desc", pattern=r"^(asc|desc)$"),
         user: WebUser = Depends(require_permission("gk_knowledge")),
     ) -> TermListResponse:
@@ -2157,14 +2165,33 @@ def _build_terms_router() -> APIRouter:
                     entry[key] = entry[key].isoformat()
         return history
 
+    @router.get("/{term_id}/usage-messages")
+    async def get_term_usage_messages(
+        term_id: int,
+        limit: int = Query(10, ge=1, le=50),
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> List[Dict[str, Any]]:
+        """Вернуть примеры сообщений, где встречается термин."""
+        from admin_web.modules.gk_knowledge import db_terms
+
+        row = db_terms.get_term_detail(term_id)
+        if not row:
+            raise HTTPException(404, "Термин не найден")
+
+        messages = db_terms.get_term_usage_messages(
+            group_id=int(row.get("group_id") or 0),
+            term=str(row.get("term") or ""),
+            limit=limit,
+        )
+        return messages
+
     @router.post("/scan")
     async def trigger_scan(
         body: TermScanRequest,
-        background_tasks: BackgroundTasks,
         user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
     ) -> Dict[str, Any]:
         """Запустить LLM-сканирование терминов в фоне."""
-        from src.group_knowledge.term_miner import TermMiner
+        from src.group_knowledge.term_miner import TermMiner, recount_term_usage
 
         miner = TermMiner()
         scan_batch_id = str(uuid.uuid4())
@@ -2200,6 +2227,39 @@ def _build_terms_router() -> APIRouter:
                     progress_callback=lambda event: _append_scan_progress_event(scan_batch_id, event),
                     scan_batch_id=scan_batch_id,
                 )
+
+                # Автоматический пересчёт message_count после успешного сканирования.
+                _append_scan_progress_event(
+                    scan_batch_id,
+                    {
+                        "stage": "recount_started",
+                        "message": "Запуск автоматического пересчёта message_count",
+                        "percent": 95,
+                        "updated_at": datetime.utcnow().isoformat(),
+                    },
+                )
+
+                async def _on_recount_progress(event: Dict[str, Any]) -> None:
+                    recount_percent = float(event.get("percent") or 0.0)
+                    # Сжимаем прогресс пересчёта в диапазон 95..100,
+                    # чтобы не конфликтовать с основным прогрессом сканирования.
+                    mapped_percent = 95.0 + (max(0.0, min(100.0, recount_percent)) * 0.05)
+                    _append_scan_progress_event(
+                        scan_batch_id,
+                        {
+                            "stage": f"recount_{event.get('stage', 'running')}",
+                            "message": event.get("message", "Пересчёт message_count"),
+                            "percent": mapped_percent,
+                            "updated_at": event.get("updated_at") or datetime.utcnow().isoformat(),
+                        },
+                    )
+
+                recount_result = await recount_term_usage(
+                    group_id=body.group_id,
+                    progress_callback=_on_recount_progress,
+                )
+
+                result["recount"] = recount_result
                 _term_scan_tasks[scan_batch_id]["result"] = result
                 _term_scan_tasks[scan_batch_id]["status"] = "completed"
                 _term_scan_tasks[scan_batch_id]["finished_at"] = datetime.now().isoformat()
@@ -2272,5 +2332,91 @@ def _build_terms_router() -> APIRouter:
             raise HTTPException(404, "Термин не найден")
         db_terms.invalidate_groups_cache()
         return {"deleted": True, "term_id": term_id}
+
+    # Хранилище статуса текущих пересчётов (in-memory).
+    _term_recount_tasks: Dict[str, Dict[str, Any]] = {}
+
+    @router.post("/recount")
+    async def trigger_recount(
+        body: TermRecountRequest,
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Запустить пересчёт message_count терминов по сообщениям группы."""
+        from src.group_knowledge.term_miner import recount_term_usage
+
+        task_id = str(uuid.uuid4())
+
+        _term_recount_tasks[task_id] = {
+            "task_id": task_id,
+            "group_id": body.group_id,
+            "status": "running",
+            "started_at": datetime.now().isoformat(),
+            "finished_at": None,
+            "progress": {
+                "stage": "queued",
+                "message": "Пересчёт поставлен в очередь",
+                "percent": 0,
+                "updated_at": datetime.utcnow().isoformat(),
+            },
+            "result": None,
+        }
+
+        def _on_progress(event: Dict[str, Any]) -> None:
+            task = _term_recount_tasks.get(task_id)
+            if task:
+                task["progress"] = event
+
+        async def _run_recount() -> None:
+            try:
+                result = await recount_term_usage(
+                    group_id=body.group_id,
+                    progress_callback=_on_progress,
+                )
+                _term_recount_tasks[task_id]["result"] = result
+                _term_recount_tasks[task_id]["status"] = "completed"
+                _term_recount_tasks[task_id]["finished_at"] = datetime.now().isoformat()
+            except Exception as exc:
+                logger.error("Ошибка пересчёта message_count: %s", exc, exc_info=True)
+                _term_recount_tasks[task_id]["status"] = "failed"
+                _term_recount_tasks[task_id]["error"] = str(exc)
+                _term_recount_tasks[task_id]["finished_at"] = datetime.now().isoformat()
+
+        asyncio.ensure_future(_run_recount())
+
+        return {
+            "task_id": task_id,
+            "status": "running",
+            "message": "Пересчёт запущен",
+        }
+
+    @router.get("/recount/{task_id}/status")
+    async def get_recount_status(
+        task_id: str,
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> Dict[str, Any]:
+        """Статус пересчёта message_count."""
+        task = _term_recount_tasks.get(task_id)
+        if not task:
+            raise HTTPException(404, "Задача пересчёта не найдена")
+        return task
+
+    @router.post("/actions/reset")
+    async def reset_terms_data(
+        body: TermResetRequest,
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Полностью очистить термины и историю их валидаций."""
+        from admin_web.modules.gk_knowledge import db_terms
+
+        confirmation = (body.confirmation_text or "").strip()
+        if confirmation != "NUKE_TERMS":
+            raise HTTPException(400, "Неверная фраза подтверждения")
+
+        reset_result = db_terms.reset_terms_and_validations()
+        db_terms.invalidate_groups_cache()
+        return {
+            "message": "Таблицы терминов очищены",
+            **reset_result,
+        }
 
     return router
