@@ -70,6 +70,7 @@ deploy\setup_cuda.bat
 - Проверяет `torch.cuda.is_available() == True`
 
 Важно: для CUDA-сборки рекомендуется Python `3.11` или `3.12`.
+Если в `venv_name` обнаружен Python `3.13+`, `setup_cuda.bat` автоматически пересоздаст venv на `3.12` (если установлен `py -3.12`).
 
 ### 3. Настройка конфигурации
 

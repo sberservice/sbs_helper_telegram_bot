@@ -49,11 +49,13 @@ echo.
 
 echo [2/7] Подготовка Python 3.11/3.12...
 set "PYTHON_EXE="
+set "HAS_PY312=0"
 where py >nul 2>&1
 if not errorlevel 1 (
     py -3.12 -c "import sys" >nul 2>&1
     if not errorlevel 1 (
         set "PYTHON_EXE=py -3.12"
+        set "HAS_PY312=1"
     )
 )
 if not defined PYTHON_EXE (
@@ -86,10 +88,35 @@ for /f "tokens=1,2 delims=." %%a in ('python -c "import sys; print(f'{sys.versio
     set "PY_MIN=%%b"
 )
 if %PY_MAJ% EQU 3 if %PY_MIN% GEQ 13 (
-    echo [ОШИБКА] Для CUDA PyTorch рекомендуется Python 3.11/3.12. Текущая версия: %PY_MAJ%.%PY_MIN%
-    echo Переустановите venv через Python 3.11/3.12 и повторите запуск setup_cuda.bat.
-    pause
-    exit /b 1
+    echo [ПРЕДУПРЕЖДЕНИЕ] Текущая версия Python в venv: %PY_MAJ%.%PY_MIN%.
+    if "%HAS_PY312%"=="1" (
+        echo   Обнаружен Python 3.12. Пересоздаём venv на 3.12...
+        call deactivate >nul 2>&1
+        rmdir /s /q "%VENV_DIR%"
+        if exist "%VENV_DIR%" (
+            echo [ОШИБКА] Не удалось удалить старый venv: %VENV_DIR%
+            pause
+            exit /b 1
+        )
+        py -3.12 -m venv "%VENV_DIR%"
+        if errorlevel 1 (
+            echo [ОШИБКА] Не удалось создать venv на Python 3.12.
+            pause
+            exit /b 1
+        )
+        call "%VENV_DIR%\Scripts\activate.bat"
+        for /f "tokens=1,2 delims=." %%a in ('python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"') do (
+            set "PY_MAJ=%%a"
+            set "PY_MIN=%%b"
+        )
+        echo   Новый venv создан на Python %PY_MAJ%.%PY_MIN%
+    ) else (
+        echo [ОШИБКА] Для CUDA PyTorch рекомендуется Python 3.11/3.12. Текущая версия: %PY_MAJ%.%PY_MIN%
+        echo Установите Python 3.12 и повторите запуск setup_cuda.bat.
+        echo Рекомендуемая команда: winget install Python.Python.3.12
+        pause
+        exit /b 1
+    )
 )
 echo   Версия Python в venv: %PY_MAJ%.%PY_MIN%
 echo.
