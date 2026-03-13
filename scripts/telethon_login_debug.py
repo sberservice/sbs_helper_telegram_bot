@@ -21,7 +21,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.common.constants.sync import TELETHON_API_HASH, TELETHON_API_ID
+from src.common.constants.sync import (
+    GK_COLLECTOR_SESSION_NAME,
+    TELETHON_API_HASH,
+    TELETHON_API_ID,
+)
 from src.group_knowledge.telethon_session import (
     build_telegram_client,
     disconnect_client_quietly,
@@ -48,8 +52,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--session-name",
-        default="telethon_login_debug",
-        help="Базовое имя session-файла в корне проекта (без .session)",
+        default="",
+        help=(
+            "Базовое имя session-файла в корне проекта (без .session). "
+            "Если не передано, используется GK_COLLECTOR_SESSION_NAME из env"
+        ),
     )
     parser.add_argument(
         "--phone",
@@ -57,6 +64,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Номер телефона в формате +79991234567 (если не передан, будет интерактивный ввод)",
     )
     return parser
+
+
+def _resolve_session_name(session_name_arg: str) -> str:
+    """Определить итоговое имя session-файла с приоритетом CLI-аргумента."""
+    explicit = (session_name_arg or "").strip()
+    if explicit:
+        return explicit
+    return (GK_COLLECTOR_SESSION_NAME or "").strip() or "gk_collector_session"
 
 
 def _describe_sent_code(sent: object) -> str:
@@ -195,7 +210,17 @@ def main() -> int:
     logger = logging.getLogger("scripts.telethon_login_debug")
 
     args = _build_parser().parse_args()
-    return asyncio.run(_run_debug(args.session_name, args.phone, logger))
+    session_name = _resolve_session_name(args.session_name)
+
+    if (args.session_name or "").strip():
+        logger.info("Используется session из аргумента --session-name: %s", session_name)
+    else:
+        logger.info(
+            "Используется session из env GK_COLLECTOR_SESSION_NAME: %s",
+            session_name,
+        )
+
+    return asyncio.run(_run_debug(session_name, args.phone, logger))
 
 
 if __name__ == "__main__":

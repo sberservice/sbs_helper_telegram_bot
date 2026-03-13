@@ -2,7 +2,11 @@
 
 import unittest
 
-from scripts.telethon_login_debug import _describe_sent_code, _normalize_phone
+from scripts.telethon_login_debug import (
+    _describe_sent_code,
+    _normalize_phone,
+    _resolve_session_name,
+)
 
 
 class TestTelethonLoginDebug(unittest.TestCase):
@@ -32,6 +36,10 @@ class TestTelethonLoginDebug(unittest.TestCase):
             type = SentCodeTypeApp()
 
         self.assertIn("Telegram-приложение", _describe_sent_code(Sent()))
+
+    def test_resolve_session_name_prefers_cli_arg(self):
+        """При наличии CLI-аргумента используется он, а не env-дефолт."""
+        self.assertEqual(_resolve_session_name("custom_session"), "custom_session")
 
 
 if __name__ == "__main__":

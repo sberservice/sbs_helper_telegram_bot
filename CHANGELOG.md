@@ -7,6 +7,17 @@
 
 ## [0.10.69] - 2026-03-13
 
+## [0.10.70] - 2026-03-13
+
+### Fixed
+- `scripts/telethon_login_debug.py`: имя session по умолчанию теперь берётся из env `GK_COLLECTOR_SESSION_NAME` (вместо внутреннего дефолта), чтобы диагностика использовала тот же session basename, что и `gk_collector`.
+
+### Changed
+- `scripts/telethon_login_debug.py`: добавлен явный лог источника session-name (из `--session-name` или из env) для прозрачной диагностики.
+- `deploy/README.md`: пример запуска диагностики обновлён на env-режим без хардкода `--session-name`.
+
+## [0.10.69] - 2026-03-13
+
 ### Added
 - `scripts/telethon_login_debug.py`: новая CLI-утилита для диагностики Telethon-авторизации (проверка отправки кода, обработка типовых ошибок `FLOOD_WAIT`/`PHONE_CODE_INVALID`/`2FA`, явные подсказки оператору).
 - `tests/test_telethon_login_debug.py`: тесты нормализации номера телефона для отладки авторизации.

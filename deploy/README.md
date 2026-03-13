@@ -235,10 +235,11 @@ deploy\check_sessions.bat
 
 Если код Telegram не приходит при создании сессии, запустите диагностическую утилиту:
 ```cmd
-python scripts\telethon_login_debug.py --session-name gk_collector_session --phone +79991234567
+python scripts\telethon_login_debug.py --phone +79991234567
 ```
 Утилита пошагово проверяет отправку кода, показывает типичные причины \
 (`FLOOD_WAIT`, неверный формат телефона, неверный код, 2FA) и даёт явные подсказки.
+По умолчанию имя session берётся из `GK_COLLECTOR_SESSION_NAME` в env; при необходимости можно переопределить через `--session-name`.
 
 ### git pull конфликты
 
