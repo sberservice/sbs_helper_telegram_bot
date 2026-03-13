@@ -2,7 +2,7 @@
 
 import unittest
 
-from scripts.telethon_login_debug import _normalize_phone
+from scripts.telethon_login_debug import _describe_sent_code, _normalize_phone
 
 
 class TestTelethonLoginDebug(unittest.TestCase):
@@ -21,6 +21,17 @@ class TestTelethonLoginDebug(unittest.TestCase):
         """Слишком короткий номер отклоняется."""
         with self.assertRaises(ValueError):
             _normalize_phone("+12345")
+
+    def test_describe_sent_code_app(self):
+        """Тип доставки app распознаётся корректно."""
+
+        class SentCodeTypeApp:
+            pass
+
+        class Sent:
+            type = SentCodeTypeApp()
+
+        self.assertIn("Telegram-приложение", _describe_sent_code(Sent()))
 
 
 if __name__ == "__main__":

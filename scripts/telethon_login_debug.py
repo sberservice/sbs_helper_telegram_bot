@@ -59,6 +59,26 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _describe_sent_code(sent: object) -> str:
+    """Вернуть человекочитаемое описание канала доставки кода."""
+    sent_type = getattr(sent, "type", None)
+    if sent_type is None:
+        return "неизвестно"
+
+    type_name = sent_type.__class__.__name__.lower()
+    if "app" in type_name:
+        return "Telegram-приложение (чат Telegram/777000)"
+    if "sms" in type_name:
+        return "SMS"
+    if "call" in type_name:
+        return "звонок"
+    if "flash" in type_name:
+        return "flash-call"
+    if "email" in type_name:
+        return "email"
+    return sent_type.__class__.__name__
+
+
 async def _run_debug(session_name: str, phone_arg: str, logger: logging.Logger) -> int:
     """Запустить пошаговую диагностику Telethon-авторизации."""
     if not TELETHON_API_ID or TELETHON_API_ID == 0 or not TELETHON_API_HASH:
@@ -69,6 +89,10 @@ async def _run_debug(session_name: str, phone_arg: str, logger: logging.Logger) 
         "Код авторизации обычно приходит в приложение Telegram (чат 'Telegram' / 777000), а не по SMS."
     )
     logger.info("Используйте номер только в международном формате: +79991234567")
+    logger.info(
+        "Если видите сообщение 'Failed to load SSL library ... cryptg ... falling back', "
+        "это обычно не блокирует авторизацию: Telethon переключается на штатное Python-шифрование."
+    )
 
     session_path = str(PROJECT_ROOT / session_name)
     client = build_telegram_client(session_path, TELETHON_API_ID, TELETHON_API_HASH, logger)
@@ -90,7 +114,9 @@ async def _run_debug(session_name: str, phone_arg: str, logger: logging.Logger) 
 
         logger.info("Запрашиваю код подтверждения Telegram для %s", phone)
         sent = await client.send_code_request(phone)
-        logger.info("Запрос кода отправлен. Проверьте чат Telegram/777000 в приложении Telegram.")
+        delivery = _describe_sent_code(sent)
+        logger.info("Запрос кода отправлен. Канал доставки: %s", delivery)
+        logger.info("Если канал app, проверьте чат Telegram/777000 (включая архив и muted).")
 
         code = input("Введите код из Telegram (или Enter для отмены): ").strip()
         if not code:
