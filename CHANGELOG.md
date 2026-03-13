@@ -5,6 +5,59 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.80] - 2026-03-13
+
+### Added
+- `admin_web/frontend/src/pages/gk_tabs/ResponderTab.tsx`: добавлен subpage `Обзор` для автоответчика с фильтрацией статистики по диапазону дат.
+
+### Changed
+- `admin_web/modules/gk_knowledge/router.py` и `admin_web/modules/gk_knowledge/db_responder.py`: `GET /api/gk-knowledge/responder/summary` теперь поддерживает фильтры `date_from` / `date_to` и корректно пересчитывает summary по выбранной группе и диапазону.
+- `admin_web/frontend/src/api.ts`: метод `gkResponderSummary(...)` переведён на объект параметров (`group_id`, `date_from`, `date_to`) с корректной передачей query-параметров.
+- `admin_web/frontend/src/pages/gk_tabs/ResponderTab.tsx`: summary вверху теперь гарантированно пересчитывается при выборе группы, а в строках лога показаны дата/время вопроса и ответа, модель и температура.
+- `admin_web/README.md`: документация обновлена под subpage «Обзор» во вкладке автоответчика.
+
+## [0.10.79] - 2026-03-13
+
+### Changed
+- `src/group_knowledge/qa_search.py`: в сохраняемый payload запроса к LLM добавлен фактический `temperature`.
+- `admin_web/frontend/src/pages/gk_tabs/ResponderTab.tsx`: в таблице автоответчика добавлены поля `Модель` и `Temp`, извлекаемые из сохранённого LLM payload.
+
+## [0.10.78] - 2026-03-13
+
+### Added
+- `sql/gk_responder_log_question_message_date_setup.sql`: миграция добавляет в `gk_responder_log` колонку `question_message_date` для хранения времени исходного вопроса.
+
+### Changed
+- `src/group_knowledge/responder.py` и `src/group_knowledge/database.py`: лог автоответчика теперь сохраняет timestamp исходного вопроса вместе со временем ответа.
+- `admin_web/modules/gk_knowledge/db_responder.py`: API лога автоответчика возвращает `question_message_date` с backward-compatible fallback для старой схемы.
+- `admin_web/frontend/src/pages/gk_tabs/ResponderTab.tsx` и `admin_web/frontend/src/api.ts`: в таблице автоответчика добавлен явный показ даты/времени вопроса и ответа для каждой записи.
+- `sql/group_knowledge_setup.sql` и `src/group_knowledge/README.md`: схема и документация обновлены под поле времени вопроса.
+
+## [0.10.77] - 2026-03-13
+
+### Changed
+- `admin_web/frontend/src/pages/gk_tabs/ResponderTab.tsx`: бейдж `LLM saved` переведён на green-ish оформление (`badge-success`) для более явного визуального акцента.
+
+## [0.10.76] - 2026-03-13
+
+### Changed
+- `admin_web/frontend/src/pages/gk_tabs/ResponderTab.tsx`: в логе автоответчика добавлен визуальный бейдж `LLM saved` для записей, где сохранён payload запроса к модели, чтобы такие кейсы были заметны сразу в списке.
+
+## [0.10.75] - 2026-03-13
+
+### Added
+- `sql/gk_responder_log_llm_request_payload_setup.sql`: добавлена миграция для колонки `gk_responder_log.llm_request_payload` (LONGTEXT) для хранения полного payload запроса к LLM.
+
+### Changed
+- `src/group_knowledge/qa_search.py`: в результат автоответчика добавлен `llm_request_payload` с полным JSON запроса, отправленного в модель (`system_prompt`, `messages`, `purpose`, `model_override`, `response_format`).
+- `src/group_knowledge/responder.py` и `src/group_knowledge/database.py`: payload запроса теперь сохраняется в `gk_responder_log`; добавлена обратная совместимость для БД без новой колонки.
+- `admin_web/modules/gk_knowledge/db_responder.py`: API лога автоответчика теперь возвращает `llm_request_payload` (с fallback на `NULL`, если миграция ещё не применена).
+- `admin_web/frontend/src/pages/gk_tabs/ResponderTab.tsx` и `admin_web/frontend/src/api.ts`: во вкладке «Автоответчик» в раскрытой записи отображается полный `LLM request`.
+- `sql/group_knowledge_setup.sql` и `src/group_knowledge/README.md`: схема и документация обновлены под хранение payload запроса.
+
+### Fixed
+- `tests/test_group_knowledge.py`: добавлен регрессионный тест, подтверждающий передачу полного `llm_request_payload` в лог автоответчика.
+
 ## [0.10.74] - 2026-03-13
 
 ### Fixed

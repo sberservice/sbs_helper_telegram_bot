@@ -448,6 +448,12 @@ python scripts/gk_delete_group_data.py --group-id -1001234567890 --yes --no-vect
 
 Лог ответов автоответчика (включая dry-run).
 
+Ключевые поля:
+- `question_message_date` — время исходного сообщения-вопроса (UNIX timestamp);
+- `question_text` — текст вопроса из группы;
+- `answer_text` — ответ, сформированный автоответчиком;
+- `llm_request_payload` — полный JSON запроса, отправленного в LLM (system prompt + messages + параметры вызова) для отладки в Admin Web.
+
 ---
 
 ## Алгоритм извлечения Q&A

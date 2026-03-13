@@ -286,6 +286,24 @@ class QASearchService:
         # Кэш секции аббревиатур по group_id.
         self._acronyms_cache: Dict[int, Tuple[str, float]] = {}
 
+    def _build_llm_request_payload(
+        self,
+        *,
+        query: str,
+        system_prompt: str,
+        temperature: float,
+    ) -> str:
+        """Собрать JSON-представление полного запроса к LLM для отладки."""
+        payload: Dict[str, Any] = {
+            "system_prompt": system_prompt,
+            "messages": [{"role": "user", "content": f"Вопрос пользователя: {query}"}],
+            "purpose": "gk_answer",
+            "model_override": self._model_name,
+            "temperature": temperature,
+            "response_format": {"type": "json_object"},
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
     def reload_terms(self, group_id: Optional[int] = None) -> None:
         """Перезагрузить защищённые термины из БД."""
         terms = load_fixed_terms(group_id)
@@ -685,6 +703,11 @@ class QASearchService:
             relevance_rule=relevance_rule,
             acronyms_section=acronyms_section,
         )
+        llm_request_payload = self._build_llm_request_payload(
+            query=query,
+            system_prompt=prompt,
+            temperature=float(ai_settings.LLM_CHAT_TEMPERATURE),
+        )
         provider = get_provider("deepseek")
 
         try:
@@ -731,6 +754,7 @@ class QASearchService:
                 "is_relevant": is_relevant,
                 "primary_source_link": source_message_links[0] if source_message_links else None,
                 "source_message_links": source_message_links,
+                "llm_request_payload": llm_request_payload,
             }
         except Exception as exc:
             logger.error(

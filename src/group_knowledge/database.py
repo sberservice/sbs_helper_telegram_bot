@@ -14,6 +14,71 @@ from src.group_knowledge.models import GroupMessage, QAPair
 
 logger = logging.getLogger(__name__)
 
+_RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN: Optional[bool] = None
+_RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN: Optional[bool] = None
+
+
+def _responder_log_has_llm_request_payload_column() -> bool:
+    """Проверить наличие колонки llm_request_payload в таблице gk_responder_log."""
+    global _RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN
+
+    if _RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN is not None:
+        return _RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN
+
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                      AND TABLE_NAME = 'gk_responder_log'
+                      AND COLUMN_NAME = 'llm_request_payload'
+                    LIMIT 1
+                    """
+                )
+                _RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN = cursor.fetchone() is not None
+    except Exception as exc:
+        logger.warning(
+            "Не удалось проверить колонку llm_request_payload в gk_responder_log: %s",
+            exc,
+        )
+        _RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN = False
+
+    return _RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN
+
+
+def _responder_log_has_question_message_date_column() -> bool:
+    """Проверить наличие колонки question_message_date в таблице gk_responder_log."""
+    global _RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN
+
+    if _RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN is not None:
+        return _RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN
+
+    try:
+        with get_db_connection() as conn:
+            with get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                      AND TABLE_NAME = 'gk_responder_log'
+                      AND COLUMN_NAME = 'question_message_date'
+                    LIMIT 1
+                    """
+                )
+                _RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN = cursor.fetchone() is not None
+    except Exception as exc:
+        logger.warning(
+            "Не удалось проверить колонку question_message_date в gk_responder_log: %s",
+            exc,
+        )
+        _RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN = False
+
+    return _RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN
+
 
 # ---------------------------------------------------------------------------
 # Сообщения (gk_messages)
@@ -1350,6 +1415,8 @@ def store_responder_log(
     qa_pair_id: Optional[int],
     confidence: float,
     dry_run: bool,
+    llm_request_payload: Optional[str] = None,
+    question_message_date: Optional[int] = None,
 ) -> int:
     """
     Сохранить запись лога автоответчика.
@@ -1362,31 +1429,52 @@ def store_responder_log(
         qa_pair_id: ID использованной Q&A-пары (опционально).
         confidence: Уверенность в ответе.
         dry_run: Был ли ответ в режиме dry-run.
+        llm_request_payload: Полный JSON запроса к LLM.
+        question_message_date: Время исходного вопроса (UNIX timestamp).
 
     Returns:
         ID записи в логе.
     """
     now = int(time.time())
+    has_payload_column = _responder_log_has_llm_request_payload_column()
+    has_question_date_column = _responder_log_has_question_message_date_column()
     try:
         with get_db_connection() as conn:
             with get_cursor(conn) as cursor:
+                columns = [
+                    "group_id",
+                    "question_message_id",
+                    "question_text",
+                    "answer_text",
+                    "qa_pair_id",
+                    "confidence",
+                    "dry_run",
+                    "responded_at",
+                ]
+                values: List[Any] = [
+                    group_id,
+                    question_message_id,
+                    question_text[:8000] if question_text else "",
+                    answer_text[:8000] if answer_text else "",
+                    qa_pair_id,
+                    confidence,
+                    1 if dry_run else 0,
+                    now,
+                ]
+
+                if has_question_date_column:
+                    columns.append("question_message_date")
+                    values.append(question_message_date)
+
+                if has_payload_column:
+                    columns.append("llm_request_payload")
+                    values.append(llm_request_payload)
+
+                placeholders = ", ".join(["%s"] * len(columns))
+                columns_sql = ", ".join(columns)
                 cursor.execute(
-                    """
-                    INSERT INTO gk_responder_log (
-                        group_id, question_message_id, question_text,
-                        answer_text, qa_pair_id, confidence, dry_run, responded_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        group_id,
-                        question_message_id,
-                        question_text[:8000] if question_text else "",
-                        answer_text[:8000] if answer_text else "",
-                        qa_pair_id,
-                        confidence,
-                        1 if dry_run else 0,
-                        now,
-                    ),
+                    f"INSERT INTO gk_responder_log ({columns_sql}) VALUES ({placeholders})",
+                    tuple(values),
                 )
                 return cursor.lastrowid or 0
     except Exception as exc:

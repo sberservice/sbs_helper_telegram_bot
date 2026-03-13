@@ -12,6 +12,70 @@ from src.common import database
 logger = logging.getLogger(__name__)
 
 _GK_GROUPS_JSON = Path(__file__).resolve().parents[3] / "config" / "gk_groups.json"
+_RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN: Optional[bool] = None
+_RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN: Optional[bool] = None
+
+
+def _responder_log_has_llm_request_payload_column() -> bool:
+    """Проверить наличие колонки llm_request_payload в gk_responder_log."""
+    global _RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN
+
+    if _RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN is not None:
+        return _RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN
+
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                      AND TABLE_NAME = 'gk_responder_log'
+                      AND COLUMN_NAME = 'llm_request_payload'
+                    LIMIT 1
+                    """
+                )
+                _RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN = cursor.fetchone() is not None
+    except Exception as exc:
+        logger.warning(
+            "Не удалось проверить колонку llm_request_payload в gk_responder_log: %s",
+            exc,
+        )
+        _RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN = False
+
+    return _RESPONDER_LOG_HAS_LLM_REQUEST_PAYLOAD_COLUMN
+
+
+def _responder_log_has_question_message_date_column() -> bool:
+    """Проверить наличие колонки question_message_date в gk_responder_log."""
+    global _RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN
+
+    if _RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN is not None:
+        return _RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN
+
+    try:
+        with database.get_db_connection() as conn:
+            with database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                      AND TABLE_NAME = 'gk_responder_log'
+                      AND COLUMN_NAME = 'question_message_date'
+                    LIMIT 1
+                    """
+                )
+                _RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN = cursor.fetchone() is not None
+    except Exception as exc:
+        logger.warning(
+            "Не удалось проверить колонку question_message_date в gk_responder_log: %s",
+            exc,
+        )
+        _RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN = False
+
+    return _RESPONDER_LOG_HAS_QUESTION_MESSAGE_DATE_COLUMN
 
 
 def _load_group_titles() -> Dict[int, str]:
@@ -69,6 +133,16 @@ def get_responder_log(
     sort_dir = "ASC" if sort_order.lower() == "asc" else "DESC"
 
     offset = (page - 1) * page_size
+    llm_request_payload_field = (
+        "rl.llm_request_payload"
+        if _responder_log_has_llm_request_payload_column()
+        else "NULL AS llm_request_payload"
+    )
+    question_message_date_field = (
+        "rl.question_message_date"
+        if _responder_log_has_question_message_date_column()
+        else "NULL AS question_message_date"
+    )
 
     try:
         with database.get_db_connection() as conn:
@@ -83,7 +157,9 @@ def get_responder_log(
                     f"""
                     SELECT
                         rl.id, rl.group_id, rl.question_message_id,
+                        {question_message_date_field},
                         rl.question_text, rl.answer_text,
+                        {llm_request_payload_field},
                         rl.qa_pair_id AS matched_qa_pair_id,
                         rl.confidence,
                         rl.dry_run, rl.responded_at
@@ -108,10 +184,28 @@ def get_responder_log(
         return [], 0
 
 
-def get_responder_summary(group_id: Optional[int] = None) -> Dict[str, Any]:
+def get_responder_summary(
+    group_id: Optional[int] = None,
+    date_from_ts: Optional[int] = None,
+    date_to_ts: Optional[int] = None,
+) -> Dict[str, Any]:
     """Получить сводную статистику автоответчика."""
-    cond = "WHERE group_id = %s" if group_id else ""
-    params = (group_id,) if group_id else ()
+    conditions: List[str] = []
+    params: List[Any] = []
+
+    if group_id is not None:
+        conditions.append("group_id = %s")
+        params.append(group_id)
+
+    if date_from_ts is not None:
+        conditions.append("responded_at >= %s")
+        params.append(date_from_ts)
+
+    if date_to_ts is not None:
+        conditions.append("responded_at <= %s")
+        params.append(date_to_ts)
+
+    cond = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
     try:
         with database.get_db_connection() as conn:
@@ -128,7 +222,7 @@ def get_responder_summary(group_id: Optional[int] = None) -> Dict[str, Any]:
                     FROM gk_responder_log
                     {cond}
                     """,
-                    params,
+                    tuple(params),
                 )
                 row = cursor.fetchone() or {}
                 return {

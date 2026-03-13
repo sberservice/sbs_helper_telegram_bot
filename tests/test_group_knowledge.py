@@ -3093,6 +3093,40 @@ class TestGroupResponderHandleMessage(unittest.TestCase):
         self.assertAlmostEqual(result.confidence, 0.9)
         self.assertIn("https://t.me/c/1234567890/555", result.answer_text)
 
+    def test_responder_logs_full_llm_request_payload(self):
+        """В лог автоответчика передаётся полный llm_request_payload без обрезки."""
+        from src.group_knowledge.responder import GroupResponder
+
+        expected_payload = json.dumps(
+            {
+                "system_prompt": "X" * 3500,
+                "messages": [{"role": "user", "content": "Y" * 4200}],
+                "purpose": "gk_answer",
+            },
+            ensure_ascii=False,
+        )
+
+        mock_qa = MagicMock()
+        mock_qa.answer_question = AsyncMock(return_value={
+            "answer": "Проверьте настройки терминала.",
+            "confidence": 0.93,
+            "source_pair_ids": [99],
+            "is_relevant": True,
+            "llm_request_payload": expected_payload,
+        })
+
+        responder = GroupResponder(dry_run=True, qa_service=mock_qa)
+        event = self._make_event("Как исправить ошибку терминала?", -1001234)
+
+        with patch.object(responder, "_classify_message_as_question", new=AsyncMock(return_value=True)):
+            with patch("src.group_knowledge.responder.gk_db.store_responder_log") as mock_store_log:
+                result = _run_async(responder.handle_message(event, {-1001001234}))
+
+        self.assertIsNotNone(result)
+        mock_store_log.assert_called_once()
+        self.assertEqual(mock_store_log.call_args.args[7], expected_payload)
+        self.assertIsInstance(mock_store_log.call_args.args[8], int)
+
     def test_low_confidence_skipped(self):
         """Низкая уверенность — ответ не отправляется."""
         from src.group_knowledge.responder import GroupResponder

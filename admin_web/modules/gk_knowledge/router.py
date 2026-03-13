@@ -22,7 +22,7 @@ import mimetypes
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -563,6 +563,34 @@ def _normalize_responder_summary_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
         "first_response_ts": raw.get("first_response_ts"),
         "last_response_ts": raw.get("last_response_ts"),
     }
+
+
+def _parse_date_boundaries(
+    date_from: Optional[str],
+    date_to: Optional[str],
+) -> tuple[Optional[int], Optional[int]]:
+    """Преобразовать YYYY-MM-DD границы в UNIX timestamp (включительно)."""
+    from_ts: Optional[int] = None
+    to_ts: Optional[int] = None
+
+    if date_from:
+        try:
+            from_dt = datetime.strptime(date_from, "%Y-%m-%d")
+            from_ts = int(from_dt.timestamp())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Некорректная date_from: {date_from}") from exc
+
+    if date_to:
+        try:
+            to_dt = datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1) - timedelta(seconds=1)
+            to_ts = int(to_dt.timestamp())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Некорректная date_to: {date_to}") from exc
+
+    if from_ts is not None and to_ts is not None and from_ts > to_ts:
+        raise HTTPException(status_code=400, detail="date_from не может быть больше date_to")
+
+    return from_ts, to_ts
 
 
 def build_gk_router() -> APIRouter:
@@ -1232,11 +1260,18 @@ def _build_responder_router() -> APIRouter:
     @router.get("/summary")
     async def get_summary(
         group_id: Optional[int] = Query(None),
+        date_from: Optional[str] = Query(None),
+        date_to: Optional[str] = Query(None),
         user: WebUser = Depends(require_permission("gk_knowledge")),
     ) -> Dict[str, Any]:
         """Сводная статистика автоответчика."""
         from admin_web.modules.gk_knowledge import db_responder
-        raw = db_responder.get_responder_summary(group_id=group_id)
+        date_from_ts, date_to_ts = _parse_date_boundaries(date_from, date_to)
+        raw = db_responder.get_responder_summary(
+            group_id=group_id,
+            date_from_ts=date_from_ts,
+            date_to_ts=date_to_ts,
+        )
         return _normalize_responder_summary_payload(raw)
 
     return router

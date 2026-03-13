@@ -333,8 +333,10 @@ export interface GKResponderEntry {
   id: number;
   group_id: number;
   group_title: string | null;
+  question_message_date: string | number | null;
   question_text: string | null;
   answer_text: string | null;
+  llm_request_payload: string | null;
   confidence: number;
   dry_run: boolean;
   responded_at: string | null;
@@ -828,9 +830,13 @@ export const api = {
     );
   },
 
-  gkResponderSummary: (groupId?: number) => {
-    const params = groupId ? `?group_id=${groupId}` : '';
-    return request<GKResponderSummary>(`/api/gk-knowledge/responder/summary${params}`);
+  gkResponderSummary: (params?: { group_id?: number | null; date_from?: string | null; date_to?: string | null }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.group_id != null) searchParams.set('group_id', String(params.group_id));
+    if (params?.date_from) searchParams.set('date_from', params.date_from);
+    if (params?.date_to) searchParams.set('date_to', params.date_to);
+    const query = searchParams.toString();
+    return request<GKResponderSummary>(`/api/gk-knowledge/responder/summary${query ? `?${query}` : ''}`);
   },
 
   // GK Knowledge — Images

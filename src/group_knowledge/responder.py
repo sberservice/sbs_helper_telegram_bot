@@ -300,6 +300,8 @@ class GroupResponder:
                 )
         confidence = answer_result["confidence"]
         source_ids = answer_result.get("source_pair_ids", [])
+        llm_request_payload = answer_result.get("llm_request_payload")
+        question_message_date = int(message.date.timestamp()) if message.date else None
 
         # Проверить порог уверенности
         if confidence < self._confidence_threshold:
@@ -323,13 +325,15 @@ class GroupResponder:
 
         # Логировать
         gk_db.store_responder_log(
-            group_id=effective_group_id,
-            question_message_id=message.id,
-            question_text=text,
-            answer_text=answer_text,
-            qa_pair_id=source_ids[0] if source_ids else None,
-            confidence=confidence,
-            dry_run=self._dry_run,
+            effective_group_id,
+            message.id,
+            text,
+            answer_text,
+            source_ids[0] if source_ids else None,
+            confidence,
+            self._dry_run,
+            llm_request_payload if isinstance(llm_request_payload, str) else None,
+            question_message_date,
         )
 
         if self._dry_run:
