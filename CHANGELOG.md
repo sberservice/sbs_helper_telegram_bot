@@ -5,6 +5,14 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.72] - 2026-03-13
+
+### Added
+- `deploy/setup_cuda.bat`: новый отдельный скрипт развёртывания CUDA-окружения на Windows (проверка NVIDIA GPU, установка зависимостей без `torch`, установка CUDA-сборки `torch/torchvision/torchaudio`, валидация `torch.cuda.is_available()`).
+
+### Changed
+- `deploy/README.md`: добавлен раздел по GPU/CUDA-развёртыванию и post-update шагу (`deploy\setup_cuda.bat`) для серверов с NVIDIA.
+
 ## [0.10.71] - 2026-03-13
 
 ### Added
