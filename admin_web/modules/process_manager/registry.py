@@ -193,6 +193,12 @@ PROCESS_DEFINITIONS: List[ProcessDefinition] = [
                 mutually_exclusive_group="mode",
             ),
             FlagDefinition(
+                name="--rebuild-vector-index",
+                flag_type=FlagType.BOOL,
+                description="Полностью пересобрать QA-векторный индекс (удалить QA-векторы и переиндексировать approved-пары)",
+                mutually_exclusive_group="mode",
+            ),
+            FlagDefinition(
                 name="--days",
                 flag_type=FlagType.INT,
                 description="Количество дней для backfill",
@@ -266,6 +272,12 @@ PROCESS_DEFINITIONS: List[ProcessDefinition] = [
                 description="Загрузить историю за последние 30 дней",
                 flags=["--backfill", "--days", "30"],
                 icon="📚",
+            ),
+            PresetDefinition(
+                name="Rebuild vector index",
+                description="Удалить QA-векторы и полностью переиндексировать approved-пары",
+                flags=["--rebuild-vector-index"],
+                icon="♻️",
             ),
         ],
     ),
