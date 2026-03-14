@@ -9,7 +9,6 @@ import { useSearchParams } from 'react-router-dom'
 import StatsTab from './gk_tabs/StatsTab'
 import QAPairsTab from './gk_tabs/QAPairsTab'
 import ExpertValidationTab from './gk_tabs/ExpertValidationTab'
-import PromptTesterTab from './gk_tabs/PromptTesterTab'
 import GroupsTab from './gk_tabs/GroupsTab'
 import ResponderTab from './gk_tabs/ResponderTab'
 import ImagesTab from './gk_tabs/ImagesTab'
@@ -17,6 +16,7 @@ import ImagePromptTesterTab from './gk_tabs/ImagePromptTesterTab'
 import SearchTab from './gk_tabs/SearchTab'
 import QAAnalyzerSandboxTab from './gk_tabs/QAAnalyzerSandboxTab'
 import TermsTab from './gk_tabs/TermsTab'
+import SettingsTab from './gk_tabs/SettingsTab'
 
 interface TabDef {
   key: string
@@ -28,13 +28,13 @@ const TABS: TabDef[] = [
   { key: 'stats', label: 'Статистика', icon: '📊' },
   { key: 'qa-pairs', label: 'Q&A-пары', icon: '💬' },
   { key: 'expert', label: 'Валидация', icon: '🔍' },
-  { key: 'prompt-tester', label: 'Тестер промптов', icon: '🧪' },
   { key: 'groups', label: 'Группы', icon: '👥' },
   { key: 'responder', label: 'Автоответчик', icon: '🤖' },
   { key: 'images', label: 'Изображения', icon: '🖼' },
   { key: 'image-prompt-tester', label: 'Image Prompt Tester', icon: '🧪' },
   { key: 'search', label: 'Поиск', icon: '🔎' },
   { key: 'terms', label: 'Термины', icon: '📖' },
+  { key: 'settings', label: 'Настройки', icon: '⚙️' },
   { key: 'qa-analyzer-sandbox', label: 'Песочница анализатора', icon: '🧬' },
 ]
 
@@ -42,13 +42,13 @@ const TAB_COMPONENTS: Record<string, React.FC> = {
   'stats': StatsTab,
   'qa-pairs': QAPairsTab,
   'expert': ExpertValidationTab,
-  'prompt-tester': PromptTesterTab,
   'groups': GroupsTab,
   'responder': ResponderTab,
   'images': ImagesTab,
   'image-prompt-tester': ImagePromptTesterTab,
   'search': SearchTab,
   'terms': TermsTab,
+  'settings': SettingsTab,
   'qa-analyzer-sandbox': QAAnalyzerSandboxTab,
 }
 

@@ -14,8 +14,11 @@ from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import ai_settings
-from src.core.ai.llm_provider import get_provider
-from src.group_knowledge.acronyms import select_best_acronyms_by_term
+from src.core.ai.llm_provider import get_provider, is_provider_registered
+from src.group_knowledge.acronyms import (
+    select_best_acronyms_by_term,
+    sort_acronym_records_for_prompt,
+)
 from src.group_knowledge import database as gk_db
 from src.group_knowledge.models import QAPair
 from src.group_knowledge.rag_text import enrich_question_for_rag
@@ -179,41 +182,48 @@ _ANSWER_PROMPT_BASE = """Ты — помощник технической под
 
 На основе найденных пар вопрос-ответ из базы знаний технической поддержки ответь на вопрос инженера по тематике ККТ (контрольно-кассовая техника).
 
-Найденные пары:
-{qa_context}
 
-ВОЗМОЖНЫЕ АББРЕВИАТУРЫ:
-{acronyms_section}
-
-ПРАВИЛА:
-0. Используй "ты", а не "вы".
-1. Отвечай максимально подробно, точно и конкретно, опираясь исключительно на найденные пары.
-2. Если несколько пар релевантны — объедини информацию.
-4. Не придумывай информацию, которой нет в найденных парах. Не придумывай факты.
-5. Отвечай на русском языке.
-6. Не раскрывай источники в ответе. Не называй номера пар в ответе. Если вопрос откуда взял информацию - ответь, что из чата техподдержки, что ты не используешь базу знаний.
-7. Для каждой пары дополнительно передаются их внутренние поля pair_confidence. При прочих равных отдавай приоритет парам с более высокими confidence.
-8. Confidence, который ты возвращаешь - степень уверенности 0-1 в твоем ответе.
-10. Если confidence>0.5, но меньше <=0.6, начни ответ с фразы похожей на "Я совсем не уверен, но возможно...". Если confidence >0.6, но меньше <=0.85, начни ответ с фразы похожей (измени фразу) на "Возможно...". 
-11. Если confidence <0.85 и если вопрос связан с ОФД предложи обратиться в техническую поддержку ОФД, если вопрос связан с кассой Эвотор - написать письмо в поддержку Эвотор по приоритизации.
-12. Если confidence >0.85 пиши ответ более уверенно. 
-13. Если confidence <=0.5, верни is_relevant=false и пустой answer.
-14. Если confidence <0.85, напиши очень кратко в начале ответа причину, почему ты не вполне уверен в своем ответе. 
-{relevance_rule}
 Верни JSON:
 {{
     "answer": "Текст ответа",
     "is_relevant": true/false,
     "confidence": Это не confidence пар, а другой параметр, создай его с нуля 0.0-1.0
-    "confidence_reason": "Краткое объяснение, почему такой уровень confidence (макс 300 символов)",
+    "confidence_reason": "Краткое объяснение, почему такой уровень confidence (макс 300 символов), какие правила использованы",
     "used_pair_ids": [1, 2, ...]
-}}"""
+}}
 
-_RELEVANCE_RULE = (
-    "11. Каждая пара имеет метку релевантности (высокая/средняя/низкая) и числовые оценки "
-    "BM25 и Вектор. Отдавай приоритет парам с высокой релевантностью. "
-    "Пары с низкой релевантностью могут быть нерелевантны — используй их с осторожностью."
-)
+ПРАВИЛА:
+0. Используй дружелюбное "ты", а не "вы", обращаясь к пользователю.
+1. Отвечай максимально подробно, точно и конкретно, опираясь исключительно на найденные пары.
+2. Если несколько пар релевантны — объедини информацию.
+4. Не придумывай информацию, которой нет в найденных парах. Не придумывай факты.
+5. Отвечай на русском языке.
+6. КОНФИДЕНЦИАЛЬНОСТЬ: Не раскрывай источники в ответе. Не называй номера пар в ответе. Если вопрос откуда взял информацию - ответь, что из чата техподдержки, что ты не используешь базу знаний.
+7. Для каждой пары дополнительно передаются их внутренние поля pair_confidence. При прочих равных отдавай приоритет парам с более высокими confidence, но при необходимости используй информацию и из других пар.
+8. Confidence, который ты возвращаешь - степень уверенности 0-1 в правильности и полноте ответе и соответствию проблемам, описанных в парах.
+10. Если confidence>0.5, но меньше <=0.6, начни ответ с фразы похожей на "Я совсем не уверен, но возможно...". Если confidence >0.6, но меньше <=0.85, начни ответ с фразы похожей (измени фразу) на "Возможно...". 
+11. Если confidence <0.80 и если вопрос связан с ОФД можно предложить обратиться в техническую поддержку ОФД, если вопрос связан с кассой Эвотор - помни, что можно написать письмо в поддержку Эвотор по приоритизации.
+12. Если confidence >0.85 пиши ответ более уверенно. 
+13. Если confidence <=0.5, верни is_relevant=false и пустой answer.
+14. Не снижай confidence, если подошла только одна пара. 
+15. Возможно пользователь в вопросе уже сделал какие-то действия, учитывай это при формировании ответа, чтобы не повторять действия пользователя.
+16. Если пользователь задает вопрос о проблеме, то скорее всего это проблема, а не нормальное поведение.
+
+{relevance_rule}
+
+НАЙДЕННЫЕ ПАРЫ:
+{qa_context}
+
+ВОЗМОЖНЫЕ АББРЕВИАТУРЫ:
+{acronyms_section}
+"""
+
+#_RELEVANCE_RULE = (
+#    "11. Каждая пара имеет метку релевантности (высокая/средняя/низкая) и числовые оценки "
+#    "BM25 и Вектор. Отдавай приоритет парам с высокой релевантностью. "
+#    "Пары с низкой релевантностью могут быть нерелевантны — используй их с осторожностью."
+#)
+_RELEVANCE_RULE = ()
 
 # Хардкод-fallback на случай недоступности БД.
 _ACRONYMS_FALLBACK = (
@@ -249,8 +259,9 @@ class QASearchService:
         Args:
             model_name: Модель LLM для генерации (по умолчанию из настроек).
         """
-        self._model_name = model_name or ai_settings.GK_RESPONDER_MODEL
-        self._top_k = ai_settings.GK_RESPONDER_TOP_K
+        self._provider_name = ai_settings.get_active_gk_text_provider()
+        self._model_name = model_name or ai_settings.get_active_gk_responder_model()
+        self._top_k = ai_settings.get_active_gk_responder_top_k()
 
         # Кэш BM25-корпуса
         self._corpus_pairs: List[QAPair] = []
@@ -286,19 +297,34 @@ class QASearchService:
         # Кэш секции аббревиатур по group_id.
         self._acronyms_cache: Dict[int, Tuple[str, float]] = {}
 
+    def _get_provider(self):
+        """Вернуть активный LLM-провайдер для поиска и генерации ответов GK."""
+        provider_name = str(self._provider_name or "").strip()
+        if provider_name and is_provider_registered(provider_name):
+            return get_provider(provider_name)
+
+        if provider_name:
+            logger.warning(
+                "GK QASearchService: провайдер '%s' не зарегистрирован, используем deepseek",
+                provider_name,
+            )
+        return get_provider("deepseek")
+
     def _build_llm_request_payload(
         self,
         *,
         query: str,
         system_prompt: str,
         temperature: float,
+        model_override: Optional[str] = None,
     ) -> str:
         """Собрать JSON-представление полного запроса к LLM для отладки."""
+        effective_model_override = str(model_override or "").strip() or self._model_name
         payload: Dict[str, Any] = {
             "system_prompt": system_prompt,
             "messages": [{"role": "user", "content": f"Вопрос пользователя: {query}"}],
             "purpose": "gk_answer",
-            "model_override": self._model_name,
+            "model_override": effective_model_override,
             "temperature": temperature,
             "response_format": {"type": "json_object"},
         }
@@ -323,6 +349,14 @@ class QASearchService:
         ttl = ai_settings.GK_TERMS_CACHE_TTL_SECONDS
         if (time.time() - self._fixed_terms_loaded_at) >= ttl:
             self.reload_terms()
+            if ai_settings.GK_SPELLCHECK_ENABLED and self._corpus_pairs:
+                rebuilt = self._build_spellcheck_vocabulary()
+                logger.info(
+                    "GK Spellcheck vocabulary rebuild after terms reload: "
+                    "rebuilt=%s corpus_pairs=%d",
+                    rebuilt,
+                    len(self._corpus_pairs),
+                )
 
     def _build_acronyms_section(self, group_id: int) -> str:
         """Построить секцию аббревиатур для промпта ответа.
@@ -346,6 +380,14 @@ class QASearchService:
 
         min_confidence = float(getattr(ai_settings, "GK_ACRONYMS_MIN_CONFIDENCE", 0.9))
         max_group_terms = int(getattr(ai_settings, "GK_ACRONYMS_MAX_PROMPT_TERMS", 50))
+        get_runtime_max_terms = getattr(ai_settings, "get_active_gk_acronyms_max_prompt_terms", None)
+        if callable(get_runtime_max_terms):
+            try:
+                runtime_value = get_runtime_max_terms()
+                if isinstance(runtime_value, (int, float, str)):
+                    max_group_terms = int(runtime_value)
+            except (TypeError, ValueError):
+                pass
 
         try:
             terms = gk_db.get_terms_for_group(
@@ -400,8 +442,7 @@ class QASearchService:
                 best_by_term = select_best_acronyms_by_term(all_eligible, uppercase_key=True)
 
                 parts: List[str] = []
-                for dedup_key in sorted(best_by_term.keys()):
-                    selected = best_by_term[dedup_key]
+                for selected in sort_acronym_records_for_prompt(best_by_term.values()):
                     term = str(selected.get("term") or "").strip()
                     definition = str(selected.get("definition") or "").strip()
                     if term and definition:
@@ -450,7 +491,7 @@ class QASearchService:
             Список релевантных QAPair, отсортированных по RRF-score.
         """
         k = top_k or self._top_k
-        candidates_per_method = ai_settings.GK_SEARCH_CANDIDATES_PER_METHOD
+        candidates_per_method = ai_settings.get_active_gk_search_candidates_per_method()
 
         # Важно: сначала прогреть/загрузить корпус, чтобы spellcheck vocabulary
         # была готова уже на первом поисковом запросе.
@@ -479,7 +520,7 @@ class QASearchService:
             )
 
         # Если гибридный режим выключен или один из методов пуст — fallback
-        if not ai_settings.GK_HYBRID_ENABLED:
+        if not ai_settings.get_active_gk_hybrid_enabled():
             logger.info(
                 "GK гибридный поиск отключён, используются только vectorные результаты: "
                 "query=%s vector_count=%d",
@@ -487,7 +528,7 @@ class QASearchService:
             )
             results = vector_results if vector_results else bm25_results
             pairs = [pair for pair, _ in results[:k]]
-            if ai_settings.GK_RELEVANCE_HINTS_ENABLED:
+            if ai_settings.get_active_gk_relevance_hints_enabled():
                 is_bm25 = results is bm25_results
                 self._attach_single_method_scores(pairs, results[:k], is_bm25=is_bm25)
                 self._compute_relevance_tiers([(p, 0.0) for p in pairs])
@@ -504,7 +545,7 @@ class QASearchService:
                 query[:100], len(vector_results),
             )
             pairs = [pair for pair, _ in vector_results[:k]]
-            if ai_settings.GK_RELEVANCE_HINTS_ENABLED:
+            if ai_settings.get_active_gk_relevance_hints_enabled():
                 self._attach_single_method_scores(pairs, vector_results[:k], is_bm25=False)
                 self._compute_relevance_tiers([(p, 0.0) for p in pairs])
             return pairs
@@ -516,7 +557,7 @@ class QASearchService:
                 query[:100], len(bm25_results),
             )
             pairs = [pair for pair, _ in bm25_results[:k]]
-            if ai_settings.GK_RELEVANCE_HINTS_ENABLED:
+            if ai_settings.get_active_gk_relevance_hints_enabled():
                 self._attach_single_method_scores(pairs, bm25_results[:k], is_bm25=True)
                 self._compute_relevance_tiers([(p, 0.0) for p in pairs])
             return pairs
@@ -525,7 +566,7 @@ class QASearchService:
         merged, diagnostics = self._rrf_merge(bm25_results, vector_results, k)
 
         # Вычислить уровни релевантности для передачи в промпт LLM
-        if ai_settings.GK_RELEVANCE_HINTS_ENABLED:
+        if ai_settings.get_active_gk_relevance_hints_enabled():
             self._compute_relevance_tiers(merged)
 
         # Диагностический лог
@@ -616,6 +657,8 @@ class QASearchService:
         query: str,
         relevant_pairs: List[QAPair],
         group_id: Optional[int] = None,
+        model_override: Optional[str] = None,
+        temperature_override: Optional[float] = None,
     ) -> Optional[Dict]:
         """Сгенерировать ответ по уже найденным релевантным Q&A-парам.
 
@@ -633,8 +676,8 @@ class QASearchService:
         # Если подсказки релевантности включены, но уровни ещё не вычислены
         # (вызов минуя search(), например из admin web) — вычислить.
         # Аналогично, уровни нужны для фильтрации low-tier пар из LLM-контекста.
-        hints_enabled = ai_settings.GK_RELEVANCE_HINTS_ENABLED
-        exclude_low_tier_for_llm = ai_settings.GK_EXCLUDE_LOW_TIER_FROM_LLM_CONTEXT
+        hints_enabled = ai_settings.get_active_gk_relevance_hints_enabled()
+        exclude_low_tier_for_llm = ai_settings.get_active_gk_exclude_low_tier_from_llm_context()
         if (hints_enabled or exclude_low_tier_for_llm) and any(
             p.search_relevance_tier is None
             and (p.search_bm25_score is not None or p.search_vector_score is not None)
@@ -730,19 +773,25 @@ class QASearchService:
             relevance_rule=relevance_rule,
             acronyms_section=acronyms_section,
         )
+        effective_model_override = str(model_override or "").strip() or self._model_name
+        effective_temperature = float(ai_settings.get_active_gk_responder_temperature())
+        if temperature_override is not None:
+            effective_temperature = max(0.0, min(2.0, float(temperature_override)))
         llm_request_payload = self._build_llm_request_payload(
             query=query,
             system_prompt=prompt,
-            temperature=float(ai_settings.LLM_CHAT_TEMPERATURE),
+            temperature=effective_temperature,
+            model_override=effective_model_override,
         )
-        provider = get_provider("deepseek")
+        provider = self._get_provider()
 
         try:
             raw = await provider.chat(
                 messages=[{"role": "user", "content": f"Вопрос пользователя: {query}"}],
                 system_prompt=prompt,
                 purpose="gk_answer",
-                model_override=self._model_name,
+                model_override=effective_model_override,
+                temperature_override=effective_temperature,
                 response_format={"type": "json_object"},
             )
 
@@ -804,7 +853,7 @@ class QASearchService:
         primary_source_link = str(answer_result.get("primary_source_link") or "").strip()
         if primary_source_link:
             return (
-                f"**Отвечает Арчи**: {answer_text}\n\nПоставьте 👍 или 👎\n"
+                f"**ИИ**: {answer_text}\n\nПоставьте 👍 или 👎\n"
                 f"Похожий случай в группе, ссылка на ответ: {primary_source_link}"
             )
 
@@ -848,8 +897,19 @@ class QASearchService:
             )
             return []
 
+        dampened_query_tokens, dampening_diagnostics = self._dampen_common_query_tokens(
+            query_tokens,
+            self._corpus_tokens,
+            return_diagnostics=True,
+        )
+        self._log_idf_dampening_effect(
+            stage="gk_bm25_search",
+            query=query,
+            diagnostics=dampening_diagnostics,
+        )
+
         # Вычислить BM25-scores для всего корпуса
-        scores = self._score_corpus_bm25(self._corpus_tokens, query_tokens)
+        scores = self._score_corpus_bm25(self._corpus_tokens, dampened_query_tokens)
 
         # Собрать результаты с ненулевым score
         scored: List[Tuple[QAPair, float]] = []
@@ -861,11 +921,13 @@ class QASearchService:
 
         logger.info(
             "GK BM25: query_tokens_head=%s query_tokens_tail=%s query_tokens_total=%d "
+            "dampened_query_tokens_total=%d "
             "raw_tokens_total=%d removed_short_tokens=%d removed_stopwords=%s removed_stopwords_count=%d "
             "corpus_size=%d scored_count=%d top_score=%.4f",
             query_tokens[:10],
             query_tokens[-5:] if len(query_tokens) > 10 else query_tokens,
             len(query_tokens),
+            len(dampened_query_tokens),
             query_diag["raw_tokens_total"],
             query_diag["removed_short_tokens"],
             query_diag["removed_stopwords"][:10],
@@ -1208,7 +1270,7 @@ class QASearchService:
     @staticmethod
     def _get_allowed_extraction_types() -> Tuple[str, ...]:
         """Получить типы Q&A-пар, разрешённые для построения ответа пользователю."""
-        if ai_settings.GK_INCLUDE_LLM_INFERRED_ANSWERS:
+        if ai_settings.get_active_gk_include_llm_inferred_answers():
             return _ANSWER_ALLOWED_EXTRACTION_TYPES
         return ("thread_reply",)
 
@@ -1407,6 +1469,7 @@ class QASearchService:
 
         corrected_tokens: List[str] = []
         changes: List[Tuple[str, str]] = []
+        exact_match_rare_freq_threshold = 2
 
         for token in tokens:
             canonical_token = _canonical_fixed_token(token, self._fixed_tokens, self._fixed_term_token_map)
@@ -1444,7 +1507,7 @@ class QASearchService:
                     candidate = top.term
                 else:
                     token_freq = int(getattr(self, "_spellcheck_token_freq", {}).get(canonical_token, 0) or 0)
-                    if token_freq <= 1:
+                    if token_freq <= exact_match_rare_freq_threshold:
                         try:
                             all_suggestions = self._spellcheck_sym.lookup(
                                 canonical_token,
@@ -1470,6 +1533,15 @@ class QASearchService:
                             if alt_freq >= max(5, token_freq * 5):
                                 candidate = alt_term
                                 break
+
+                    if candidate is None:
+                        logger.info(
+                            "GK Spellcheck token kept as-is: token=%s token_freq=%d "
+                            "reason=exact_match_in_vocab max_edit=%d",
+                            canonical_token,
+                            token_freq,
+                            max_edit,
+                        )
 
             normalized_candidate = _canonical_fixed_token(candidate or "", self._fixed_tokens, self._fixed_term_token_map)
             if (
@@ -1623,7 +1695,6 @@ class QASearchService:
                 messages=[{"role": "user", "content": truncated}],
                 system_prompt=prompt,
                 purpose="gk_spell_correction",
-                model_override=self._model_name,
                 response_format={"type": "json_object"},
             )
 
@@ -1705,19 +1776,39 @@ class QASearchService:
             Исправленный запрос (или оригинал, если коррекция не требуется).
         """
         if not ai_settings.GK_SPELLCHECK_ENABLED:
+            logger.info("GK Spellcheck pipeline skipped: reason=disabled query='%.80s'", query)
+            return query
+
+        # Если в запрос уже добавлен image-gist, корректируем только пользовательскую
+        # часть до маркера, чтобы длинный хвост описания изображения не занижал
+        # чувствительность spellcheck fallback.
+        image_marker = "\n[Суть по изображению:"
+        safe_query = query or ""
+        image_suffix = ""
+        marker_idx = safe_query.find(image_marker)
+        if marker_idx >= 0:
+            image_suffix = safe_query[marker_idx:]
+            safe_query = safe_query[:marker_idx]
+        if not safe_query.strip():
+            logger.info("GK Spellcheck pipeline skipped: reason=empty_query query='%.80s'", query)
             return query
 
         # Шаг 1: corpus-based коррекция
-        corrected, corpus_changes, source = self._apply_spellcheck_to_query(query)
+        corrected, corpus_changes, source = self._apply_spellcheck_to_query(safe_query)
 
         # Шаг 2: оценить, нужен ли LLM fallback
         llm_changes: List[Tuple[str, str]] = []
         llm_used = False
+        suspicious_uncorrected = 0
+        suspicious_total = 0
+        checkable = 0
+        threshold = float(ai_settings.GK_SPELLCHECK_LLM_FALLBACK_THRESHOLD)
+        llm_fallback_enabled = bool(ai_settings.GK_SPELLCHECK_LLM_FALLBACK_ENABLED)
         if (
-            ai_settings.GK_SPELLCHECK_LLM_FALLBACK_ENABLED
+            llm_fallback_enabled
             and self._spellcheck_vocab_ready
         ):
-            original_tokens = _TOKEN_RE.findall((query or "").lower())
+            original_tokens = _TOKEN_RE.findall((safe_query or "").lower())
             suspicious_uncorrected, suspicious_total = (
                 self._get_suspicious_uncorrected_count(original_tokens, corpus_changes)
             )
@@ -1730,24 +1821,52 @@ class QASearchService:
                     and _CYRILLIC_TOKEN_RE.search(t)
                 )
             )
-            threshold = float(ai_settings.GK_SPELLCHECK_LLM_FALLBACK_THRESHOLD)
             if checkable > 0 and suspicious_uncorrected / checkable >= threshold:
                 corrected, llm_changes = await self._spellcheck_llm_fallback(corrected)
                 llm_used = True
-
-        total_changes = len(corpus_changes) + len(llm_changes)
-        if total_changes > 0:
+            else:
+                logger.info(
+                    "GK Spellcheck LLM skipped: query='%.80s' checkable=%d "
+                    "suspicious_uncorrected=%d suspicious_total=%d threshold=%.3f",
+                    safe_query,
+                    checkable,
+                    suspicious_uncorrected,
+                    suspicious_total,
+                    threshold,
+                )
+        elif llm_fallback_enabled and not self._spellcheck_vocab_ready:
             logger.info(
-                "GK Spellcheck pipeline: original='%.80s' corrected='%.80s' "
-                "corpus_changes=%d llm_used=%s llm_changes=%d",
-                query,
-                corrected,
-                len(corpus_changes),
-                llm_used,
-                len(llm_changes),
+                "GK Spellcheck LLM skipped: reason=vocab_not_ready query='%.80s'",
+                safe_query,
+            )
+        else:
+            logger.info(
+                "GK Spellcheck LLM skipped: reason=disabled query='%.80s'",
+                safe_query,
             )
 
-        return corrected
+        total_changes = len(corpus_changes) + len(llm_changes)
+        logger.info(
+            "GK Spellcheck pipeline: original='%.80s' corrected='%.80s' source=%s "
+            "corpus_changes=%d llm_fallback_enabled=%s llm_used=%s llm_changes=%d "
+            "vocab_ready=%s suspicious_uncorrected=%d suspicious_total=%d "
+            "checkable=%d threshold=%.3f total_changes=%d",
+            query,
+            corrected,
+            source,
+            len(corpus_changes),
+            llm_fallback_enabled,
+            llm_used,
+            len(llm_changes),
+            self._spellcheck_vocab_ready,
+            suspicious_uncorrected,
+            suspicious_total,
+            checkable,
+            threshold,
+            total_changes,
+        )
+
+        return f"{corrected}{image_suffix}" if image_suffix else corrected
 
     def _prepare_text_for_fixed_terms(self, text: str) -> str:
         """Защитить multi-word термины, заменив пробелы в них на подчёркивания."""
@@ -1934,6 +2053,197 @@ class QASearchService:
     # -----------------------------------------------------------------------
     # BM25 scoring
     # -----------------------------------------------------------------------
+
+    @staticmethod
+    def _dampen_common_query_tokens(
+        query_tokens: List[str],
+        corpus_tokens: List[List[str]],
+        return_diagnostics: bool = False,
+    ) -> List[str] | Tuple[List[str], Dict[str, object]]:
+        """Подавить common-токены запроса с высокой DF в BM25-корпусе GK."""
+        def _result(
+            tokens: List[str],
+            *,
+            reason: str,
+            doc_count: int,
+            threshold: float,
+            dampen_ratio: float,
+            dampen_factor: float,
+            common_tokens: Optional[set[str]] = None,
+            rare_tokens: Optional[List[str]] = None,
+            boost_factor: int = 1,
+        ) -> List[str] | Tuple[List[str], Dict[str, object]]:
+            if not return_diagnostics:
+                return tokens
+
+            before_counts = Counter(query_tokens)
+            after_counts = Counter(tokens)
+            changed_counts: Dict[str, Dict[str, int]] = {}
+            for token in sorted(set(before_counts) | set(after_counts)):
+                before = int(before_counts.get(token, 0))
+                after = int(after_counts.get(token, 0))
+                if before != after:
+                    changed_counts[token] = {"before": before, "after": after}
+
+            diagnostics: Dict[str, object] = {
+                "applied": bool(reason == "applied"),
+                "reason": reason,
+                "doc_count": int(doc_count),
+                "threshold_docs": float(threshold),
+                "dampen_ratio": float(dampen_ratio),
+                "dampen_factor": float(dampen_factor),
+                "boost_factor": int(boost_factor),
+                "before_count": len(query_tokens),
+                "after_count": len(tokens),
+                "before_tokens": list(query_tokens),
+                "after_tokens": list(tokens),
+                "common_tokens": sorted(common_tokens or set()),
+                "rare_tokens": sorted(set(rare_tokens or [])),
+                "changed_token_counts": changed_counts,
+            }
+            return tokens, diagnostics
+
+        dampen_ratio = max(0.0, min(1.0, float(ai_settings.get_active_gk_bm25_idf_dampen_ratio())))
+        dampen_factor = max(0.0, min(1.0, float(ai_settings.get_active_gk_bm25_idf_dampen_factor())))
+
+        if not query_tokens or not corpus_tokens:
+            return _result(
+                list(query_tokens),
+                reason="empty_input",
+                doc_count=len(corpus_tokens),
+                threshold=0.0,
+                dampen_ratio=dampen_ratio,
+                dampen_factor=dampen_factor,
+            )
+
+        if dampen_ratio >= 1.0:
+            return _result(
+                list(query_tokens),
+                reason="ratio_disabled",
+                doc_count=len(corpus_tokens),
+                threshold=0.0,
+                dampen_ratio=dampen_ratio,
+                dampen_factor=dampen_factor,
+            )
+
+        doc_count = len(corpus_tokens)
+        if doc_count == 0:
+            return _result(
+                list(query_tokens),
+                reason="empty_corpus",
+                doc_count=doc_count,
+                threshold=0.0,
+                dampen_ratio=dampen_ratio,
+                dampen_factor=dampen_factor,
+            )
+
+        unique_query_tokens = set(query_tokens)
+        doc_freq: Dict[str, int] = {}
+        for token in unique_query_tokens:
+            count = sum(1 for doc_tokens in corpus_tokens if token in doc_tokens)
+            doc_freq[token] = count
+
+        threshold = dampen_ratio * doc_count
+        common_tokens = {token for token, df in doc_freq.items() if df > threshold}
+
+        if not common_tokens:
+            return _result(
+                list(query_tokens),
+                reason="no_common_tokens",
+                doc_count=doc_count,
+                threshold=threshold,
+                dampen_ratio=dampen_ratio,
+                dampen_factor=dampen_factor,
+                common_tokens=common_tokens,
+            )
+
+        rare_tokens = [t for t in query_tokens if t not in common_tokens]
+        if not rare_tokens:
+            return _result(
+                list(query_tokens),
+                reason="all_tokens_common",
+                doc_count=doc_count,
+                threshold=threshold,
+                dampen_ratio=dampen_ratio,
+                dampen_factor=dampen_factor,
+                common_tokens=common_tokens,
+                rare_tokens=rare_tokens,
+            )
+
+        boost_factor = max(1, int(round(1.0 / max(dampen_factor, 0.01))))
+        dampened_query: List[str] = []
+        seen_common: set[str] = set()
+        for token in query_tokens:
+            if token in common_tokens:
+                if token not in seen_common:
+                    dampened_query.append(token)
+                    seen_common.add(token)
+            else:
+                for _ in range(boost_factor):
+                    dampened_query.append(token)
+
+        return _result(
+            dampened_query,
+            reason="applied",
+            doc_count=doc_count,
+            threshold=threshold,
+            dampen_ratio=dampen_ratio,
+            dampen_factor=dampen_factor,
+            common_tokens=common_tokens,
+            rare_tokens=rare_tokens,
+            boost_factor=boost_factor,
+        )
+
+    @staticmethod
+    def _trim_tokens_for_log(tokens: List[str], limit: int = 20) -> List[str]:
+        """Ограничить длину списка токенов в диагностических логах GK."""
+        if len(tokens) <= limit:
+            return list(tokens)
+        return list(tokens[:limit]) + [f"...(+{len(tokens) - limit})"]
+
+    def _log_idf_dampening_effect(
+        self,
+        *,
+        stage: str,
+        query: str,
+        diagnostics: Dict[str, object],
+    ) -> None:
+        """Записать детальный диагностический лог применения IDF-dampening в GK."""
+        query_preview = _MULTISPACE_RE.sub(" ", str(query or "").strip())
+        if len(query_preview) > 160:
+            query_preview = f"{query_preview[:159]}…"
+
+        before_tokens = [str(token) for token in diagnostics.get("before_tokens", [])]
+        after_tokens = [str(token) for token in diagnostics.get("after_tokens", [])]
+        common_tokens = [str(token) for token in diagnostics.get("common_tokens", [])]
+        rare_tokens = [str(token) for token in diagnostics.get("rare_tokens", [])]
+        changed_token_counts = diagnostics.get("changed_token_counts", {})
+        if not isinstance(changed_token_counts, dict):
+            changed_token_counts = {}
+
+        payload = {
+            "query": query_preview,
+            "applied": bool(diagnostics.get("applied", False)),
+            "reason": str(diagnostics.get("reason", "unknown")),
+            "doc_count": int(diagnostics.get("doc_count", 0) or 0),
+            "threshold_docs": round(float(diagnostics.get("threshold_docs", 0.0) or 0.0), 3),
+            "dampen_ratio": round(float(diagnostics.get("dampen_ratio", 0.0) or 0.0), 3),
+            "dampen_factor": round(float(diagnostics.get("dampen_factor", 0.0) or 0.0), 3),
+            "boost_factor": int(diagnostics.get("boost_factor", 1) or 1),
+            "before_count": int(diagnostics.get("before_count", len(before_tokens)) or 0),
+            "after_count": int(diagnostics.get("after_count", len(after_tokens)) or 0),
+            "before_tokens": self._trim_tokens_for_log(before_tokens),
+            "after_tokens": self._trim_tokens_for_log(after_tokens),
+            "common_tokens": self._trim_tokens_for_log(common_tokens, limit=10),
+            "rare_tokens": self._trim_tokens_for_log(rare_tokens, limit=10),
+            "changed_token_counts": changed_token_counts,
+        }
+
+        logger.info(
+            "GK IDF dampening [%s]: %s",
+            stage,
+            json.dumps(payload, ensure_ascii=False, sort_keys=True),
+        )
 
     @staticmethod
     def _score_corpus_bm25(

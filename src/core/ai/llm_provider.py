@@ -1376,6 +1376,27 @@ def register_provider(name: str, provider_class: type) -> None:
     _providers[name] = provider_class
 
 
+def list_registered_provider_names() -> List[str]:
+    """Вернуть список зарегистрированных LLM-провайдеров."""
+    return sorted(_providers.keys())
+
+
+def is_provider_registered(provider_name: str) -> bool:
+    """Проверить, зарегистрирован ли LLM-провайдер."""
+    normalized = str(provider_name or "").strip()
+    if not normalized:
+        return False
+    return normalized in _providers
+
+
+def get_provider_class(provider_name: str) -> Optional[type]:
+    """Вернуть класс зарегистрированного провайдера по имени."""
+    normalized = str(provider_name or "").strip()
+    if not normalized:
+        return None
+    return _providers.get(normalized)
+
+
 def get_provider(provider_name: Optional[str] = None) -> LLMProvider:
     """
     Получить экземпляр LLM-провайдера по имени.

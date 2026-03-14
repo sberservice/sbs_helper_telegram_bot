@@ -135,7 +135,7 @@ class GroupResponder:
         self._confidence_threshold = (
             confidence_threshold
             if confidence_threshold is not None
-            else ai_settings.GK_RESPONDER_CONFIDENCE_THRESHOLD
+            else ai_settings.get_active_gk_responder_confidence_threshold()
         )
         self._rate_limiter = GKRateLimiter()
         self._stop_event = asyncio.Event()
@@ -295,7 +295,7 @@ class GroupResponder:
             primary_source_link = answer_result.get("primary_source_link")
             if primary_source_link:
                 answer_text = (
-                    f"**Отвечает Арчи**: {answer_text}\n\n"
+                    f"**ИИ**: {answer_text}\n\n"
                     f"Похожий случай в группе, ссылка на ответ: {primary_source_link}"
                 )
         confidence = answer_result["confidence"]

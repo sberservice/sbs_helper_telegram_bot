@@ -19,7 +19,9 @@ import asyncio
 import json
 import logging
 import mimetypes
+import os
 import re
+import tempfile
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -27,7 +29,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import ai_settings
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from admin_web.core.models import (
@@ -47,7 +49,15 @@ from admin_web.core.models import (
     WebUser,
 )
 from admin_web.core.rbac import require_permission
-from src.core.ai.llm_provider import get_provider
+import src.common.database as common_database
+from src.common import app_settings
+from src.core.ai.llm_provider import (
+    GigaChatProvider,
+    get_provider,
+    get_provider_class,
+    is_provider_registered,
+    list_registered_provider_names,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +77,12 @@ def get_supported_deepseek_models() -> List[str]:
         if normalized and normalized not in models:
             models.append(normalized)
 
-    for extra_model in (ai_settings.GK_RESPONDER_MODEL, ai_settings.GK_ANALYSIS_MODEL):
+    for extra_model in (
+        ai_settings.get_active_gk_responder_model(),
+        ai_settings.get_active_gk_analysis_model(),
+        ai_settings.get_active_gk_question_detection_model(),
+        ai_settings.get_active_gk_terms_scan_model(),
+    ):
         normalized = str(extra_model or "").strip()
         if normalized and normalized not in models:
             models.append(normalized)
@@ -78,7 +93,7 @@ def get_supported_deepseek_models() -> List[str]:
 def get_supported_gigachat_models() -> List[str]:
     """Вернуть список поддерживаемых моделей GigaChat для image prompt tester."""
     candidates = [
-        ai_settings.GK_IMAGE_DESCRIPTION_MODEL,
+        ai_settings.get_active_gk_image_description_model(),
         ai_settings.GIGACHAT_MODEL,
         "GigaChat-Pro",
         "GigaChat-Max",
@@ -91,6 +106,110 @@ def get_supported_gigachat_models() -> List[str]:
     return models
 
 
+def _normalize_provider_name(value: Any) -> str:
+    """Нормализовать имя провайдера для хранения в настройках."""
+    return str(value or "").strip().lower()
+
+
+def _normalize_model_name(value: Any) -> str:
+    """Нормализовать имя модели для хранения в настройках."""
+    return str(value or "").strip()
+
+
+def _build_text_provider_model_options() -> Dict[str, List[str]]:
+    """Собрать список рекомендованных моделей для текстовых провайдеров GK."""
+    options: Dict[str, List[str]] = {}
+    if is_provider_registered("deepseek"):
+        options["deepseek"] = get_supported_deepseek_models()
+    if is_provider_registered("gigachat"):
+        options["gigachat"] = []
+    return options
+
+
+def _build_image_provider_model_options() -> Dict[str, List[str]]:
+    """Собрать список рекомендованных моделей для vision-провайдеров GK."""
+    options: Dict[str, List[str]] = {}
+    if is_provider_registered("gigachat"):
+        options["gigachat"] = get_supported_gigachat_models()
+    if is_provider_registered("deepseek"):
+        options["deepseek"] = []
+    return options
+
+
+async def _describe_uploaded_image_for_search(upload: UploadFile) -> str:
+    """Описать загруженное изображение для песочницы поиска GK."""
+    filename = (upload.filename or "image").strip() or "image"
+    content_type = str(upload.content_type or "").strip().lower()
+    if content_type and not content_type.startswith("image/"):
+        raise HTTPException(400, "Поддерживаются только изображения")
+
+    image_bytes = await upload.read()
+    if not image_bytes:
+        raise HTTPException(400, "Файл изображения пустой")
+    if len(image_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(400, "Слишком большой файл изображения (макс. 10 MB)")
+
+    logger.info(
+        "GK search sandbox image: received filename=%s content_type=%s size_bytes=%d",
+        filename,
+        content_type or "unknown",
+        len(image_bytes),
+    )
+
+    suffix = Path(filename).suffix or ".jpg"
+    temp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(image_bytes)
+            temp_path = tmp.name
+
+        provider_name = ai_settings.get_active_gk_image_provider()
+        provider_class = get_provider_class(provider_name)
+        if provider_class is None:
+            logger.warning(
+                "GK search sandbox image: провайдер '%s' не найден, fallback на gigachat",
+                provider_name,
+            )
+            provider_name = "gigachat"
+            provider_class = get_provider_class(provider_name)
+        if provider_class is None:
+            raise HTTPException(500, "Vision-провайдер для описания изображения недоступен")
+
+        model_name = ai_settings.get_active_gk_image_description_model()
+        try:
+            provider = provider_class(model=model_name)
+        except TypeError:
+            provider = provider_class()
+
+        if not hasattr(provider, "describe_image"):
+            raise HTTPException(
+                400,
+                f"Провайдер '{provider_name}' не поддерживает описание изображений",
+            )
+
+        description = await provider.describe_image(
+            temp_path,
+            ai_settings.GK_IMAGE_DESCRIPTION_PROMPT,
+        )
+        logger.info(
+            "GK search sandbox image: description generated filename=%s description_len=%d",
+            filename,
+            len(str(description or "")),
+        )
+        return str(description or "").strip()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Ошибка описания изображения в поисковой песочнице: %s", exc, exc_info=True)
+        raise HTTPException(500, "Не удалось описать изображение для поиска") from exc
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
 def _render_gk_user_prompt(template: str, source_row: Dict[str, Any], chain_context: str) -> str:
     """Подставить значения в пользовательский промпт для генерации Q&A."""
     values = {
@@ -100,7 +219,9 @@ def _render_gk_user_prompt(template: str, source_row: Dict[str, Any], chain_cont
         "answer": (source_row.get("answer_text") or "").strip(),
         "chain_context": chain_context,
         "thread_context": chain_context,
-        "question_confidence_threshold": f"{ai_settings.GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD:.2f}",
+        "question_confidence_threshold": (
+            f"{ai_settings.get_active_gk_analysis_question_confidence_threshold():.2f}"
+        ),
     }
 
     try:
@@ -197,7 +318,14 @@ async def _generate_gk_prompt_tester_session(
     from admin_web.modules.gk_knowledge import db_expert_validation as ev_db
     from admin_web.modules.gk_knowledge import db_prompt_tester as pt_db
 
-    provider = get_provider("deepseek")
+    provider_name = ai_settings.get_active_gk_text_provider()
+    if not is_provider_registered(provider_name):
+        logger.warning(
+            "GK Prompt Tester: провайдер '%s' не зарегистрирован, используем deepseek",
+            provider_name,
+        )
+        provider_name = "deepseek"
+    provider = get_provider(provider_name)
     generated_count = 0
     skipped_rows = 0
 
@@ -303,7 +431,6 @@ async def _generate_gk_image_prompt_tester_session(
 ) -> None:
     """Сгенерировать описания изображений и подготовить blind A/B сравнения сессии."""
     from admin_web.modules.gk_knowledge import db_image_prompt_tester as ipt_db
-    from src.core.ai.llm_provider import GigaChatProvider
 
     providers: Dict[str, Any] = {}
     generated_count = 0
@@ -331,11 +458,35 @@ async def _generate_gk_image_prompt_tester_session(
                 if prompt_id <= 0 or not prompt_text:
                     continue
 
-                model_name = str(prompt_cfg.get("model_name") or "").strip() or str(ai_settings.GK_IMAGE_DESCRIPTION_MODEL)
-                provider = providers.get(model_name)
+                model_name = (
+                    str(prompt_cfg.get("model_name") or "").strip()
+                    or ai_settings.get_active_gk_image_description_model()
+                )
+                provider_key = f"{ai_settings.get_active_gk_image_provider()}::{model_name}"
+                provider = providers.get(provider_key)
                 if provider is None:
-                    provider = GigaChatProvider(model=model_name)
-                    providers[model_name] = provider
+                    provider_name = ai_settings.get_active_gk_image_provider()
+                    provider_class = get_provider_class(provider_name)
+                    if provider_class is None:
+                        logger.warning(
+                            "GK Image Prompt Tester: провайдер '%s' не найден, используем gigachat",
+                            provider_name,
+                        )
+                        provider_class = GigaChatProvider
+
+                    try:
+                        provider = provider_class(model=model_name)
+                    except TypeError:
+                        provider = provider_class()
+
+                    if not hasattr(provider, "describe_image"):
+                        logger.warning(
+                            "GK Image Prompt Tester: провайдер '%s' не поддерживает describe_image, используем gigachat",
+                            provider_name,
+                        )
+                        provider = GigaChatProvider(model=model_name)
+
+                    providers[provider_key] = provider
 
                 raw_response: Optional[str] = None
                 try:
@@ -611,6 +762,916 @@ def build_gk_router() -> APIRouter:
     router.include_router(_build_search_router(), prefix="/search")
     router.include_router(_build_qa_analyzer_sandbox_router(), prefix="/qa-analyzer-sandbox")
     router.include_router(_build_terms_router(), prefix="/terms")
+    router.include_router(_build_settings_router(), prefix="/settings")
+    router.include_router(_build_rag_router(), prefix="/rag")
+
+    return router
+
+
+# ---------------------------------------------------------------------------
+# Подроутер: Настройки моделей/провайдеров GK
+# ---------------------------------------------------------------------------
+
+
+def _build_settings_router() -> APIRouter:
+    """Подроутер runtime-настроек LLM-провайдера и моделей Group Knowledge."""
+    router = APIRouter(tags=["gk-settings"])
+
+    @router.get("/llm")
+    async def get_llm_settings(
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> Dict[str, Any]:
+        """Вернуть текущие LLM-настройки GK и рекомендованные списки для UI."""
+        text_providers = list_registered_provider_names()
+        image_providers = list_registered_provider_names()
+
+        return {
+            "text_provider": ai_settings.get_active_gk_text_provider(),
+            "text_provider_options": text_providers,
+            "text_model_options_by_provider": _build_text_provider_model_options(),
+            "text_models": {
+                "analysis": ai_settings.get_active_gk_analysis_model(),
+                "responder": ai_settings.get_active_gk_responder_model(),
+                "question_detection": ai_settings.get_active_gk_question_detection_model(),
+                "terms_scan": ai_settings.get_active_gk_terms_scan_model(),
+            },
+            "image_provider": ai_settings.get_active_gk_image_provider(),
+            "image_provider_options": image_providers,
+            "image_model_options_by_provider": _build_image_provider_model_options(),
+            "image_model": ai_settings.get_active_gk_image_description_model(),
+            "main_settings": {
+                "responder": {
+                    "confidence_threshold": ai_settings.get_active_gk_responder_confidence_threshold(),
+                    "top_k": ai_settings.get_active_gk_responder_top_k(),
+                    "temperature": ai_settings.get_active_gk_responder_temperature(),
+                    "include_llm_inferred_answers": ai_settings.get_active_gk_include_llm_inferred_answers(),
+                    "exclude_low_tier_from_llm_context": ai_settings.get_active_gk_exclude_low_tier_from_llm_context(),
+                },
+                "analysis": {
+                    "question_confidence_threshold": ai_settings.get_active_gk_analysis_question_confidence_threshold(),
+                    "temperature": ai_settings.get_active_gk_analysis_temperature(),
+                    "question_detection_temperature": ai_settings.get_active_gk_question_detection_temperature(),
+                    "generate_llm_inferred_qa_pairs": ai_settings.get_active_gk_generate_llm_inferred_qa_pairs(),
+                },
+                "terms": {
+                    "acronyms_max_prompt_terms": ai_settings.get_active_gk_acronyms_max_prompt_terms(),
+                    "scan_temperature": ai_settings.get_active_gk_terms_scan_temperature(),
+                },
+                "search": {
+                    "hybrid_enabled": ai_settings.get_active_gk_hybrid_enabled(),
+                    "relevance_hints_enabled": ai_settings.get_active_gk_relevance_hints_enabled(),
+                    "candidates_per_method": ai_settings.get_active_gk_search_candidates_per_method(),
+                },
+            },
+        }
+
+    @router.put("/llm")
+    async def update_llm_settings(
+        body: Dict[str, Any],
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Обновить runtime-настройки LLM-провайдера и моделей GK."""
+        updated_keys: List[str] = []
+
+        if "text_provider" in body:
+            text_provider = _normalize_provider_name(body.get("text_provider"))
+            if not text_provider:
+                raise HTTPException(400, "text_provider не может быть пустым")
+            if not is_provider_registered(text_provider):
+                raise HTTPException(
+                    400,
+                    f"Провайдер '{text_provider}' не зарегистрирован",
+                )
+            app_settings.set_setting(
+                ai_settings.GK_TEXT_PROVIDER_SETTING_KEY,
+                text_provider,
+                user.telegram_id,
+            )
+            updated_keys.append(ai_settings.GK_TEXT_PROVIDER_SETTING_KEY)
+
+        if "image_provider" in body:
+            image_provider = _normalize_provider_name(body.get("image_provider"))
+            if not image_provider:
+                raise HTTPException(400, "image_provider не может быть пустым")
+            if not is_provider_registered(image_provider):
+                raise HTTPException(
+                    400,
+                    f"Провайдер '{image_provider}' не зарегистрирован",
+                )
+            app_settings.set_setting(
+                ai_settings.GK_IMAGE_PROVIDER_SETTING_KEY,
+                image_provider,
+                user.telegram_id,
+            )
+            updated_keys.append(ai_settings.GK_IMAGE_PROVIDER_SETTING_KEY)
+
+        text_model_map = {
+            "analysis": ai_settings.GK_ANALYSIS_MODEL_SETTING_KEY,
+            "responder": ai_settings.GK_RESPONDER_MODEL_SETTING_KEY,
+            "question_detection": ai_settings.GK_QUESTION_DETECTION_MODEL_SETTING_KEY,
+            "terms_scan": ai_settings.GK_TERMS_SCAN_MODEL_SETTING_KEY,
+        }
+
+        text_models_raw = body.get("text_models")
+        if text_models_raw is not None:
+            if not isinstance(text_models_raw, dict):
+                raise HTTPException(400, "text_models должен быть объектом")
+
+            for model_key, setting_key in text_model_map.items():
+                if model_key not in text_models_raw:
+                    continue
+                model_name = _normalize_model_name(text_models_raw.get(model_key))
+                if not model_name:
+                    raise HTTPException(400, f"text_models.{model_key} не может быть пустым")
+                app_settings.set_setting(setting_key, model_name, user.telegram_id)
+                updated_keys.append(setting_key)
+
+        if "image_model" in body:
+            image_model = _normalize_model_name(body.get("image_model"))
+            if not image_model:
+                raise HTTPException(400, "image_model не может быть пустым")
+            app_settings.set_setting(
+                ai_settings.GK_IMAGE_DESCRIPTION_MODEL_SETTING_KEY,
+                image_model,
+                user.telegram_id,
+            )
+            updated_keys.append(ai_settings.GK_IMAGE_DESCRIPTION_MODEL_SETTING_KEY)
+
+        main_settings_raw = body.get("main_settings")
+        if main_settings_raw is not None:
+            if not isinstance(main_settings_raw, dict):
+                raise HTTPException(400, "main_settings должен быть объектом")
+
+            responder_settings_raw = main_settings_raw.get("responder")
+            if responder_settings_raw is not None:
+                if not isinstance(responder_settings_raw, dict):
+                    raise HTTPException(400, "main_settings.responder должен быть объектом")
+
+                if "confidence_threshold" in responder_settings_raw:
+                    raw_value = responder_settings_raw.get("confidence_threshold")
+                    try:
+                        confidence_threshold = float(raw_value)
+                    except (TypeError, ValueError) as exc:
+                        raise HTTPException(
+                            400,
+                            "main_settings.responder.confidence_threshold должен быть числом",
+                        ) from exc
+                    if not 0.0 <= confidence_threshold <= 1.0:
+                        raise HTTPException(
+                            400,
+                            "main_settings.responder.confidence_threshold должен быть в диапазоне 0..1",
+                        )
+                    app_settings.set_setting(
+                        ai_settings.GK_RESPONDER_CONFIDENCE_THRESHOLD_SETTING_KEY,
+                        str(confidence_threshold),
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_RESPONDER_CONFIDENCE_THRESHOLD_SETTING_KEY)
+
+                if "top_k" in responder_settings_raw:
+                    raw_value = responder_settings_raw.get("top_k")
+                    try:
+                        top_k = int(raw_value)
+                    except (TypeError, ValueError) as exc:
+                        raise HTTPException(
+                            400,
+                            "main_settings.responder.top_k должен быть целым числом",
+                        ) from exc
+                    if not 1 <= top_k <= 100:
+                        raise HTTPException(
+                            400,
+                            "main_settings.responder.top_k должен быть в диапазоне 1..100",
+                        )
+                    app_settings.set_setting(
+                        ai_settings.GK_RESPONDER_TOP_K_SETTING_KEY,
+                        str(top_k),
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_RESPONDER_TOP_K_SETTING_KEY)
+
+                if "temperature" in responder_settings_raw:
+                    raw_value = responder_settings_raw.get("temperature")
+                    try:
+                        temperature = float(raw_value)
+                    except (TypeError, ValueError) as exc:
+                        raise HTTPException(
+                            400,
+                            "main_settings.responder.temperature должен быть числом",
+                        ) from exc
+                    if not 0.0 <= temperature <= 2.0:
+                        raise HTTPException(
+                            400,
+                            "main_settings.responder.temperature должен быть в диапазоне 0..2",
+                        )
+                    app_settings.set_setting(
+                        ai_settings.GK_RESPONDER_TEMPERATURE_SETTING_KEY,
+                        str(temperature),
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_RESPONDER_TEMPERATURE_SETTING_KEY)
+
+                if "include_llm_inferred_answers" in responder_settings_raw:
+                    include_llm_inferred_answers = bool(
+                        responder_settings_raw.get("include_llm_inferred_answers")
+                    )
+                    app_settings.set_setting(
+                        ai_settings.GK_INCLUDE_LLM_INFERRED_ANSWERS_SETTING_KEY,
+                        "1" if include_llm_inferred_answers else "0",
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_INCLUDE_LLM_INFERRED_ANSWERS_SETTING_KEY)
+
+                if "exclude_low_tier_from_llm_context" in responder_settings_raw:
+                    exclude_low_tier_from_llm_context = bool(
+                        responder_settings_raw.get("exclude_low_tier_from_llm_context")
+                    )
+                    app_settings.set_setting(
+                        ai_settings.GK_EXCLUDE_LOW_TIER_FROM_LLM_CONTEXT_SETTING_KEY,
+                        "1" if exclude_low_tier_from_llm_context else "0",
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_EXCLUDE_LOW_TIER_FROM_LLM_CONTEXT_SETTING_KEY)
+
+            analysis_settings_raw = main_settings_raw.get("analysis")
+            if analysis_settings_raw is not None:
+                if not isinstance(analysis_settings_raw, dict):
+                    raise HTTPException(400, "main_settings.analysis должен быть объектом")
+
+                if "question_confidence_threshold" in analysis_settings_raw:
+                    raw_value = analysis_settings_raw.get("question_confidence_threshold")
+                    try:
+                        question_confidence_threshold = float(raw_value)
+                    except (TypeError, ValueError) as exc:
+                        raise HTTPException(
+                            400,
+                            "main_settings.analysis.question_confidence_threshold должен быть числом",
+                        ) from exc
+                    if not 0.0 <= question_confidence_threshold <= 1.0:
+                        raise HTTPException(
+                            400,
+                            "main_settings.analysis.question_confidence_threshold должен быть в диапазоне 0..1",
+                        )
+                    app_settings.set_setting(
+                        ai_settings.GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD_SETTING_KEY,
+                        str(question_confidence_threshold),
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD_SETTING_KEY)
+
+                if "temperature" in analysis_settings_raw:
+                    raw_value = analysis_settings_raw.get("temperature")
+                    try:
+                        temperature = float(raw_value)
+                    except (TypeError, ValueError) as exc:
+                        raise HTTPException(
+                            400,
+                            "main_settings.analysis.temperature должен быть числом",
+                        ) from exc
+                    if not 0.0 <= temperature <= 2.0:
+                        raise HTTPException(
+                            400,
+                            "main_settings.analysis.temperature должен быть в диапазоне 0..2",
+                        )
+                    app_settings.set_setting(
+                        ai_settings.GK_ANALYSIS_TEMPERATURE_SETTING_KEY,
+                        str(temperature),
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_ANALYSIS_TEMPERATURE_SETTING_KEY)
+
+                if "question_detection_temperature" in analysis_settings_raw:
+                    raw_value = analysis_settings_raw.get("question_detection_temperature")
+                    try:
+                        question_detection_temperature = float(raw_value)
+                    except (TypeError, ValueError) as exc:
+                        raise HTTPException(
+                            400,
+                            "main_settings.analysis.question_detection_temperature должен быть числом",
+                        ) from exc
+                    if not 0.0 <= question_detection_temperature <= 2.0:
+                        raise HTTPException(
+                            400,
+                            "main_settings.analysis.question_detection_temperature должен быть в диапазоне 0..2",
+                        )
+                    app_settings.set_setting(
+                        ai_settings.GK_QUESTION_DETECTION_TEMPERATURE_SETTING_KEY,
+                        str(question_detection_temperature),
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_QUESTION_DETECTION_TEMPERATURE_SETTING_KEY)
+
+                if "generate_llm_inferred_qa_pairs" in analysis_settings_raw:
+                    generate_llm_inferred_qa_pairs = bool(
+                        analysis_settings_raw.get("generate_llm_inferred_qa_pairs")
+                    )
+                    app_settings.set_setting(
+                        ai_settings.GK_GENERATE_LLM_INFERRED_QA_PAIRS_SETTING_KEY,
+                        "1" if generate_llm_inferred_qa_pairs else "0",
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_GENERATE_LLM_INFERRED_QA_PAIRS_SETTING_KEY)
+
+            terms_settings_raw = main_settings_raw.get("terms")
+            if terms_settings_raw is not None:
+                if not isinstance(terms_settings_raw, dict):
+                    raise HTTPException(400, "main_settings.terms должен быть объектом")
+
+                if "acronyms_max_prompt_terms" in terms_settings_raw:
+                    raw_value = terms_settings_raw.get("acronyms_max_prompt_terms")
+                    try:
+                        acronyms_max_prompt_terms = int(raw_value)
+                    except (TypeError, ValueError) as exc:
+                        raise HTTPException(
+                            400,
+                            "main_settings.terms.acronyms_max_prompt_terms должен быть целым числом",
+                        ) from exc
+                    if not 1 <= acronyms_max_prompt_terms <= 500:
+                        raise HTTPException(
+                            400,
+                            "main_settings.terms.acronyms_max_prompt_terms должен быть в диапазоне 1..500",
+                        )
+                    app_settings.set_setting(
+                        ai_settings.GK_ACRONYMS_MAX_PROMPT_TERMS_SETTING_KEY,
+                        str(acronyms_max_prompt_terms),
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_ACRONYMS_MAX_PROMPT_TERMS_SETTING_KEY)
+
+                if "scan_temperature" in terms_settings_raw:
+                    raw_value = terms_settings_raw.get("scan_temperature")
+                    try:
+                        scan_temperature = float(raw_value)
+                    except (TypeError, ValueError) as exc:
+                        raise HTTPException(
+                            400,
+                            "main_settings.terms.scan_temperature должен быть числом",
+                        ) from exc
+                    if not 0.0 <= scan_temperature <= 2.0:
+                        raise HTTPException(
+                            400,
+                            "main_settings.terms.scan_temperature должен быть в диапазоне 0..2",
+                        )
+                    app_settings.set_setting(
+                        ai_settings.GK_TERMS_SCAN_TEMPERATURE_SETTING_KEY,
+                        str(scan_temperature),
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_TERMS_SCAN_TEMPERATURE_SETTING_KEY)
+
+            search_settings_raw = main_settings_raw.get("search")
+            if search_settings_raw is not None:
+                if not isinstance(search_settings_raw, dict):
+                    raise HTTPException(400, "main_settings.search должен быть объектом")
+
+                if "hybrid_enabled" in search_settings_raw:
+                    hybrid_enabled = bool(search_settings_raw.get("hybrid_enabled"))
+                    app_settings.set_setting(
+                        ai_settings.GK_HYBRID_ENABLED_SETTING_KEY,
+                        "1" if hybrid_enabled else "0",
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_HYBRID_ENABLED_SETTING_KEY)
+
+                if "relevance_hints_enabled" in search_settings_raw:
+                    relevance_hints_enabled = bool(search_settings_raw.get("relevance_hints_enabled"))
+                    app_settings.set_setting(
+                        ai_settings.GK_RELEVANCE_HINTS_ENABLED_SETTING_KEY,
+                        "1" if relevance_hints_enabled else "0",
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_RELEVANCE_HINTS_ENABLED_SETTING_KEY)
+
+                if "candidates_per_method" in search_settings_raw:
+                    raw_value = search_settings_raw.get("candidates_per_method")
+                    try:
+                        candidates_per_method = int(raw_value)
+                    except (TypeError, ValueError) as exc:
+                        raise HTTPException(
+                            400,
+                            "main_settings.search.candidates_per_method должен быть целым числом",
+                        ) from exc
+                    if not 1 <= candidates_per_method <= 200:
+                        raise HTTPException(
+                            400,
+                            "main_settings.search.candidates_per_method должен быть в диапазоне 1..200",
+                        )
+                    app_settings.set_setting(
+                        ai_settings.GK_SEARCH_CANDIDATES_PER_METHOD_SETTING_KEY,
+                        str(candidates_per_method),
+                        user.telegram_id,
+                    )
+                    updated_keys.append(ai_settings.GK_SEARCH_CANDIDATES_PER_METHOD_SETTING_KEY)
+
+        if not updated_keys:
+            raise HTTPException(400, "Нет полей для обновления")
+
+        return {
+            "message": "Настройки LLM Group Knowledge обновлены",
+            "updated_keys": updated_keys,
+        }
+
+    return router
+
+
+# ---------------------------------------------------------------------------
+# Подроутер: RAG corpus statistics
+# ---------------------------------------------------------------------------
+
+
+def _build_rag_router() -> APIRouter:
+    """Подроутер статистики RAG-корпуса для отдельной страницы RAG в admin web."""
+    router = APIRouter(tags=["gk-rag"])
+
+    @router.get("/corpus-stats")
+    async def rag_corpus_stats(
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> Dict[str, Any]:
+        """Вернуть максимально полный набор статистики RAG-корпуса из MySQL-таблиц."""
+        stats: Dict[str, Any] = {
+            "documents": {
+                "total": 0,
+                "active": 0,
+                "archived": 0,
+                "deleted": 0,
+                "last_updated_at": None,
+                "by_source_type": {},
+            },
+            "chunks": {
+                "total": 0,
+                "avg_per_document": 0.0,
+                "max_per_document": 0,
+                "last_created_at": None,
+            },
+            "summaries": {
+                "total": 0,
+                "with_model_name": 0,
+                "last_updated_at": None,
+            },
+            "chunk_embeddings": {
+                "total": 0,
+                "ready": 0,
+                "failed": 0,
+                "stale": 0,
+                "last_updated_at": None,
+            },
+            "summary_embeddings": {
+                "total": 0,
+                "ready": 0,
+                "failed": 0,
+                "stale": 0,
+                "last_updated_at": None,
+            },
+            "query_log": {
+                "total": 0,
+                "cache_hits": 0,
+                "cache_hit_ratio": 0.0,
+                "last_24h": 0,
+                "last_7d": 0,
+                "unique_users": 0,
+                "last_query_at": None,
+            },
+            "corpus_version": {
+                "total_versions": 0,
+                "last_reason": None,
+                "last_created_at": None,
+            },
+        }
+
+        with common_database.get_db_connection() as conn:
+            with common_database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active,
+                        SUM(CASE WHEN status='archived' THEN 1 ELSE 0 END) AS archived,
+                        SUM(CASE WHEN status='deleted' THEN 1 ELSE 0 END) AS deleted,
+                        MAX(updated_at) AS last_updated_at
+                    FROM rag_documents
+                    """
+                )
+                row = cursor.fetchone() or {}
+                stats["documents"].update({
+                    "total": int(row.get("total") or 0),
+                    "active": int(row.get("active") or 0),
+                    "archived": int(row.get("archived") or 0),
+                    "deleted": int(row.get("deleted") or 0),
+                    "last_updated_at": row.get("last_updated_at"),
+                })
+
+                cursor.execute(
+                    """
+                    SELECT source_type, COUNT(*) AS cnt
+                    FROM rag_documents
+                    GROUP BY source_type
+                    ORDER BY cnt DESC
+                    """
+                )
+                by_source_type: Dict[str, int] = {}
+                for src_row in cursor.fetchall() or []:
+                    source_type = str(src_row.get("source_type") or "unknown")
+                    by_source_type[source_type] = int(src_row.get("cnt") or 0)
+                stats["documents"]["by_source_type"] = by_source_type
+
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS total, MAX(created_at) AS last_created_at
+                    FROM rag_chunks
+                    """
+                )
+                row = cursor.fetchone() or {}
+                stats["chunks"].update({
+                    "total": int(row.get("total") or 0),
+                    "last_created_at": row.get("last_created_at"),
+                })
+
+                cursor.execute(
+                    """
+                    SELECT
+                        AVG(chunk_count) AS avg_per_document,
+                        MAX(chunk_count) AS max_per_document
+                    FROM (
+                        SELECT document_id, COUNT(*) AS chunk_count
+                        FROM rag_chunks
+                        GROUP BY document_id
+                    ) t
+                    """
+                )
+                row = cursor.fetchone() or {}
+                stats["chunks"].update({
+                    "avg_per_document": round(float(row.get("avg_per_document") or 0.0), 2),
+                    "max_per_document": int(row.get("max_per_document") or 0),
+                })
+
+                cursor.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN model_name IS NOT NULL AND model_name <> '' THEN 1 ELSE 0 END) AS with_model_name,
+                        MAX(updated_at) AS last_updated_at
+                    FROM rag_document_summaries
+                    """
+                )
+                row = cursor.fetchone() or {}
+                stats["summaries"].update({
+                    "total": int(row.get("total") or 0),
+                    "with_model_name": int(row.get("with_model_name") or 0),
+                    "last_updated_at": row.get("last_updated_at"),
+                })
+
+                cursor.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN embedding_status='ready' THEN 1 ELSE 0 END) AS ready,
+                        SUM(CASE WHEN embedding_status='failed' THEN 1 ELSE 0 END) AS failed,
+                        SUM(CASE WHEN embedding_status='stale' THEN 1 ELSE 0 END) AS stale,
+                        MAX(updated_at) AS last_updated_at
+                    FROM rag_chunk_embeddings
+                    """
+                )
+                row = cursor.fetchone() or {}
+                stats["chunk_embeddings"].update({
+                    "total": int(row.get("total") or 0),
+                    "ready": int(row.get("ready") or 0),
+                    "failed": int(row.get("failed") or 0),
+                    "stale": int(row.get("stale") or 0),
+                    "last_updated_at": row.get("last_updated_at"),
+                })
+
+                cursor.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN embedding_status='ready' THEN 1 ELSE 0 END) AS ready,
+                        SUM(CASE WHEN embedding_status='failed' THEN 1 ELSE 0 END) AS failed,
+                        SUM(CASE WHEN embedding_status='stale' THEN 1 ELSE 0 END) AS stale,
+                        MAX(updated_at) AS last_updated_at
+                    FROM rag_summary_embeddings
+                    """
+                )
+                row = cursor.fetchone() or {}
+                stats["summary_embeddings"].update({
+                    "total": int(row.get("total") or 0),
+                    "ready": int(row.get("ready") or 0),
+                    "failed": int(row.get("failed") or 0),
+                    "stale": int(row.get("stale") or 0),
+                    "last_updated_at": row.get("last_updated_at"),
+                })
+
+                cursor.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN cache_hit = 1 THEN 1 ELSE 0 END) AS cache_hits,
+                        SUM(CASE WHEN created_at >= (NOW() - INTERVAL 1 DAY) THEN 1 ELSE 0 END) AS last_24h,
+                        SUM(CASE WHEN created_at >= (NOW() - INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS last_7d,
+                        COUNT(DISTINCT user_id) AS unique_users,
+                        MAX(created_at) AS last_query_at
+                    FROM rag_query_log
+                    """
+                )
+                row = cursor.fetchone() or {}
+                total_queries = int(row.get("total") or 0)
+                cache_hits = int(row.get("cache_hits") or 0)
+                stats["query_log"].update({
+                    "total": total_queries,
+                    "cache_hits": cache_hits,
+                    "cache_hit_ratio": round(cache_hits / total_queries, 4) if total_queries > 0 else 0.0,
+                    "last_24h": int(row.get("last_24h") or 0),
+                    "last_7d": int(row.get("last_7d") or 0),
+                    "unique_users": int(row.get("unique_users") or 0),
+                    "last_query_at": row.get("last_query_at"),
+                })
+
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS total_versions
+                    FROM rag_corpus_version
+                    """
+                )
+                row = cursor.fetchone() or {}
+                stats["corpus_version"]["total_versions"] = int(row.get("total_versions") or 0)
+
+                cursor.execute(
+                    """
+                    SELECT reason, created_at
+                    FROM rag_corpus_version
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """
+                )
+                row = cursor.fetchone() or {}
+                stats["corpus_version"].update({
+                    "last_reason": row.get("reason"),
+                    "last_created_at": row.get("created_at"),
+                })
+
+        return stats
+
+    @router.get("/documents")
+    async def rag_documents(
+        page: int = Query(1, ge=1),
+        page_size: int = Query(20, ge=1, le=200),
+        q: Optional[str] = Query(None, max_length=500),
+        status: Optional[str] = Query(None),
+        source_type: Optional[str] = Query(None, max_length=64),
+        has_summary: Optional[bool] = Query(None),
+        sort_by: str = Query("updated_at"),
+        sort_order: str = Query("desc"),
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> Dict[str, Any]:
+        """Вернуть список RAG-документов с фильтрами, пагинацией и агрегированной статистикой."""
+
+        del user
+
+        allowed_statuses = {"active", "archived", "deleted"}
+        normalized_status = str(status or "").strip().lower() or None
+        if normalized_status and normalized_status not in allowed_statuses:
+            raise HTTPException(400, "status должен быть одним из: active, archived, deleted")
+
+        normalized_source_type = str(source_type or "").strip() or None
+        normalized_query = str(q or "").strip() or None
+
+        sort_map = {
+            "updated_at": "d.updated_at",
+            "created_at": "d.created_at",
+            "filename": "d.filename",
+            "status": "d.status",
+            "source_type": "d.source_type",
+            "chunks": "chunk_count",
+            "chunk_embeddings_ready": "chunk_embeddings_ready",
+            "summary_embeddings_ready": "summary_embeddings_ready",
+        }
+        normalized_sort_by = str(sort_by or "").strip().lower()
+        sort_expr = sort_map.get(normalized_sort_by, "d.updated_at")
+
+        normalized_sort_order = str(sort_order or "").strip().lower()
+        if normalized_sort_order not in {"asc", "desc"}:
+            normalized_sort_order = "desc"
+        sort_direction = "ASC" if normalized_sort_order == "asc" else "DESC"
+
+        where_parts: List[str] = []
+        where_params: List[Any] = []
+
+        if normalized_status:
+            where_parts.append("d.status = %s")
+            where_params.append(normalized_status)
+
+        if normalized_source_type:
+            where_parts.append("d.source_type = %s")
+            where_params.append(normalized_source_type)
+
+        if normalized_query:
+            like_value = f"%{normalized_query}%"
+            where_parts.append("(d.filename LIKE %s OR d.source_url LIKE %s OR COALESCE(ds.summary_text, '') LIKE %s)")
+            where_params.extend([like_value, like_value, like_value])
+
+        if has_summary is True:
+            where_parts.append("ds.id IS NOT NULL")
+        elif has_summary is False:
+            where_parts.append("ds.id IS NULL")
+
+        where_sql = ""
+        if where_parts:
+            where_sql = "WHERE " + " AND ".join(where_parts)
+
+        base_from = f"""
+            FROM rag_documents d
+            LEFT JOIN rag_document_summaries ds ON ds.document_id = d.id
+            LEFT JOIN (
+                SELECT document_id, COUNT(*) AS chunk_count
+                FROM rag_chunks
+                GROUP BY document_id
+            ) c ON c.document_id = d.id
+            LEFT JOIN (
+                SELECT
+                    document_id,
+                    SUM(CASE WHEN embedding_status='ready' THEN 1 ELSE 0 END) AS ready_count,
+                    SUM(CASE WHEN embedding_status='failed' THEN 1 ELSE 0 END) AS failed_count,
+                    SUM(CASE WHEN embedding_status='stale' THEN 1 ELSE 0 END) AS stale_count
+                FROM rag_chunk_embeddings
+                GROUP BY document_id
+            ) ce ON ce.document_id = d.id
+            LEFT JOIN (
+                SELECT
+                    document_id,
+                    SUM(CASE WHEN embedding_status='ready' THEN 1 ELSE 0 END) AS ready_count,
+                    SUM(CASE WHEN embedding_status='failed' THEN 1 ELSE 0 END) AS failed_count,
+                    SUM(CASE WHEN embedding_status='stale' THEN 1 ELSE 0 END) AS stale_count
+                FROM rag_summary_embeddings
+                GROUP BY document_id
+            ) se ON se.document_id = d.id
+            {where_sql}
+        """
+
+        offset = (page - 1) * page_size
+
+        def _to_iso(value: Any) -> Optional[str]:
+            if isinstance(value, datetime):
+                return value.isoformat()
+            if value is None:
+                return None
+            return str(value)
+
+        result: Dict[str, Any] = {
+            "items": [],
+            "page": page,
+            "page_size": page_size,
+            "total": 0,
+            "stats": {
+                "documents_total": 0,
+                "status_counts": {"active": 0, "archived": 0, "deleted": 0},
+                "source_type_counts": {},
+                "total_chunks": 0,
+                "avg_chunks_per_document": 0.0,
+                "documents_with_summary": 0,
+                "chunk_embeddings": {"ready": 0, "failed": 0, "stale": 0},
+                "summary_embeddings": {"ready": 0, "failed": 0, "stale": 0},
+                "last_document_updated_at": None,
+            },
+            "filters": {
+                "q": normalized_query,
+                "status": normalized_status,
+                "source_type": normalized_source_type,
+                "has_summary": has_summary,
+                "sort_by": normalized_sort_by if normalized_sort_by in sort_map else "updated_at",
+                "sort_order": normalized_sort_order,
+            },
+        }
+
+        with common_database.get_db_connection() as conn:
+            with common_database.get_cursor(conn) as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT COUNT(*) AS total
+                    {base_from}
+                    """,
+                    tuple(where_params),
+                )
+                count_row = cursor.fetchone() or {}
+                total_docs = int(count_row.get("total") or 0)
+                result["total"] = total_docs
+                result["stats"]["documents_total"] = total_docs
+
+                cursor.execute(
+                    f"""
+                    SELECT
+                        d.id,
+                        d.filename,
+                        d.source_type,
+                        d.source_url,
+                        d.uploaded_by,
+                        d.status,
+                        d.content_hash,
+                        d.created_at,
+                        d.updated_at,
+                        COALESCE(c.chunk_count, 0) AS chunk_count,
+                        CASE WHEN ds.id IS NULL THEN 0 ELSE 1 END AS has_summary,
+                        ds.model_name AS summary_model_name,
+                        ds.updated_at AS summary_updated_at,
+                        COALESCE(ce.ready_count, 0) AS chunk_embeddings_ready,
+                        COALESCE(ce.failed_count, 0) AS chunk_embeddings_failed,
+                        COALESCE(ce.stale_count, 0) AS chunk_embeddings_stale,
+                        COALESCE(se.ready_count, 0) AS summary_embeddings_ready,
+                        COALESCE(se.failed_count, 0) AS summary_embeddings_failed,
+                        COALESCE(se.stale_count, 0) AS summary_embeddings_stale
+                    {base_from}
+                    ORDER BY {sort_expr} {sort_direction}, d.id DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    tuple([*where_params, page_size, offset]),
+                )
+                rows = cursor.fetchall() or []
+
+                result["items"] = [
+                    {
+                        "id": int(row.get("id") or 0),
+                        "filename": str(row.get("filename") or ""),
+                        "source_type": str(row.get("source_type") or ""),
+                        "source_url": row.get("source_url"),
+                        "uploaded_by": int(row.get("uploaded_by") or 0),
+                        "status": str(row.get("status") or "active"),
+                        "content_hash": str(row.get("content_hash") or ""),
+                        "created_at": _to_iso(row.get("created_at")),
+                        "updated_at": _to_iso(row.get("updated_at")),
+                        "chunk_count": int(row.get("chunk_count") or 0),
+                        "has_summary": bool(int(row.get("has_summary") or 0)),
+                        "summary_model_name": row.get("summary_model_name"),
+                        "summary_updated_at": _to_iso(row.get("summary_updated_at")),
+                        "chunk_embeddings": {
+                            "ready": int(row.get("chunk_embeddings_ready") or 0),
+                            "failed": int(row.get("chunk_embeddings_failed") or 0),
+                            "stale": int(row.get("chunk_embeddings_stale") or 0),
+                        },
+                        "summary_embeddings": {
+                            "ready": int(row.get("summary_embeddings_ready") or 0),
+                            "failed": int(row.get("summary_embeddings_failed") or 0),
+                            "stale": int(row.get("summary_embeddings_stale") or 0),
+                        },
+                    }
+                    for row in rows
+                ]
+
+                cursor.execute(
+                    f"""
+                    SELECT
+                        SUM(CASE WHEN d.status='active' THEN 1 ELSE 0 END) AS active_docs,
+                        SUM(CASE WHEN d.status='archived' THEN 1 ELSE 0 END) AS archived_docs,
+                        SUM(CASE WHEN d.status='deleted' THEN 1 ELSE 0 END) AS deleted_docs,
+                        SUM(COALESCE(c.chunk_count, 0)) AS total_chunks,
+                        AVG(COALESCE(c.chunk_count, 0)) AS avg_chunks_per_document,
+                        SUM(CASE WHEN ds.id IS NOT NULL THEN 1 ELSE 0 END) AS documents_with_summary,
+                        SUM(COALESCE(ce.ready_count, 0)) AS chunk_embeddings_ready,
+                        SUM(COALESCE(ce.failed_count, 0)) AS chunk_embeddings_failed,
+                        SUM(COALESCE(ce.stale_count, 0)) AS chunk_embeddings_stale,
+                        SUM(COALESCE(se.ready_count, 0)) AS summary_embeddings_ready,
+                        SUM(COALESCE(se.failed_count, 0)) AS summary_embeddings_failed,
+                        SUM(COALESCE(se.stale_count, 0)) AS summary_embeddings_stale,
+                        MAX(d.updated_at) AS last_document_updated_at
+                    {base_from}
+                    """,
+                    tuple(where_params),
+                )
+                agg_row = cursor.fetchone() or {}
+                result["stats"].update({
+                    "status_counts": {
+                        "active": int(agg_row.get("active_docs") or 0),
+                        "archived": int(agg_row.get("archived_docs") or 0),
+                        "deleted": int(agg_row.get("deleted_docs") or 0),
+                    },
+                    "total_chunks": int(agg_row.get("total_chunks") or 0),
+                    "avg_chunks_per_document": round(float(agg_row.get("avg_chunks_per_document") or 0.0), 2),
+                    "documents_with_summary": int(agg_row.get("documents_with_summary") or 0),
+                    "chunk_embeddings": {
+                        "ready": int(agg_row.get("chunk_embeddings_ready") or 0),
+                        "failed": int(agg_row.get("chunk_embeddings_failed") or 0),
+                        "stale": int(agg_row.get("chunk_embeddings_stale") or 0),
+                    },
+                    "summary_embeddings": {
+                        "ready": int(agg_row.get("summary_embeddings_ready") or 0),
+                        "failed": int(agg_row.get("summary_embeddings_failed") or 0),
+                        "stale": int(agg_row.get("summary_embeddings_stale") or 0),
+                    },
+                    "last_document_updated_at": _to_iso(agg_row.get("last_document_updated_at")),
+                })
+
+                cursor.execute(
+                    f"""
+                    SELECT d.source_type, COUNT(*) AS cnt
+                    {base_from}
+                    GROUP BY d.source_type
+                    ORDER BY cnt DESC
+                    """,
+                    tuple(where_params),
+                )
+                source_counts: Dict[str, int] = {}
+                for src_row in cursor.fetchall() or []:
+                    source_key = str(src_row.get("source_type") or "unknown")
+                    source_counts[source_key] = int(src_row.get("cnt") or 0)
+                result["stats"]["source_type_counts"] = source_counts
+
+        return result
 
     return router
 
@@ -867,7 +1928,7 @@ def _build_prompt_tester_router() -> APIRouter:
         """Список поддерживаемых моделей для выпадающего списка Prompt Tester."""
         return {
             "models": get_supported_deepseek_models(),
-            "default_model": str(ai_settings.GK_RESPONDER_MODEL or "").strip() or None,
+            "default_model": ai_settings.get_active_gk_responder_model() or None,
         }
 
     @router.get("/prompts")
@@ -1435,7 +2496,7 @@ def _build_image_prompt_tester_router() -> APIRouter:
         """Список поддерживаемых моделей для image prompt tester."""
         return {
             "models": get_supported_gigachat_models(),
-            "default_model": str(ai_settings.GK_IMAGE_DESCRIPTION_MODEL or "").strip() or None,
+            "default_model": ai_settings.get_active_gk_image_description_model() or None,
         }
 
     @router.get("/prompts")
@@ -1799,7 +2860,7 @@ def _build_qa_analyzer_sandbox_router() -> APIRouter:
         """Список доступных моделей для анализа."""
         return {
             "models": get_supported_deepseek_models(),
-            "default_model": str(ai_settings.GK_ANALYSIS_MODEL or "").strip() or None,
+            "default_model": ai_settings.get_active_gk_analysis_model() or None,
         }
 
     @router.get("/default-prompt")
@@ -1811,7 +2872,7 @@ def _build_qa_analyzer_sandbox_router() -> APIRouter:
         return {
             "prompt_template": THREAD_VALIDATION_PROMPT,
             "system_prompt": GK_PROMPT_TESTER_SYSTEM_PROMPT,
-            "question_confidence_threshold": ai_settings.GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD,
+            "question_confidence_threshold": ai_settings.get_active_gk_analysis_question_confidence_threshold(),
         }
 
     @router.post("/run")
@@ -1875,7 +2936,7 @@ def _build_qa_analyzer_sandbox_router() -> APIRouter:
         # Подставить переменные в промпт.
         conf_threshold = question_confidence_threshold
         if conf_threshold is None:
-            conf_threshold = ai_settings.GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD
+            conf_threshold = ai_settings.get_active_gk_analysis_question_confidence_threshold()
 
         try:
             acronyms_section = analyzer.build_acronyms_section(int(group_id) if group_id else 0)
@@ -1892,7 +2953,14 @@ def _build_qa_analyzer_sandbox_router() -> APIRouter:
             ) from exc
 
         # Вызвать LLM.
-        provider = get_provider("deepseek")
+        provider_name = ai_settings.get_active_gk_text_provider()
+        if not is_provider_registered(provider_name):
+            logger.warning(
+                "GK QA Sandbox: провайдер '%s' не зарегистрирован, используем deepseek",
+                provider_name,
+            )
+            provider_name = "deepseek"
+        provider = get_provider(provider_name)
         request_started = time.perf_counter()
 
         chat_kwargs: Dict[str, Any] = {
@@ -1925,7 +2993,7 @@ def _build_qa_analyzer_sandbox_router() -> APIRouter:
             "thread_context": thread_context,
             "chain": chain,
             "question_message_id": question_message.telegram_message_id,
-            "model": model or str(ai_settings.GK_ANALYSIS_MODEL or ""),
+            "model": model or ai_settings.get_active_gk_analysis_model(),
             "temperature": temperature,
             "duration_ms": elapsed_ms,
         }
@@ -1941,26 +3009,79 @@ def _build_qa_analyzer_sandbox_router() -> APIRouter:
 def _build_search_router() -> APIRouter:
     router = APIRouter(tags=["gk-search"])
 
+    @router.get("/supported-models")
+    async def search_supported_models(
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> Dict[str, Any]:
+        """Список доступных моделей для песочницы поиска."""
+        active_provider = ai_settings.get_active_gk_text_provider()
+        models = _build_text_provider_model_options().get(active_provider, [])
+        default_model = ai_settings.get_active_gk_responder_model() or None
+        if default_model and default_model not in models:
+            models = [*models, default_model]
+        return {
+            "models": models,
+            "default_model": default_model,
+        }
+
     @router.post("/query")
     async def search_query(
-        body: Dict[str, Any],
+        request: Request,
         user: WebUser = Depends(require_permission("gk_knowledge")),
     ) -> Dict[str, Any]:
         """Выполнить гибридный поиск по Q&A-корпусу."""
         from admin_web.modules.gk_knowledge import search_service
 
-        query = body.get("query", "").strip()
-        if not query:
-            raise HTTPException(400, "Пустой поисковый запрос")
+        content_type = (request.headers.get("content-type") or "").lower()
+        image_upload: Optional[UploadFile] = None
+
+        if "multipart/form-data" in content_type:
+            form_data = await request.form()
+            payload: Dict[str, Any] = dict(form_data)
+            raw_image = form_data.get("image")
+            if raw_image is not None and hasattr(raw_image, "read"):
+                image_upload = raw_image
+        else:
+            payload = await request.json()
+
+        query = str(payload.get("query") or "").strip()
         if len(query) > 1000:
             raise HTTPException(400, "Запрос слишком длинный (макс. 1000 символов)")
 
-        top_k = min(body.get("top_k", 10), 50)
-        raw_group_id = body.get("group_id")
-        group_id = int(raw_group_id) if raw_group_id is not None else None
+        image_description = ""
+        if image_upload is not None:
+            image_description = await _describe_uploaded_image_for_search(image_upload)
+            if image_description:
+                if query:
+                    query = f"{query}\n[Суть по изображению: {image_description[:1200]}]"
+                else:
+                    query = f"[Суть по изображению: {image_description[:1200]}]"
+
+        if not query:
+            raise HTTPException(400, "Пустой поисковый запрос")
+
+        try:
+            top_k = min(int(payload.get("top_k", 10)), 50)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, "top_k должен быть целым числом") from exc
+        raw_group_id = payload.get("group_id")
+        group_id = int(raw_group_id) if raw_group_id not in (None, "", "null") else None
+        model_override = str(payload.get("model") or "").strip() or None
+        temperature_override: Optional[float] = None
+        if payload.get("temperature") not in (None, ""):
+            try:
+                temperature_override = float(payload.get("temperature"))
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(400, "temperature должен быть числом") from exc
+            if not 0.0 <= temperature_override <= 2.0:
+                raise HTTPException(400, "temperature должен быть в диапазоне 0.0..2.0")
         request_started = time.perf_counter()
         search_result = await search_service.hybrid_search_with_answer(
-            query, top_k=top_k, group_id=group_id,
+            query,
+            top_k=top_k,
+            group_id=group_id,
+            model_override=model_override,
+            temperature_override=temperature_override,
         )
         elapsed_ms = int((time.perf_counter() - request_started) * 1000)
         results = search_result["results"]
@@ -1971,6 +3092,7 @@ def _build_search_router() -> APIRouter:
             "answer_preview": search_result["answer_preview"],
             "progress_stages": search_result.get("progress_stages", []),
             "duration_ms": elapsed_ms,
+            "image_description": image_description or None,
         }
 
     return router

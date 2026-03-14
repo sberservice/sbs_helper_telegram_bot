@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from config import ai_settings
-from src.core.ai.llm_provider import get_provider
+from src.core.ai.llm_provider import get_provider, is_provider_registered
 from src.group_knowledge import database as gk_db
 
 logger = logging.getLogger(__name__)
@@ -108,8 +108,22 @@ class TermMiner:
         Args:
             model_name: Модель LLM для анализа (по умолчанию из настроек).
         """
-        self._model_name = model_name or ai_settings.GK_TERMS_SCAN_MODEL
+        self._provider_name = ai_settings.get_active_gk_text_provider()
+        self._model_name = model_name or ai_settings.get_active_gk_terms_scan_model()
         self._batch_size = ai_settings.GK_TERMS_SCAN_BATCH_SIZE
+
+    def _get_provider(self):
+        """Вернуть активный LLM-провайдер для майнинга терминов GK."""
+        provider_name = str(self._provider_name or "").strip()
+        if provider_name and is_provider_registered(provider_name):
+            return get_provider(provider_name)
+
+        if provider_name:
+            logger.warning(
+                "GK TermMiner: провайдер '%s' не зарегистрирован, используем deepseek",
+                provider_name,
+            )
+        return get_provider("deepseek")
 
     async def scan_group_messages(
         self,
@@ -425,12 +439,16 @@ class TermMiner:
         system_prompt = "Ты — помощник для анализа терминологии технической поддержки."
 
         try:
-            provider = get_provider("deepseek")
+            provider = self._get_provider()
             raw = await provider.chat(
                 messages=[{"role": "user", "content": prompt}],
                 system_prompt=system_prompt,
                 purpose="gk_term_mining",
                 model_override=self._model_name,
+                temperature_override=max(
+                    0.0,
+                    min(2.0, float(ai_settings.get_active_gk_terms_scan_temperature())),
+                ),
                 response_format={"type": "json_object"},
             )
 

@@ -212,6 +212,14 @@ python scripts/gk_analyze.py --all-dates --rebuild-pairs
 а `llm_inferred` пары (если они уже были созданы ранее) не используются в BM25/vector поиске
 и в финальном LLM-контексте ответа.
 
+Температуры LLM в GK теперь настраиваются отдельно по сценариям:
+- `GK_RESPONDER_TEMPERATURE` — генерация финального ответа пользователю (`purpose=gk_answer`);
+- `GK_ANALYSIS_TEMPERATURE` — thread-validation и LLM-inferred extraction (`purpose=gk_validation`, `purpose=gk_inference`);
+- `GK_QUESTION_DETECTION_TEMPERATURE` — классификатор вопрос/не вопрос (`purpose=gk_question_detection`);
+- `GK_TERMS_SCAN_TEMPERATURE` — сканирование терминов и аббревиатур (`purpose=gk_term_mining`).
+
+Эти параметры доступны в admin web на вкладке GK «Настройки» и сохраняются как runtime settings в `app_settings`.
+
 В поиске GK защищённые термины для токенизации формируются как объединение:
 - `fixed_term` со статусом `approved`;
 - `acronym` со статусом `approved` и `confidence >= GK_ACRONYMS_MIN_CONFIDENCE`.
@@ -225,6 +233,14 @@ python scripts/gk_analyze.py --all-dates --rebuild-pairs
 Флаг `GK_RAG_IMAGE_GIST_ENABLED` управляет добавлением `image_description` в текст вопроса **только для RAG-слоя**
 (BM25-корпус и векторная индексация). При этом в `gk_qa_pairs.question_text` сохраняется чистый вопрос без добавленного gist,
 что упрощает хранение и ручную валидацию пар в БД.
+
+В BM25-поиске GK теперь используется IDF-dampening query-токенов (по аналогии с RAG summary-prefilter):
+- `GK_BM25_IDF_DAMPEN_RATIO` — доля документов корпуса (0..1), выше которой query-токен считается `common`;
+- `GK_BM25_IDF_DAMPEN_FACTOR` — сила подавления common-токенов через усиление редких токенов.
+
+Для диагностики на каждом BM25-поиске пишется структурированный лог вида
+`GK IDF dampening [gk_bm25_search]: {...}` с полями `reason`, `common_tokens`,
+`rare_tokens`, `changed_token_counts`, `before_tokens`, `after_tokens`.
 
 ### 6. Запуск автоответчика
 
@@ -354,6 +370,8 @@ python scripts/gk_delete_group_data.py --group-id -1001234567890 --yes --no-vect
 |----------|-----------|----------|
 | `GIGACHAT_CREDENTIALS` | `.env` | API-ключ GigaChat |
 | `GIGACHAT_MODEL` | `GigaChat-Pro` | Модель GigaChat для описания изображений |
+| `GK_TEXT_PROVIDER` | `deepseek` | Провайдер текстовых LLM-задач GK (анализ, автоответ, question-detection, термины) |
+| `GK_IMAGE_PROVIDER` | `gigachat` | Провайдер vision-задач GK (описание изображений) |
 | `GK_IMAGE_STORAGE_PATH` | `./data/group_knowledge/images` | Путь хранения скачанных изображений |
 | `GK_DRY_RUN` | `True` | Глобальный dry-run для автоответчика |
 | `GK_QUESTION_DETECTION_MODEL` | `deepseek-reasoner` | Отдельная модель DeepSeek для `purpose=gk_question_detection` (question/non-question классификация) |
@@ -371,6 +389,8 @@ python scripts/gk_delete_group_data.py --group-id -1001234567890 --yes --no-vect
 | `GK_SEARCH_CANDIDATES_PER_METHOD` | `20` | Кандидатов из каждого метода поиска перед RRF |
 | `GK_BM25_CORPUS_TTL_SECONDS` | `300` | TTL кэша BM25-корпуса Q&A-пар (секунды) |
 | `GK_EXCLUDE_LOW_TIER_FROM_LLM_CONTEXT` | `0` | Если `1`, пары с `tier=низкая` исключаются из контекста, передаваемого в LLM при генерации GK-ответа |
+
+> Примечание: в админ-панели GK (`Вкладка → Настройки`) доступны runtime-overrides не только для провайдеров/моделей, но и для ключевых параметров автоответчика/анализа/поиска (включая `GK_EXCLUDE_LOW_TIER_FROM_LLM_CONTEXT`, `GK_RESPONDER_TOP_K`, `GK_RESPONDER_CONFIDENCE_THRESHOLD`, `GK_INCLUDE_LLM_INFERRED_ANSWERS`, `GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD`, `GK_GENERATE_LLM_INFERRED_QA_PAIRS`, `GK_ACRONYMS_MAX_PROMPT_TERMS`, `GK_HYBRID_ENABLED`, `GK_RELEVANCE_HINTS_ENABLED`, `GK_SEARCH_CANDIDATES_PER_METHOD`). Эти значения хранятся в `app_settings` и имеют приоритет над env-переменными из таблицы выше.
 
 ### Rate limiting (`src/common/constants/sync.py`)
 

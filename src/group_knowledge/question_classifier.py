@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from config import ai_settings
-from src.core.ai.llm_provider import get_provider
+from src.core.ai.llm_provider import get_provider, is_provider_registered
 from src.group_knowledge.settings import MIN_QUESTION_LENGTH
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,21 @@ class QuestionClassifierService:
 
     def __init__(self, model_name: Optional[str] = None):
         """Инициализация классификатора."""
-        self._model_name = model_name or ai_settings.GK_QUESTION_DETECTION_MODEL
+        self._provider_name = ai_settings.get_active_gk_text_provider()
+        self._model_name = model_name or ai_settings.get_active_gk_question_detection_model()
+
+    def _get_provider(self):
+        """Вернуть активный LLM-провайдер для классификатора вопросов GK."""
+        provider_name = str(self._provider_name or "").strip()
+        if provider_name and is_provider_registered(provider_name):
+            return get_provider(provider_name)
+
+        if provider_name:
+            logger.warning(
+                "GK QuestionClassifier: провайдер '%s' не зарегистрирован, используем deepseek",
+                provider_name,
+            )
+        return get_provider("deepseek")
 
     async def classify(
         self,
@@ -78,7 +92,7 @@ class QuestionClassifierService:
                 detected_at=detected_at,
             )
 
-        provider = get_provider("deepseek")
+        provider = self._get_provider()
         prompt = QUESTION_CLASSIFICATION_PROMPT.format(
             message_metadata=self._format_message_metadata(
                 is_caption=is_caption,
@@ -92,6 +106,10 @@ class QuestionClassifierService:
             system_prompt="Ты — классификатор сообщений технической поддержки.",
             purpose="gk_question_detection",
             model_override=self._model_name,
+            temperature_override=max(
+                0.0,
+                min(2.0, float(ai_settings.get_active_gk_question_detection_temperature())),
+            ),
             response_format={"type": "json_object"},
         )
         parsed = self._parse_json_response(raw)

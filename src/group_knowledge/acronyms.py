@@ -1,4 +1,4 @@
-"""Утилиты для отбора и дедупликации аббревиатур Group Knowledge."""
+"""Утилиты для отбора, дедупликации и ранжирования аббревиатур Group Knowledge."""
 
 from typing import Any, Dict, Iterable
 
@@ -9,6 +9,14 @@ def _to_float(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _to_int(value: Any) -> int:
+    """Преобразовать значение к int с безопасным fallback."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def select_best_acronyms_by_term(
@@ -55,3 +63,19 @@ def select_best_acronyms_by_term(
             best_by_term[dedup_key] = record
 
     return best_by_term
+
+
+def sort_acronym_records_for_prompt(records: Iterable[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    """Отсортировать записи для секции промпта по приоритету использования.
+
+    Порядок:
+    1) message_count по убыванию;
+    2) term по алфавиту (детерминизм при равных message_count).
+    """
+    return sorted(
+        list(records),
+        key=lambda record: (
+            -_to_int(record.get("message_count")),
+            str(record.get("term") or "").strip().upper(),
+        ),
+    )

@@ -16,8 +16,11 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import ai_settings
-from src.core.ai.llm_provider import get_provider
-from src.group_knowledge.acronyms import select_best_acronyms_by_term
+from src.core.ai.llm_provider import get_provider, is_provider_registered
+from src.group_knowledge.acronyms import (
+    select_best_acronyms_by_term,
+    sort_acronym_records_for_prompt,
+)
 from src.group_knowledge import database as gk_db
 from src.group_knowledge.models import AnalysisResult, GroupMessage, QAPair
 from src.group_knowledge.rag_text import enrich_question_for_rag
@@ -128,11 +131,27 @@ class QAAnalyzer:
         Args:
             model_name: Модель для анализа (по умолчанию из настроек).
         """
-        self._model_name = model_name or ai_settings.GK_ANALYSIS_MODEL
+        self._provider_name = ai_settings.get_active_gk_text_provider()
+        self._model_name = model_name or ai_settings.get_active_gk_analysis_model()
         self._batch_size = ai_settings.GK_ANALYSIS_BATCH_SIZE
-        self._question_confidence_threshold = ai_settings.GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD
+        self._question_confidence_threshold = (
+            ai_settings.get_active_gk_analysis_question_confidence_threshold()
+        )
         # Кэш секции аббревиатур по group_id.
         self._acronyms_cache: Dict[int, Tuple[str, float]] = {}
+
+    def _get_provider(self):
+        """Вернуть активный LLM-провайдер для задач анализатора GK."""
+        provider_name = str(self._provider_name or "").strip()
+        if provider_name and is_provider_registered(provider_name):
+            return get_provider(provider_name)
+
+        if provider_name:
+            logger.warning(
+                "GK QAAnalyzer: провайдер '%s' не зарегистрирован, используем deepseek",
+                provider_name,
+            )
+        return get_provider("deepseek")
 
     async def analyze_day(
         self,
@@ -224,7 +243,7 @@ class QAAnalyzer:
                 logger.error(error_msg, exc_info=True)
 
         # Фаза 2: LLM-inferred
-        llm_generation_enabled = ai_settings.GK_GENERATE_LLM_INFERRED_QA_PAIRS
+        llm_generation_enabled = ai_settings.get_active_gk_generate_llm_inferred_qa_pairs()
         if not skip_llm and llm_generation_enabled:
             try:
                 llm_pairs = await self._extract_llm_inferred_pairs(messages, group_id)
@@ -306,6 +325,14 @@ class QAAnalyzer:
         try:
             min_confidence = float(getattr(ai_settings, "GK_ACRONYMS_MIN_CONFIDENCE", 0.9))
             max_group_terms = int(getattr(ai_settings, "GK_ACRONYMS_MAX_PROMPT_TERMS", 50))
+            get_runtime_max_terms = getattr(ai_settings, "get_active_gk_acronyms_max_prompt_terms", None)
+            if callable(get_runtime_max_terms):
+                try:
+                    runtime_value = get_runtime_max_terms()
+                    if isinstance(runtime_value, (int, float, str)):
+                        max_group_terms = int(runtime_value)
+                except (TypeError, ValueError):
+                    pass
 
             acronyms = gk_db.get_terms_for_group(
                 group_id if group_id else 0,
@@ -365,8 +392,7 @@ class QAAnalyzer:
                 )
 
                 parts = []
-                for dedup_key in sorted(best_by_term.keys()):
-                    selected = best_by_term[dedup_key]
+                for selected in sort_acronym_records_for_prompt(best_by_term.values()):
                     term = str(selected.get("term", "") or "").strip().upper()
                     definition = str(selected.get("definition") or "").strip()
                     if term and definition:
@@ -757,7 +783,7 @@ class QAAnalyzer:
             Кортеж (clean_question, clean_answer, confidence, answer_message_id,
             llm_request_payload, confidence_reason, fullness) или None.
         """
-        provider = get_provider("deepseek")
+        provider = self._get_provider()
         thread_context = self._format_thread_context(thread_messages)
         acronyms_section = self._build_acronyms_section(
             getattr(root_message, "group_id", 0) or 0
@@ -776,11 +802,13 @@ class QAAnalyzer:
         )
 
         try:
+            temperature = max(0.0, min(2.0, float(ai_settings.get_active_gk_analysis_temperature())))
             raw = await provider.chat(
                 messages=[{"role": "user", "content": prompt}],
                 system_prompt=system_prompt,
                 purpose="gk_validation",
                 model_override=self._model_name,
+                temperature_override=temperature,
                 response_format={"type": "json_object"},
             )
 
@@ -1257,7 +1285,7 @@ class QAAnalyzer:
         Отправляет батчи сообщений в LLM для обнаружения пар,
         не связанных через reply-to.
         """
-        if not ai_settings.GK_GENERATE_LLM_INFERRED_QA_PAIRS:
+        if not ai_settings.get_active_gk_generate_llm_inferred_qa_pairs():
             logger.info(
                 "Пропуск LLM-inferred extraction: настройка GK_GENERATE_LLM_INFERRED_QA_PAIRS=0 (group=%d)",
                 group_id,
@@ -1334,7 +1362,7 @@ class QAAnalyzer:
         messages_text = "\n".join(msg_lines)
         prompt = LLM_INFERENCE_PROMPT.format(messages=messages_text)
 
-        provider = get_provider("deepseek")
+        provider = self._get_provider()
         system_prompt = "Ты — аналитик технической поддержки."
         request_payload = self._build_llm_request_payload(
             prompt=prompt,
@@ -1343,11 +1371,13 @@ class QAAnalyzer:
         )
 
         try:
+            temperature = max(0.0, min(2.0, float(ai_settings.get_active_gk_analysis_temperature())))
             raw = await provider.chat(
                 messages=[{"role": "user", "content": prompt}],
                 system_prompt=system_prompt,
                 purpose="gk_inference",
                 model_override=self._model_name,
+                temperature_override=temperature,
                 response_format={"type": "json_object"},
             )
 

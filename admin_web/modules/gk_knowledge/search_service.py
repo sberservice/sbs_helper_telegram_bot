@@ -135,7 +135,13 @@ async def hybrid_search(query: str, top_k: int = 10, group_id: Optional[int] = N
         return []
 
 
-async def hybrid_search_with_answer(query: str, top_k: int = 10, group_id: Optional[int] = None) -> Dict[str, Any]:
+async def hybrid_search_with_answer(
+    query: str,
+    top_k: int = 10,
+    group_id: Optional[int] = None,
+    model_override: Optional[str] = None,
+    temperature_override: Optional[float] = None,
+) -> Dict[str, Any]:
     """Вернуть top документов и итоговый ответ так, как его увидел бы пользователь."""
     started = time.perf_counter()
     progress_stages: List[Dict[str, Any]] = [
@@ -158,11 +164,15 @@ async def hybrid_search_with_answer(query: str, top_k: int = 10, group_id: Optio
 
         relevant_pairs = [item["pair"] for item in ranked_results]
         answer_result = await service.answer_question_from_pairs(
-            query, relevant_pairs, group_id=group_id,
+            query,
+            relevant_pairs,
+            group_id=group_id,
+            model_override=model_override,
+            temperature_override=temperature_override,
         )
         final_answer_text = service.format_answer_for_user(answer_result)
         confidence = float(answer_result.get("confidence", 0.0)) if answer_result else None
-        threshold = float(ai_settings.GK_RESPONDER_CONFIDENCE_THRESHOLD)
+        threshold = float(ai_settings.get_active_gk_responder_confidence_threshold())
 
         progress_stages[2]["status"] = "done"
         progress_stages[2]["duration_ms"] = int((time.perf_counter() - answer_started) * 1000)
@@ -173,6 +183,9 @@ async def hybrid_search_with_answer(query: str, top_k: int = 10, group_id: Optio
                 "raw_answer_text": answer_result.get("answer") if answer_result else None,
                 "final_answer_text": final_answer_text or None,
                 "confidence": confidence,
+                "confidence_reason": (
+                    str(answer_result.get("confidence_reason") or "").strip() or None
+                ) if answer_result else None,
                 "would_send": bool(final_answer_text and confidence is not None and confidence >= threshold),
                 "threshold": threshold,
                 "primary_source_link": answer_result.get("primary_source_link") if answer_result else None,
@@ -197,8 +210,9 @@ async def hybrid_search_with_answer(query: str, top_k: int = 10, group_id: Optio
                 "raw_answer_text": None,
                 "final_answer_text": None,
                 "confidence": None,
+                "confidence_reason": None,
                 "would_send": False,
-                "threshold": float(ai_settings.GK_RESPONDER_CONFIDENCE_THRESHOLD),
+                "threshold": float(ai_settings.get_active_gk_responder_confidence_threshold()),
                 "primary_source_link": None,
                 "source_pair_ids": [],
                 "source_message_links": [],
@@ -217,8 +231,9 @@ async def hybrid_search_with_answer(query: str, top_k: int = 10, group_id: Optio
                 "raw_answer_text": None,
                 "final_answer_text": None,
                 "confidence": None,
+                "confidence_reason": None,
                 "would_send": False,
-                "threshold": float(ai_settings.GK_RESPONDER_CONFIDENCE_THRESHOLD),
+                "threshold": float(ai_settings.get_active_gk_responder_confidence_threshold()),
                 "primary_source_link": None,
                 "source_pair_ids": [],
                 "source_message_links": [],

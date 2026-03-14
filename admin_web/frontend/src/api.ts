@@ -599,9 +599,199 @@ export interface GKPromptTesterStats {
   }>;
 }
 
+export interface RAGCorpusStatsResponse {
+  documents: {
+    total: number;
+    active: number;
+    archived: number;
+    deleted: number;
+    last_updated_at: string | null;
+    by_source_type: Record<string, number>;
+  };
+  chunks: {
+    total: number;
+    avg_per_document: number;
+    max_per_document: number;
+    last_created_at: string | null;
+  };
+  summaries: {
+    total: number;
+    with_model_name: number;
+    last_updated_at: string | null;
+  };
+  chunk_embeddings: {
+    total: number;
+    ready: number;
+    failed: number;
+    stale: number;
+    last_updated_at: string | null;
+  };
+  summary_embeddings: {
+    total: number;
+    ready: number;
+    failed: number;
+    stale: number;
+    last_updated_at: string | null;
+  };
+  query_log: {
+    total: number;
+    cache_hits: number;
+    cache_hit_ratio: number;
+    last_24h: number;
+    last_7d: number;
+    unique_users: number;
+    last_query_at: string | null;
+  };
+  corpus_version: {
+    total_versions: number;
+    last_reason: string | null;
+    last_created_at: string | null;
+  };
+}
+
+export interface RAGDocumentListItem {
+  id: number;
+  filename: string;
+  source_type: string;
+  source_url: string | null;
+  uploaded_by: number;
+  status: 'active' | 'archived' | 'deleted';
+  content_hash: string;
+  created_at: string | null;
+  updated_at: string | null;
+  chunk_count: number;
+  has_summary: boolean;
+  summary_model_name: string | null;
+  summary_updated_at: string | null;
+  chunk_embeddings: {
+    ready: number;
+    failed: number;
+    stale: number;
+  };
+  summary_embeddings: {
+    ready: number;
+    failed: number;
+    stale: number;
+  };
+}
+
+export interface RAGDocumentsResponse {
+  items: RAGDocumentListItem[];
+  page: number;
+  page_size: number;
+  total: number;
+  stats: {
+    documents_total: number;
+    status_counts: {
+      active: number;
+      archived: number;
+      deleted: number;
+    };
+    source_type_counts: Record<string, number>;
+    total_chunks: number;
+    avg_chunks_per_document: number;
+    documents_with_summary: number;
+    chunk_embeddings: {
+      ready: number;
+      failed: number;
+      stale: number;
+    };
+    summary_embeddings: {
+      ready: number;
+      failed: number;
+      stale: number;
+    };
+    last_document_updated_at: string | null;
+  };
+  filters: {
+    q: string | null;
+    status: string | null;
+    source_type: string | null;
+    has_summary: boolean | null;
+    sort_by: string;
+    sort_order: 'asc' | 'desc';
+  };
+}
+
 export interface GKSupportedModelsResponse {
   models: string[];
   default_model: string | null;
+}
+
+export interface GKLLMSettingsResponse {
+  text_provider: string;
+  text_provider_options: string[];
+  text_model_options_by_provider: Record<string, string[]>;
+  text_models: {
+    analysis: string;
+    responder: string;
+    question_detection: string;
+    terms_scan: string;
+  };
+  image_provider: string;
+  image_provider_options: string[];
+  image_model_options_by_provider: Record<string, string[]>;
+  image_model: string;
+  main_settings: {
+    responder: {
+      confidence_threshold: number;
+      top_k: number;
+      temperature: number;
+      include_llm_inferred_answers: boolean;
+      exclude_low_tier_from_llm_context: boolean;
+    };
+    analysis: {
+      question_confidence_threshold: number;
+      temperature: number;
+      question_detection_temperature: number;
+      generate_llm_inferred_qa_pairs: boolean;
+    };
+    terms: {
+      acronyms_max_prompt_terms: number;
+      scan_temperature: number;
+    };
+    search: {
+      hybrid_enabled: boolean;
+      relevance_hints_enabled: boolean;
+      candidates_per_method: number;
+    };
+  };
+}
+
+export interface GKLLMSettingsUpdateRequest {
+  text_provider?: string;
+  text_models?: Partial<{
+    analysis: string;
+    responder: string;
+    question_detection: string;
+    terms_scan: string;
+  }>;
+  image_provider?: string;
+  image_model?: string;
+  main_settings?: Partial<{
+    responder: Partial<{
+      confidence_threshold: number;
+      top_k: number;
+      temperature: number;
+      include_llm_inferred_answers: boolean;
+      exclude_low_tier_from_llm_context: boolean;
+    }>;
+    analysis: Partial<{
+      question_confidence_threshold: number;
+      temperature: number;
+      question_detection_temperature: number;
+      generate_llm_inferred_qa_pairs: boolean;
+    }>;
+    terms: Partial<{
+      acronyms_max_prompt_terms: number;
+      scan_temperature: number;
+    }>;
+    search: Partial<{
+      hybrid_enabled: boolean;
+      relevance_hints_enabled: boolean;
+      candidates_per_method: number;
+    }>;
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -627,6 +817,7 @@ export interface GKSearchAnswerPreview {
   raw_answer_text: string | null;
   final_answer_text: string | null;
   confidence: number | null;
+  confidence_reason: string | null;
   would_send: boolean;
   threshold: number;
   primary_source_link: string | null;
@@ -1037,11 +1228,33 @@ export const api = {
     request<Array<{ id: number; prompt_id: number; prompt_label: string; generated_text: string; generated_at: string }>>(`/api/gk-knowledge/prompt-tester/sessions/${sessionId}/generations`),
 
   // GK Knowledge — Search
-  gkSearch: (query: string, topK: number = 10, groupId?: number) =>
-    request<GKSearchResponse>(
+  gkSearch: (
+    query: string,
+    topK: number = 10,
+    groupId?: number,
+    model?: string,
+    image?: File,
+    temperature?: number,
+  ) => {
+    const body = new FormData();
+    body.append('query', query);
+    body.append('top_k', String(topK));
+    if (groupId != null) body.append('group_id', String(groupId));
+    if (model) body.append('model', model);
+    if (image) body.append('image', image);
+    if (typeof temperature === 'number') body.append('temperature', String(temperature));
+
+    return request<GKSearchResponse>(
       '/api/gk-knowledge/search/query',
-      { method: 'POST', body: JSON.stringify({ query, top_k: topK, group_id: groupId ?? null }) },
-    ),
+      {
+        method: 'POST',
+        body,
+      },
+    );
+  },
+
+  gkSearchSupportedModels: () =>
+    request<GKSupportedModelsResponse>('/api/gk-knowledge/search/supported-models'),
 
   // GK Knowledge — QA Analyzer Sandbox
   gkQAAnalyzerSearch: (query: string, groupId?: number, limit: number = 50) => {
@@ -1066,6 +1279,45 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  // GK Knowledge — LLM settings
+  gkLLMSettings: () =>
+    request<GKLLMSettingsResponse>('/api/gk-knowledge/settings/llm'),
+
+  gkUpdateLLMSettings: (data: GKLLMSettingsUpdateRequest) =>
+    request<{ message: string; updated_keys: string[] }>('/api/gk-knowledge/settings/llm', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  // RAG — corpus stats
+  gkRAGCorpusStats: () =>
+    request<RAGCorpusStatsResponse>('/api/gk-knowledge/rag/corpus-stats'),
+
+  gkRAGDocuments: (params?: {
+    page?: number;
+    page_size?: number;
+    q?: string | null;
+    status?: 'active' | 'archived' | 'deleted' | null;
+    source_type?: string | null;
+    has_summary?: boolean | null;
+    sort_by?: 'updated_at' | 'created_at' | 'filename' | 'status' | 'source_type' | 'chunks' | 'chunk_embeddings_ready' | 'summary_embeddings_ready';
+    sort_order?: 'asc' | 'desc';
+  }) => {
+    const search = new URLSearchParams();
+    if (params?.page != null) search.set('page', String(params.page));
+    if (params?.page_size != null) search.set('page_size', String(params.page_size));
+    if (params?.q && params.q.trim()) search.set('q', params.q.trim());
+    if (params?.status) search.set('status', params.status);
+    if (params?.source_type && params.source_type.trim()) search.set('source_type', params.source_type.trim());
+    if (params?.has_summary != null) search.set('has_summary', String(params.has_summary));
+    if (params?.sort_by) search.set('sort_by', params.sort_by);
+    if (params?.sort_order) search.set('sort_order', params.sort_order);
+
+    const query = search.toString();
+    const path = query ? `/api/gk-knowledge/rag/documents?${query}` : '/api/gk-knowledge/rag/documents';
+    return request<RAGDocumentsResponse>(path);
+  },
 
   // Admin: Roles
   listRoles: () =>

@@ -385,7 +385,12 @@ class TestGKKnowledgeModule(unittest.TestCase):
         from admin_web.modules.gk_knowledge.module import GKKnowledgeModule
 
         mod = GKKnowledgeModule()
-        router = mod.get_router()
+        try:
+            router = mod.get_router()
+        except RuntimeError as exc:
+            if "python-multipart" in str(exc):
+                self.skipTest("python-multipart не установлен в текущем окружении")
+            raise
         route_paths = [route.path for route in router.routes]
         # Подроутеры присоединены как sub-router — в пути входят их маршруты.
         # Проверяем ключевые маршруты.
@@ -409,6 +414,10 @@ class TestGKKnowledgeModule(unittest.TestCase):
             any("/search" in p for p in route_paths),
             f"'/search' не найден в маршрутах: {route_paths}"
         )
+        self.assertTrue(
+            any("/settings" in p for p in route_paths),
+            f"'/settings' не найден в маршрутах: {route_paths}"
+        )
 
 
 @unittest.skipUnless(_HAS_FASTAPI, "FastAPI не установлен")
@@ -420,9 +429,11 @@ class TestGKPromptTesterHelpers(unittest.TestCase):
         from admin_web.modules.gk_knowledge import router as gk_router
 
         with patch.object(gk_router.ai_settings, "ALLOWED_DEEPSEEK_MODELS", ("deepseek-chat", "deepseek-reasoner")):
-            with patch.object(gk_router.ai_settings, "GK_RESPONDER_MODEL", "deepseek-chat"):
-                with patch.object(gk_router.ai_settings, "GK_ANALYSIS_MODEL", "deepseek-reasoner"):
-                    models = gk_router.get_supported_deepseek_models()
+            with patch.object(gk_router.ai_settings, "get_active_gk_responder_model", return_value="deepseek-chat"):
+                with patch.object(gk_router.ai_settings, "get_active_gk_analysis_model", return_value="deepseek-reasoner"):
+                    with patch.object(gk_router.ai_settings, "get_active_gk_question_detection_model", return_value="deepseek-chat"):
+                        with patch.object(gk_router.ai_settings, "get_active_gk_terms_scan_model", return_value="deepseek-reasoner"):
+                            models = gk_router.get_supported_deepseek_models()
 
         self.assertEqual(models, ["deepseek-chat", "deepseek-reasoner"])
 
@@ -431,11 +442,16 @@ class TestGKPromptTesterHelpers(unittest.TestCase):
         from admin_web.modules.gk_knowledge import router as gk_router
 
         with patch.object(gk_router.ai_settings, "ALLOWED_DEEPSEEK_MODELS", ("deepseek-chat",)):
-            with patch.object(gk_router.ai_settings, "GK_RESPONDER_MODEL", "deepseek-custom-a"):
-                with patch.object(gk_router.ai_settings, "GK_ANALYSIS_MODEL", "deepseek-custom-b"):
-                    models = gk_router.get_supported_deepseek_models()
+            with patch.object(gk_router.ai_settings, "get_active_gk_responder_model", return_value="deepseek-custom-a"):
+                with patch.object(gk_router.ai_settings, "get_active_gk_analysis_model", return_value="deepseek-custom-b"):
+                    with patch.object(gk_router.ai_settings, "get_active_gk_question_detection_model", return_value="deepseek-custom-a"):
+                        with patch.object(gk_router.ai_settings, "get_active_gk_terms_scan_model", return_value="deepseek-custom-c"):
+                            models = gk_router.get_supported_deepseek_models()
 
-        self.assertEqual(models, ["deepseek-chat", "deepseek-custom-a", "deepseek-custom-b"])
+        self.assertEqual(
+            models,
+            ["deepseek-chat", "deepseek-custom-a", "deepseek-custom-b", "deepseek-custom-c"],
+        )
 
     def test_render_user_prompt_with_placeholders(self):
         """Плейсхолдеры корректно подставляются в user_prompt."""
@@ -793,6 +809,7 @@ class TestGKSearchService(unittest.TestCase):
         fake_service.answer_question_from_pairs = AsyncMock(return_value={
             "answer": "Перезагрузите терминал и обновите конфиг",
             "confidence": 0.91,
+            "confidence_reason": "Найдено точное совпадение с подтверждённой парой",
             "primary_source_link": "https://t.me/c/1234567890/555",
             "source_pair_ids": [15],
             "source_message_links": ["https://t.me/c/1234567890/555"],
@@ -805,7 +822,11 @@ class TestGKSearchService(unittest.TestCase):
         with patch("src.group_knowledge.qa_search.QASearchService", return_value=fake_service):
             with patch.object(search_service.ai_settings, "GK_HYBRID_ENABLED", True):
                 with patch.object(search_service.ai_settings, "GK_SEARCH_CANDIDATES_PER_METHOD", 10):
-                    with patch.object(search_service.ai_settings, "GK_RESPONDER_CONFIDENCE_THRESHOLD", 0.8):
+                    with patch.object(
+                        search_service.ai_settings,
+                        "get_active_gk_responder_confidence_threshold",
+                        return_value=0.8,
+                    ):
                         result = _run_async(search_service.hybrid_search_with_answer("ошибка 1001", top_k=5))
 
         self.assertEqual(len(result["results"]), 1)
@@ -813,6 +834,10 @@ class TestGKSearchService(unittest.TestCase):
         self.assertIn("progress_stages", result)
         self.assertGreaterEqual(len(result["progress_stages"]), 3)
         self.assertEqual(result["progress_stages"][-1]["status"], "done")
+        self.assertEqual(
+            result["answer_preview"]["confidence_reason"],
+            "Найдено точное совпадение с подтверждённой парой",
+        )
         self.assertEqual(
             result["answer_preview"]["final_answer_text"],
             "**Отвечает Арчи**: Перезагрузите терминал и обновите конфиг\n\n"

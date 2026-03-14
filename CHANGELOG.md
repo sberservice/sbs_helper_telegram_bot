@@ -5,6 +5,70 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.95] - 2026-03-14
+
+## [0.10.96] - 2026-03-14
+
+### Added
+- `admin_web/modules/gk_knowledge/router.py`, `admin_web/frontend/src/api.ts`, `admin_web/frontend/src/pages/RagPage.tsx`, `admin_web/frontend/src/pages/rag_tabs/RagStatsTab.tsx`: в разделе RAG добавлен подпункт «Статистика» с метриками корпуса (документы, чанки, summary, эмбеддинги, лог запросов, версии корпуса) и ручным обновлением.
+- `admin_web/modules/gk_knowledge/router.py`, `admin_web/frontend/src/api.ts`, `admin_web/frontend/src/pages/RagPage.tsx`, `admin_web/frontend/src/pages/rag_tabs/RagDocumentsTab.tsx`: в разделе RAG добавлен подпункт «Документы» со списком документов из БД, агрегированной статистикой по отфильтрованной выборке, поиском, фильтрами, сортировкой и пагинацией.
+- `admin_web/frontend/src/pages/HelperPage.tsx`, `admin_web/frontend/src/App.tsx`: добавлена отдельная top-level страница The Helper с подменю «Настройки групп».
+
+### Changed
+- `admin_web/frontend/src/pages/gk_tabs/SettingsTab.tsx`: пояснения к параметрам GK Settings переведены в inline-формат (текст в скобках рядом с названием) для всех настроек.
+- `admin_web/frontend/src/pages/ProcessManagerPage.tsx`, `admin_web/frontend/src/index.css`: в обзоре процессов добавлены компактные quick actions запуска/остановки (иконки) с inline-подтверждением; улучшены выравнивание и отображение бейджей статуса; время работы показывается в минутах/часах/днях.
+- `admin_web/frontend/src/pages/GKKnowledgePage.tsx`, `admin_web/frontend/src/pages/RagPage.tsx`, `admin_web/frontend/src/pages/DashboardPage.tsx`: Prompt Tester перенесён из GK в отдельный раздел RAG верхнего меню, дашборд синхронизирован со структурой верхней навигации.
+
+### Fixed
+- `src/group_knowledge/qa_search.py`, `config/ai_settings.py`: в GK BM25 внедрён IDF dampening common-токенов по аналогии с RAG с расширенной диагностикой влияния dampening на ранжирование.
+- `admin_web/modules/gk_knowledge/router.py`, `admin_web/frontend/src/api.ts`, `admin_web/frontend/src/pages/gk_tabs/SettingsTab.tsx`, `config/ai_settings.py`: добавлены и подключены runtime-настройки температур GK (responder/analysis/question-detection/terms) с валидацией и безопасными fallback.
+
+## [0.10.95] - 2026-03-14
+
+### Fixed
+- `src/group_knowledge/qa_search.py`: восстановлена корректная работа spellcheck для запросов из поисковой песочницы с изображениями — опечатки теперь исправляются по пользовательской части запроса до image-gist, а не по всей объединённой строке.
+- `src/group_knowledge/qa_search.py`: LLM fallback spellcheck закреплён на `deepseek`, чтобы не зависеть от runtime-переключения текстового провайдера в GK Settings.
+
+## [0.10.94] - 2026-03-14
+
+### Added
+- `admin_web/frontend/src/pages/gk_tabs/SearchTab.tsx`, `admin_web/frontend/src/api.ts`, `admin_web/modules/gk_knowledge/router.py`, `admin_web/modules/gk_knowledge/search_service.py`, `src/group_knowledge/qa_search.py`: в песочнице поиска добавлен параметр `temperature` с прокидкой до LLM-генерации ответа.
+
+### Fixed
+- `admin_web/modules/gk_knowledge/router.py`: исправлено распознавание загруженного изображения в multipart-запросе (`image` теперь корректно принимается и отправляется на vision-описание), добавлены диагностические логи по этапам обработки изображения.
+
+### Changed
+- `admin_web/README.md`: документация песочницы поиска обновлена (модель + температура + изображение).
+
+## [0.10.93] - 2026-03-14
+
+### Added
+- `admin_web/modules/gk_knowledge/router.py`, `admin_web/frontend/src/pages/gk_tabs/SettingsTab.tsx`, `admin_web/frontend/src/api.ts`: в GK Settings добавлен runtime-параметр `acronyms_max_prompt_terms` для управления количеством группо-специфичных аббревиатур, передаваемых в LLM-промпт.
+
+### Changed
+- `config/ai_settings.py`, `src/group_knowledge/qa_analyzer.py`, `src/group_knowledge/qa_search.py`: лимит `GK_ACRONYMS_MAX_PROMPT_TERMS` переведён на runtime-accessor через `app_settings` с безопасным fallback к env.
+- `src/group_knowledge/README.md`, `admin_web/README.md`, `tests/test_ai_settings_gk_runtime.py`: обновлены документация и тесты под новый runtime-override.
+
+## [0.10.92] - 2026-03-14
+
+### Fixed
+- `src/group_knowledge/qa_analyzer.py`, `src/group_knowledge/qa_search.py`, `src/group_knowledge/acronyms.py`: секция «ВОЗМОЖНЫЕ АББРЕВИАТУРЫ» в промптах теперь выводится по `message_count` по убыванию после дедупликации (вместо алфавитного порядка).
+- `tests/test_gk_terms.py`: добавлены регрессионные проверки порядка вывода аббревиатур по `message_count DESC` для `QASearchService` и `QAAnalyzer`.
+
+## [0.10.91] - 2026-03-14
+
+### Added
+- `admin_web/modules/gk_knowledge/router.py`, `admin_web/frontend/src/pages/gk_tabs/SettingsTab.tsx`, `admin_web/frontend/src/api.ts`: добавлена новая вкладка «Настройки» в Group Knowledge с endpoint'ами `GET/PUT /api/gk-knowledge/settings/llm` для runtime-управления провайдерами и моделями (analysis/responder/question-detection/terms/image).
+- `config/ai_settings.py`: добавлены accessor-функции и ключи `app_settings` для runtime override GK-провайдера и моделей.
+- `src/common/app_settings.py` и `sql/app_settings_setup.sql`: добавлен отдельный слой и таблица хранения общепроектных runtime-настроек вне `bot_settings`.
+- `tests/test_ai_settings_gk_runtime.py`: добавлены тесты для новых runtime-accessor'ов GK-настроек.
+
+### Changed
+- `src/group_knowledge/qa_analyzer.py`, `src/group_knowledge/qa_search.py`, `src/group_knowledge/question_classifier.py`, `src/group_knowledge/term_miner.py`: перевод на runtime-конфигурируемый GK text-provider/model с безопасным fallback на `deepseek`.
+- `src/group_knowledge/image_processor.py` и `admin_web/modules/gk_knowledge/router.py`: обработка изображений и image prompt tester теперь используют runtime-настройки vision-provider/model с fallback на `gigachat`.
+- `src/core/ai/llm_provider.py`: добавлены helper-функции introspection (`list_registered_provider_names`, `is_provider_registered`, `get_provider_class`) для расширяемого выбора провайдеров.
+- `admin_web/frontend/src/pages/GKKnowledgePage.tsx`, `admin_web/README.md`, `src/group_knowledge/README.md`, `tests/test_admin_web.py`: обновлены табы/документация/тесты под новую вкладку и API настроек.
+
 ## [0.10.90] - 2026-03-14
 
 ### Added

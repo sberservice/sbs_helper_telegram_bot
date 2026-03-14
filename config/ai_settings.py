@@ -448,6 +448,21 @@ def _safe_get_setting(setting_key: str) -> str | None:
     return value
 
 
+def _safe_get_app_setting(setting_key: str) -> str | None:
+    """Безопасно прочитать значение настройки из app_settings по ключу."""
+    try:
+        from src.common import app_settings
+    except ImportError:
+        return None
+
+    try:
+        value = app_settings.get_setting(setting_key)
+    except Exception:
+        value = None
+
+    return value
+
+
 def get_active_deepseek_model_for_classification() -> str:
     """
     Получить активную модель DeepSeek для классификации intent.
@@ -644,6 +659,38 @@ GIGACHAT_MAX_RETRIES: Final[int] = int(os.getenv("GIGACHAT_MAX_RETRIES", "2"))
 # Настройки Group Knowledge (майнинг знаний)
 # =============================================
 
+# Провайдер текстовых LLM-задач Group Knowledge (анализатор, автоответчик и т.д.).
+GK_TEXT_PROVIDER: Final[str] = os.getenv("GK_TEXT_PROVIDER", "deepseek")
+# Провайдер vision-задач Group Knowledge (описание изображений).
+GK_IMAGE_PROVIDER: Final[str] = os.getenv("GK_IMAGE_PROVIDER", "gigachat")
+
+# Ключи runtime-настроек GK в app_settings.
+GK_TEXT_PROVIDER_SETTING_KEY: Final[str] = "gk_text_provider"
+GK_IMAGE_PROVIDER_SETTING_KEY: Final[str] = "gk_image_provider"
+GK_ANALYSIS_MODEL_SETTING_KEY: Final[str] = "gk_analysis_model"
+GK_RESPONDER_MODEL_SETTING_KEY: Final[str] = "gk_responder_model"
+GK_QUESTION_DETECTION_MODEL_SETTING_KEY: Final[str] = "gk_question_detection_model"
+GK_TERMS_SCAN_MODEL_SETTING_KEY: Final[str] = "gk_terms_scan_model"
+GK_IMAGE_DESCRIPTION_MODEL_SETTING_KEY: Final[str] = "gk_image_description_model"
+GK_RESPONDER_CONFIDENCE_THRESHOLD_SETTING_KEY: Final[str] = "gk_responder_confidence_threshold"
+GK_RESPONDER_TOP_K_SETTING_KEY: Final[str] = "gk_responder_top_k"
+GK_RESPONDER_TEMPERATURE_SETTING_KEY: Final[str] = "gk_responder_temperature"
+GK_INCLUDE_LLM_INFERRED_ANSWERS_SETTING_KEY: Final[str] = "gk_include_llm_inferred_answers"
+GK_EXCLUDE_LOW_TIER_FROM_LLM_CONTEXT_SETTING_KEY: Final[str] = "gk_exclude_low_tier_from_llm_context"
+GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD_SETTING_KEY: Final[str] = (
+    "gk_analysis_question_confidence_threshold"
+)
+GK_ANALYSIS_TEMPERATURE_SETTING_KEY: Final[str] = "gk_analysis_temperature"
+GK_QUESTION_DETECTION_TEMPERATURE_SETTING_KEY: Final[str] = "gk_question_detection_temperature"
+GK_GENERATE_LLM_INFERRED_QA_PAIRS_SETTING_KEY: Final[str] = "gk_generate_llm_inferred_qa_pairs"
+GK_HYBRID_ENABLED_SETTING_KEY: Final[str] = "gk_hybrid_enabled"
+GK_RELEVANCE_HINTS_ENABLED_SETTING_KEY: Final[str] = "gk_relevance_hints_enabled"
+GK_SEARCH_CANDIDATES_PER_METHOD_SETTING_KEY: Final[str] = "gk_search_candidates_per_method"
+GK_ACRONYMS_MAX_PROMPT_TERMS_SETTING_KEY: Final[str] = "gk_acronyms_max_prompt_terms"
+GK_TERMS_SCAN_TEMPERATURE_SETTING_KEY: Final[str] = "gk_terms_scan_temperature"
+GK_BM25_IDF_DAMPEN_RATIO_SETTING_KEY: Final[str] = "gk_bm25_idf_dampen_ratio"
+GK_BM25_IDF_DAMPEN_FACTOR_SETTING_KEY: Final[str] = "gk_bm25_idf_dampen_factor"
+
 # Путь к хранилищу изображений из групп.
 GK_IMAGE_STORAGE_PATH: Final[str] = os.getenv("GK_IMAGE_STORAGE_PATH", "./data/group_knowledge/images")
 # Модель для описания изображений (GigaChat vision).
@@ -664,6 +711,10 @@ GK_DRY_RUN: Final[bool] = os.getenv("GK_DRY_RUN", "1") == "1"
 GK_RESPONDER_CONFIDENCE_THRESHOLD: Final[float] = float(
     os.getenv("GK_RESPONDER_CONFIDENCE_THRESHOLD", "0.7") #was 0.9
 )
+# Температура генерации ответов автоответчика GK (0..2).
+GK_RESPONDER_TEMPERATURE: Final[float] = float(
+    os.getenv("GK_RESPONDER_TEMPERATURE", "0.4")
+)
 # Минимальный confidence термина-аббревиатуры для включения в acronyms_section
 # в GK-поиске и QAAnalyzer (если термин не имеет статуса approved).
 GK_ACRONYMS_MIN_CONFIDENCE: Final[float] = float(
@@ -678,6 +729,14 @@ GK_ANALYSIS_BATCH_SIZE: Final[int] = int(os.getenv("GK_ANALYSIS_BATCH_SIZE", "50
 # Порог уверенности question-классификатора, после которого сообщение считается явным вопросом в thread-анализе.
 GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD: Final[float] = float(
     os.getenv("GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD", "0.90")
+)
+# Температура LLM-анализатора для thread-validation и LLM-inferred extraction (0..2).
+GK_ANALYSIS_TEMPERATURE: Final[float] = float(
+    os.getenv("GK_ANALYSIS_TEMPERATURE", "0.2")
+)
+# Температура классификатора вопрос/не вопрос в GK (0..2).
+GK_QUESTION_DETECTION_TEMPERATURE: Final[float] = float(
+    os.getenv("GK_QUESTION_DETECTION_TEMPERATURE", "0.1")
 )
 # Добавлять ли gist изображения в текст вопроса только для RAG-слоя (индексация/поиск),
 # не изменяя сохраняемый question_text в БД.
@@ -730,6 +789,17 @@ GK_HYBRID_ENABLED: Final[bool] = os.getenv("GK_HYBRID_ENABLED", "1") == "1"
 GK_BM25_K1: Final[float] = float(os.getenv("GK_BM25_K1", "1.5"))
 # Параметр b для BM25 (управляет нормализацией длины документа).
 GK_BM25_B: Final[float] = float(os.getenv("GK_BM25_B", "0.75"))
+# Порог IDF-dampening для query-токенов GK BM25 (0..1).
+# Токены, встречающиеся более чем в этой доле документов корпуса,
+# считаются common и подавляются в итоговом запросе BM25.
+GK_BM25_IDF_DAMPEN_RATIO: Final[float] = float(
+    os.getenv("GK_BM25_IDF_DAMPEN_RATIO", "0.8")
+)
+# Множитель подавления common-токенов (0..1):
+# чем меньше значение, тем сильнее относительный буст редких токенов.
+GK_BM25_IDF_DAMPEN_FACTOR: Final[float] = float(
+    os.getenv("GK_BM25_IDF_DAMPEN_FACTOR", "0.1")
+)
 # Константа k для Reciprocal Rank Fusion (стандартное значение по Cormack et al.).
 GK_RRF_K: Final[int] = int(os.getenv("GK_RRF_K", "60"))
 # Включить Russian normalization (лемматизация/стемминг) для токенизации GK.
@@ -758,7 +828,7 @@ GK_SPELLCHECK_MAX_EDIT_DISTANCE: Final[int] = int(os.getenv("GK_SPELLCHECK_MAX_E
 # Минимальная длина токена, при которой он подвергается проверке.
 GK_SPELLCHECK_MIN_TOKEN_LENGTH: Final[int] = int(os.getenv("GK_SPELLCHECK_MIN_TOKEN_LENGTH", "4"))
 # Включить LLM-fallback при высоком проценте подозрительных неисправленных токенов.
-GK_SPELLCHECK_LLM_FALLBACK_ENABLED: Final[bool] = os.getenv("GK_SPELLCHECK_LLM_FALLBACK_ENABLED", "0") == "1"
+GK_SPELLCHECK_LLM_FALLBACK_ENABLED: Final[bool] = os.getenv("GK_SPELLCHECK_LLM_FALLBACK_ENABLED", "1") == "1"
 # Доля подозрительных неисправленных токенов, при которой вызывается LLM fallback (0.0–1.0).
 GK_SPELLCHECK_LLM_FALLBACK_THRESHOLD: Final[float] = float(os.getenv("GK_SPELLCHECK_LLM_FALLBACK_THRESHOLD", "0.5"))
 # Максимальная длина текста запроса для LLM-fallback (символы).
@@ -775,6 +845,10 @@ GK_TERMS_CACHE_TTL_SECONDS: Final[int] = int(os.getenv("GK_TERMS_CACHE_TTL_SECON
 GK_TERMS_SCAN_BATCH_SIZE: Final[int] = int(os.getenv("GK_TERMS_SCAN_BATCH_SIZE", "100"))
 # Модель для сканирования терминов (по умолчанию = GK_ANALYSIS_MODEL).
 GK_TERMS_SCAN_MODEL: Final[str] = os.getenv("GK_TERMS_SCAN_MODEL", GK_ANALYSIS_MODEL)
+# Температура сканирования терминов/аббревиатур в GK (0..2).
+GK_TERMS_SCAN_TEMPERATURE: Final[float] = float(
+    os.getenv("GK_TERMS_SCAN_TEMPERATURE", "0.2")
+)
 # Максимальное число аббревиатур (терминов с расшифровкой), включаемых
 # в секцию «ВОЗМОЖНЫЕ АББРЕВИАТУРЫ» промпта. Глобальные термины (group_id=0)
 # не учитываются в этом лимите и включаются всегда.
@@ -782,4 +856,260 @@ GK_TERMS_SCAN_MODEL: Final[str] = os.getenv("GK_TERMS_SCAN_MODEL", GK_ANALYSIS_M
 GK_ACRONYMS_MAX_PROMPT_TERMS: Final[int] = int(os.getenv("GK_ACRONYMS_MAX_PROMPT_TERMS", "50"))
 # Размер батча сообщений при пересчёте message_count терминов.
 GK_TERMS_RECOUNT_BATCH_SIZE: Final[int] = int(os.getenv("GK_TERMS_RECOUNT_BATCH_SIZE", "5000"))
+
+
+def _normalize_nonempty_setting(value: str | None, fallback: str) -> str:
+    """Нормализовать строковую настройку и вернуть fallback при пустом значении."""
+    normalized = str(value or "").strip()
+    if normalized:
+        return normalized
+    return str(fallback or "").strip()
+
+
+def _normalize_bool_setting(value: str | None, fallback: bool) -> bool:
+    """Нормализовать булеву настройку из строки с fallback."""
+    if value is None:
+        return bool(fallback)
+
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return bool(fallback)
+
+
+def _normalize_int_setting(
+    value: str | None,
+    fallback: int,
+    *,
+    min_value: int | None = None,
+    max_value: int | None = None,
+) -> int:
+    """Нормализовать целочисленную настройку из строки с границами."""
+    try:
+        parsed = int(str(value).strip()) if value is not None else int(fallback)
+    except (TypeError, ValueError):
+        parsed = int(fallback)
+
+    if min_value is not None:
+        parsed = max(min_value, parsed)
+    if max_value is not None:
+        parsed = min(max_value, parsed)
+    return parsed
+
+
+def _normalize_float_setting(
+    value: str | None,
+    fallback: float,
+    *,
+    min_value: float | None = None,
+    max_value: float | None = None,
+) -> float:
+    """Нормализовать float-настройку из строки с границами."""
+    try:
+        parsed = float(str(value).strip()) if value is not None else float(fallback)
+    except (TypeError, ValueError):
+        parsed = float(fallback)
+
+    if min_value is not None:
+        parsed = max(min_value, parsed)
+    if max_value is not None:
+        parsed = min(max_value, parsed)
+    return parsed
+
+
+def get_active_gk_text_provider() -> str:
+    """Получить активный текстовый LLM-провайдер для Group Knowledge."""
+    db_value = _safe_get_app_setting(GK_TEXT_PROVIDER_SETTING_KEY)
+    return _normalize_nonempty_setting(db_value, GK_TEXT_PROVIDER)
+
+
+def get_active_gk_image_provider() -> str:
+    """Получить активный vision-провайдер для Group Knowledge."""
+    db_value = _safe_get_app_setting(GK_IMAGE_PROVIDER_SETTING_KEY)
+    return _normalize_nonempty_setting(db_value, GK_IMAGE_PROVIDER)
+
+
+def get_active_gk_analysis_model() -> str:
+    """Получить активную модель анализатора Q&A Group Knowledge."""
+    db_value = _safe_get_app_setting(GK_ANALYSIS_MODEL_SETTING_KEY)
+    return _normalize_nonempty_setting(db_value, GK_ANALYSIS_MODEL)
+
+
+def get_active_gk_responder_model() -> str:
+    """Получить активную модель автоответчика Group Knowledge."""
+    db_value = _safe_get_app_setting(GK_RESPONDER_MODEL_SETTING_KEY)
+    return _normalize_nonempty_setting(db_value, GK_RESPONDER_MODEL)
+
+
+def get_active_gk_question_detection_model() -> str:
+    """Получить активную модель классификатора вопрос/не вопрос в Group Knowledge."""
+    db_value = _safe_get_app_setting(GK_QUESTION_DETECTION_MODEL_SETTING_KEY)
+    return _normalize_nonempty_setting(db_value, GK_QUESTION_DETECTION_MODEL)
+
+
+def get_active_gk_terms_scan_model() -> str:
+    """Получить активную модель сканирования терминов Group Knowledge."""
+    db_value = _safe_get_app_setting(GK_TERMS_SCAN_MODEL_SETTING_KEY)
+    return _normalize_nonempty_setting(db_value, GK_TERMS_SCAN_MODEL)
+
+
+def get_active_gk_image_description_model() -> str:
+    """Получить активную модель описания изображений Group Knowledge."""
+    db_value = _safe_get_app_setting(GK_IMAGE_DESCRIPTION_MODEL_SETTING_KEY)
+    return _normalize_nonempty_setting(db_value, GK_IMAGE_DESCRIPTION_MODEL)
+
+
+def get_active_gk_responder_confidence_threshold() -> float:
+    """Получить активный порог confidence для автоответчика GK."""
+    db_value = _safe_get_app_setting(GK_RESPONDER_CONFIDENCE_THRESHOLD_SETTING_KEY)
+    return _normalize_float_setting(
+        db_value,
+        GK_RESPONDER_CONFIDENCE_THRESHOLD,
+        min_value=0.0,
+        max_value=1.0,
+    )
+
+
+def get_active_gk_responder_top_k() -> int:
+    """Получить активный top-k для контекста ответа GK."""
+    db_value = _safe_get_app_setting(GK_RESPONDER_TOP_K_SETTING_KEY)
+    return _normalize_int_setting(
+        db_value,
+        GK_RESPONDER_TOP_K,
+        min_value=1,
+        max_value=100,
+    )
+
+
+def get_active_gk_responder_temperature() -> float:
+    """Получить активную температуру генерации ответа автоответчика GK."""
+    db_value = _safe_get_app_setting(GK_RESPONDER_TEMPERATURE_SETTING_KEY)
+    return _normalize_float_setting(
+        db_value,
+        GK_RESPONDER_TEMPERATURE,
+        min_value=0.0,
+        max_value=2.0,
+    )
+
+
+def get_active_gk_include_llm_inferred_answers() -> bool:
+    """Определить, включать ли llm_inferred пары в поиск ответов GK."""
+    db_value = _safe_get_app_setting(GK_INCLUDE_LLM_INFERRED_ANSWERS_SETTING_KEY)
+    return _normalize_bool_setting(db_value, GK_INCLUDE_LLM_INFERRED_ANSWERS)
+
+
+def get_active_gk_exclude_low_tier_from_llm_context() -> bool:
+    """Определить, исключать ли пары tier=низкая из LLM-контекста GK."""
+    db_value = _safe_get_app_setting(GK_EXCLUDE_LOW_TIER_FROM_LLM_CONTEXT_SETTING_KEY)
+    return _normalize_bool_setting(db_value, GK_EXCLUDE_LOW_TIER_FROM_LLM_CONTEXT)
+
+
+def get_active_gk_analysis_question_confidence_threshold() -> float:
+    """Получить активный порог QUESTION_HINT для thread-анализа GK."""
+    db_value = _safe_get_app_setting(
+        GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD_SETTING_KEY,
+    )
+    return _normalize_float_setting(
+        db_value,
+        GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD,
+        min_value=0.0,
+        max_value=1.0,
+    )
+
+
+def get_active_gk_analysis_temperature() -> float:
+    """Получить активную температуру LLM-анализатора Group Knowledge."""
+    db_value = _safe_get_app_setting(GK_ANALYSIS_TEMPERATURE_SETTING_KEY)
+    return _normalize_float_setting(
+        db_value,
+        GK_ANALYSIS_TEMPERATURE,
+        min_value=0.0,
+        max_value=2.0,
+    )
+
+
+def get_active_gk_question_detection_temperature() -> float:
+    """Получить активную температуру классификатора вопрос/не вопрос в GK."""
+    db_value = _safe_get_app_setting(GK_QUESTION_DETECTION_TEMPERATURE_SETTING_KEY)
+    return _normalize_float_setting(
+        db_value,
+        GK_QUESTION_DETECTION_TEMPERATURE,
+        min_value=0.0,
+        max_value=2.0,
+    )
+
+
+def get_active_gk_generate_llm_inferred_qa_pairs() -> bool:
+    """Определить, генерировать ли llm_inferred Q&A-пары в анализаторе GK."""
+    db_value = _safe_get_app_setting(GK_GENERATE_LLM_INFERRED_QA_PAIRS_SETTING_KEY)
+    return _normalize_bool_setting(db_value, GK_GENERATE_LLM_INFERRED_QA_PAIRS)
+
+
+def get_active_gk_hybrid_enabled() -> bool:
+    """Определить, включён ли гибридный BM25+Vector поиск в GK."""
+    db_value = _safe_get_app_setting(GK_HYBRID_ENABLED_SETTING_KEY)
+    return _normalize_bool_setting(db_value, GK_HYBRID_ENABLED)
+
+
+def get_active_gk_relevance_hints_enabled() -> bool:
+    """Определить, включены ли relevance-подсказки для LLM в GK."""
+    db_value = _safe_get_app_setting(GK_RELEVANCE_HINTS_ENABLED_SETTING_KEY)
+    return _normalize_bool_setting(db_value, GK_RELEVANCE_HINTS_ENABLED)
+
+
+def get_active_gk_search_candidates_per_method() -> int:
+    """Получить число кандидатов на метод поиска перед RRF в GK."""
+    db_value = _safe_get_app_setting(GK_SEARCH_CANDIDATES_PER_METHOD_SETTING_KEY)
+    return _normalize_int_setting(
+        db_value,
+        GK_SEARCH_CANDIDATES_PER_METHOD,
+        min_value=1,
+        max_value=200,
+    )
+
+
+def get_active_gk_bm25_idf_dampen_ratio() -> float:
+    """Получить активный порог DF для IDF-dampening токенов в GK BM25."""
+    db_value = _safe_get_app_setting(GK_BM25_IDF_DAMPEN_RATIO_SETTING_KEY)
+    return _normalize_float_setting(
+        db_value,
+        GK_BM25_IDF_DAMPEN_RATIO,
+        min_value=0.0,
+        max_value=1.0,
+    )
+
+
+def get_active_gk_bm25_idf_dampen_factor() -> float:
+    """Получить активную силу подавления common-токенов в GK BM25."""
+    db_value = _safe_get_app_setting(GK_BM25_IDF_DAMPEN_FACTOR_SETTING_KEY)
+    return _normalize_float_setting(
+        db_value,
+        GK_BM25_IDF_DAMPEN_FACTOR,
+        min_value=0.0,
+        max_value=1.0,
+    )
+
+
+def get_active_gk_acronyms_max_prompt_terms() -> int:
+    """Получить число группо-специфичных аббревиатур для LLM-промпта GK."""
+    db_value = _safe_get_app_setting(GK_ACRONYMS_MAX_PROMPT_TERMS_SETTING_KEY)
+    return _normalize_int_setting(
+        db_value,
+        GK_ACRONYMS_MAX_PROMPT_TERMS,
+        min_value=1,
+        max_value=500,
+    )
+
+
+def get_active_gk_terms_scan_temperature() -> float:
+    """Получить активную температуру сканирования терминов Group Knowledge."""
+    db_value = _safe_get_app_setting(GK_TERMS_SCAN_TEMPERATURE_SETTING_KEY)
+    return _normalize_float_setting(
+        db_value,
+        GK_TERMS_SCAN_TEMPERATURE,
+        min_value=0.0,
+        max_value=2.0,
+    )
 

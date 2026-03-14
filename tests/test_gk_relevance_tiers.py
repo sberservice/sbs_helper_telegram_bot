@@ -104,6 +104,88 @@ class TestComputeRelevanceTiers(unittest.TestCase):
 
         self.assertEqual(pairs[0].search_relevance_tier, "высокая")
 
+
+class TestGKBm25IdfDampening(unittest.TestCase):
+    """Тесты IDF-dampening в BM25-поиске Group Knowledge."""
+
+    @patch("src.group_knowledge.qa_search.ai_settings.get_active_gk_bm25_idf_dampen_factor", return_value=0.2)
+    @patch("src.group_knowledge.qa_search.ai_settings.get_active_gk_bm25_idf_dampen_ratio", return_value=0.6)
+    def test_dampen_common_tokens_applied(self, _mock_ratio, _mock_factor):
+        """Common-токены подавляются, редкие усиливаются, диагностика отражает изменения."""
+        query_tokens = ["ккт", "ошибка"]
+        corpus_tokens = [
+            ["ккт", "проверка"],
+            ["ккт", "драйвер"],
+            ["ккт", "обновление"],
+            ["ошибка", "чек"],
+        ]
+
+        dampened_tokens, diagnostics = QASearchService._dampen_common_query_tokens(
+            query_tokens,
+            corpus_tokens,
+            return_diagnostics=True,
+        )
+
+        self.assertTrue(diagnostics["applied"])
+        self.assertEqual(diagnostics["reason"], "applied")
+        self.assertIn("ккт", diagnostics["common_tokens"])
+        self.assertIn("ошибка", diagnostics["rare_tokens"])
+        self.assertEqual(dampened_tokens.count("ккт"), 1)
+        self.assertEqual(dampened_tokens.count("ошибка"), 5)
+
+    @patch("src.group_knowledge.qa_search.ai_settings.get_active_gk_bm25_idf_dampen_factor", return_value=0.1)
+    @patch("src.group_knowledge.qa_search.ai_settings.get_active_gk_bm25_idf_dampen_ratio", return_value=0.4)
+    def test_dampen_all_tokens_common_keeps_query(self, _mock_ratio, _mock_factor):
+        """Если все токены common, запрос не меняется и фиксируется соответствующая причина."""
+        query_tokens = ["ккт", "ошибка"]
+        corpus_tokens = [
+            ["ккт", "ошибка"],
+            ["ккт", "ошибка"],
+            ["ккт", "ошибка"],
+        ]
+
+        dampened_tokens, diagnostics = QASearchService._dampen_common_query_tokens(
+            query_tokens,
+            corpus_tokens,
+            return_diagnostics=True,
+        )
+
+        self.assertEqual(dampened_tokens, query_tokens)
+        self.assertFalse(diagnostics["applied"])
+        self.assertEqual(diagnostics["reason"], "all_tokens_common")
+
+    @patch("src.group_knowledge.qa_search.ai_settings.get_active_gk_bm25_idf_dampen_factor", return_value=0.2)
+    @patch("src.group_knowledge.qa_search.ai_settings.get_active_gk_bm25_idf_dampen_ratio", return_value=0.5)
+    def test_bm25_search_logs_dampening_diagnostics(self, _mock_ratio, _mock_factor):
+        """_bm25_search вызывает детальный лог dampening и использует трансформированный query."""
+        service = QASearchService.__new__(QASearchService)
+        service._ensure_corpus_loaded = MagicMock()
+        service._corpus_pairs = [
+            _make_pair(1, question="Q1", answer="A1"),
+            _make_pair(2, question="Q2", answer="A2"),
+        ]
+        service._corpus_tokens = [
+            ["ккт", "ошибка"],
+            ["ккт", "драйвер"],
+        ]
+        service._tokenize_with_diagnostics = MagicMock(return_value={
+            "tokens": ["ккт", "ошибка"],
+            "raw_tokens_total": 2,
+            "removed_short_tokens": 0,
+            "removed_stopwords": [],
+            "removed_stopwords_count": 0,
+        })
+        service._score_corpus_bm25 = MagicMock(return_value=[1.0, 0.2])
+        service._log_idf_dampening_effect = MagicMock()
+
+        results = service._bm25_search("ошибка ккт", top_k=2)
+
+        self.assertEqual(len(results), 2)
+        service._log_idf_dampening_effect.assert_called_once()
+        call_kwargs = service._log_idf_dampening_effect.call_args.kwargs
+        self.assertEqual(call_kwargs["stage"], "gk_bm25_search")
+        self.assertIn("diagnostics", call_kwargs)
+
     @patch("src.group_knowledge.qa_search.ai_settings")
     def test_single_low_result(self, mock_settings):
         """Один результат с низким score."""
@@ -526,6 +608,50 @@ class TestSpellcheckTokens(unittest.TestCase):
         self.assertEqual(corrected, ["параметров"])
         self.assertEqual(changes, [("пораметров", "параметров")])
 
+    def test_exact_typo_with_freq_two_still_replaced(self):
+        """Даже при freq=2 редкая опечатка заменяется на частотный валидный токен."""
+        service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
+        service._spellcheck_vocab_ready = True
+
+        mock_sym = MagicMock()
+        service._spellcheck_sym = mock_sym
+        service._spellcheck_token_freq = {
+            "пчоему": 2,
+            "почему": 40,
+        }
+
+        class _V:
+            CLOSEST = "closest"
+            ALL = "all"
+
+        class _S:
+            def __init__(self, term, distance, count):
+                self.term = term
+                self.distance = distance
+                self.count = count
+
+        def _lookup(token, verbosity, max_edit_distance):
+            if verbosity == _V.CLOSEST:
+                return [_S("пчоему", 0, 2)]
+            if verbosity == _V.ALL:
+                return [
+                    _S("пчоему", 0, 2),
+                    _S("почему", 1, 40),
+                ]
+            return []
+
+        mock_sym.lookup.side_effect = _lookup
+
+        with patch("src.group_knowledge.qa_search.ai_settings") as mock_s:
+            mock_s.GK_SPELLCHECK_MIN_TOKEN_LENGTH = 4
+            mock_s.GK_SPELLCHECK_MAX_EDIT_DISTANCE = 1
+            with patch("src.group_knowledge.qa_search._SymSpellVerbosity", _V):
+                corrected, changes = service._spellcheck_tokens(["пчоему"])
+
+        self.assertEqual(corrected, ["почему"])
+        self.assertEqual(changes, [("пчоему", "почему")])
+
     def test_skips_protected_terms(self):
         """Защищённые термины не корректируются."""
         service = QASearchService.__new__(QASearchService)
@@ -733,6 +859,33 @@ class TestSearchSpellcheckInitializationOrder(unittest.TestCase):
         self.assertEqual(result, [])
         service._ensure_corpus_loaded.assert_called_once()
         service._apply_spellcheck_pipeline.assert_awaited_once()
+
+
+class TestEnsureTermsLoadedSpellcheckRebuild(unittest.TestCase):
+    """Тест: при reload_terms словарь spellcheck пересобирается из кеша корпуса."""
+
+    @patch("src.group_knowledge.qa_search.ai_settings")
+    def test_rebuilds_spellcheck_vocab_after_terms_reload(self, mock_settings):
+        """Если кэш терминов протух, а корпус уже загружен — spellcheck vocabulary пересобирается."""
+        service = QASearchService.__new__(QASearchService)
+        _patch_fixed_terms(service)
+        service._fixed_terms_loaded_at = 0.0
+        service._corpus_pairs = [QAPair(id=1, question_text="q", answer_text="a")]
+
+        mock_settings.GK_TERMS_CACHE_TTL_SECONDS = 1
+        mock_settings.GK_SPELLCHECK_ENABLED = True
+
+        def _reload_terms():
+            service._spellcheck_vocab_ready = False
+            service._spellcheck_sym = None
+
+        service.reload_terms = MagicMock(side_effect=_reload_terms)
+        service._build_spellcheck_vocabulary = MagicMock(return_value=True)
+
+        service._ensure_terms_loaded()
+
+        service.reload_terms.assert_called_once()
+        service._build_spellcheck_vocabulary.assert_called_once()
 
 
 if __name__ == "__main__":

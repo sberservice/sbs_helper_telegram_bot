@@ -10,6 +10,8 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import GKKnowledgePage from './pages/GKKnowledgePage'
 import ProcessManagerPage from './pages/ProcessManagerPage'
+import HelperPage from './pages/HelperPage.tsx'
+import RagPage from './pages/RagPage'
 
 export default function App() {
   const { user, loading, logout } = useAuth()
@@ -39,6 +41,12 @@ export default function App() {
             </NavLink>
             <NavLink to="/processes" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
               ⚙️ Процессы
+            </NavLink>
+            <NavLink to="/helper" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+              🆘 Helper
+            </NavLink>
+            <NavLink to="/rag" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+              🧩 RAG
             </NavLink>
           </div>
           <div className="nav-spacer" />
@@ -76,6 +84,22 @@ export default function App() {
             element={
               <ProtectedRoute moduleKey="process_manager">
                 <ProcessManagerPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/helper"
+            element={
+              <ProtectedRoute moduleKey="process_manager">
+                <HelperPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/rag"
+            element={
+              <ProtectedRoute moduleKey="gk_knowledge">
+                <RagPage />
               </ProtectedRoute>
             }
           />

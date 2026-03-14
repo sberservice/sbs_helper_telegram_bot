@@ -10,10 +10,10 @@ import logging
 import os
 import threading
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Any
 
 from config import ai_settings
-from src.core.ai.llm_provider import GigaChatProvider
+from src.core.ai.llm_provider import GigaChatProvider, get_provider_class, is_provider_registered
 from src.group_knowledge import database as gk_db
 from src.group_knowledge.models import ImageDescription
 
@@ -40,8 +40,42 @@ class ImageProcessor:
             gigachat_provider: Провайдер GigaChat (создаётся по умолчанию).
             storage_path: Путь к хранилищу изображений (по умолчанию из настроек).
         """
-        self._provider = gigachat_provider or GigaChatProvider()
+        self._provider = gigachat_provider or self._build_runtime_provider()
         self._storage_path = storage_path or ai_settings.GK_IMAGE_STORAGE_PATH
+
+    @staticmethod
+    def _build_runtime_provider() -> Any:
+        """Собрать vision-провайдер по runtime-настройкам GK."""
+        provider_name = ai_settings.get_active_gk_image_provider()
+        if not is_provider_registered(provider_name):
+            logger.warning(
+                "GK ImageProcessor: провайдер '%s' не зарегистрирован, используем gigachat",
+                provider_name,
+            )
+            provider_name = "gigachat"
+
+        provider_class = get_provider_class(provider_name)
+        if provider_class is None:
+            logger.warning(
+                "GK ImageProcessor: класс провайдера '%s' недоступен, используем GigaChatProvider",
+                provider_name,
+            )
+            provider_class = GigaChatProvider
+
+        model_name = ai_settings.get_active_gk_image_description_model()
+        try:
+            provider = provider_class(model=model_name)
+        except TypeError:
+            provider = provider_class()
+
+        if not hasattr(provider, "describe_image"):
+            logger.warning(
+                "GK ImageProcessor: провайдер '%s' не поддерживает describe_image, используем GigaChatProvider",
+                provider_name,
+            )
+            provider = GigaChatProvider(model=model_name)
+
+        return provider
 
     @staticmethod
     def _truncate_for_log(value: str, max_chars: int = 500) -> str:

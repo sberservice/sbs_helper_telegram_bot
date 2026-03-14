@@ -16,7 +16,6 @@ import {
   type CollectedGroupInfo,
   type GKGroupsConfig,
   type GroupEntry,
-  type HelperGroupsConfig,
   type LaunchConfigProcessEntry,
   type LaunchConfigResponse,
   type PresetDef,
@@ -33,11 +32,16 @@ import {
 
 function formatUptime(seconds: number | null): string {
   if (seconds == null) return '—'
-  if (seconds < 60) return `${Math.floor(seconds)}с`
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}м ${Math.floor(seconds % 60)}с`
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  return `${h}ч ${m}м`
+  const totalMinutes = Math.floor(seconds / 60)
+  if (totalMinutes < 60) return `${totalMinutes}м`
+
+  const totalHours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (totalHours < 24) return `${totalHours}ч ${minutes}м`
+
+  const days = Math.floor(totalHours / 24)
+  const hours = totalHours % 24
+  return `${days}д ${hours}ч ${minutes}м`
 }
 
 function statusBadgeClass(status: string): string {
@@ -75,7 +79,7 @@ function formatDateShort(iso: string | null): string {
 const TABS = [
   { key: 'overview', label: 'Обзор', icon: '📊' },
   { key: 'detail', label: 'Процесс', icon: '🔎' },
-  { key: 'groups', label: 'Группы', icon: '👥' },
+  { key: 'groups', label: 'Собранные группы', icon: '💾' },
   { key: 'history', label: 'История', icon: '📜' },
   { key: 'launch', label: 'Запуск', icon: '🚀' },
 ] as const
@@ -88,6 +92,8 @@ function OverviewTab({ onSelectProcess }: { onSelectProcess: (key: string) => vo
   const [categories, setCategories] = useState<Record<string, ProcessStatusInfo[]>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [actionLoadingByKey, setActionLoadingByKey] = useState<Record<string, boolean>>({})
+  const [confirmActionByKey, setConfirmActionByKey] = useState<Record<string, 'start' | 'stop' | undefined>>({})
 
   const fetchData = useCallback(() => {
     api.pmListProcesses()
@@ -101,6 +107,28 @@ function OverviewTab({ onSelectProcess }: { onSelectProcess: (key: string) => vo
     const interval = setInterval(fetchData, 5000)
     return () => clearInterval(interval)
   }, [fetchData])
+
+  const setActionLoading = (key: string, value: boolean) => {
+    setActionLoadingByKey(prev => ({ ...prev, [key]: value }))
+  }
+
+  const handleQuickToggle = async (proc: ProcessStatusInfo) => {
+    const isRunning = proc.status === 'running' || proc.status === 'starting'
+    setActionLoading(proc.key, true)
+    try {
+      if (isRunning) {
+        await api.pmStopProcess(proc.key)
+      } else {
+        await api.pmStartProcess(proc.key, {})
+      }
+      setConfirmActionByKey(prev => ({ ...prev, [proc.key]: undefined }))
+      await fetchData()
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось выполнить действие с процессом')
+    } finally {
+      setActionLoading(proc.key, false)
+    }
+  }
 
   if (loading) return <div className="loading-text">Загрузка...</div>
   if (error) return <div className="alert alert-danger">{error}</div>
@@ -118,6 +146,7 @@ function OverviewTab({ onSelectProcess }: { onSelectProcess: (key: string) => vo
                 key={proc.key}
                 className={`pm-process-card pm-status-${proc.status}`}
                 onClick={() => onSelectProcess(proc.key)}
+                style={{ display: 'flex', flexDirection: 'column' }}
               >
                 <div className="pm-card-header">
                   <span className="pm-card-icon">{proc.icon}</span>
@@ -130,7 +159,6 @@ function OverviewTab({ onSelectProcess }: { onSelectProcess: (key: string) => vo
                     </span>
                   </div>
                   <div className="pm-card-meta pm-card-meta-compact">
-                    {proc.status === 'running' && <span className="text-dim">PID: {proc.pid}</span>}
                     {proc.status === 'running' && <span className="text-dim">{formatUptime(proc.uptime_seconds)}</span>}
                     {proc.process_type === 'daemon' && (
                       <span className="badge badge-dim">daemon</span>
@@ -144,6 +172,52 @@ function OverviewTab({ onSelectProcess }: { onSelectProcess: (key: string) => vo
                   {proc.status === 'running' && !proc.current_preset && proc.current_flags?.length
                     ? <span className="text-dim">{proc.current_flags.join(' ')}</span>
                     : <span className="text-dim">{proc.description}</span>}
+                </div>
+                <div style={{ marginTop: 'auto', paddingTop: 10, minHeight: 34, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {confirmActionByKey[proc.key] ? (
+                    <>
+                      <button
+                        className="btn btn-sm btn-success"
+                        disabled={Boolean(actionLoadingByKey[proc.key])}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleQuickToggle(proc)
+                        }}
+                        title="Подтвердить"
+                        style={{ minWidth: 36 }}
+                      >
+                        {actionLoadingByKey[proc.key] ? '…' : '✅'}
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        disabled={Boolean(actionLoadingByKey[proc.key])}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setConfirmActionByKey(prev => ({ ...prev, [proc.key]: undefined }))
+                        }}
+                        title="Отмена"
+                        style={{ minWidth: 36 }}
+                      >
+                        ✖️
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className={`btn btn-sm ${proc.status === 'running' || proc.status === 'starting' ? 'btn-warning' : ''}`}
+                      disabled={Boolean(actionLoadingByKey[proc.key])}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setConfirmActionByKey(prev => ({
+                          ...prev,
+                          [proc.key]: proc.status === 'running' || proc.status === 'starting' ? 'stop' : 'start',
+                        }))
+                      }}
+                      title={proc.status === 'running' || proc.status === 'starting' ? 'Остановить процесс' : 'Запустить процесс'}
+                      style={{ minWidth: 36 }}
+                    >
+                      {proc.status === 'running' || proc.status === 'starting' ? '⏹️' : '▶️'}
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -779,31 +853,15 @@ function LaunchFormDialog({
 // ===================================================================
 
 function GroupsTab() {
-  const [gkConfig, setGkConfig] = useState<GKGroupsConfig | null>(null)
-  const [helperConfig, setHelperConfig] = useState<HelperGroupsConfig | null>(null)
   const [collected, setCollected] = useState<CollectedGroupInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'gk' | 'helper' | 'collected'>('gk')
-  const [addGroupId, setAddGroupId] = useState('')
-  const [addGroupTitle, setAddGroupTitle] = useState('')
-  const [selectedCandidateTargetId, setSelectedCandidateTargetId] = useState('')
-  const [selectedConfiguredTargetId, setSelectedConfiguredTargetId] = useState('')
-  const [actionLoading, setActionLoading] = useState(false)
 
   const fetchAll = useCallback(() => {
     setLoading(true)
-    Promise.all([
-      groupsApi.getGKGroups().catch(() => ({ groups: [], test_target_group: null, test_target_groups: [] })),
-      groupsApi.getHelperGroups().catch(() => ({ groups: [] })),
-      groupsApi.getCollectedGroups().catch(() => []),
-    ])
-      .then(([gk, helper, coll]) => {
-        setGkConfig(gk)
-        setHelperConfig(helper)
+    groupsApi.getCollectedGroups()
+      .then((coll) => {
         setCollected(coll)
-        setSelectedCandidateTargetId('')
-        setSelectedConfiguredTargetId(String(gk.test_target_group?.id ?? gk.test_target_groups?.[0]?.id ?? ''))
         setError('')
       })
       .catch(e => setError(e.message))
@@ -812,455 +870,47 @@ function GroupsTab() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  const handleAddGKGroup = async () => {
-    if (!addGroupId.trim()) return
-    setActionLoading(true)
-    try {
-      await groupsApi.addGKGroup({ id: Number(addGroupId), title: addGroupTitle.trim() })
-      setAddGroupId('')
-      setAddGroupTitle('')
-      fetchAll()
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  const handleRemoveGKGroup = async (groupId: number) => {
-    setActionLoading(true)
-    try {
-      await groupsApi.removeGKGroup(groupId)
-      fetchAll()
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  const handleToggleGKGroup = async (groupId: number, disabled: boolean) => {
-    setActionLoading(true)
-    try {
-      await groupsApi.toggleGKGroup(groupId, disabled)
-      fetchAll()
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  const handleAddHelperGroup = async () => {
-    if (!addGroupId.trim()) return
-    setActionLoading(true)
-    try {
-      await groupsApi.addHelperGroup({ id: Number(addGroupId), title: addGroupTitle.trim() })
-      setAddGroupId('')
-      setAddGroupTitle('')
-      fetchAll()
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  const handleRemoveHelperGroup = async (groupId: number) => {
-    setActionLoading(true)
-    try {
-      await groupsApi.removeHelperGroup(groupId)
-      fetchAll()
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  const handleToggleHelperGroup = async (groupId: number, disabled: boolean) => {
-    setActionLoading(true)
-    try {
-      await groupsApi.toggleHelperGroup(groupId, disabled)
-      fetchAll()
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  const handleAddTestTargetOption = async () => {
-    if (!selectedCandidateTargetId.trim()) return
-    const groupId = Number(selectedCandidateTargetId)
-    if (!Number.isInteger(groupId) || groupId === 0) return
-
-    const candidate = collected.find(g => g.group_id === groupId)
-    setActionLoading(true)
-    try {
-      await groupsApi.addGKTestTargetOption({
-        id: groupId,
-        title: candidate?.group_title || 'Без названия',
-        participants: null,
-      })
-      fetchAll()
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  const handleSetActiveTestTarget = async () => {
-    if (!selectedConfiguredTargetId.trim()) return
-    const groupId = Number(selectedConfiguredTargetId)
-    if (!Number.isInteger(groupId) || groupId === 0) return
-
-    const target = gkConfig?.test_target_groups?.find(g => g.id === groupId)
-    if (!target) return
-
-    setActionLoading(true)
-    try {
-      await groupsApi.setGKTestTarget(target)
-      fetchAll()
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  const handleRemoveTestTargetOption = async () => {
-    if (!selectedConfiguredTargetId.trim()) return
-    const groupId = Number(selectedConfiguredTargetId)
-    if (!Number.isInteger(groupId) || groupId === 0) return
-
-    setActionLoading(true)
-    try {
-      await groupsApi.removeGKTestTargetOption(groupId)
-      fetchAll()
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
   if (loading) return <div className="loading-text">Загрузка...</div>
-
-  const sections = [
-    { key: 'gk' as const, label: 'GK Groups', icon: '📡' },
-    { key: 'helper' as const, label: 'Helper Groups', icon: '🆘' },
-    { key: 'collected' as const, label: 'Собранные (БД)', icon: '💾' },
-  ]
 
   return (
     <div className="pm-groups-tab">
       {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}>{error}</div>}
 
       <div className="pm-groups-sections">
-        {sections.map(s => (
-          <button
-            key={s.key}
-            className={`pm-preset-btn ${activeSection === s.key ? 'pm-preset-active' : ''}`}
-            onClick={() => { setActiveSection(s.key); setAddGroupId(''); setAddGroupTitle('') }}
-          >
-            <span>{s.icon}</span> {s.label}
-          </button>
-        ))}
         <button className="btn btn-sm" onClick={fetchAll} title="Обновить">🔄</button>
       </div>
 
-      {/* GK Groups */}
-      {activeSection === 'gk' && gkConfig && (
-        <div className="pm-groups-section card">
-          <h3>📡 Group Knowledge — отслеживаемые группы</h3>
-          <p className="text-dim">Группы, из которых GK Collector собирает сообщения (config/gk_groups.json)</p>
+      <div className="pm-groups-section card">
+        <h3>💾 Собранные группы (из БД)</h3>
+        <p className="text-dim">Группы, из которых уже есть сообщения в таблице gk_messages</p>
 
-          {gkConfig.groups.length === 0 ? (
-            <p className="text-dim" style={{ marginBottom: 12 }}>Нет настроенных групп</p>
-          ) : (
-            <table className="pm-table" style={{ marginBottom: 16 }}>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Название</th>
-                  <th>Статус</th>
-                  <th></th>
+        {collected.length === 0 ? (
+          <p className="text-dim">Нет собранных данных</p>
+        ) : (
+          <table className="pm-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Название</th>
+                <th>Сообщений</th>
+                <th>Первое</th>
+                <th>Последнее</th>
+              </tr>
+            </thead>
+            <tbody>
+              {collected.map(g => (
+                <tr key={g.group_id}>
+                  <td><code>{g.group_id}</code></td>
+                  <td>{g.group_title || '—'}</td>
+                  <td>{g.message_count.toLocaleString()}</td>
+                  <td>{formatDateShort(g.first_message)}</td>
+                  <td>{formatDateShort(g.last_message)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {gkConfig.groups.map(g => (
-                  <tr key={g.id} className={g.disabled ? 'pm-row-disabled' : ''}>
-                    <td><code>{g.id}</code></td>
-                    <td>{g.title || '—'}</td>
-                    <td>
-                      <button
-                        className={`btn btn-sm ${g.disabled ? 'btn-warning' : 'btn-success'}`}
-                        disabled={actionLoading}
-                        onClick={() => handleToggleGKGroup(g.id, !g.disabled)}
-                        title={g.disabled ? 'Включить группу' : 'Отключить группу'}
-                      >
-                        {g.disabled ? '⏸ Отключена' : '✓ Активна'}
-                      </button>
-                    </td>
-                    <td>
-                      <button
-                        className="btn btn-sm btn-danger"
-                        disabled={actionLoading}
-                        onClick={() => handleRemoveGKGroup(g.id)}
-                        title="Удалить"
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-
-          <div className="pm-add-group-form">
-            <input
-              type="number"
-              className="input input-sm"
-              placeholder="ID группы"
-              value={addGroupId}
-              onChange={e => setAddGroupId(e.target.value)}
-              style={{ width: 180 }}
-            />
-            <input
-              type="text"
-              className="input input-sm"
-              placeholder="Название (опционально)"
-              value={addGroupTitle}
-              onChange={e => setAddGroupTitle(e.target.value)}
-              style={{ width: 220 }}
-            />
-            <button
-              className="btn btn-sm btn-success"
-              disabled={actionLoading || !addGroupId.trim()}
-              onClick={handleAddGKGroup}
-            >
-              + Добавить
-            </button>
-          </div>
-
-          {/* Test target group */}
-          <div style={{ marginTop: 24 }}>
-            <h4>↪️ Test target group (redirect test mode)</h4>
-            {gkConfig.test_target_group ? (
-              <div className="pm-test-target-info">
-                <span>
-                  <strong>{gkConfig.test_target_group.title}</strong> (ID: {gkConfig.test_target_group.id})
-                  {gkConfig.test_target_group.participants != null && (
-                    <span className="text-dim">, участников: {gkConfig.test_target_group.participants}</span>
-                  )}
-                </span>
-                <button
-                  className="btn btn-sm btn-danger"
-                  disabled={actionLoading}
-                  onClick={async () => {
-                    setActionLoading(true)
-                    try {
-                      await groupsApi.clearGKTestTarget()
-                      fetchAll()
-                    } catch (e: any) {
-                      setError(e.message)
-                    } finally {
-                      setActionLoading(false)
-                    }
-                  }}
-                >
-                  Очистить
-                </button>
-              </div>
-            ) : (
-              <p className="text-dim">Не установлена</p>
-            )}
-
-            <div style={{ marginTop: 12 }}>
-              <label className="text-dim" style={{ display: 'block', marginBottom: 6 }}>
-                Добавить в список test target из собранных групп:
-              </label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <select
-                  className="input input-sm"
-                  value={selectedCandidateTargetId}
-                  onChange={e => setSelectedCandidateTargetId(e.target.value)}
-                  style={{ minWidth: 320 }}
-                >
-                  <option value="">— Выберите группу —</option>
-                  {collected
-                    .filter(g => !gkConfig.test_target_groups.some(tt => tt.id === g.group_id))
-                    .map(g => (
-                      <option key={g.group_id} value={g.group_id}>
-                        {g.group_title || 'Без названия'} (ID: {g.group_id}, msg: {g.message_count})
-                      </option>
-                    ))}
-                </select>
-                <button
-                  className="btn btn-sm btn-success"
-                  disabled={actionLoading || !selectedCandidateTargetId}
-                  onClick={handleAddTestTargetOption}
-                >
-                  + В список
-                </button>
-              </div>
-            </div>
-
-            <div style={{ marginTop: 12 }}>
-              <label className="text-dim" style={{ display: 'block', marginBottom: 6 }}>
-                Список test target групп:
-              </label>
-              {gkConfig.test_target_groups.length === 0 ? (
-                <p className="text-dim">Список пуст</p>
-              ) : (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <select
-                    className="input input-sm"
-                    value={selectedConfiguredTargetId}
-                    onChange={e => setSelectedConfiguredTargetId(e.target.value)}
-                    style={{ minWidth: 320 }}
-                  >
-                    {gkConfig.test_target_groups.map(g => (
-                      <option key={g.id} value={g.id}>
-                        {g.title || 'Без названия'} (ID: {g.id})
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    className="btn btn-sm btn-success"
-                    disabled={actionLoading || !selectedConfiguredTargetId}
-                    onClick={handleSetActiveTestTarget}
-                  >
-                    Сделать активной
-                  </button>
-                  <button
-                    className="btn btn-sm btn-danger"
-                    disabled={actionLoading || !selectedConfiguredTargetId}
-                    onClick={handleRemoveTestTargetOption}
-                  >
-                    Удалить из списка
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Helper Groups */}
-      {activeSection === 'helper' && helperConfig && (
-        <div className="pm-groups-section card">
-          <h3>🆘 The Helper — отслеживаемые группы</h3>
-          <p className="text-dim">Группы, в которых The Helper слушает /helpme (config/helper_groups.json)</p>
-
-          {helperConfig.groups.length === 0 ? (
-            <p className="text-dim" style={{ marginBottom: 12 }}>Нет настроенных групп</p>
-          ) : (
-            <table className="pm-table" style={{ marginBottom: 16 }}>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Название</th>
-                  <th>Статус</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {helperConfig.groups.map(g => (
-                  <tr key={g.id} className={g.disabled ? 'pm-row-disabled' : ''}>
-                    <td><code>{g.id}</code></td>
-                    <td>{g.title || '—'}</td>
-                    <td>
-                      <button
-                        className={`btn btn-sm ${g.disabled ? 'btn-warning' : 'btn-success'}`}
-                        disabled={actionLoading}
-                        onClick={() => handleToggleHelperGroup(g.id, !g.disabled)}
-                        title={g.disabled ? 'Включить группу' : 'Отключить группу'}
-                      >
-                        {g.disabled ? '⏸ Отключена' : '✓ Активна'}
-                      </button>
-                    </td>
-                    <td>
-                      <button
-                        className="btn btn-sm btn-danger"
-                        disabled={actionLoading}
-                        onClick={() => handleRemoveHelperGroup(g.id)}
-                        title="Удалить"
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-
-          <div className="pm-add-group-form">
-            <input
-              type="number"
-              className="input input-sm"
-              placeholder="ID группы"
-              value={addGroupId}
-              onChange={e => setAddGroupId(e.target.value)}
-              style={{ width: 180 }}
-            />
-            <input
-              type="text"
-              className="input input-sm"
-              placeholder="Название (опционально)"
-              value={addGroupTitle}
-              onChange={e => setAddGroupTitle(e.target.value)}
-              style={{ width: 220 }}
-            />
-            <button
-              className="btn btn-sm btn-success"
-              disabled={actionLoading || !addGroupId.trim()}
-              onClick={handleAddHelperGroup}
-            >
-              + Добавить
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Collected from DB */}
-      {activeSection === 'collected' && (
-        <div className="pm-groups-section card">
-          <h3>💾 Собранные группы (из БД)</h3>
-          <p className="text-dim">Группы, из которых уже есть сообщения в таблице gk_messages</p>
-
-          {collected.length === 0 ? (
-            <p className="text-dim">Нет собранных данных</p>
-          ) : (
-            <table className="pm-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Название</th>
-                  <th>Сообщений</th>
-                  <th>Первое</th>
-                  <th>Последнее</th>
-                </tr>
-              </thead>
-              <tbody>
-                {collected.map(g => (
-                  <tr key={g.group_id}>
-                    <td><code>{g.group_id}</code></td>
-                    <td>{g.group_title || '—'}</td>
-                    <td>{g.message_count.toLocaleString()}</td>
-                    <td>{formatDateShort(g.first_message)}</td>
-                    <td>{formatDateShort(g.last_message)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   )
 }

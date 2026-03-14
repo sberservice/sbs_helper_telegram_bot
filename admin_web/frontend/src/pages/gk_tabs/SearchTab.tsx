@@ -3,13 +3,23 @@
  */
 
 import { useState, useEffect } from 'react'
-import { api, type GKGroup, type GKSearchAnswerPreview, type GKSearchProgressStage, type GKSearchResult } from '../../api'
+import {
+  api,
+  type GKGroup,
+  type GKSearchAnswerPreview,
+  type GKSearchProgressStage,
+  type GKSearchResult,
+} from '../../api'
 
 export default function SearchTab() {
   const [query, setQuery] = useState('')
   const [topK, setTopK] = useState(10)
   const [groupId, setGroupId] = useState<number | undefined>(undefined)
   const [groups, setGroups] = useState<GKGroup[]>([])
+  const [models, setModels] = useState<string[]>([])
+  const [selectedModel, setSelectedModel] = useState('')
+  const [temperature, setTemperature] = useState(0.7)
+  const [imageFile, setImageFile] = useState<File | null>(null)
   const [results, setResults] = useState<GKSearchResult[]>([])
   const [answerPreview, setAnswerPreview] = useState<GKSearchAnswerPreview | null>(null)
   const [searching, setSearching] = useState(false)
@@ -21,10 +31,18 @@ export default function SearchTab() {
 
   useEffect(() => {
     api.gkGroups().then(setGroups).catch(() => {})
+    api.gkSearchSupportedModels()
+      .then((res) => {
+        setModels(res.models || [])
+        if (res.default_model) {
+          setSelectedModel(res.default_model)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   const doSearch = async () => {
-    if (!query.trim()) return
+    if (!query.trim() && !imageFile) return
     setSearching(true)
     setError('')
     setProgressStages([
@@ -34,7 +52,14 @@ export default function SearchTab() {
     ])
     setSearchDurationMs(null)
     try {
-      const res = await api.gkSearch(query.trim(), topK, groupId)
+      const res = await api.gkSearch(
+        query.trim(),
+        topK,
+        groupId,
+        selectedModel || undefined,
+        imageFile || undefined,
+        temperature,
+      )
       setResults(res.results)
       setAnswerPreview(res.answer_preview)
       setProgressStages(res.progress_stages || [])
@@ -112,10 +137,44 @@ export default function SearchTab() {
             <option value={20}>Top 20</option>
             <option value={50}>Top 50</option>
           </select>
-          <button className="btn btn-primary" onClick={doSearch} disabled={searching || !query.trim()}>
+          <select
+            className="input input-sm search-topk-select"
+            value={selectedModel}
+            onChange={e => setSelectedModel(e.target.value)}
+          >
+            <option value="">Модель по умолчанию</option>
+            {models.map(modelName => (
+              <option key={modelName} value={modelName}>
+                {modelName}
+              </option>
+            ))}
+          </select>
+          <input
+            type="file"
+            accept="image/*"
+            className="input input-sm search-topk-select"
+            onChange={e => setImageFile(e.target.files?.[0] || null)}
+            title="Изображение для описания и добавления в контекст запроса"
+          />
+          <input
+            type="number"
+            className="input input-sm search-topk-select"
+            min={0}
+            max={2}
+            step={0.1}
+            value={temperature}
+            onChange={e => setTemperature(Number(e.target.value))}
+            title="Температура генерации ответа (0.0-2.0)"
+          />
+          <button className="btn btn-primary" onClick={doSearch} disabled={searching || (!query.trim() && !imageFile)}>
             {searching ? '...' : '🔍 Поиск'}
           </button>
         </div>
+        {imageFile && (
+          <div className="text-dim" style={{ marginTop: 6 }}>
+            Изображение: {imageFile.name}
+          </div>
+        )}
       </div>
 
       {searched && answerPreview && (
@@ -130,6 +189,10 @@ export default function SearchTab() {
                 ? 'Будет отправлено'
                 : `Не будет отправлено: порог ${(answerPreview.threshold * 100).toFixed(0)}%`}
             </span>
+          </div>
+
+          <div className="text-dim" style={{ marginBottom: 8 }}>
+            <strong>Confidence reason:</strong> {answerPreview.confidence_reason?.trim() ? answerPreview.confidence_reason : '—'}
           </div>
 
           {answerPreview.final_answer_text ? (

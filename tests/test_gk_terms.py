@@ -911,6 +911,7 @@ class TestAcronymsSectionTopNLimit(unittest.TestCase):
         self.assertIn("bbb", section.lower())
         self.assertIn("ccc", section.lower())
         self.assertNotIn("aaa", section.lower())
+        self.assertLess(section.lower().find("bbb"), section.lower().find("ccc"))
 
     @patch("src.group_knowledge.qa_search.ai_settings")
     @patch("src.group_knowledge.qa_search.gk_db")
@@ -971,6 +972,37 @@ class TestQAAnalyzerAcronymsTopN(unittest.TestCase):
         # Только big включён (лимит=1).
         self.assertIn("BIG", section)
         self.assertNotIn("SMALL", section)
+
+    @patch("src.group_knowledge.qa_analyzer.ai_settings")
+    @patch("src.group_knowledge.qa_analyzer.gk_db")
+    def test_output_order_sorted_by_message_count_desc(self, mock_db, mock_settings):
+        """QAAnalyzer: порядок вывода аббревиатур следует message_count DESC."""
+        from src.group_knowledge.qa_analyzer import QAAnalyzer
+
+        mock_settings.GK_ANALYSIS_MODEL = "test"
+        mock_settings.GK_ANALYSIS_BATCH_SIZE = 50
+        mock_settings.GK_ANALYSIS_QUESTION_CONFIDENCE_THRESHOLD = 0.9
+        mock_settings.GK_GENERATE_LLM_INFERRED_QA_PAIRS = False
+        mock_settings.GK_ANALYSIS_CROSS_DAY_ENRICHMENT = False
+        mock_settings.GK_RAG_IMAGE_GIST_ENABLED = False
+        mock_settings.GK_TERMS_CACHE_TTL_SECONDS = 300
+        mock_settings.GK_ACRONYMS_MIN_CONFIDENCE = 0.0
+        mock_settings.GK_ACRONYMS_MAX_PROMPT_TERMS = 50
+
+        mock_db.get_terms_for_group.return_value = [
+            {"id": 1, "group_id": 200, "term": "low", "definition": "Low term",
+             "confidence": 0.95, "message_count": 1},
+            {"id": 2, "group_id": 200, "term": "high", "definition": "High term",
+             "confidence": 0.95, "message_count": 999},
+            {"id": 3, "group_id": 200, "term": "mid", "definition": "Mid term",
+             "confidence": 0.95, "message_count": 50},
+        ]
+
+        analyzer = QAAnalyzer()
+        section = analyzer._build_acronyms_section(200)
+
+        self.assertLess(section.find("HIGH"), section.find("MID"))
+        self.assertLess(section.find("MID"), section.find("LOW"))
 
 
 # ---------------------------------------------------------------------------
