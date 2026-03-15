@@ -5,6 +5,11 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.99] - 2026-03-15
+
+### Fixed
+- `deploy/update.bat`: устранена ошибка `cmd` `. was unexpected at this time.` на шаге `[4/6]` — выполнение `python -c` фильтрации `requirements.txt` обёрнуто в локальный `setlocal DisableDelayedExpansion`, чтобы символ `!` в regex не ломал batch-парсер.
+
 ## [0.10.98] - 2026-03-15
 
 ### Fixed
