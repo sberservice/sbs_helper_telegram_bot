@@ -3214,6 +3214,45 @@ def _build_messages_router() -> APIRouter:
             "count": len(chain),
         }
 
+    @router.get("/image")
+    async def get_message_image(
+        group_id: int = Query(...),
+        telegram_message_id: int = Query(...),
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> FileResponse:
+        """Вернуть изображение сообщения из gk_messages по group_id и telegram_message_id."""
+        _ = user
+        from src.group_knowledge import database as gk_db
+
+        message = gk_db.get_message_by_telegram_id(group_id, telegram_message_id)
+        if not message:
+            raise HTTPException(404, "Сообщение не найдено")
+
+        image_path_raw = str(getattr(message, "image_path", "") or "").strip()
+        if not image_path_raw:
+            raise HTTPException(404, "У сообщения отсутствует путь к изображению")
+
+        image_path = Path(image_path_raw).expanduser().resolve()
+        storage_root = Path(ai_settings.GK_IMAGE_STORAGE_PATH).expanduser().resolve()
+
+        try:
+            image_path.relative_to(storage_root)
+        except Exception as exc:
+            logger.warning(
+                "Блокировка доступа к файлу сообщения вне GK_IMAGE_STORAGE_PATH: group_id=%s msg_id=%s path=%s error=%s",
+                group_id,
+                telegram_message_id,
+                image_path,
+                exc,
+            )
+            raise HTTPException(403, "Доступ к файлу запрещён") from exc
+
+        if not image_path.is_file():
+            raise HTTPException(404, "Файл изображения не найден")
+
+        media_type, _ = mimetypes.guess_type(str(image_path))
+        return FileResponse(path=str(image_path), media_type=media_type or "application/octet-stream")
+
     return router
 
 

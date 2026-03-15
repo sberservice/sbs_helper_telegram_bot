@@ -32,6 +32,10 @@ const formatResponderState = (item: GKMessageBrowserItem): string => {
   return `${modeLabel}${confidencePart}`
 }
 
+const getMessageImageUrl = (groupId: number, telegramMessageId: number): string => (
+  `/api/gk-knowledge/messages/image?group_id=${encodeURIComponent(String(groupId))}&telegram_message_id=${encodeURIComponent(String(telegramMessageId))}`
+)
+
 export default function MessageBrowserTab() {
   const [items, setItems] = useState<GKMessageBrowserItem[]>([])
   const [total, setTotal] = useState(0)
@@ -230,6 +234,7 @@ export default function MessageBrowserTab() {
                     <th style={thStyle}>Группа</th>
                     <th style={thStyle}>Пользователь</th>
                     <th style={thStyle}>Текст</th>
+                    <th style={thStyle}>Image</th>
                     <th style={thStyle}>Chain</th>
                     <th style={thStyle}>Responder</th>
                     <th style={thStyle}>Analyzer</th>
@@ -245,6 +250,23 @@ export default function MessageBrowserTab() {
                       <td style={tdStyle}>{item.sender_name || item.sender_id}</td>
                       <td style={tdStyle} title={item.message_text || item.caption || ''}>
                         {trimText(item.message_text || item.caption)}
+                      </td>
+                      <td style={tdStyle}>
+                        {item.has_image ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <img
+                              src={getMessageImageUrl(item.group_id, item.telegram_message_id)}
+                              alt="message"
+                              loading="lazy"
+                              style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }}
+                            />
+                            {item.image_description ? (
+                              <div className="text-dim" style={{ fontSize: 11, lineHeight: 1.3 }} title={item.image_description}>
+                                {trimText(item.image_description, 160)}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : '—'}
                       </td>
                       <td style={tdStyle}>
                         {item.is_in_chain ? (
@@ -293,6 +315,21 @@ export default function MessageBrowserTab() {
                       {msg.reply_to_message_id ? ` · ↩ ${msg.reply_to_message_id}` : ''}
                       {msg.is_question === null ? '' : (msg.is_question ? ' · question✅' : ' · question❌')}
                     </div>
+                    {msg.has_image && msg.group_id ? (
+                      <div style={{ marginBottom: 8 }}>
+                        <img
+                          src={getMessageImageUrl(msg.group_id, msg.telegram_message_id)}
+                          alt="chain message"
+                          loading="lazy"
+                          style={{ width: '100%', maxWidth: 360, maxHeight: 320, objectFit: 'contain', borderRadius: 8, border: '1px solid var(--border)' }}
+                        />
+                        {msg.image_description ? (
+                          <div className="text-dim" style={{ fontSize: 12, lineHeight: 1.35, marginTop: 6 }} title={msg.image_description}>
+                            {trimText(msg.image_description, 600)}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div style={{ whiteSpace: 'pre-wrap' }}>{trimText(msg.message_text || msg.caption, 1200)}</div>
                   </div>
                 ))}

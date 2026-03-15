@@ -254,6 +254,27 @@ class GroupResponder:
             text[:200],
         )
 
+        question_message_date = int(message.date.timestamp()) if message.date else None
+
+        def _store_attempt_log(
+            *,
+            answer_text_value: str,
+            confidence_value: float,
+            source_ids_value: Optional[List[int]] = None,
+            llm_request_payload_value: Optional[str] = None,
+        ) -> None:
+            gk_db.store_responder_log(
+                effective_group_id,
+                message.id,
+                text,
+                answer_text_value,
+                source_ids_value[0] if source_ids_value else None,
+                confidence_value,
+                self._dry_run,
+                llm_request_payload_value if isinstance(llm_request_payload_value, str) else None,
+                question_message_date,
+            )
+
         # Rate limit: пользователь
         user_wait = self._rate_limiter.check_user(sender_id)
         if user_wait is not None:
@@ -284,6 +305,10 @@ class GroupResponder:
                 message.id,
                 text[:200],
             )
+            _store_attempt_log(
+                answer_text_value="Ответ не найден по базе знаний (no answer).",
+                confidence_value=0.0,
+            )
             return None
 
         format_answer = getattr(self._qa_service, "format_answer_for_user", None)
@@ -301,13 +326,21 @@ class GroupResponder:
         confidence = answer_result["confidence"]
         source_ids = answer_result.get("source_pair_ids", [])
         llm_request_payload = answer_result.get("llm_request_payload")
-        question_message_date = int(message.date.timestamp()) if message.date else None
 
         # Проверить порог уверенности
         if confidence < self._confidence_threshold:
             logger.info(
                 "Уверенность ниже порога: conf=%.2f threshold=%.2f msg=%d",
                 confidence, self._confidence_threshold, message.id,
+            )
+            _store_attempt_log(
+                answer_text_value=(
+                    f"Ответ найден, но не отправлен: confidence ниже порога "
+                    f"({confidence:.2f} < {self._confidence_threshold:.2f})."
+                ),
+                confidence_value=confidence,
+                source_ids_value=source_ids,
+                llm_request_payload_value=llm_request_payload if isinstance(llm_request_payload, str) else None,
             )
             return None
 
@@ -324,16 +357,11 @@ class GroupResponder:
         )
 
         # Логировать
-        gk_db.store_responder_log(
-            effective_group_id,
-            message.id,
-            text,
-            answer_text,
-            source_ids[0] if source_ids else None,
-            confidence,
-            self._dry_run,
-            llm_request_payload if isinstance(llm_request_payload, str) else None,
-            question_message_date,
+        _store_attempt_log(
+            answer_text_value=answer_text,
+            confidence_value=confidence,
+            source_ids_value=source_ids,
+            llm_request_payload_value=llm_request_payload if isinstance(llm_request_payload, str) else None,
         )
 
         if self._dry_run:

@@ -3148,8 +3148,13 @@ class TestGroupResponderHandleMessage(unittest.TestCase):
             "Как настроить что-то там в терминале?", -1001234,
         )
 
-        result = _run_async(responder.handle_message(event, {-1001001234}))
+        with patch("src.group_knowledge.responder.gk_db.store_responder_log") as mock_store_log:
+            result = _run_async(responder.handle_message(event, {-1001001234}))
+
         self.assertIsNone(result)
+        mock_store_log.assert_called_once()
+        self.assertAlmostEqual(mock_store_log.call_args.args[5], 0.3)
+        self.assertIn("confidence ниже порога", mock_store_log.call_args.args[3])
 
     def test_message_without_question_mark_is_checked_by_llm(self):
         """Сообщение без '?' отправляется в LLM-классификатор вопроса."""
@@ -3330,16 +3335,20 @@ class TestGroupResponderHandleMessage(unittest.TestCase):
         event = self._make_event("Как исправить ошибку 1001?", -1001234)
 
         with patch("src.group_knowledge.responder.logger.info") as mock_log_info:
-            result = _run_async(
-                responder.handle_message(
-                    event,
-                    {-1001001234},
-                    question_override="Как исправить ошибку 1001?",
-                    force_as_question=True,
+            with patch("src.group_knowledge.responder.gk_db.store_responder_log") as mock_store_log:
+                result = _run_async(
+                    responder.handle_message(
+                        event,
+                        {-1001001234},
+                        question_override="Как исправить ошибку 1001?",
+                        force_as_question=True,
+                    )
                 )
-            )
 
         self.assertIsNone(result)
+        mock_store_log.assert_called_once()
+        self.assertEqual(mock_store_log.call_args.args[5], 0.0)
+        self.assertIn("Ответ не найден", mock_store_log.call_args.args[3])
         self.assertTrue(any(
             call.args
             and call.args[0] == "Запуск RAG-поиска: group=%d actual_group=%d msg=%d dry_run=%s text=%s"

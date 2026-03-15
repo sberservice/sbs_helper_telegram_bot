@@ -157,6 +157,7 @@ def list_messages(
                         m.message_text,
                         m.caption,
                         m.has_image,
+                        m.image_description,
                         m.reply_to_message_id,
                         m.message_date,
                         m.processed,

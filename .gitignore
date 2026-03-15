@@ -20,7 +20,7 @@ classified_docs/
 .idea/
 .vscode/
 *.sublime-*
-
+launch_config.json
 # Other
 .DS_Store
 *.log

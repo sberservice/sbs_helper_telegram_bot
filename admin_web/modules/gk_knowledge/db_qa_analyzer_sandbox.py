@@ -172,6 +172,7 @@ def get_chain_for_message(
 def _message_to_chain_dict(msg: GroupMessage) -> Dict[str, Any]:
     """Преобразовать GroupMessage в ChainMessage-совместимый словарь."""
     return {
+        "group_id": msg.group_id,
         "telegram_message_id": msg.telegram_message_id,
         "sender_name": msg.sender_name,
         "sender_id": msg.sender_id,

@@ -376,6 +376,7 @@ export interface GKMessageBrowserItem {
   message_text: string | null;
   caption: string | null;
   has_image: boolean;
+  image_description: string | null;
   reply_to_message_id: number | null;
   message_date: number;
   processed: boolean;
@@ -394,6 +395,7 @@ export interface GKMessageBrowserSender {
 }
 
 export interface GKMessageChainItem {
+  group_id: number;
   telegram_message_id: number;
   sender_name: string | null;
   sender_id: number;

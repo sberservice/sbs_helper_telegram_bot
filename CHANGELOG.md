@@ -9,10 +9,15 @@
 
 ### Added
 - `admin_web/modules/gk_knowledge/db_messages_browser.py`, `admin_web/modules/gk_knowledge/router.py`, `admin_web/frontend/src/api.ts`, `admin_web/frontend/src/pages/gk_tabs/MessageBrowserTab.tsx`: во вкладке Message Browser добавлено поле результата обработки автоответчиком для сообщений/цепочек (режим `LIVE`/`DRY` и confidence), подтянутое из `gk_responder_log`.
+- `admin_web/modules/gk_knowledge/router.py`, `admin_web/modules/gk_knowledge/db_qa_analyzer_sandbox.py`, `admin_web/frontend/src/pages/gk_tabs/MessageBrowserTab.tsx`, `admin_web/frontend/src/api.ts`: добавлен endpoint `GET /api/gk-knowledge/messages/image` и превью изображений сообщений в списке и в правой split-screen панели цепочки.
+- `admin_web/modules/gk_knowledge/db_messages_browser.py`, `admin_web/frontend/src/pages/gk_tabs/MessageBrowserTab.tsx`, `admin_web/frontend/src/api.ts`: в Message Browser добавлен вывод сохранённого LLM-описания изображения (`image_description`) рядом с превью в списке и в панели цепочки.
 
 ### Changed
 - `admin_web/frontend/src/pages/gk_tabs/MessageBrowserTab.tsx`: просмотр цепочки сообщений переведён в split-screen (таблица слева, панель цепочки справа) вместо нижнего блока.
 - `admin_web/README.md`: документация Message Browser обновлена под новые индикаторы и поле статуса автоответчика.
+
+### Fixed
+- `src/group_knowledge/responder.py`, `tests/test_group_knowledge.py`, `admin_web/README.md`: неуспешные попытки автоответчика (ответ не найден или confidence ниже порога) теперь тоже пишутся в `gk_responder_log`, поэтому отображаются во вкладке «Автоответчик» и используются в Message Browser.
 
 ## [0.10.96] - 2026-03-14
 
