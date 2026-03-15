@@ -5,6 +5,11 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.98] - 2026-03-15
+
+### Fixed
+- `deploy/update.bat`: на шаге `[4/6]` фильтрация `requirements.txt` переведена с PowerShell на `python -c` через env-переменные, что устраняет падение `The string is missing the terminator: '` из-за проблем batch/PowerShell с кавычками.
+
 ## [0.10.97] - 2026-03-15
 
 ### Added

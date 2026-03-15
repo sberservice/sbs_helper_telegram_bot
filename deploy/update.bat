@@ -129,9 +129,9 @@ echo [%date% %time%] [4/6] Обновление Python-зависимостей.
 call "%VENV_DIR%\Scripts\activate.bat"
 set "REQ_NO_TORCH=%TEMP%\sbs_archie_requirements_no_torch.txt"
 set "REQ_SOURCE_FILE=%PROJECT_DIR%\requirements.txt"
-powershell -NoProfile -Command "$pattern='^\s*(torch|torchvision|torchaudio)(\s*$|[=<>!~])'; $src=$env:REQ_SOURCE_FILE; $dst=$env:REQ_NO_TORCH; $out=@(); foreach($line in [System.IO.File]::ReadAllLines($src)) { if($line -notmatch $pattern) { $out += $line } }; [System.IO.File]::WriteAllLines($dst, $out)"
+python -c "import os,re,pathlib; p=re.compile(r'^\s*(torch|torchvision|torchaudio)(\s*$|[=<>!~])', re.IGNORECASE); src=pathlib.Path(os.environ['REQ_SOURCE_FILE']); dst=pathlib.Path(os.environ['REQ_NO_TORCH']); lines=src.read_text(encoding='utf-8').splitlines(True); dst.write_text(''.join(line for line in lines if not p.match(line)), encoding='utf-8')"
 if errorlevel 1 (
-    echo [%date% %time%] ОШИБКА: PowerShell-фильтрация requirements завершилась с ошибкой.
+    echo [%date% %time%] ОШИБКА: фильтрация requirements завершилась с ошибкой.
     pause
     exit /b 1
 )
