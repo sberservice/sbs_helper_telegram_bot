@@ -285,6 +285,8 @@ python scripts/rag_directory_ingest.py --directory <path> --dry-run
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Базовый URL |
 | `DEEPSEEK_MODEL` | `deepseek-chat` | Модель по умолчанию |
 | `AI_LLM_REQUEST_TIMEOUT` | `30` | Таймаут запроса (сек) |
+| `AI_LLM_READ_TIMEOUT` | `120` | Базовый таймаут ожидания ответа от LLM (сек) |
+| `AI_LLM_REASONER_READ_TIMEOUT` | `300` | Таймаут ожидания для `deepseek-reasoner` (сек), используется как минимум вместе с `AI_LLM_READ_TIMEOUT` |
 | `AI_LLM_CLASSIFICATION_TEMPERATURE` | `0.1` | Температура для intent-классификации |
 | `AI_LLM_CLASSIFICATION_MAX_TOKENS` | `1024` | Лимит токенов для intent-классификации |
 | `AI_LLM_CHAT_TEMPERATURE` | `0.7` | Температура для chat/RAG-ответов |

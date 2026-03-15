@@ -64,6 +64,10 @@ LLM_REQUEST_TIMEOUT: Final[int] = int(os.getenv("AI_LLM_REQUEST_TIMEOUT", "30"))
 # RAG-ответы могут генерироваться дольше — устанавливаем выше, чем общий таймаут.
 LLM_READ_TIMEOUT: Final[int] = int(os.getenv("AI_LLM_READ_TIMEOUT", "120"))
 
+# Таймаут чтения ответа для DeepSeek reasoner (секунды).
+# Reasoner может отвечать значительно дольше обычной chat-модели.
+LLM_REASONER_READ_TIMEOUT: Final[int] = int(os.getenv("AI_LLM_REASONER_READ_TIMEOUT", "300"))
+
 # Параметры генерации LLM для intent-классификации.
 LLM_CLASSIFICATION_TEMPERATURE: Final[float] = float(
     os.getenv("AI_LLM_CLASSIFICATION_TEMPERATURE", "0.1")
@@ -431,6 +435,14 @@ def normalize_deepseek_model(model_name: str | None) -> str:
         return env_default
 
     return DEEPSEEK_MODEL_CHAT
+
+
+def get_llm_read_timeout_for_model(model_name: str | None) -> int:
+    """Вернуть read-timeout LLM с учётом выбранной модели."""
+    normalized = normalize_deepseek_model(model_name)
+    if normalized == DEEPSEEK_MODEL_REASONER:
+        return max(LLM_READ_TIMEOUT, LLM_REASONER_READ_TIMEOUT)
+    return LLM_READ_TIMEOUT
 
 
 def _safe_get_setting(setting_key: str) -> str | None:

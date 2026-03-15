@@ -367,12 +367,13 @@ class DeepSeekProvider(LLMProvider):
 
         max_attempts = max(1, int(max_attempts))
         response: Optional[httpx.Response] = None
+        read_timeout = ai_settings.get_llm_read_timeout_for_model(str(payload.get("model") or ""))
         for attempt in range(1, max_attempts + 1):
             try:
                 async with httpx.AsyncClient(
                     timeout=httpx.Timeout(
                         connect=self._timeout,
-                        read=ai_settings.LLM_READ_TIMEOUT,
+                        read=read_timeout,
                         write=self._timeout,
                         pool=self._timeout,
                     )

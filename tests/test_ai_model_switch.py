@@ -23,6 +23,20 @@ class TestAIModelSettings(unittest.TestCase):
         with patch("config.ai_settings.DEEPSEEK_MODEL", "deepseek-chat"):
             self.assertEqual(ai_settings.normalize_deepseek_model("unknown"), "deepseek-chat")
 
+    def test_get_llm_read_timeout_for_reasoner(self):
+        """Для reasoner используется увеличенный read-timeout."""
+        with patch("config.ai_settings.LLM_READ_TIMEOUT", 120), patch(
+            "config.ai_settings.LLM_REASONER_READ_TIMEOUT", 300
+        ):
+            self.assertEqual(ai_settings.get_llm_read_timeout_for_model("deepseek-reasoner"), 300)
+
+    def test_get_llm_read_timeout_for_chat(self):
+        """Для chat-модели используется базовый read-timeout."""
+        with patch("config.ai_settings.LLM_READ_TIMEOUT", 120), patch(
+            "config.ai_settings.LLM_REASONER_READ_TIMEOUT", 300
+        ):
+            self.assertEqual(ai_settings.get_llm_read_timeout_for_model("deepseek-chat"), 120)
+
     @patch("src.common.bot_settings.get_setting", return_value="deepseek-reasoner")
     def test_get_active_deepseek_model_for_classification_from_db(self, mock_get_setting):
         """Модель классификации берётся из bot_settings."""

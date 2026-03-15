@@ -15,6 +15,7 @@
 ### Changed
 - `admin_web/frontend/src/pages/gk_tabs/MessageBrowserTab.tsx`: просмотр цепочки сообщений переведён в split-screen (таблица слева, панель цепочки справа) вместо нижнего блока.
 - `admin_web/README.md`: документация Message Browser обновлена под новые индикаторы и поле статуса автоответчика.
+- `config/ai_settings.py`, `src/core/ai/llm_provider.py`, `src/sbs_helper_telegram_bot/ai_router/README.md`, `tests/test_ai_model_switch.py`: добавлен model-aware timeout ожидания LLM; для `deepseek-reasoner` read-timeout увеличен до 300 секунд (5 минут) через `AI_LLM_REASONER_READ_TIMEOUT`.
 
 ### Fixed
 - `src/group_knowledge/responder.py`, `tests/test_group_knowledge.py`, `admin_web/README.md`: неуспешные попытки автоответчика (ответ не найден или confidence ниже порога) теперь тоже пишутся в `gk_responder_log`, поэтому отображаются во вкладке «Автоответчик» и используются в Message Browser.
