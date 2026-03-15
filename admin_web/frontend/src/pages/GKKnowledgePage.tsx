@@ -13,6 +13,8 @@ import GroupsTab from './gk_tabs/GroupsTab'
 import ResponderTab from './gk_tabs/ResponderTab'
 import ImagesTab from './gk_tabs/ImagesTab'
 import ImagePromptTesterTab from './gk_tabs/ImagePromptTesterTab'
+import FinalPromptTesterTab from './gk_tabs/FinalPromptTesterTab'
+import MessageBrowserTab from './gk_tabs/MessageBrowserTab'
 import SearchTab from './gk_tabs/SearchTab'
 import QAAnalyzerSandboxTab from './gk_tabs/QAAnalyzerSandboxTab'
 import TermsTab from './gk_tabs/TermsTab'
@@ -32,6 +34,8 @@ const TABS: TabDef[] = [
   { key: 'responder', label: 'Автоответчик', icon: '🤖' },
   { key: 'images', label: 'Изображения', icon: '🖼' },
   { key: 'image-prompt-tester', label: 'Image Prompt Tester', icon: '🧪' },
+  { key: 'final-prompt-tester', label: 'Final Prompt Tester', icon: '🧠' },
+  { key: 'message-browser', label: 'Message Browser', icon: '📨' },
   { key: 'search', label: 'Поиск', icon: '🔎' },
   { key: 'terms', label: 'Термины', icon: '📖' },
   { key: 'settings', label: 'Настройки', icon: '⚙️' },
@@ -46,6 +50,8 @@ const TAB_COMPONENTS: Record<string, React.FC> = {
   'responder': ResponderTab,
   'images': ImagesTab,
   'image-prompt-tester': ImagePromptTesterTab,
+  'final-prompt-tester': FinalPromptTesterTab,
+  'message-browser': MessageBrowserTab,
   'search': SearchTab,
   'terms': TermsTab,
   'settings': SettingsTab,

@@ -17,6 +17,8 @@
     - *Автоответчик* — лог live/dry-run ответов и отдельный subpage «Обзор» со статистикой по диапазону дат
       - *Изображения* — очередь обработки скриншотов GigaChat Vision, ручная загрузка изображений и превью файлов
     - *Image Prompt Tester* — отдельный blind A/B тестер промптов описания изображений (Elo, модель, сессии, кастомные промпты, глобальная статистика, предварительный расчёт числа сравнений, случайная выборка изображений)
+    - *Final Prompt Tester* — отдельный blind A/B тестер финального промпта ответа пользователю (`_ANSWER_PROMPT_BASE`) с ручным вводом тестовых вопросов, Elo-рейтингов, клонами промптов и сессий; клонированные сессии создаются как редактируемый `draft` и запускаются вручную
+    - *Message Browser* — просмотр сырых сообщений `gk_messages` с фильтрами по группе/пользователю/дате/статусам, индикаторами chain/analyzer и настройкой размера страницы с сохранением выбора
     - *Песочница поиска* — гибридный BM25 + Vector + RRF поиск по реальному `QASearchService` с выбором модели, температурой генерации, загрузкой изображения (vision-описание + добавление gist в запрос), предпросмотром итогового ответа автоответчика и отображением этапов выполнения запроса
     - *Термины* — LLM-сканирование аббревиатур по диапазону дат, ручной запуск пересчёта `message_count`, автоматический пересчёт `message_count` после успешного сканирования, сортировка по частоте использования и просмотр примеров сообщений с выбранным термином (по `message_text`) для проверки релевантности
     - *Настройки* — runtime-управление LLM-провайдерами/моделями и ключевыми параметрами Group Knowledge (пороги уверенности, top-k контекста, включение llm_inferred, фильтр `tier=низкая` для финального LLM-контекста, лимит числа аббревиатур в LLM-промпте)
@@ -51,7 +53,7 @@ admin_web/
 │   ├── expert_validation/   ← Legacy-модуль экспертной валидации (обратная совместимость)
 │   │   ├── db.py
 │   │   └── router.py
-│   └── gk_knowledge/        ← Модуль Group Knowledge (12 вкладок)
+│   └── gk_knowledge/        ← Модуль Group Knowledge (13 вкладок)
 │       ├── module.py         ← GKKnowledgeModule
 │       ├── router.py         ← Главный роутер + подроутеры
 │       ├── db_stats.py       ← Агрегированная статистика
@@ -59,6 +61,7 @@ admin_web/
 │       ├── db_expert_validation.py ← SQL для экспертной валидации
 │       ├── db_prompt_tester.py  ← CRUD + Elo для тестера промптов
 │       ├── db_image_prompt_tester.py ← CRUD + Elo для тестера image-промптов
+│       ├── db_final_prompt_tester.py ← CRUD + Elo для тестера финального промпта ответа
 │       ├── db_groups.py      ← Список групп и детальная статистика
 │       ├── db_responder.py   ← Лог автоответчика
 │       ├── db_images.py      ← Очередь изображений
@@ -83,6 +86,7 @@ admin_web/
     │   │       ├── ResponderTab.tsx
     │   │       ├── ImagesTab.tsx
     │   │       ├── ImagePromptTesterTab.tsx
+    │   │       ├── FinalPromptTesterTab.tsx
     │   │       ├── SearchTab.tsx
     │   │       ├── TermsTab.tsx
     │   │       ├── SettingsTab.tsx
@@ -104,6 +108,9 @@ admin_web/
 mysql -u root -p < sql/admin_web_setup.sql
 mysql -u root -p < sql/gk_expert_validations_setup.sql
 mysql -u root -p < sql/gk_image_prompt_tester_setup.sql
+mysql -u root -p < sql/gk_final_prompt_tester_setup.sql
+mysql -u root -p < sql/gk_final_prompt_tester_confidence_reason_text.sql
+mysql -u root -p < sql/gk_final_prompt_tester_sessions_add_draft_status.sql
 mysql -u root -p < sql/app_settings_setup.sql
 ```
 

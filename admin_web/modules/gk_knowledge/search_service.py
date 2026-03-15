@@ -51,6 +51,11 @@ def _get_search_service() -> Any:
     return _SEARCH_SERVICE
 
 
+def get_search_service() -> Any:
+    """Публичный accessor singleton-экземпляра QASearchService для admin web."""
+    return _get_search_service()
+
+
 def _build_ranked_results_from_pairs(pairs: List[Any]) -> List[Dict[str, Any]]:
     """Собрать результаты из QASearchService.search() с диагностическими score."""
     ranked: List[Dict[str, Any]] = []

@@ -659,6 +659,8 @@ class QASearchService:
         group_id: Optional[int] = None,
         model_override: Optional[str] = None,
         temperature_override: Optional[float] = None,
+        prompt_template_override: Optional[str] = None,
+        return_non_relevant: bool = False,
     ) -> Optional[Dict]:
         """Сгенерировать ответ по уже найденным релевантным Q&A-парам.
 
@@ -768,7 +770,11 @@ class QASearchService:
             0,
         )
         acronyms_section = self._build_acronyms_section(effective_group_id)
-        prompt = _ANSWER_PROMPT_BASE.format(
+        prompt_template = (
+            str(prompt_template_override or "").strip()
+            or _ANSWER_PROMPT_BASE
+        )
+        prompt = prompt_template.format(
             qa_context=qa_context,
             relevance_rule=relevance_rule,
             acronyms_section=acronyms_section,
@@ -803,6 +809,7 @@ class QASearchService:
             is_relevant = parsed.get("is_relevant", False)
             confidence = float(parsed.get("confidence", 0.0))
             confidence = max(0.0, min(1.0, confidence))
+            confidence_reason = str(parsed.get("confidence_reason", "") or "").strip()
             used_ids = parsed.get("used_pair_ids", [])
 
             # Преобразовать индексы в реальные pair_id
@@ -814,7 +821,7 @@ class QASearchService:
             if not source_pair_ids and pairs_for_llm and pairs_for_llm[0].id:
                 source_pair_ids.append(pairs_for_llm[0].id)
 
-            if not is_relevant or not answer:
+            if (not is_relevant or not answer) and not return_non_relevant:
                 logger.info(
                     "LLM решил, что пары нерелевантны для вопроса: %s",
                     query[:100],
@@ -826,6 +833,7 @@ class QASearchService:
             return {
                 "answer": answer,
                 "confidence": confidence,
+                "confidence_reason": confidence_reason,
                 "source_pair_ids": source_pair_ids,
                 "is_relevant": is_relevant,
                 "primary_source_link": source_message_links[0] if source_message_links else None,

@@ -5,6 +5,7 @@
 - /qa-pairs — список Q&A-пар
 - /expert-validation — экспертная валидация
 - /prompt-tester — тестер промптов
+- /final-prompt-tester — тестер финального LLM-промпта ответа пользователю
 - /image-prompt-tester — отдельный blind тестер промптов изображений
 - /groups — группы
 - /responder — лог автоответчика
@@ -21,6 +22,7 @@ import logging
 import mimetypes
 import os
 import re
+import threading
 import tempfile
 import time
 import uuid
@@ -239,6 +241,32 @@ def _normalize_generation_text(value: Any, limit: int = 6000) -> str:
     return normalized[:limit]
 
 
+def _normalize_final_tester_questions(body: Dict[str, Any]) -> List[str]:
+    """Нормализовать список вопросов для final prompt tester.
+
+    Поддерживает два формата:
+    - `questions`: массив строк
+    - `questions_text`: многострочный текст, один вопрос на строку
+    """
+    questions: List[str] = []
+
+    raw_questions = body.get("questions")
+    if isinstance(raw_questions, list):
+        for item in raw_questions:
+            q = str(item or "").strip()
+            if q and q not in questions:
+                questions.append(q[:1200])
+
+    questions_text = str(body.get("questions_text") or "").strip()
+    if questions_text:
+        for line in questions_text.splitlines():
+            q = re.sub(r"\s+", " ", line).strip()
+            if q and q not in questions:
+                questions.append(q[:1200])
+
+    return questions
+
+
 def _extract_generated_pair(raw_response: str) -> Optional[Dict[str, Any]]:
     """Извлечь question/answer/confidence из JSON-ответа модели."""
     if not raw_response or not raw_response.strip():
@@ -421,6 +449,171 @@ async def _generate_gk_prompt_tester_session(
             exc_info=True,
         )
         pt_db.update_session_status(session_id, "abandoned")
+
+
+async def _generate_gk_final_prompt_tester_session(
+    *,
+    session_id: int,
+    prompts_snapshot: List[Dict[str, Any]],
+    questions: List[str],
+    source_group_id: Optional[int],
+) -> None:
+    """Сгенерировать финальные ответы по вопросам и подготовить blind A/B сравнения."""
+    from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+    from admin_web.modules.gk_knowledge import search_service as gk_search_service
+
+    generated_count = 0
+
+    try:
+        service = gk_search_service.get_search_service()
+
+        active_prompts = [
+            prompt_cfg
+            for prompt_cfg in prompts_snapshot
+            if (prompt_cfg.get("prompt_template") or "").strip()
+        ]
+
+        active_prompts.sort(
+            key=lambda prompt_cfg: 0 if "reasoner" in str(prompt_cfg.get("model_name") or "").strip().lower() else 1,
+        )
+
+        if len(active_prompts) < 2:
+            logger.warning(
+                "GK Final Prompt Tester: недостаточно валидных промптов для сравнений: session=%d active_prompts=%d",
+                session_id,
+                len(active_prompts),
+            )
+
+        top_k = int(ai_settings.get_active_gk_responder_top_k())
+        for question_index, question in enumerate(questions):
+            user_question = str(question or "").strip()
+            if not user_question:
+                continue
+
+            try:
+                relevant_pairs = await service.search(
+                    user_question,
+                    top_k=top_k,
+                    group_id=source_group_id,
+                )
+            except Exception as exc:
+                logger.error(
+                    "GK Final Prompt Tester: ошибка retrieval для session=%d question_index=%d: %s",
+                    session_id,
+                    question_index,
+                    exc,
+                    exc_info=True,
+                )
+                continue
+
+            retrieved_pair_ids = [int(pair.id) for pair in relevant_pairs if getattr(pair, "id", None)]
+
+            for prompt_cfg in active_prompts:
+                prompt_id = int(prompt_cfg.get("id") or 0)
+                if prompt_id <= 0:
+                    continue
+
+                prompt_template = str(prompt_cfg.get("prompt_template") or "").strip()
+                model_name = str(prompt_cfg.get("model_name") or "").strip() or None
+                temperature = float(prompt_cfg.get("temperature") or 0.3)
+
+                try:
+                    answer_result = await service.answer_question_from_pairs(
+                        user_question,
+                        relevant_pairs,
+                        group_id=source_group_id,
+                        model_override=model_name,
+                        temperature_override=temperature,
+                        prompt_template_override=prompt_template,
+                        return_non_relevant=True,
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "GK Final Prompt Tester: ошибка генерации session=%d question_index=%d prompt_id=%d: %s",
+                        session_id,
+                        question_index,
+                        prompt_id,
+                        exc,
+                        exc_info=True,
+                    )
+                    answer_result = None
+
+                fpt_db.save_generation(
+                    session_id=session_id,
+                    prompt_id=prompt_id,
+                    question_index=question_index,
+                    user_question=user_question,
+                    retrieved_pair_ids=retrieved_pair_ids,
+                    answer_text=(str((answer_result or {}).get("answer") or "").strip() or None),
+                    is_relevant=bool((answer_result or {}).get("is_relevant", False)),
+                    confidence=(
+                        float((answer_result or {}).get("confidence"))
+                        if (answer_result or {}).get("confidence") is not None
+                        else None
+                    ),
+                    confidence_reason=(str((answer_result or {}).get("confidence_reason") or "").strip() or None),
+                    used_pair_ids=[int(pid) for pid in ((answer_result or {}).get("source_pair_ids") or []) if isinstance(pid, int)],
+                    model_used=model_name,
+                    temperature_used=temperature,
+                    llm_request_payload=(answer_result or {}).get("llm_request_payload"),
+                    raw_llm_response=None,
+                )
+                generated_count += 1
+                await asyncio.sleep(0.12)
+
+        comparisons_count = fpt_db.create_comparisons_for_session(session_id)
+        final_status = "judging" if comparisons_count > 0 else "completed"
+        fpt_db.update_session_status(session_id, final_status)
+        logger.info(
+            "GK Final Prompt Tester: генерация завершена: session=%d generations=%d comparisons=%d status=%s",
+            session_id,
+            generated_count,
+            comparisons_count,
+            final_status,
+        )
+    except Exception as exc:
+        logger.error(
+            "GK Final Prompt Tester: ошибка генерации сессии %d: %s",
+            session_id,
+            exc,
+            exc_info=True,
+        )
+        fpt_db.update_session_status(session_id, "abandoned")
+
+
+def _spawn_gk_final_prompt_tester_generation(
+    *,
+    session_id: int,
+    prompts_snapshot: List[Dict[str, Any]],
+    questions: List[str],
+    source_group_id: Optional[int],
+) -> None:
+    """Запустить генерацию final prompt tester в отдельном daemon-thread."""
+
+    def _runner() -> None:
+        try:
+            asyncio.run(
+                _generate_gk_final_prompt_tester_session(
+                    session_id=session_id,
+                    prompts_snapshot=prompts_snapshot,
+                    questions=questions,
+                    source_group_id=source_group_id,
+                )
+            )
+        except Exception as exc:
+            logger.error(
+                "GK Final Prompt Tester: фоновый поток завершился с ошибкой session=%d: %s",
+                session_id,
+                exc,
+                exc_info=True,
+            )
+
+    thread = threading.Thread(
+        target=_runner,
+        name=f"gk-final-prompt-session-{session_id}",
+        daemon=True,
+    )
+    thread.start()
 
 
 async def _generate_gk_image_prompt_tester_session(
@@ -755,7 +948,9 @@ def build_gk_router() -> APIRouter:
     router.include_router(_build_qa_pairs_router(), prefix="/qa-pairs")
     router.include_router(_build_expert_validation_router(), prefix="/expert-validation")
     router.include_router(_build_prompt_tester_router(), prefix="/prompt-tester")
+    router.include_router(_build_final_prompt_tester_router(), prefix="/final-prompt-tester")
     router.include_router(_build_groups_router(), prefix="/groups")
+    router.include_router(_build_messages_router(), prefix="/messages")
     router.include_router(_build_responder_router(), prefix="/responder")
     router.include_router(_build_images_router(), prefix="/images")
     router.include_router(_build_image_prompt_tester_router(), prefix="/image-prompt-tester")
@@ -2260,6 +2455,649 @@ def _build_prompt_tester_router() -> APIRouter:
     return router
 
 
+def _build_final_prompt_tester_router() -> APIRouter:
+    """Подроутер тестера финального промпта ответа пользователю."""
+    router = APIRouter(tags=["gk-final-prompt-tester"])
+
+    @router.get("/supported-models")
+    async def get_supported_models(
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> Dict[str, Any]:
+        """Список поддерживаемых моделей для final prompt tester."""
+        return {
+            "models": get_supported_deepseek_models(),
+            "default_model": ai_settings.get_active_gk_responder_model() or None,
+        }
+
+    @router.get("/prompts")
+    async def list_prompts(
+        active_only: bool = Query(True),
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> List[Dict[str, Any]]:
+        """Список финальных промптов."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+        return fpt_db.get_prompts(active_only=active_only)
+
+    @router.get("/stats")
+    async def final_prompt_tester_stats(
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> Dict[str, Any]:
+        """Агрегированная статистика final prompt tester."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+        return fpt_db.get_global_prompt_stats()
+
+    @router.post("/prompts")
+    async def create_prompt(
+        body: Dict[str, Any],
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Создать промпт финального ответа."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+        from src.group_knowledge.qa_search import _ANSWER_PROMPT_BASE
+
+        prompt_template = str(body.get("prompt_template") or body.get("prompt_text") or "").strip()
+        if not prompt_template:
+            prompt_template = _ANSWER_PROMPT_BASE
+
+        prompt_id = fpt_db.create_prompt(
+            label=str(body.get("label") or "Новый финальный промпт").strip() or "Новый финальный промпт",
+            prompt_template=prompt_template,
+            model_name=(str(body.get("model_name") or "").strip() or None),
+            temperature=float(body.get("temperature") or 0.3),
+            created_by_telegram_id=user.telegram_id,
+        )
+        return {"id": prompt_id, "message": "Промпт создан"}
+
+    @router.post("/prompts/{prompt_id}/clone")
+    async def clone_prompt(
+        prompt_id: int,
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Клонировать существующий финальный промпт."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        try:
+            cloned_id = fpt_db.clone_prompt(prompt_id, created_by_telegram_id=user.telegram_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+        return {"id": cloned_id, "message": "Промпт клонирован"}
+
+    @router.put("/prompts/{prompt_id}")
+    async def update_prompt(
+        prompt_id: int,
+        body: Dict[str, Any],
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Обновить финальный промпт."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        model_name_value = body.get("model_name") if "model_name" in body else None
+        if isinstance(model_name_value, str):
+            model_name_value = model_name_value.strip() or None
+
+        fpt_db.update_prompt(
+            prompt_id,
+            label=body.get("label"),
+            prompt_template=body.get("prompt_template") if "prompt_template" in body else None,
+            model_name=model_name_value,
+            temperature=body.get("temperature"),
+        )
+        return {"message": "Промпт обновлён"}
+
+    @router.delete("/prompts/{prompt_id}")
+    async def delete_prompt(
+        prompt_id: int,
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Деактивировать финальный промпт."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        fpt_db.delete_prompt(prompt_id)
+        return {"message": "Промпт деактивирован"}
+
+    @router.delete("/prompts/{prompt_id}/purge")
+    async def purge_prompt(
+        prompt_id: int,
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Удалить неактивный финальный промпт навсегда (с проверкой зависимостей)."""
+        _ = user
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        try:
+            ok = fpt_db.purge_inactive_prompt(prompt_id)
+            if not ok:
+                raise HTTPException(500, "Не удалось удалить промпт")
+            return {"message": "Промпт удалён навсегда"}
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @router.get("/sessions")
+    async def list_sessions(
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> List[Dict[str, Any]]:
+        """Список сессий final prompt tester."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        sessions = fpt_db.get_sessions()
+        for session in sessions:
+            for key in ("created_at", "updated_at"):
+                if session.get(key) and isinstance(session[key], datetime):
+                    session[key] = session[key].isoformat()
+        return sessions
+
+    @router.post("/sessions/estimate")
+    async def estimate_session(
+        body: Dict[str, Any],
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> Dict[str, Any]:
+        """Оценить объём сессии final prompt tester без запуска генерации."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        raw_prompt_ids = body.get("prompt_ids", [])
+        if not isinstance(raw_prompt_ids, list):
+            raise HTTPException(400, "prompt_ids должен быть массивом")
+
+        prompt_ids: List[int] = []
+        for pid in raw_prompt_ids:
+            try:
+                prompt_id = int(pid)
+            except (TypeError, ValueError):
+                continue
+            if prompt_id > 0 and prompt_id not in prompt_ids:
+                prompt_ids.append(prompt_id)
+
+        questions = _normalize_final_tester_questions(body)
+        question_count = len(questions)
+
+        return {
+            "prompt_count": len(prompt_ids),
+            "requested_question_count": question_count,
+            "effective_question_count": question_count,
+            "expected_comparisons": fpt_db.estimate_comparisons(len(prompt_ids), question_count),
+            "can_create": len(prompt_ids) >= 2 and question_count >= 1,
+        }
+
+    @router.post("/sessions")
+    async def create_session(
+        body: Dict[str, Any],
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Создать сессию final prompt tester и запустить генерацию в фоне."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        raw_prompt_ids = body.get("prompt_ids", [])
+        if not isinstance(raw_prompt_ids, list):
+            raise HTTPException(400, "prompt_ids должен быть массивом")
+
+        prompt_ids: List[int] = []
+        for pid in raw_prompt_ids:
+            try:
+                prompt_id = int(pid)
+            except (TypeError, ValueError):
+                continue
+            if prompt_id > 0 and prompt_id not in prompt_ids:
+                prompt_ids.append(prompt_id)
+
+        if len(prompt_ids) < 2:
+            raise HTTPException(400, "Необходимо минимум 2 промпта для сравнения")
+
+        questions = _normalize_final_tester_questions(body)
+        if len(questions) < 1:
+            raise HTTPException(400, "Добавь минимум 1 тестовый вопрос")
+
+        prompts_snapshot: List[Dict[str, Any]] = []
+        for pid in prompt_ids:
+            prompt_row = fpt_db.get_prompt_by_id(pid)
+            if not prompt_row:
+                raise HTTPException(404, f"Промпт #{pid} не найден")
+            prompts_snapshot.append(
+                {
+                    "id": int(prompt_row.get("id") or pid),
+                    "label": str(prompt_row.get("label") or f"Промпт #{pid}"),
+                    "prompt_template": str(prompt_row.get("prompt_template") or "").strip(),
+                    "model_name": str(prompt_row.get("model_name") or "").strip() or None,
+                    "temperature": float(prompt_row.get("temperature") or 0.3),
+                }
+            )
+
+        source_group_id = body.get("source_group_id")
+        if source_group_id is not None:
+            try:
+                source_group_id = int(source_group_id)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(400, "source_group_id должен быть числом") from exc
+
+        try:
+            session_id = fpt_db.create_session(
+                name=str(body.get("name") or "Final answer prompt test").strip() or "Final answer prompt test",
+                prompt_ids=prompt_ids,
+                questions_snapshot=questions,
+                source_group_id=source_group_id,
+                judge_mode=str(body.get("judge_mode") or "human"),
+                prompts_config_snapshot=prompts_snapshot,
+                created_by_telegram_id=user.telegram_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+        _spawn_gk_final_prompt_tester_generation(
+            session_id=session_id,
+            prompts_snapshot=prompts_snapshot,
+            questions=questions,
+            source_group_id=source_group_id,
+        )
+
+        return {
+            "id": session_id,
+            "message": "Сессия создана, генерация запущена",
+            "question_count": len(questions),
+            "expected_comparisons": fpt_db.estimate_comparisons(len(prompt_ids), len(questions)),
+        }
+
+    @router.post("/sessions/{session_id}/clone")
+    async def clone_session(
+        session_id: int,
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Клонировать финальную сессию в статус draft без автозапуска."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        source_session = fpt_db.get_session_by_id(session_id)
+        if not source_session:
+            raise HTTPException(404, "Сессия не найдена")
+
+        prompt_ids = [int(pid) for pid in (source_session.get("prompt_ids") or []) if int(pid) > 0]
+        if len(prompt_ids) < 2:
+            raise HTTPException(400, "В исходной сессии должно быть минимум 2 промпта")
+
+        questions = [str(q or "").strip() for q in (source_session.get("questions_snapshot") or []) if str(q or "").strip()]
+        if len(questions) < 1:
+            raise HTTPException(400, "В исходной сессии нет тестовых вопросов")
+
+        raw_prompts_snapshot = source_session.get("prompts_config_snapshot")
+        prompts_snapshot: List[Dict[str, Any]] = []
+        if isinstance(raw_prompts_snapshot, list):
+            for item in raw_prompts_snapshot:
+                if not isinstance(item, dict):
+                    continue
+                prompt_id = int(item.get("id") or 0)
+                if prompt_id <= 0:
+                    continue
+                prompts_snapshot.append(
+                    {
+                        "id": prompt_id,
+                        "label": str(item.get("label") or f"Промпт #{prompt_id}"),
+                        "prompt_template": str(item.get("prompt_template") or "").strip(),
+                        "model_name": str(item.get("model_name") or "").strip() or None,
+                        "temperature": float(item.get("temperature") or 0.3),
+                    }
+                )
+
+        if not prompts_snapshot:
+            for pid in prompt_ids:
+                prompt_row = fpt_db.get_prompt_by_id(pid)
+                if not prompt_row:
+                    raise HTTPException(404, f"Промпт #{pid} не найден")
+                prompts_snapshot.append(
+                    {
+                        "id": int(prompt_row.get("id") or pid),
+                        "label": str(prompt_row.get("label") or f"Промпт #{pid}"),
+                        "prompt_template": str(prompt_row.get("prompt_template") or "").strip(),
+                        "model_name": str(prompt_row.get("model_name") or "").strip() or None,
+                        "temperature": float(prompt_row.get("temperature") or 0.3),
+                    }
+                )
+
+        source_group_id = source_session.get("source_group_id")
+        if source_group_id is not None:
+            source_group_id = int(source_group_id)
+
+        source_name = str(source_session.get("name") or f"Session #{session_id}").strip() or f"Session #{session_id}"
+        clone_suffix = " (clone)"
+        max_session_name = 255
+        base_name = source_name
+        if len(base_name) + len(clone_suffix) > max_session_name:
+            base_name = base_name[:max_session_name - len(clone_suffix)]
+        cloned_name = f"{base_name}{clone_suffix}"
+
+        try:
+            new_session_id = fpt_db.create_session(
+                name=cloned_name,
+                prompt_ids=prompt_ids,
+                questions_snapshot=questions,
+                source_group_id=source_group_id,
+                status="draft",
+                judge_mode=str(source_session.get("judge_mode") or "human"),
+                prompts_config_snapshot=prompts_snapshot,
+                created_by_telegram_id=user.telegram_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+        return {
+            "id": new_session_id,
+            "message": "Сессия клонирована в черновик",
+            "question_count": len(questions),
+            "expected_comparisons": fpt_db.estimate_comparisons(len(prompt_ids), len(questions)),
+        }
+
+    @router.post("/sessions/{session_id}/start")
+    async def start_session(
+        session_id: int,
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Запустить генерацию для сессии в статусе draft."""
+        _ = user
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        session = fpt_db.get_session_by_id(session_id)
+        if not session:
+            raise HTTPException(404, "Сессия не найдена")
+
+        status = str(session.get("status") or "")
+        if status != "draft":
+            raise HTTPException(409, "Запуск доступен только для сессий в статусе draft")
+
+        prompt_ids = [int(pid) for pid in (session.get("prompt_ids") or []) if int(pid) > 0]
+        if len(prompt_ids) < 2:
+            raise HTTPException(400, "В сессии должно быть минимум 2 промпта")
+
+        questions = [str(q or "").strip() for q in (session.get("questions_snapshot") or []) if str(q or "").strip()]
+        if len(questions) < 1:
+            raise HTTPException(400, "В сессии нет тестовых вопросов")
+
+        raw_prompts_snapshot = session.get("prompts_config_snapshot")
+        prompts_snapshot: List[Dict[str, Any]] = []
+        if isinstance(raw_prompts_snapshot, list):
+            for item in raw_prompts_snapshot:
+                if not isinstance(item, dict):
+                    continue
+                prompt_id = int(item.get("id") or 0)
+                if prompt_id <= 0:
+                    continue
+                prompts_snapshot.append(
+                    {
+                        "id": prompt_id,
+                        "label": str(item.get("label") or f"Промпт #{prompt_id}"),
+                        "prompt_template": str(item.get("prompt_template") or "").strip(),
+                        "model_name": str(item.get("model_name") or "").strip() or None,
+                        "temperature": float(item.get("temperature") or 0.3),
+                    }
+                )
+
+        if not prompts_snapshot:
+            for pid in prompt_ids:
+                prompt_row = fpt_db.get_prompt_by_id(pid)
+                if not prompt_row:
+                    raise HTTPException(404, f"Промпт #{pid} не найден")
+                prompts_snapshot.append(
+                    {
+                        "id": int(prompt_row.get("id") or pid),
+                        "label": str(prompt_row.get("label") or f"Промпт #{pid}"),
+                        "prompt_template": str(prompt_row.get("prompt_template") or "").strip(),
+                        "model_name": str(prompt_row.get("model_name") or "").strip() or None,
+                        "temperature": float(prompt_row.get("temperature") or 0.3),
+                    }
+                )
+
+        source_group_id = session.get("source_group_id")
+        if source_group_id is not None:
+            source_group_id = int(source_group_id)
+
+        if not fpt_db.update_session_status(session_id, "generating"):
+            raise HTTPException(500, "Не удалось перевести сессию в статус generating")
+
+        _spawn_gk_final_prompt_tester_generation(
+            session_id=session_id,
+            prompts_snapshot=prompts_snapshot,
+            questions=questions,
+            source_group_id=source_group_id,
+        )
+
+        return {
+            "id": session_id,
+            "message": "Генерация сессии запущена",
+            "question_count": len(questions),
+            "expected_comparisons": fpt_db.estimate_comparisons(len(prompt_ids), len(questions)),
+        }
+
+    @router.put("/sessions/{session_id}")
+    async def update_session(
+        session_id: int,
+        body: Dict[str, Any],
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Обновить draft-сессию final prompt tester."""
+        _ = user
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        session = fpt_db.get_session_by_id(session_id)
+        if not session:
+            raise HTTPException(404, "Сессия не найдена")
+
+        if str(session.get("status") or "") != "draft":
+            raise HTTPException(409, "Редактирование доступно только для draft-сессий")
+
+        raw_prompt_ids = body.get("prompt_ids", [])
+        if not isinstance(raw_prompt_ids, list):
+            raise HTTPException(400, "prompt_ids должен быть массивом")
+
+        prompt_ids: List[int] = []
+        for pid in raw_prompt_ids:
+            try:
+                prompt_id = int(pid)
+            except (TypeError, ValueError):
+                continue
+            if prompt_id > 0 and prompt_id not in prompt_ids:
+                prompt_ids.append(prompt_id)
+
+        if len(prompt_ids) < 2:
+            raise HTTPException(400, "Необходимо минимум 2 промпта для сравнения")
+
+        questions = _normalize_final_tester_questions(body)
+        if len(questions) < 1:
+            raise HTTPException(400, "Добавь минимум 1 тестовый вопрос")
+
+        prompts_snapshot: List[Dict[str, Any]] = []
+        for pid in prompt_ids:
+            prompt_row = fpt_db.get_prompt_by_id(pid)
+            if not prompt_row:
+                raise HTTPException(404, f"Промпт #{pid} не найден")
+            prompts_snapshot.append(
+                {
+                    "id": int(prompt_row.get("id") or pid),
+                    "label": str(prompt_row.get("label") or f"Промпт #{pid}"),
+                    "prompt_template": str(prompt_row.get("prompt_template") or "").strip(),
+                    "model_name": str(prompt_row.get("model_name") or "").strip() or None,
+                    "temperature": float(prompt_row.get("temperature") or 0.3),
+                }
+            )
+
+        source_group_id = body.get("source_group_id")
+        if source_group_id is not None:
+            try:
+                source_group_id = int(source_group_id)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(400, "source_group_id должен быть числом") from exc
+
+        name = str(body.get("name") or "").strip() or str(session.get("name") or f"Session #{session_id}")
+        try:
+            ok = fpt_db.update_draft_session(
+                session_id=session_id,
+                name=name,
+                prompt_ids=prompt_ids,
+                questions_snapshot=questions,
+                source_group_id=source_group_id,
+                prompts_config_snapshot=prompts_snapshot,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if not ok:
+            raise HTTPException(409, "Не удалось обновить draft-сессию")
+
+        return {
+            "message": "Черновик сессии обновлён",
+            "question_count": len(questions),
+            "expected_comparisons": fpt_db.estimate_comparisons(len(prompt_ids), len(questions)),
+        }
+
+    @router.get("/sessions/{session_id}")
+    async def get_session(
+        session_id: int,
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> Dict[str, Any]:
+        """Детали финальной сессии."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        session = fpt_db.get_session_by_id(session_id)
+        if not session:
+            raise HTTPException(404, "Сессия не найдена")
+        for key in ("created_at", "updated_at"):
+            if session.get(key) and isinstance(session[key], datetime):
+                session[key] = session[key].isoformat()
+        return session
+
+    @router.get("/sessions/{session_id}/compare")
+    async def get_next_comparison(
+        session_id: int,
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> Dict[str, Any]:
+        """Следующее слепое сравнение final prompt tester."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        comparison = fpt_db.get_next_comparison(session_id, voter_telegram_id=user.telegram_id)
+        if not comparison:
+            return {"has_more": False}
+
+        answer_a = str(comparison.get("answer_a") or "").strip() or "(Пустой ответ)"
+        answer_b = str(comparison.get("answer_b") or "").strip() or "(Пустой ответ)"
+
+        conf_a = comparison.get("confidence_a")
+        conf_b = comparison.get("confidence_b")
+        conf_a_text = f"{float(conf_a):.2f}" if conf_a is not None else "—"
+        conf_b_text = f"{float(conf_b):.2f}" if conf_b is not None else "—"
+
+        generation_a_text = (
+            f"[is_relevant={bool(comparison.get('is_relevant_a'))}, confidence={conf_a_text}]\n"
+            f"{answer_a}"
+        )
+        generation_b_text = (
+            f"[is_relevant={bool(comparison.get('is_relevant_b'))}, confidence={conf_b_text}]\n"
+            f"{answer_b}"
+        )
+
+        return {
+            "has_more": True,
+            "comparison_id": int(comparison.get("comparison_id") or 0),
+            "source_context": str(comparison.get("user_question") or "").strip() or None,
+            "generation_a_text": generation_a_text,
+            "generation_b_text": generation_b_text,
+            "progress_total": int(comparison.get("progress_total") or 0),
+            "progress_voted": int(comparison.get("progress_voted") or 0),
+        }
+
+    @router.post("/sessions/{session_id}/vote")
+    async def vote(
+        session_id: int,
+        body: Dict[str, Any],
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Голосование: выбрать A, B, tie или skip."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        comparison_id = body.get("comparison_id")
+        winner = body.get("winner")
+        if not comparison_id or winner not in ("a", "b", "tie", "skip"):
+            raise HTTPException(400, "Некорректные данные голосования")
+
+        ok = fpt_db.submit_vote(
+            comparison_id=int(comparison_id),
+            winner=str(winner),
+            expected_session_id=session_id,
+            voter_telegram_id=user.telegram_id,
+            voter_type="human",
+        )
+        if not ok:
+            raise HTTPException(409, "Голос уже учтён или сравнение не найдено")
+        return {"message": "Голос учтён"}
+
+    @router.get("/sessions/{session_id}/results")
+    async def get_results(
+        session_id: int,
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> Dict[str, Any]:
+        """Результаты final prompt tester по сессии."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        raw = fpt_db.get_session_results(session_id)
+        session = fpt_db.get_session_by_id(session_id)
+
+        total_comparisons = int((session or {}).get("total_comparisons") or 0)
+        voted_comparisons = int((session or {}).get("voted_count") or 0)
+
+        prompts: List[Dict[str, Any]] = []
+        for item in raw.get("prompt_results", []):
+            prompts.append(
+                {
+                    "prompt_id": int(item.get("prompt_id") or 0),
+                    "label": item.get("label") or "",
+                    "elo": float(item.get("elo") or 0),
+                    "elo_delta": float(item.get("elo_delta") or 0),
+                    "wins": int(item.get("wins") or 0),
+                    "losses": int(item.get("losses") or 0),
+                    "ties": int(item.get("ties") or 0),
+                    "skips": int(item.get("skips") or 0),
+                    "matches": int(item.get("matches") or 0),
+                    "score": float(item.get("score") or 0.0),
+                    "win_rate": float(item.get("win_rate") or 0.0),
+                    "loss_rate": max(0.0, 1.0 - float(item.get("win_rate") or 0.0)),
+                }
+            )
+
+        return {
+            "session_id": session_id,
+            "total_comparisons": total_comparisons,
+            "voted_comparisons": voted_comparisons,
+            "prompts": prompts,
+        }
+
+    @router.post("/sessions/{session_id}/abandon")
+    async def abandon_session(
+        session_id: int,
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Отменить сессию final prompt tester."""
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        fpt_db.update_session_status(session_id, "abandoned")
+        return {"message": "Сессия отменена"}
+
+    @router.delete("/sessions/{session_id}")
+    async def delete_session(
+        session_id: int,
+        user: WebUser = Depends(require_permission("gk_knowledge", "edit")),
+    ) -> Dict[str, Any]:
+        """Удалить abandoned-сессию final prompt tester."""
+        _ = user
+        from admin_web.modules.gk_knowledge import db_final_prompt_tester as fpt_db
+
+        session = fpt_db.get_session_by_id(session_id)
+        if not session:
+            raise HTTPException(404, "Сессия не найдена")
+
+        if str(session.get("status") or "") != "abandoned":
+            raise HTTPException(409, "Удалять можно только сессии в статусе abandoned")
+
+        if not fpt_db.delete_session(session_id):
+            raise HTTPException(500, "Не удалось удалить сессию")
+
+        return {"message": "Сессия удалена"}
+
+    return router
+
+
 # ---------------------------------------------------------------------------
 # Подроутер: Группы
 # ---------------------------------------------------------------------------
@@ -2288,6 +3126,75 @@ def _build_groups_router() -> APIRouter:
         if not stats:
             raise HTTPException(404, "Группа не найдена")
         return _normalize_group_detail_payload(stats)
+
+    return router
+
+
+# ---------------------------------------------------------------------------
+# Подроутер: Message Browser
+# ---------------------------------------------------------------------------
+
+
+def _build_messages_router() -> APIRouter:
+    """Подроутер браузера сообщений Group Knowledge."""
+    router = APIRouter(tags=["gk-messages"])
+
+    @router.get("/browser")
+    async def get_messages_browser(
+        page: int = Query(1, ge=1),
+        page_size: int = Query(50, ge=10, le=200),
+        group_id: Optional[int] = Query(None),
+        sender_id: Optional[int] = Query(None),
+        processed: Optional[bool] = Query(None),
+        analyzed: Optional[bool] = Query(None),
+        in_chain: Optional[bool] = Query(None),
+        search: Optional[str] = Query(None),
+        date_from: Optional[str] = Query(None),
+        date_to: Optional[str] = Query(None),
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> Dict[str, Any]:
+        """Получить страницу сообщений с фильтрами для Message Browser."""
+        _ = user
+        from admin_web.modules.gk_knowledge import db_messages_browser
+
+        from_ts, to_ts = _parse_date_boundaries(date_from, date_to)
+
+        items, total = db_messages_browser.list_messages(
+            page=page,
+            page_size=page_size,
+            group_id=group_id,
+            sender_id=sender_id,
+            processed=processed,
+            analyzed=analyzed,
+            in_chain=in_chain,
+            search=search,
+            message_date_from=from_ts,
+            message_date_to=to_ts,
+        )
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    @router.get("/senders")
+    async def get_message_senders(
+        group_id: Optional[int] = Query(None),
+        search: Optional[str] = Query(None),
+        limit: int = Query(200, ge=20, le=500),
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> List[Dict[str, Any]]:
+        """Получить список отправителей для фильтра Message Browser."""
+        _ = user
+        from admin_web.modules.gk_knowledge import db_messages_browser
+
+        return db_messages_browser.list_senders(
+            group_id=group_id,
+            search=search,
+            limit=limit,
+        )
 
     return router
 

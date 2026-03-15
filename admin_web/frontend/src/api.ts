@@ -366,6 +366,29 @@ export interface GKGroupDetailStats {
   image_count: number;
 }
 
+export interface GKMessageBrowserItem {
+  id: number;
+  telegram_message_id: number;
+  group_id: number;
+  group_title: string | null;
+  sender_id: number;
+  sender_name: string | null;
+  message_text: string | null;
+  caption: string | null;
+  has_image: boolean;
+  reply_to_message_id: number | null;
+  message_date: number;
+  processed: boolean;
+  is_in_chain: boolean;
+  is_analyzed: boolean;
+}
+
+export interface GKMessageBrowserSender {
+  sender_id: number;
+  sender_name: string | null;
+  message_count: number;
+}
+
 // ---------------------------------------------------------------------------
 // GK Knowledge — Responder
 // ---------------------------------------------------------------------------
@@ -647,6 +670,80 @@ export interface RAGCorpusStatsResponse {
     last_reason: string | null;
     last_created_at: string | null;
   };
+}
+
+export interface GKFinalPrompt {
+  id: number;
+  label: string;
+  prompt_template: string;
+  model_name: string | null;
+  temperature: number;
+  is_active: boolean;
+  created_at: string | null;
+}
+
+export interface GKFinalPromptSession {
+  id: number;
+  name: string;
+  status: string;
+  prompt_ids: number[];
+  questions_snapshot?: string[];
+  prompt_count?: number;
+  judge_mode: string;
+  source_group_id: number | null;
+  question_count?: number;
+  generation_count?: number;
+  expected_generations?: number;
+  generation_progress_pct?: number;
+  total_comparisons?: number;
+  expected_comparisons?: number;
+  voted_count?: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface GKFinalPromptSessionEstimate {
+  prompt_count: number;
+  requested_question_count: number;
+  effective_question_count: number;
+  expected_comparisons: number;
+  can_create: boolean;
+}
+
+export interface GKFinalComparison {
+  has_more: boolean;
+  comparison_id?: number;
+  generation_a_text?: string;
+  generation_b_text?: string;
+  source_context?: string;
+  progress_total?: number;
+  progress_voted?: number;
+}
+
+export interface GKFinalPromptTesterStats {
+  summary: {
+    sessions_total: number;
+    sessions_completed: number;
+    sessions_judging: number;
+    sessions_generating: number;
+    voted_matches: number;
+    skipped_matches: number;
+    prompts_total: number;
+  };
+  prompts: Array<{
+    prompt_id: number;
+    label: string;
+    is_active: boolean;
+    sessions_count: number;
+    elo: number;
+    elo_delta: number;
+    wins: number;
+    losses: number;
+    ties: number;
+    skips: number;
+    matches: number;
+    win_rate: number;
+  }>;
 }
 
 export interface RAGDocumentListItem {
@@ -1039,6 +1136,44 @@ export const api = {
   gkGroupStats: (groupId: number) =>
     request<GKGroupDetailStats>(`/api/gk-knowledge/groups/${groupId}/stats`),
 
+  // GK Knowledge — Message Browser
+  gkMessagesBrowser: (params: {
+    page?: number;
+    page_size?: number;
+    group_id?: number | null;
+    sender_id?: number | null;
+    processed?: boolean | null;
+    analyzed?: boolean | null;
+    in_chain?: boolean | null;
+    search?: string | null;
+    date_from?: string | null;
+    date_to?: string | null;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params.page) searchParams.set('page', String(params.page));
+    if (params.page_size) searchParams.set('page_size', String(params.page_size));
+    if (params.group_id != null) searchParams.set('group_id', String(params.group_id));
+    if (params.sender_id != null) searchParams.set('sender_id', String(params.sender_id));
+    if (params.processed != null) searchParams.set('processed', String(params.processed));
+    if (params.analyzed != null) searchParams.set('analyzed', String(params.analyzed));
+    if (params.in_chain != null) searchParams.set('in_chain', String(params.in_chain));
+    if (params.search) searchParams.set('search', params.search);
+    if (params.date_from) searchParams.set('date_from', params.date_from);
+    if (params.date_to) searchParams.set('date_to', params.date_to);
+    return request<{ items: GKMessageBrowserItem[]; total: number; page: number; page_size: number }>(
+      `/api/gk-knowledge/messages/browser?${searchParams}`,
+    );
+  },
+
+  gkMessageSenders: (params?: { group_id?: number | null; search?: string | null; limit?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.group_id != null) searchParams.set('group_id', String(params.group_id));
+    if (params?.search) searchParams.set('search', params.search);
+    if (params?.limit != null) searchParams.set('limit', String(params.limit));
+    const query = searchParams.toString();
+    return request<GKMessageBrowserSender[]>(`/api/gk-knowledge/messages/senders${query ? `?${query}` : ''}`);
+  },
+
   // GK Knowledge — Responder
   gkResponderLog: (params: {
     page?: number;
@@ -1218,6 +1353,99 @@ export const api = {
 
   gkSessionResults: (sessionId: number) =>
     request<GKSessionResults>(`/api/gk-knowledge/prompt-tester/sessions/${sessionId}/results`),
+
+  // GK Knowledge — Final Prompt Tester
+  gkFinalPromptTesterSupportedModels: () =>
+    request<GKSupportedModelsResponse>('/api/gk-knowledge/final-prompt-tester/supported-models'),
+
+  gkFinalPromptTesterStats: () =>
+    request<GKFinalPromptTesterStats>('/api/gk-knowledge/final-prompt-tester/stats'),
+
+  gkFinalPrompts: (activeOnly: boolean = true) =>
+    request<GKFinalPrompt[]>(`/api/gk-knowledge/final-prompt-tester/prompts?active_only=${activeOnly}`),
+
+  gkCreateFinalPrompt: (data: { label: string; prompt_template: string; model_name?: string; temperature?: number }) =>
+    request<{ id: number; message: string }>('/api/gk-knowledge/final-prompt-tester/prompts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  gkCloneFinalPrompt: (promptId: number) =>
+    request<{ id: number; message: string }>(`/api/gk-knowledge/final-prompt-tester/prompts/${promptId}/clone`, {
+      method: 'POST',
+    }),
+
+  gkUpdateFinalPrompt: (promptId: number, data: Partial<{ label: string; prompt_template: string; model_name: string; temperature: number }>) =>
+    request<{ message: string }>(`/api/gk-knowledge/final-prompt-tester/prompts/${promptId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  gkDeleteFinalPrompt: (promptId: number) =>
+    request<{ message: string }>(`/api/gk-knowledge/final-prompt-tester/prompts/${promptId}`, {
+      method: 'DELETE',
+    }),
+
+  gkPurgeFinalPrompt: (promptId: number) =>
+    request<{ message: string }>(`/api/gk-knowledge/final-prompt-tester/prompts/${promptId}/purge`, {
+      method: 'DELETE',
+    }),
+
+  gkFinalSessions: () =>
+    request<GKFinalPromptSession[]>('/api/gk-knowledge/final-prompt-tester/sessions'),
+
+  gkCreateFinalSession: (data: { name: string; prompt_ids: number[]; questions?: string[]; questions_text?: string; source_group_id?: number; judge_mode?: string }) =>
+    request<{ id: number; message: string }>('/api/gk-knowledge/final-prompt-tester/sessions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  gkCloneFinalSession: (sessionId: number) =>
+    request<{ id: number; message: string }>(`/api/gk-knowledge/final-prompt-tester/sessions/${sessionId}/clone`, {
+      method: 'POST',
+    }),
+
+  gkStartFinalSession: (sessionId: number) =>
+    request<{ id: number; message: string }>(`/api/gk-knowledge/final-prompt-tester/sessions/${sessionId}/start`, {
+      method: 'POST',
+    }),
+
+  gkUpdateFinalSession: (sessionId: number, data: { name: string; prompt_ids: number[]; questions?: string[]; questions_text?: string; source_group_id?: number }) =>
+    request<{ message: string }>(`/api/gk-knowledge/final-prompt-tester/sessions/${sessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  gkEstimateFinalSession: (data: { prompt_ids: number[]; questions?: string[]; questions_text?: string }) =>
+    request<GKFinalPromptSessionEstimate>('/api/gk-knowledge/final-prompt-tester/sessions/estimate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  gkGetFinalSession: (sessionId: number) =>
+    request<GKFinalPromptSession>(`/api/gk-knowledge/final-prompt-tester/sessions/${sessionId}`),
+
+  gkGetNextFinalComparison: (sessionId: number) =>
+    request<GKFinalComparison>(`/api/gk-knowledge/final-prompt-tester/sessions/${sessionId}/compare`),
+
+  gkFinalVote: (sessionId: number, data: { comparison_id: number; winner: string }) =>
+    request<{ message: string }>(`/api/gk-knowledge/final-prompt-tester/sessions/${sessionId}/vote`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  gkFinalSessionResults: (sessionId: number) =>
+    request<GKSessionResults>(`/api/gk-knowledge/final-prompt-tester/sessions/${sessionId}/results`),
+
+  gkAbandonFinalSession: (sessionId: number) =>
+    request<{ message: string }>(`/api/gk-knowledge/final-prompt-tester/sessions/${sessionId}/abandon`, {
+      method: 'POST',
+    }),
+
+  gkDeleteFinalSession: (sessionId: number) =>
+    request<{ message: string }>(`/api/gk-knowledge/final-prompt-tester/sessions/${sessionId}`, {
+      method: 'DELETE',
+    }),
 
   gkAbandonSession: (sessionId: number) =>
     request<{ message: string }>(`/api/gk-knowledge/prompt-tester/sessions/${sessionId}/abandon`, {
