@@ -379,6 +379,10 @@ export interface GKMessageBrowserItem {
   reply_to_message_id: number | null;
   message_date: number;
   processed: boolean;
+  is_question: boolean | null;
+  responder_mode: 'dry_run' | 'live' | null;
+  responder_confidence: number | null;
+  responder_responded_at: number | null;
   is_in_chain: boolean;
   is_analyzed: boolean;
 }
@@ -387,6 +391,20 @@ export interface GKMessageBrowserSender {
   sender_id: number;
   sender_name: string | null;
   message_count: number;
+}
+
+export interface GKMessageChainItem {
+  telegram_message_id: number;
+  sender_name: string | null;
+  sender_id: number;
+  message_text: string | null;
+  caption: string | null;
+  image_description: string | null;
+  has_image: boolean;
+  reply_to_message_id: number | null;
+  message_date: number;
+  is_question: boolean | null;
+  question_confidence: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1143,6 +1161,7 @@ export const api = {
     group_id?: number | null;
     sender_id?: number | null;
     processed?: boolean | null;
+    is_question?: boolean | null;
     analyzed?: boolean | null;
     in_chain?: boolean | null;
     search?: string | null;
@@ -1155,6 +1174,7 @@ export const api = {
     if (params.group_id != null) searchParams.set('group_id', String(params.group_id));
     if (params.sender_id != null) searchParams.set('sender_id', String(params.sender_id));
     if (params.processed != null) searchParams.set('processed', String(params.processed));
+    if (params.is_question != null) searchParams.set('is_question', String(params.is_question));
     if (params.analyzed != null) searchParams.set('analyzed', String(params.analyzed));
     if (params.in_chain != null) searchParams.set('in_chain', String(params.in_chain));
     if (params.search) searchParams.set('search', params.search);
@@ -1172,6 +1192,13 @@ export const api = {
     if (params?.limit != null) searchParams.set('limit', String(params.limit));
     const query = searchParams.toString();
     return request<GKMessageBrowserSender[]>(`/api/gk-knowledge/messages/senders${query ? `?${query}` : ''}`);
+  },
+
+  gkMessageChain: (params: { group_id: number; telegram_message_id: number }) => {
+    const searchParams = new URLSearchParams();
+    searchParams.set('group_id', String(params.group_id));
+    searchParams.set('telegram_message_id', String(params.telegram_message_id));
+    return request<{ items: GKMessageChainItem[]; count: number }>(`/api/gk-knowledge/messages/chain?${searchParams}`);
   },
 
   // GK Knowledge — Responder

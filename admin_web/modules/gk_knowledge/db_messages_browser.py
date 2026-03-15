@@ -15,6 +15,7 @@ def _build_filters(
     group_id: Optional[int],
     sender_id: Optional[int],
     processed: Optional[bool],
+    is_question: Optional[bool],
     analyzed: Optional[bool],
     in_chain: Optional[bool],
     search: Optional[str],
@@ -36,6 +37,10 @@ def _build_filters(
     if processed is not None:
         conditions.append("m.processed = %s")
         params.append(1 if processed else 0)
+
+    if is_question is not None:
+        conditions.append("m.is_question = %s")
+        params.append(1 if is_question else 0)
 
     if message_date_from is not None:
         conditions.append("m.message_date >= %s")
@@ -88,6 +93,7 @@ def list_messages(
     group_id: Optional[int] = None,
     sender_id: Optional[int] = None,
     processed: Optional[bool] = None,
+    is_question: Optional[bool] = None,
     analyzed: Optional[bool] = None,
     in_chain: Optional[bool] = None,
     search: Optional[str] = None,
@@ -99,6 +105,7 @@ def list_messages(
         group_id=group_id,
         sender_id=sender_id,
         processed=processed,
+        is_question=is_question,
         analyzed=analyzed,
         in_chain=in_chain,
         search=search,
@@ -153,6 +160,31 @@ def list_messages(
                         m.reply_to_message_id,
                         m.message_date,
                         m.processed,
+                        m.is_question,
+                                                (
+                                                        SELECT rl.dry_run
+                                                        FROM gk_responder_log rl
+                                                        WHERE rl.group_id = m.group_id
+                                                            AND rl.question_message_id = m.telegram_message_id
+                                                        ORDER BY rl.responded_at DESC, rl.id DESC
+                                                        LIMIT 1
+                                                ) AS responder_dry_run,
+                                                (
+                                                        SELECT rl.confidence
+                                                        FROM gk_responder_log rl
+                                                        WHERE rl.group_id = m.group_id
+                                                            AND rl.question_message_id = m.telegram_message_id
+                                                        ORDER BY rl.responded_at DESC, rl.id DESC
+                                                        LIMIT 1
+                                                ) AS responder_confidence,
+                                                (
+                                                        SELECT rl.responded_at
+                                                        FROM gk_responder_log rl
+                                                        WHERE rl.group_id = m.group_id
+                                                            AND rl.question_message_id = m.telegram_message_id
+                                                        ORDER BY rl.responded_at DESC, rl.id DESC
+                                                        LIMIT 1
+                                                ) AS responder_responded_at,
                         {chain_expr} AS is_in_chain,
                         {analyzed_expr} AS is_analyzed
                     FROM gk_messages m
@@ -166,6 +198,32 @@ def list_messages(
 
                 for row in rows:
                     row["processed"] = bool(row.get("processed"))
+                    raw_is_question = row.get("is_question")
+                    if raw_is_question is None:
+                        row["is_question"] = None
+                    else:
+                        row["is_question"] = bool(raw_is_question)
+
+                    raw_responder_dry_run = row.get("responder_dry_run")
+                    if raw_responder_dry_run is None:
+                        row["responder_mode"] = None
+                    else:
+                        row["responder_mode"] = "dry_run" if bool(raw_responder_dry_run) else "live"
+
+                    raw_responder_confidence = row.get("responder_confidence")
+                    row["responder_confidence"] = (
+                        float(raw_responder_confidence)
+                        if raw_responder_confidence is not None
+                        else None
+                    )
+
+                    raw_responder_ts = row.get("responder_responded_at")
+                    row["responder_responded_at"] = (
+                        int(raw_responder_ts)
+                        if raw_responder_ts is not None
+                        else None
+                    )
+
                     row["is_in_chain"] = bool(row.get("is_in_chain"))
                     row["is_analyzed"] = bool(row.get("is_analyzed"))
                     row["has_image"] = bool(row.get("has_image"))

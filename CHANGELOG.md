@@ -5,7 +5,14 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
-## [0.10.95] - 2026-03-14
+## [0.10.97] - 2026-03-15
+
+### Added
+- `admin_web/modules/gk_knowledge/db_messages_browser.py`, `admin_web/modules/gk_knowledge/router.py`, `admin_web/frontend/src/api.ts`, `admin_web/frontend/src/pages/gk_tabs/MessageBrowserTab.tsx`: во вкладке Message Browser добавлено поле результата обработки автоответчиком для сообщений/цепочек (режим `LIVE`/`DRY` и confidence), подтянутое из `gk_responder_log`.
+
+### Changed
+- `admin_web/frontend/src/pages/gk_tabs/MessageBrowserTab.tsx`: просмотр цепочки сообщений переведён в split-screen (таблица слева, панель цепочки справа) вместо нижнего блока.
+- `admin_web/README.md`: документация Message Browser обновлена под новые индикаторы и поле статуса автоответчика.
 
 ## [0.10.96] - 2026-03-14
 

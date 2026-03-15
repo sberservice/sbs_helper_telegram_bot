@@ -3146,6 +3146,7 @@ def _build_messages_router() -> APIRouter:
         group_id: Optional[int] = Query(None),
         sender_id: Optional[int] = Query(None),
         processed: Optional[bool] = Query(None),
+        is_question: Optional[bool] = Query(None),
         analyzed: Optional[bool] = Query(None),
         in_chain: Optional[bool] = Query(None),
         search: Optional[str] = Query(None),
@@ -3165,6 +3166,7 @@ def _build_messages_router() -> APIRouter:
             group_id=group_id,
             sender_id=sender_id,
             processed=processed,
+            is_question=is_question,
             analyzed=analyzed,
             in_chain=in_chain,
             search=search,
@@ -3195,6 +3197,22 @@ def _build_messages_router() -> APIRouter:
             search=search,
             limit=limit,
         )
+
+    @router.get("/chain")
+    async def get_message_chain(
+        group_id: int = Query(...),
+        telegram_message_id: int = Query(...),
+        user: WebUser = Depends(require_permission("gk_knowledge")),
+    ) -> Dict[str, Any]:
+        """Получить реконструированную цепочку для сообщения."""
+        _ = user
+        from admin_web.modules.gk_knowledge import db_qa_analyzer_sandbox as sandbox_db
+
+        chain = sandbox_db.get_chain_for_message(group_id=group_id, telegram_message_id=telegram_message_id)
+        return {
+            "items": chain,
+            "count": len(chain),
+        }
 
     return router
 
