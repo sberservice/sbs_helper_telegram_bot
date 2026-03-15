@@ -128,8 +128,8 @@ echo.
 echo [%date% %time%] [4/6] Обновление Python-зависимостей...
 call "%VENV_DIR%\Scripts\activate.bat"
 set "REQ_NO_TORCH=%TEMP%\sbs_archie_requirements_no_torch.txt"
-python -c "from pathlib import Path; src=Path('requirements.txt'); dst=Path(r'%REQ_NO_TORCH%'); lines=src.read_text(encoding='utf-8').splitlines(); skip=('torch','torchvision','torchaudio'); filtered=[ln for ln in lines if not ln.strip().lower().startswith(skip)]; dst.write_text(('\n'.join(filtered)+'\n') if filtered else '', encoding='utf-8')"
-if errorlevel 1 (
+type requirements.txt | findstr /R /V /I /C:"^[ ]*torch$" /C:"^[ ]*torch[=<>!~]" /C:"^[ ]*torchvision$" /C:"^[ ]*torchvision[=<>!~]" /C:"^[ ]*torchaudio$" /C:"^[ ]*torchaudio[=<>!~]" > "%REQ_NO_TORCH%"
+if errorlevel 1 if not exist "%REQ_NO_TORCH%" (
     echo [%date% %time%] ОШИБКА: не удалось подготовить requirements без torch-пакетов.
     pause
     exit /b 1
