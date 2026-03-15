@@ -19,7 +19,7 @@
 
 ### Fixed
 - `src/group_knowledge/responder.py`, `tests/test_group_knowledge.py`, `admin_web/README.md`: неуспешные попытки автоответчика (ответ не найден или confidence ниже порога) теперь тоже пишутся в `gk_responder_log`, поэтому отображаются во вкладке «Автоответчик» и используются в Message Browser.
-- `deploy/update.bat`, `deploy/README.md`: устранён конфликт `pip` по `torch/torchvision/torchaudio` и лишняя двойная установка при обновлении; `update.bat` теперь ставит `torch`-стек отдельно (CPU/GPU), проверяет текущие версии и пропускает переустановку, если стек уже корректный.
+- `deploy/update.bat`, `deploy/README.md`: устранён конфликт `pip` по `torch/torchvision/torchaudio` и лишняя двойная установка при обновлении; `update.bat` теперь ставит `torch`-стек отдельно (CPU/GPU) после базовых зависимостей.
 
 ## [0.10.96] - 2026-03-14
 
