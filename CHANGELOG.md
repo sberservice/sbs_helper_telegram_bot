@@ -8,7 +8,7 @@
 ## [0.10.100] - 2026-03-15
 
 ### Fixed
-- `deploy/update.bat`: окончательно устранена ошибка `cmd` `. was unexpected at this time.` на шаге `[4/6]` — логика фильтрации `requirements.txt` (удаление torch-пакетов) вынесена из inline `python -c` в отдельный скрипт `deploy/filter_torch_requirements.py`, что полностью исключает парсинг cmd.exe спецсимволов (`|`, `<`, `>`, `!`) в regex.
+- `deploy/update.bat`: окончательно устранена ошибка `cmd` `. was unexpected at this time.` на шаге `[4/6]` — логика фильтрации `requirements.txt` (удаление torch-пакетов) вынесена из inline `python -c` в отдельный скрипт `deploy/filter_torch_requirements.py`; блок установки torch-стека переведён с глубоко вложенных `if/else` на плоскую `goto`-структуру, что исключает ошибочный парсинг cmd.exe скобок `)` в `python -c` внутри `for /f`.
 
 ## [0.10.99] - 2026-03-15
 

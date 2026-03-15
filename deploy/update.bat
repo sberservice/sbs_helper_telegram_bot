@@ -144,43 +144,52 @@ if not exist "%REQ_NO_TORCH%" (
 pip install -r "%REQ_NO_TORCH%" --quiet
 if errorlevel 1 (
     echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: pip install завершился с ошибкой.
-) else (
-    echo [%date% %time%]   Python-зависимости обновлены.
-
-    REM Устанавливаем torch-стек отдельно, чтобы исключить конфликты версий и двойную установку.
-    set "TORCH_SPEC=torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0"
-    set "TORCH_INDEX="
-    set "TORCH_MODE=cpu"
-
-    where nvidia-smi >nul 2>&1
-    if not errorlevel 1 (
-        nvidia-smi >nul 2>&1
-        if not errorlevel 1 (
-            set "TORCH_SPEC=torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124"
-            set "TORCH_INDEX=--index-url https://download.pytorch.org/whl/cu124"
-            set "TORCH_MODE=gpu"
-            echo [%date% %time%]   NVIDIA GPU обнаружен: будет установлена CUDA-сборка torch (cu124).
-        ) else (
-            echo [%date% %time%]   nvidia-smi недоступен, будет установлена CPU-сборка torch.
-        )
-    ) else (
-        echo [%date% %time%]   NVIDIA GPU не обнаружен: будет установлена CPU-сборка torch.
-    )
-
-    echo [%date% %time%]   Установка torch-стека: !TORCH_SPEC!
-    python -m pip uninstall -y torch torchvision torchaudio >nul 2>&1
-    python -m pip install !TORCH_SPEC! !TORCH_INDEX!
-    if errorlevel 1 (
-        echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: установка torch-стека не удалась.
-    ) else (
-        for /f "tokens=*" %%v in ('python -c "import torch; print(int(torch.cuda.is_available()))"') do set "TORCH_CUDA_READY=%%v"
-        if "!TORCH_CUDA_READY!"=="1" (
-            echo [%date% %time%]   torch установлен и CUDA доступна.
-        ) else (
-            echo [%date% %time%]   torch установлен (CPU режим).
-        )
-    )
+    goto :after_pip_install
 )
+
+echo [%date% %time%]   Python-зависимости обновлены.
+
+REM Устанавливаем torch-стек отдельно, чтобы исключить конфликты версий и двойную установку.
+set "TORCH_SPEC=torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0"
+set "TORCH_INDEX="
+set "TORCH_MODE=cpu"
+
+where nvidia-smi >nul 2>&1
+if errorlevel 1 (
+    echo [%date% %time%]   NVIDIA GPU не обнаружен: будет установлена CPU-сборка torch.
+    goto :install_torch
+)
+
+nvidia-smi >nul 2>&1
+if errorlevel 1 (
+    echo [%date% %time%]   nvidia-smi недоступен, будет установлена CPU-сборка torch.
+    goto :install_torch
+)
+
+set "TORCH_SPEC=torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124"
+set "TORCH_INDEX=--index-url https://download.pytorch.org/whl/cu124"
+set "TORCH_MODE=gpu"
+echo [%date% %time%]   NVIDIA GPU обнаружен: будет установлена CUDA-сборка torch (cu124).
+
+:install_torch
+echo [%date% %time%]   Установка torch-стека: !TORCH_SPEC!
+python -m pip uninstall -y torch torchvision torchaudio >nul 2>&1
+python -m pip install !TORCH_SPEC! !TORCH_INDEX!
+if errorlevel 1 (
+    echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: установка torch-стека не удалась.
+    goto :after_pip_install
+)
+
+REM Проверка CUDA-готовности torch (вынесено в отдельный скрипт, чтобы избежать
+REM проблем с парсингом cmd.exe скобок в python -c внутри for /f)
+python -c "import torch; exit(0 if torch.cuda.is_available() else 1)"
+if errorlevel 1 (
+    echo [%date% %time%]   torch установлен (CPU режим^).
+) else (
+    echo [%date% %time%]   torch установлен и CUDA доступна.
+)
+
+:after_pip_install
 
 if exist "%REQ_NO_TORCH%" del "%REQ_NO_TORCH%" >nul 2>&1
 
