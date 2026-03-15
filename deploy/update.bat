@@ -128,8 +128,13 @@ echo.
 echo [%date% %time%] [4/6] Обновление Python-зависимостей...
 call "%VENV_DIR%\Scripts\activate.bat"
 set "REQ_NO_TORCH=%TEMP%\sbs_archie_requirements_no_torch.txt"
-type requirements.txt | findstr /R /V /I /C:"^[ ]*torch$" /C:"^[ ]*torch[=<>!~]" /C:"^[ ]*torchvision$" /C:"^[ ]*torchvision[=<>!~]" /C:"^[ ]*torchaudio$" /C:"^[ ]*torchaudio[=<>!~]" > "%REQ_NO_TORCH%"
-if errorlevel 1 if not exist "%REQ_NO_TORCH%" (
+powershell -NoProfile -Command "$pattern='^\s*(torch|torchvision|torchaudio)(\s*$|[=<>!~])'; $out=@(); foreach($line in [System.IO.File]::ReadAllLines('requirements.txt')) { if($line -notmatch $pattern) { $out += $line } }; [System.IO.File]::WriteAllLines('%REQ_NO_TORCH%', $out)"
+if errorlevel 1 (
+    echo [%date% %time%] ОШИБКА: PowerShell-фильтрация requirements завершилась с ошибкой.
+    pause
+    exit /b 1
+)
+if not exist "%REQ_NO_TORCH%" (
     echo [%date% %time%] ОШИБКА: не удалось подготовить requirements без torch-пакетов.
     pause
     exit /b 1
