@@ -5,6 +5,11 @@
 Формат основан на Keep a Changelog,
 а версияция следует Semantic Versioning.
 
+## [0.10.100] - 2026-03-15
+
+### Fixed
+- `deploy/update.bat`: окончательно устранена ошибка `cmd` `. was unexpected at this time.` на шаге `[4/6]` — логика фильтрации `requirements.txt` (удаление torch-пакетов) вынесена из inline `python -c` в отдельный скрипт `deploy/filter_torch_requirements.py`, что полностью исключает парсинг cmd.exe спецсимволов (`|`, `<`, `>`, `!`) в regex.
+
 ## [0.10.99] - 2026-03-15
 
 ### Fixed

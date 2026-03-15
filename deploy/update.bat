@@ -129,11 +129,8 @@ echo [%date% %time%] [4/6] Обновление Python-зависимостей.
 call "%VENV_DIR%\Scripts\activate.bat"
 set "REQ_NO_TORCH=%TEMP%\sbs_archie_requirements_no_torch.txt"
 set "REQ_SOURCE_FILE=%PROJECT_DIR%\requirements.txt"
-setlocal DisableDelayedExpansion
-python -c "import os,re,pathlib; p=re.compile(r'^\s*(torch|torchvision|torchaudio)(\s*$|[=<>!~])', re.IGNORECASE); src=pathlib.Path(os.environ['REQ_SOURCE_FILE']); dst=pathlib.Path(os.environ['REQ_NO_TORCH']); lines=src.read_text(encoding='utf-8').splitlines(True); dst.write_text(''.join(line for line in lines if not p.match(line)), encoding='utf-8')"
-set "REQ_FILTER_RC=%ERRORLEVEL%"
-endlocal & set "REQ_FILTER_RC=%REQ_FILTER_RC%"
-if not "%REQ_FILTER_RC%"=="0" (
+python "%PROJECT_DIR%\deploy\filter_torch_requirements.py" "%REQ_SOURCE_FILE%" "%REQ_NO_TORCH%"
+if errorlevel 1 (
     echo [%date% %time%] ОШИБКА: фильтрация requirements завершилась с ошибкой.
     pause
     exit /b 1

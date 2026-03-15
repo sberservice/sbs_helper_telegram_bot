@@ -17,17 +17,18 @@
 
 ```
 deploy/
-├── launch_config.json         ← Конфигурация автозапуска процессов
-├── check_telethon_sessions.py ← Анализ required Telethon session-файлов
-├── check_sessions.bat         ← Удобный запуск проверки сессий
-├── start.bat                  ← Запуск admin_web + watchdog
-├── stop.bat                   ← Остановка всех процессов
-├── update.bat                 ← Обновление из GitHub
-├── setup.bat                  ← Первоначальная настройка
-├── setup_cuda.bat             ← Настройка GPU/CUDA-окружения для PyTorch
-├── task_scheduler_setup.bat   ← Настройка Task Scheduler
-├── backups/                   ← Автобэкапы конфигурации (создаётся автоматически)
-└── README.md                  ← Этот файл  
+├── launch_config.json                ← Конфигурация автозапуска процессов
+├── check_telethon_sessions.py        ← Анализ required Telethon session-файлов
+├── check_sessions.bat                ← Удобный запуск проверки сессий
+├── filter_torch_requirements.py      ← Фильтрация torch-пакетов из requirements.txt
+├── start.bat                         ← Запуск admin_web + watchdog
+├── stop.bat                          ← Остановка всех процессов
+├── update.bat                        ← Обновление из GitHub
+├── setup.bat                         ← Первоначальная настройка
+├── setup_cuda.bat                    ← Настройка GPU/CUDA-окружения для PyTorch
+├── task_scheduler_setup.bat          ← Настройка Task Scheduler
+├── backups/                          ← Автобэкапы конфигурации (создаётся автоматически)
+└── README.md                         ← Этот файл  
 ```
 
 ## Первоначальная установка
