@@ -161,24 +161,17 @@ if errorlevel 1 (
         echo [%date% %time%]   NVIDIA GPU не обнаружен: будет установлена CPU-сборка torch.
     )
 
-    set "TORCH_STACK_OK=0"
-    for /f "tokens=*" %%v in ('python -c "import importlib.metadata as m; import torch; mode='!TORCH_MODE!'; t=torch.__version__; tv=m.version('torchvision'); ta=m.version('torchaudio'); cuda='1' if torch.cuda.is_available() else '0'; ok=(t.startswith('2.6.0') and tv.startswith('0.21.0') and ta.startswith('2.6.0') and ((mode=='gpu' and cuda=='1') or (mode=='cpu'))); print('1' if ok else '0')" 2^>nul') do set "TORCH_STACK_OK=%%v"
-
-    if "!TORCH_STACK_OK!"=="1" (
-        echo [%date% %time%]   torch-стек уже в нужной версии, переустановка не требуется.
+    echo [%date% %time%]   Установка torch-стека: !TORCH_SPEC!
+    python -m pip uninstall -y torch torchvision torchaudio >nul 2>&1
+    python -m pip install !TORCH_SPEC! !TORCH_INDEX!
+    if errorlevel 1 (
+        echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: установка torch-стека не удалась.
     ) else (
-        echo [%date% %time%]   Установка torch-стека: !TORCH_SPEC!
-        python -m pip uninstall -y torch torchvision torchaudio >nul 2>&1
-        python -m pip install !TORCH_SPEC! !TORCH_INDEX!
-        if errorlevel 1 (
-            echo [%date% %time%] ПРЕДУПРЕЖДЕНИЕ: установка torch-стека не удалась.
+        for /f "tokens=*" %%v in ('python -c "import torch; print(int(torch.cuda.is_available()))"') do set "TORCH_CUDA_READY=%%v"
+        if "!TORCH_CUDA_READY!"=="1" (
+            echo [%date% %time%]   torch установлен и CUDA доступна.
         ) else (
-            for /f "tokens=*" %%v in ('python -c "import torch; print(int(torch.cuda.is_available()))"') do set "TORCH_CUDA_READY=%%v"
-            if "!TORCH_CUDA_READY!"=="1" (
-                echo [%date% %time%]   torch установлен и CUDA доступна.
-            ) else (
-                echo [%date% %time%]   torch установлен (CPU режим).
-            )
+            echo [%date% %time%]   torch установлен (CPU режим).
         )
     )
 )
