@@ -14,7 +14,6 @@ import {
   connectProcessLogs,
   groupsApi,
   type CollectedGroupInfo,
-  type GKGroupsConfig,
   type GroupEntry,
   type LaunchConfigProcessEntry,
   type LaunchConfigResponse,

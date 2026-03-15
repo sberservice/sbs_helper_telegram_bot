@@ -24,15 +24,14 @@ const formatEta = (seconds: number): string => {
   const safeSeconds = Math.max(0, Math.floor(seconds))
   const hours = Math.floor(safeSeconds / 3600)
   const minutes = Math.floor((safeSeconds % 3600) / 60)
-  const secs = safeSeconds % 60
 
   if (hours > 0) {
     return `${hours}ч ${minutes}м`
   }
   if (minutes > 0) {
-    return `${minutes}м ${secs}с`
+    return `${minutes}м`
   }
-  return `${secs}с`
+  return '<1м'
 }
 
 export default function FinalPromptTesterTab() {
@@ -57,6 +56,9 @@ export default function FinalPromptTesterTab() {
 
   const [sessions, setSessions] = useState<GKFinalPromptSession[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [etaBySession, setEtaBySession] = useState<Record<number, { etaSeconds: number; updatedAtMs: number }>>({})
+  const [maxProgressBySession, setMaxProgressBySession] = useState<Record<number, number>>({})
+  const [nowTick, setNowTick] = useState<number>(() => Date.now())
   const [showSessionForm, setShowSessionForm] = useState(false)
   const [editSessionId, setEditSessionId] = useState<number | null>(null)
   const [sessionForm, setSessionForm] = useState({
@@ -149,6 +151,88 @@ export default function FinalPromptTesterTab() {
 
     return () => window.clearInterval(timer)
   }, [sessions, loadSessions])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowTick(Date.now())
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    const now = Date.now()
+    setEtaBySession((prev) => {
+      const next: Record<number, { etaSeconds: number; updatedAtMs: number }> = { ...prev }
+
+      sessions.forEach((session) => {
+        const sessionId = Number(session.id)
+        if (session.status !== 'generating') {
+          delete next[sessionId]
+          return
+        }
+
+        const expectedGenerations = Number(session.expected_generations ?? 0)
+        const generationCount = Number(session.generation_count ?? 0)
+        const remaining = Math.max(0, expectedGenerations - generationCount)
+
+        if (remaining <= 0) {
+          next[sessionId] = { etaSeconds: 0, updatedAtMs: now }
+          return
+        }
+
+        let candidateEta: number | null = null
+        if (generationCount > 0 && session.updated_at) {
+          const startedAtMs = new Date(session.updated_at).getTime()
+          if (!Number.isNaN(startedAtMs)) {
+            const elapsedSeconds = Math.max(1, (now - startedAtMs) / 1000)
+            const avgSecondsPerGeneration = elapsedSeconds / Math.max(1, generationCount)
+            candidateEta = avgSecondsPerGeneration * remaining
+          }
+        }
+
+        if (candidateEta == null) {
+          return
+        }
+
+        const prevState = prev[sessionId]
+        const prevEta = prevState?.etaSeconds
+        if (typeof prevEta === 'number' && Number.isFinite(prevEta) && prevState) {
+          const prevDisplayedEta = Math.max(0, prevEta - (now - prevState.updatedAtMs) / 1000)
+          next[sessionId] = {
+            etaSeconds: Math.max(0, Math.min(candidateEta, prevDisplayedEta)),
+            updatedAtMs: now,
+          }
+        } else {
+          next[sessionId] = {
+            etaSeconds: Math.max(0, candidateEta),
+            updatedAtMs: now,
+          }
+        }
+      })
+
+      return next
+    })
+  }, [sessions])
+
+  useEffect(() => {
+    setMaxProgressBySession((prev) => {
+      const next: Record<number, number> = {}
+      sessions.forEach((session) => {
+        const sessionId = Number(session.id)
+        const promptCountFallback = session.prompt_count ?? (Array.isArray(session.prompt_ids) ? session.prompt_ids.length : 0)
+        const questionCount = session.question_count ?? 0
+        const expectedGenerations = session.expected_generations ?? (promptCountFallback * questionCount)
+        const generationCount = session.generation_count ?? 0
+        const actualProgress = expectedGenerations > 0
+          ? Math.min(100, (generationCount / expectedGenerations) * 100)
+          : (session.generation_progress_pct ?? 0)
+
+        const prevValue = prev[sessionId] ?? 0
+        next[sessionId] = Math.max(prevValue, actualProgress)
+      })
+      return next
+    })
+  }, [sessions])
 
   useEffect(() => {
     if (!showSessionForm) {
@@ -780,18 +864,33 @@ export default function FinalPromptTesterTab() {
               const generationProgressPct = expectedGenerations > 0
                 ? Math.min(100, (generationCount / expectedGenerations) * 100)
                 : (s.generation_progress_pct ?? 0)
-              const remainingGenerations = Math.max(0, expectedGenerations - generationCount)
+              const etaState = etaBySession[s.id]
+              const etaSeconds = etaState
+                ? Math.max(0, etaState.etaSeconds - (nowTick - etaState.updatedAtMs) / 1000)
+                : null
+              const etaText = typeof etaSeconds === 'number' && Number.isFinite(etaSeconds) ? formatEta(etaSeconds) : null
 
-              let etaText: string | null = null
-              if (s.status === 'generating' && remainingGenerations > 0 && generationCount > 0 && s.updated_at) {
-                const startedAtMs = new Date(s.updated_at).getTime()
-                if (!Number.isNaN(startedAtMs)) {
-                  const elapsedSeconds = Math.max(1, (Date.now() - startedAtMs) / 1000)
-                  const avgSecondsPerGeneration = elapsedSeconds / Math.max(1, generationCount)
-                  const etaSeconds = avgSecondsPerGeneration * remainingGenerations
-                  etaText = formatEta(etaSeconds)
+              let displayedProgressPct = generationProgressPct
+              if (
+                s.status === 'generating'
+                && etaState
+                && expectedGenerations > 0
+                && generationCount > 0
+              ) {
+                const remainingGenerations = Math.max(0, expectedGenerations - generationCount)
+                if (remainingGenerations > 0 && etaState.etaSeconds > 0) {
+                  const avgSecondsPerGeneration = etaState.etaSeconds / remainingGenerations
+                  if (avgSecondsPerGeneration > 0) {
+                    const elapsedSeconds = Math.max(0, (nowTick - etaState.updatedAtMs) / 1000)
+                    const estimatedExtraGenerations = elapsedSeconds / avgSecondsPerGeneration
+                    const estimatedDone = Math.min(expectedGenerations, generationCount + estimatedExtraGenerations)
+                    displayedProgressPct = Math.max(generationProgressPct, Math.min(100, (estimatedDone / expectedGenerations) * 100))
+                  }
                 }
               }
+
+              const maxSeenProgress = maxProgressBySession[s.id] ?? 0
+              displayedProgressPct = Math.max(displayedProgressPct, maxSeenProgress)
 
               return (
                 <div key={s.id} className="card" style={{ marginBottom: 8, padding: 12 }}>
@@ -816,9 +915,9 @@ export default function FinalPromptTesterTab() {
                             <div
                               style={{
                                 height: '100%',
-                                width: `${Math.max(0, Math.min(100, generationProgressPct))}%`,
+                                width: `${Math.max(0, Math.min(100, displayedProgressPct))}%`,
                                 background: 'var(--accent)',
-                                transition: 'width 0.3s ease',
+                                transition: 'width 0.9s linear',
                               }}
                             />
                           </div>
